@@ -37,6 +37,8 @@ var glows := GlowBuilder.new()
 
 ## Places seagulls can sit (where the feet go, in world space).
 var gull_perches: Array[Seagulls.Perch] = []
+## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
+var tree_shadows: Array[MultiMeshInstance3D] = []
 ## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
 var eagle_perches: Array[Eagles.Perch] = []
 var _blocked := {}
@@ -136,17 +138,20 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 			mmi.visibility_range_end = lv[2]
 			mmi.name = base if l == 0 else "%s_lod%d" % [base, l]
 			group.add_child(mmi)
-			if levels.size() > 1 and l < levels.size() - 1:
-				# Nearer levels' shadows are cast by the farthest one (a shadow-only copy):
+			if levels.size() > 1:
+				# Every level's shadow is cast by a shadow-only copy of the farthest:
 				# nobody can tell them apart in a shadow, and they cost a fraction.
 				mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if levels.size() > 1:
 			var shade := MultiMeshInstance3D.new()
 			shade.multimesh = make.call(levels[-1][0])
 			shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-			shade.visibility_range_end = levels[-1][1]
+			# Far off, a tree's shadow is under a pixel but still costs a draw in every
+			# cascade, so the copies stop short (Sandbox.TREE_SHADOW_REACH).
+			shade.visibility_range_end = 1200.0
 			shade.name = base + "_shadow"
 			group.add_child(shade)
+			tree_shadows.append(shade)
 
 
 # --- Blocking grid so props don't overlap roads, lots and houses -------------------
