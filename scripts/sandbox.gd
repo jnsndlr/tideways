@@ -28,11 +28,17 @@ var cetaceans: Cetaceans
 var pinnipeds: Pinnipeds
 var eagles: Eagles
 var cam_attr: CameraAttributesPractical
+var tree_shadows: Array[MultiMeshInstance3D] = []
+var _tree_shadow_reach := -1.0
 var _args := {}
 
 ## Frame caps: the sim is slow-paced, so 60 fps is plenty, and nobody is watching
 ## when the window is in the background. Headless runs (soak tests) stay uncapped.
 const MAX_FPS := 60
+# How far trees cast shadows, as a multiple of the camera's distance (and a floor so
+# close-up views keep the trees around them shaded).
+const TREE_SHADOW_REACH := 1.25
+const TREE_SHADOW_MIN := 450.0
 const BACKGROUND_FPS := 15
 ## Benchmarks render flat out regardless of focus.
 var uncapped := false
@@ -52,6 +58,7 @@ func _ready() -> void:
 	var builder := WorldBuilder.new(map, terrain)
 	add_child(builder.build())
 	route_overlay = builder.route_overlay
+	tree_shadows = builder.tree_shadows
 	var fixed_lights := builder.night_lights
 	water_mat = builder.water_material
 	print("Map %d built in %d ms: %d islands, %d routes" % [map_seed, Time.get_ticks_msec() - t0, map.islands.size(), map.routes.size()])
@@ -193,6 +200,11 @@ func _process(_delta: float) -> void:
 	sun.directional_shadow_split_1 = near
 	sun.directional_shadow_split_2 = lerpf(0.2, near * 2.0, close)
 	sun.directional_shadow_split_3 = lerpf(0.5, maxf(0.5, near * 3.5), close)
+	var reach := maxf(d * TREE_SHADOW_REACH, TREE_SHADOW_MIN)
+	if absf(reach - _tree_shadow_reach) > _tree_shadow_reach * 0.03:
+		_tree_shadow_reach = reach
+		for t in tree_shadows:
+			t.visibility_range_end = reach
 	env.fog_depth_begin = rig.distance * 1.6 + 600.0
 	env.fog_depth_end = rig.distance * 4.0 + 2100.0
 	RenderingServer.global_shader_parameter_set("fog_range", Vector2(env.fog_depth_begin, env.fog_depth_end))

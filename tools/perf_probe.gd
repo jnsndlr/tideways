@@ -3,7 +3,7 @@ extends SceneTree
 ## costs. GPU timings need Vulkan on macOS (Metal has no timestamp queries); a game
 ## running at the same time skews the numbers, so compare runs made back to back.
 ##   godot --path . --rendering-driver vulkan --resolution 3200x1920 --script tools/perf_probe.gd \
-##     -- --seed=9164 [--off=dof,ssao,vfog,glow,shadow,shadow2,aa,msaa,water,clouds,backdrop,mtrees,scale75,census]
+##     -- --seed=9164 [--off=dof,ssao,vfog,glow,shadow,shadow2,aa,msaa,water,clouds,backdrop,mtrees,trees,treeshadow,scale75,census]
 var main: Node
 var frames := 0
 var off := ""
@@ -47,6 +47,10 @@ func _apply() -> void:
 			"trees":
 				_hide(main, "Pines*")
 				_hide(main, "RoundTrees*")
+			"treeshadow":
+				for nm in ["Pines*", "RoundTrees*"]:
+					for c in main.find_children(nm, "GeometryInstance3D", true, false):
+						c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			"cards": _hide(main, "TreeCards*")
 			"mland": _hide(main, "Mainland")
 			"cumulus": _hide(main, "Cumulus")
