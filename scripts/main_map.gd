@@ -58,6 +58,11 @@ func rebuild() -> void:
 	get_tree().reload_current_scene()
 
 
+func intro(islands: int) -> Array:
+	return ["MAIN MAP", "%d islands · %d routes%s.\nPress I to edit the islands." % [
+		islands, map.routes.size(), " · unsaved layout" if unsaved else ""]]
+
+
 ## G makes a new map in the sandbox; here the layout is authored.
 func regenerate() -> void:
 	hud.show_toast("MAIN MAP", "This map is authored. Press I to edit its islands.", 3.0)

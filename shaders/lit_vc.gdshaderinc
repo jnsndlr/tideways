@@ -104,7 +104,7 @@ void vertex() {
 
 #ifdef TERRAIN
 // How faceted the ground looks: 0 smooth (its vertex normals), 1 every triangle flat.
-uniform float facet : hint_range(0.0, 1.0) = 0.7;
+uniform float facet : hint_range(0.0, 1.0) = 0.4;
 #endif
 
 void fragment() {

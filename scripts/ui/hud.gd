@@ -82,8 +82,8 @@ func setup(m: Node) -> void:
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
 	set_speed(1)
-	show_toast("PROCEDURAL ARCHIPELAGO", "Map seed %d · %d islands · %d routes.\nPress G for a new map." % [
-		map.map_seed, _labels.size(), map.routes.size()])
+	var intro: Array = main.intro(_labels.size())
+	show_toast(intro[0], intro[1])
 
 
 # --- Theme & helpers ----------------------------------------------------------------

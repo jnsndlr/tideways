@@ -31,7 +31,7 @@ const COVER := [
 ]
 
 ## How faceted the ground looks; a look setting, kept for the session.
-static var facet := 0.7
+static var facet := 0.4
 
 var main
 var selected := 0

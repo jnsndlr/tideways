@@ -127,6 +127,12 @@ func _generate(gen: MapGenerator) -> MapData:
 	return gen.generate(map_seed)
 
 
+## The HUD's opening toast: [title, body].
+func intro(islands: int) -> Array:
+	return ["PROCEDURAL ARCHIPELAGO", "Map seed %d · %d islands · %d routes.\nPress G for a new map." % [
+		map.map_seed, islands, map.routes.size()]]
+
+
 func regenerate() -> void:
 	Engine.time_scale = 1.0
 	map_seed = randi_range(1, 99999)
