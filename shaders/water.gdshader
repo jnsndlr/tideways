@@ -162,7 +162,7 @@ float chop_d(vec2 uv, float choppy, out vec2 d) {
 	float r = max(1.0 - y, 1e-6);
 	float c = pow(r, choppy);
 	// dc/dv, per component of v.
-	vec2 dv = -choppy * pow(r, choppy - 1.0) * 0.65 * y / x * vec2(dm.x * m.y, m.x * dm.y);
+	vec2 dv = -choppy * (c / r) * 0.65 * y / x * vec2(dm.x * m.y, m.x * dm.y);
 	// Both components of v carry the same warp.
 	d = dv + 0.9 * (dv.x + dv.y) * nd;
 	return c;
@@ -266,6 +266,11 @@ float flecks(vec2 p, float density, float aa) {
 	for (int y = -1; y <= 1; y++) {
 		for (int x = -1; x <= 1; x++) {
 			vec2 g = vec2(float(x), float(y));
+			// Even the widest antialiased fleck cannot reach beyond this cell distance.
+			vec2 outside = max(max(g - f, f - (g + 1.0)), vec2(0.0));
+			if (dot(outside, outside) >= (0.5 + aa) * (0.5 + aa)) {
+				continue;
+			}
 			vec2 h = hash22(i + g);
 			float r = (0.15 + 0.35 * h.y) * smoothstep(1.0 - density, 1.0 - density * 0.6, h.x);
 			float d = length(g + h - f);
@@ -386,9 +391,12 @@ void prop_wash(float hw, float alat, float side, float s, float behind, float al
 	float mass = thin * 0.5 + thick * 0.5;
 	// Lace: cell borders drawn out into streaks, carried by the same flow,
 	// strung between the masses and gone before the foam is.
-	float ce = mix(cell_edge(qa * vec2(1.4, 0.42)), cell_edge(qb * vec2(1.4, 0.42)), w);
-	float web = (1.0 - smoothstep(0.02, 0.02 + 0.12 * churn, ce)) * lod;
-	float lace = web * smoothstep(0.18, 0.45, churn) * smoothstep(-0.2, 0.25, mn);
+	float lace = 0.0;
+	if (churn > 0.18 && lod > 0.0) {
+		float ce = mix(cell_edge(qa * vec2(1.4, 0.42)), cell_edge(qb * vec2(1.4, 0.42)), w);
+		float web = (1.0 - smoothstep(0.02, 0.02 + 0.12 * churn, ce)) * lod;
+		lace = web * smoothstep(0.18, 0.45, churn) * smoothstep(-0.2, 0.25, mn);
+	}
 	float wash = max(mass, lace * 0.7);
 	// Scum: crisp flecks and threads of foam floating on the surface, drawn out
 	// along the track and carried by the same flow, so the wake has a top and
@@ -545,10 +553,14 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 			// nearest point, an older, wider segment's rounded end pokes out past
 			// the joint into the next one, leaving a ring of foam at every crumb.)
 			float seg = sqrt(max(dot(ab, ab), 1e-6));
+			float fade = end_fade(raw, seg, hw);
+			if (fade <= 0.0 || wash_str <= 0.0) {
+				continue;
+			}
 			float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
 			float ts, tage, tspd, ttail;
 			trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
-			float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * end_fade(raw, seg, hw);
+			float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
 			if (cov > c1) {
 				c2 = c1;
 				i2 = i1;
