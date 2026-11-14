@@ -63,6 +63,10 @@ var water_mat: ShaderMaterial
 var night := 0.0
 var override_hour := -1.0
 var _applied := -100.0
+# The sun the sky draws. Moving a light the sky sees forces a radiance re-render,
+# so this copy follows the throttled apply() while `sun` (lighting and shadows only)
+# is turned every frame so shadows sweep smoothly instead of ticking.
+var _sky_sun: DirectionalLight3D
 
 
 func set_hour(h: float) -> void:
@@ -81,39 +85,66 @@ func hour() -> float:
 	return sim.hour() if override_hour < 0.0 else override_hour
 
 
+func _ready() -> void:
+	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
+	_sky_sun = DirectionalLight3D.new()
+	_sky_sun.name = "SkySun"
+	_sky_sun.sky_mode = DirectionalLight3D.SKY_MODE_SKY_ONLY
+	_sky_sun.shadow_enabled = false
+	sun.add_sibling.call_deferred(_sky_sun)
+
+
 func _process(_delta: float) -> void:
 	var h := hour()
 	# Re-applying the sky forces a radiance update, so skip sub-minute changes.
 	if absf(h - _applied) > 0.02:
 		apply(h)
+	else:
+		_place_sun(h)
+
+
+static func _elevation(h: float) -> float:
+	var day_t := (h - SUNRISE) / (SUNSET - SUNRISE)
+	if day_t <= 0.0 or day_t >= 1.0:
+		# Sink below the horizon over ~1.5 h of dusk / dawn.
+		var from_horizon := minf(fposmod(h - SUNSET, 24.0), fposmod(SUNRISE - h, 24.0))
+		return -12.0 * clampf(from_horizon / 1.5, 0.0, 1.0)
+	return sin(day_t * PI) * MAX_ELEVATION
+
+
+## Above the horizon the light is the sun sweeping east to west; below it, a moon
+## riding high opposite. Energy is zero at the horizon so the swap never pops.
+static func _sun_rotation(h: float) -> Vector3:
+	var day_t := (h - SUNRISE) / (SUNSET - SUNRISE)
+	var elev := _elevation(h)
+	if elev > 0.0:
+		return Vector3(-maxf(elev, 9.0), NOON_YAW + (day_t - 0.5) * 190.0, 0.0)
+	var night_t := fposmod(h - SUNSET, 24.0) / (24.0 - SUNSET + SUNRISE)
+	return Vector3(-(20.0 + sin(night_t * PI) * 35.0), NOON_YAW + 180.0 + (night_t - 0.5) * 120.0, 0.0)
+
+
+func _place_sun(h: float) -> void:
+	sun.rotation_degrees = _sun_rotation(h)
+	RenderingServer.global_shader_parameter_set("sun_direction", sun.global_transform.basis.z)
 
 
 func apply(h: float) -> void:
 	_applied = h
-	var day_t := (h - SUNRISE) / (SUNSET - SUNRISE)
-	var elev := sin(day_t * PI) * MAX_ELEVATION
-	if day_t <= 0.0 or day_t >= 1.0:
-		# Sink below the horizon over ~1.5 h of dusk / dawn.
-		var from_horizon := minf(fposmod(h - SUNSET, 24.0), fposmod(SUNRISE - h, 24.0))
-		elev = -12.0 * clampf(from_horizon / 1.5, 0.0, 1.0)
+	var elev := _elevation(h)
 	var p := _palette(elev)
 	var lit_for := fposmod(h - LIGHTS_ON, 24.0)
 	var left := fposmod(LIGHTS_OFF - LIGHTS_ON, 24.0) - lit_for
 	night = smoothstep(0.0, LIGHTS_FADE, lit_for) * smoothstep(0.0, LIGHTS_FADE, left)
 	RenderingServer.global_shader_parameter_set("night_lights", night)
 
-	# Above the horizon the light is the sun sweeping east to west; below it, a moon
-	# riding high opposite. Energy is zero at the horizon so the swap never pops.
-	if elev > 0.0:
-		var yaw := NOON_YAW + (day_t - 0.5) * 190.0
-		sun.rotation_degrees = Vector3(-maxf(elev, 9.0), yaw, 0.0)
-	else:
-		var night_t := fposmod(h - SUNSET, 24.0) / (24.0 - SUNSET + SUNRISE)
-		sun.rotation_degrees = Vector3(-(20.0 + sin(night_t * PI) * 35.0), NOON_YAW + 180.0 + (night_t - 0.5) * 120.0, 0.0)
-	RenderingServer.global_shader_parameter_set("sun_direction", sun.global_transform.basis.z)
+	_place_sun(h)
 	sun.light_color = p.light
 	sun.light_energy = p.energy
 	sun.shadow_enabled = p.energy > 0.02
+	if _sky_sun:
+		_sky_sun.rotation_degrees = sun.rotation_degrees
+		_sky_sun.light_color = p.light
+		_sky_sun.light_energy = p.energy
 
 	sky_mat.sky_top_color = p.top
 	sky_mat.sky_horizon_color = p.horizon
