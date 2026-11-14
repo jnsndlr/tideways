@@ -102,9 +102,21 @@ void vertex() {
 	upright = step(abs(NORMAL.y), 0.5);
 }
 
+#ifdef TERRAIN
+// How faceted the ground looks: 0 smooth (its vertex normals), 1 every triangle flat.
+uniform float facet : hint_range(0.0, 1.0) = 0.7;
+#endif
+
 void fragment() {
 	ALBEDO = srgb_to_linear(COLOR.rgb);
 	ROUGHNESS = 0.92;
+#ifdef TERRAIN
+	vec3 flat_n = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	if (dot(flat_n, NORMAL) < 0.0) {
+		flat_n = -flat_n;
+	}
+	NORMAL = normalize(mix(NORMAL, flat_n, facet));
+#endif
 #ifndef NET
 	// (A net's alpha is its give in the wind, not glass.)
 	if (COLOR.a < 0.99 && night_lights > 0.0) {

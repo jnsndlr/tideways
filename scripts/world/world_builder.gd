@@ -15,6 +15,9 @@ const ROOFS := [Color(0.72, 0.26, 0.2), Color(0.28, 0.3, 0.34), Color(0.25, 0.36
 	Color(0.45, 0.3, 0.22), Color(0.2, 0.45, 0.42)]
 # Alternatives: water_gem.gdshader, water_sharp.gdshader, water_fold.gdshader, water_reference.gdshader.
 const WATER_SHADER := "res://shaders/water.gdshader"
+const TERRAIN_SHADER := "res://shaders/terrain.gdshader"
+# Cells per side of each terrain mesh, so the camera and shadows can cull them.
+const TERRAIN_TILE := 50
 # Scale of the caged lamps on the ramp lift towers.
 const LIFT_LAMP := 4.8
 # Scale of the 360° lanterns on top of the lift and on the dolphins.
@@ -29,6 +32,10 @@ const EAGLE_CELL := 27.0
 var map: MapData
 var terrain: Terrain
 var rng := RandomNumberGenerator.new()
+## The terrain's material (its `facet` sets how faceted the ground looks).
+var terrain_material: ShaderMaterial
+var _forest_noise := FastNoiseLite.new()
+var _pasture_noise := FastNoiseLite.new()
 var root: Node3D
 var route_overlay: MeshInstance3D
 var water_material: ShaderMaterial
@@ -181,31 +188,14 @@ static func _hash(x: float, z: float) -> float:
 # --- Terrain ------------------------------------------------------------------------
 
 func _build_terrain() -> void:
-	var mb := MeshBuilder.new()
+	_setup_cover()
+	var mat := ShaderMaterial.new()
+	mat.shader = load(TERRAIN_SHADER)
+	terrain_material = mat
 	var n := terrain.n
-	var hs := terrain.half_size
-	var c := Terrain.CELL
-	for j in n:
-		for i in n:
-			var h00 := terrain.h_index(i, j)
-			var h10 := terrain.h_index(i + 1, j)
-			var h01 := terrain.h_index(i, j + 1)
-			var h11 := terrain.h_index(i + 1, j + 1)
-			if maxf(maxf(h00, h10), maxf(h01, h11)) < -15.6:
-				continue
-			var x0 := -hs + i * c
-			var z0 := -hs + j * c
-			var p00 := Vector3(x0, h00, z0)
-			var p10 := Vector3(x0 + c, h10, z0)
-			var p01 := Vector3(x0, h01, z0 + c)
-			var p11 := Vector3(x0 + c, h11, z0 + c)
-			if (i + j) % 2 == 0:
-				_terrain_tri(mb, p00, p10, p11)
-				_terrain_tri(mb, p00, p11, p01)
-			else:
-				_terrain_tri(mb, p00, p10, p01)
-				_terrain_tri(mb, p10, p11, p01)
-	_add_mesh(mb.commit(), "Terrain")
+	for tj in range(0, n, TERRAIN_TILE):
+		for ti in range(0, n, TERRAIN_TILE):
+			_terrain_tile_node(ti / TERRAIN_TILE, tj / TERRAIN_TILE)
 
 	var floor_mesh := PlaneMesh.new()
 	floor_mesh.size = Vector2.ONE * (Mainland.FAR * 2.0 + 3000.0)
@@ -216,20 +206,99 @@ func _build_terrain() -> void:
 	fl.position.y = -16.05
 
 
-func _terrain_tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
-	var nrm := (b - a).cross(c - a)
-	if nrm.length_squared() < 1e-10:
-		return
-	nrm = nrm.normalized()
-	var col := _ground_color((a.y + b.y + c.y) / 3.0, absf(nrm.y), a.x + c.x, a.z + b.z)
-	if nrm.y < 0.0:
-		mb.tri_raw(a, c, b, -nrm, col)
-	else:
-		mb.tri_raw(a, b, c, nrm, col)
+## Builds the terrain tiles again over `rect` (grid vertex indices), after the
+## editor re-stamps an island, and the water's seabed with them.
+func rebuild_terrain(rect: Rect2i) -> void:
+	var g := rect.grow(1)
+	for tj in range(maxi(g.position.y, 0) / TERRAIN_TILE, mini(g.end.y, terrain.n - 1) / TERRAIN_TILE + 1):
+		for ti in range(maxi(g.position.x, 0) / TERRAIN_TILE, mini(g.end.x, terrain.n - 1) / TERRAIN_TILE + 1):
+			var old := root.get_node_or_null("Terrain_%d_%d" % [ti, tj])
+			if old:
+				root.remove_child(old)
+				old.queue_free()
+			_terrain_tile_node(ti, tj)
+	(water_material.get_shader_parameter("seabed_height") as ImageTexture).update(_seabed_image())
 
 
-func _ground_color(h: float, ny: float, sx: float, sz: float) -> Color:
-	var r := _hash(sx, sz)
+func _terrain_tile_node(ti: int, tj: int) -> void:
+	var n := terrain.n
+	var i0 := ti * TERRAIN_TILE
+	var j0 := tj * TERRAIN_TILE
+	var mesh := _terrain_tile(i0, j0, mini(i0 + TERRAIN_TILE, n), mini(j0 + TERRAIN_TILE, n))
+	if mesh:
+		mesh.surface_set_material(0, terrain_material)
+		_add_mesh(mesh, "Terrain_%d_%d" % [ti, tj])
+
+
+func _seabed_image() -> Image:
+	return Image.create_from_data(terrain.n + 1, terrain.n + 1, false, Image.FORMAT_RF, terrain.h_grid.to_byte_array())
+
+
+## One tile of the terrain grid, cells [i0, i1) x [j0, j1): shared vertices with
+## smooth normals and their own colours (the terrain shader adds the facets back),
+## split on the same alternating diagonals as Terrain.height_at. Null if it's all
+## deep water.
+func _terrain_tile(i0: int, j0: int, i1: int, j1: int) -> ArrayMesh:
+	var n := terrain.n
+	var vn := n + 1
+	var hs := terrain.half_size
+	var c := Terrain.CELL
+	var h := terrain.h_grid
+	var w := i1 - i0 + 1
+	var local := PackedInt32Array()
+	local.resize(w * (j1 - j0 + 1))
+	local.fill(-1)
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var idx := PackedInt32Array()
+	for j in range(j0, j1):
+		for i in range(i0, i1):
+			var k := j * vn + i
+			if maxf(maxf(h[k], h[k + 1]), maxf(h[k + vn], h[k + vn + 1])) < -15.6:
+				continue
+			var q := PackedInt32Array([0, 0, 0, 0])  # 00, 10, 01, 11
+			for corner in 4:
+				var ci := i + (corner & 1)
+				var cj := j + (corner >> 1)
+				var li := (cj - j0) * w + (ci - i0)
+				if local[li] < 0:
+					local[li] = verts.size()
+					var y := h[cj * vn + ci]
+					var x := -hs + ci * c
+					var z := -hs + cj * c
+					verts.append(Vector3(x, y, z))
+					var nrm := Vector3(h[cj * vn + maxi(ci - 1, 0)] - h[cj * vn + mini(ci + 1, n)], 2.0 * c,
+						h[maxi(cj - 1, 0) * vn + ci] - h[mini(cj + 1, n) * vn + ci]).normalized()
+					normals.append(nrm)
+					colors.append(_ground_color(y, nrm.y, x, z))
+				q[corner] = local[li]
+			if (i + j) % 2 == 0:
+				idx.append_array([q[0], q[1], q[3], q[0], q[3], q[2]])
+			else:
+				idx.append_array([q[0], q[1], q[2], q[1], q[3], q[2]])
+	if idx.is_empty():
+		return null
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = normals
+	arr[Mesh.ARRAY_COLOR] = colors
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var sarr := []
+	sarr.resize(Mesh.ARRAY_MAX)
+	sarr[Mesh.ARRAY_VERTEX] = verts
+	sarr[Mesh.ARRAY_INDEX] = idx
+	var shadow := ArrayMesh.new()
+	shadow.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sarr)
+	mesh.shadow_mesh = shadow
+	return mesh
+
+
+func _ground_color(h: float, ny: float, x: float, z: float) -> Color:
+	var r := _hash(x, z)
 	var col: Color
 	if h < -0.9:
 		col = Color(0.66, 0.63, 0.47).darkened(clampf(-h * 0.023333, 0.0, 0.45))
@@ -240,7 +309,36 @@ func _ground_color(h: float, ny: float, sx: float, sz: float) -> Color:
 	else:
 		var g := clampf((h - 3.6) / 60.0, 0.0, 1.0)
 		col = Color(0.52, 0.6, 0.25).lerp(Color(0.33, 0.46, 0.2), g)
+		# Open fields read lighter and warmer than the woods' floor.
+		var f := field_at(x, z)
+		if f > 0.0:
+			col = col.lerp(Color(0.68, 0.7, 0.36), f * 0.55 * (1.0 - g * 0.6))
 	return col.darkened(r * 0.08)
+
+
+# --- Cover: forest and fields ------------------------------------------------------
+
+func _setup_cover() -> void:
+	_forest_noise.seed = map.map_seed + 5
+	_forest_noise.frequency = 0.0033333
+	_pasture_noise.seed = map.map_seed + 6
+	_pasture_noise.frequency = 0.0014
+	_pasture_noise.fractal_octaves = 3
+
+
+## How open the ground is at x, z: 0 under woods, 1 in the middle of a field. The
+## island's `fields` sets how much of it is open (0.4: the old default).
+func field_at(x: float, z: float) -> float:
+	var id := terrain.island_at(x, z)
+	var amount := map.islands[id].fields if id >= 0 else 0.4
+	var t := lerpf(0.6, -0.5, amount)
+	return smoothstep(t, t + 0.12, _pasture_noise.get_noise_2d(x, z))
+
+
+## The island's woods density multiplier at x, z.
+func forest_at(x: float, z: float) -> float:
+	var id := terrain.island_at(x, z)
+	return map.islands[id].forest if id >= 0 else 1.0
 
 
 # --- Water --------------------------------------------------------------------------
@@ -250,9 +348,7 @@ func _build_water() -> void:
 	mat.shader = load(WATER_SHADER)
 	# Float heights retain negative seabed elevations. The shader interpolates the
 	# same triangles as Terrain, so shallow colours stay attached to the shore.
-	var heights := Image.create_from_data(terrain.n + 1, terrain.n + 1,
-		false, Image.FORMAT_RF, terrain.h_grid.to_byte_array())
-	mat.set_shader_parameter("seabed_height", ImageTexture.create_from_image(heights))
+	mat.set_shader_parameter("seabed_height", ImageTexture.create_from_image(_seabed_image()))
 	mat.set_shader_parameter("terrain_half_size", terrain.half_size)
 	mat.set_shader_parameter("terrain_cell", Terrain.CELL)
 	var inner := map.half_size + 300.0
@@ -707,13 +803,6 @@ func _build_haul_outs() -> void:
 # --- Vegetation ---------------------------------------------------------------------
 
 func _build_vegetation() -> void:
-	var forest := FastNoiseLite.new()
-	forest.seed = map.map_seed + 5
-	forest.frequency = 0.0033333
-	var pasture := FastNoiseLite.new()
-	pasture.seed = map.map_seed + 6
-	pasture.frequency = 0.0014
-	pasture.fractal_octaves = 3
 	var pines: Array[Transform3D] = []
 	var pine_cols: Array[Color] = []
 	var rounds: Array[Transform3D] = []
@@ -740,9 +829,9 @@ func _build_vegetation() -> void:
 			var slope := Vector2(terrain.height_at(px + 3.0, pz) - terrain.height_at(px - 3.0, pz),
 				terrain.height_at(px, pz + 3.0) - terrain.height_at(px, pz - 3.0)).length() / 6.0
 			if h > 3.9 and slope < 1.0:
-				var density := 0.85 + forest.get_noise_2d(px, pz) * 1.2
-				# Open pasture here and there, and taller, thinner stands up on the hills.
-				density *= 1.0 - smoothstep(0.16, 0.28, pasture.get_noise_2d(px, pz))
+				var density := (0.85 + _forest_noise.get_noise_2d(px, pz) * 1.2) * forest_at(px, pz)
+				# Open fields here and there, and taller, thinner stands up on the hills.
+				density *= 1.0 - field_at(px, pz)
 				var upland := smoothstep(12.0, 36.0, h)
 				density *= 1.0 - upland * 0.45
 				var near_town := false

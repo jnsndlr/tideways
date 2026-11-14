@@ -15,6 +15,7 @@ static var map_seed := 0
 
 var map: MapData
 var terrain: Terrain
+var builder: WorldBuilder
 var sim: Simulation
 var rig: CameraRig
 var hud: Hud
@@ -48,20 +49,18 @@ func _ready() -> void:
 	_parse_args()
 	if not uncapped and DisplayServer.get_name() != "headless":
 		Engine.max_fps = MAX_FPS
-	if map_seed == 0:
-		map_seed = int(_args["seed"]) if _args.has("seed") else randi_range(1, 99999)
 	var t0 := Time.get_ticks_msec()
 	var gen := MapGenerator.new()
-	map = gen.generate(map_seed)
+	map = _generate(gen)
 	terrain = gen.terrain
 	_setup_environment()
-	var builder := WorldBuilder.new(map, terrain)
+	builder = WorldBuilder.new(map, terrain)
 	add_child(builder.build())
 	route_overlay = builder.route_overlay
 	tree_shadows = builder.tree_shadows
 	var fixed_lights := builder.night_lights
 	water_mat = builder.water_material
-	print("Map %d built in %d ms: %d islands, %d routes" % [map_seed, Time.get_ticks_msec() - t0, map.islands.size(), map.routes.size()])
+	print("Map %d built in %d ms: %d islands, %d routes" % [map.map_seed, Time.get_ticks_msec() - t0, map.islands.size(), map.routes.size()])
 
 	rig = CameraRig.new()
 	rig.terrain = terrain
@@ -119,6 +118,13 @@ func pick_wildlife(screen: Vector2, cam: Camera3D) -> Wildlife.Visit:
 	if v == null:
 		v = pinnipeds.pick(screen, cam)
 	return v if v else eagles.pick(screen, cam)
+
+
+## The map to build: a random one from the seed (--seed=N, or a new one each time).
+func _generate(gen: MapGenerator) -> MapData:
+	if map_seed == 0:
+		map_seed = int(_args["seed"]) if _args.has("seed") else randi_range(1, 99999)
+	return gen.generate(map_seed)
 
 
 func regenerate() -> void:

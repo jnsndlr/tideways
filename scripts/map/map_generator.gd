@@ -23,15 +23,24 @@ const MAX_DETOUR := 1.6       # route length over the dock-to-dock distance
 const MAX_TURN := deg_to_rad(200.0)    # total heading change along a route
 
 
+## A random map: rolls a layout from `map_seed`, then builds it.
 func generate(map_seed: int) -> MapData:
+	return generate_from(roll_layout(map_seed, NAMES))
+
+
+## Builds the map an authored layout describes: its islands as given, and the
+## mainland, islets, routes, towns and the rest from its world seed.
+func generate_from(layout: MapLayout) -> MapData:
+	var map_seed := layout.world_seed
 	rng.seed = map_seed
 	map = MapData.new()
 	map.map_seed = map_seed
 	terrain = Terrain.new(map_seed, map.half_size)
 	_place_mainland()
-	_place_islands()
+	for spec in layout.islands:
+		_island_from_spec(spec)
 	for isl in map.islands:
-		terrain.stamp_island(isl.center, isl.radius, isl.strength)
+		terrain.stamp(stamp_of(isl))
 	terrain.finalize()
 	_plan_routes()
 	_place_islets()
@@ -58,34 +67,144 @@ func _new_island(center: Vector2, radius: float, strength: float, inhabited: boo
 	return isl
 
 
-func _place_mainland() -> void:
-	var count := rng.randi_range(4, 6)
-	var start := rng.randf() * TAU
+func _island_from_spec(spec: MapLayout.IslandSpec) -> MapData.Island:
+	var isl := _new_island(Vector2.ZERO, 0.0, 0.0, true)
+	apply_spec(isl, spec)
+	return isl
+
+
+## Copies a layout entry onto its island. An island's `radius` is how far it can
+## reach (its long axis); its stamp's own radius is that over the stretch.
+static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
+	var st := maxf(spec.stretch, 1.0)
+	isl.name = spec.name
+	isl.center = Vector2(spec.x, spec.z)
+	isl.radius = spec.radius * st
+	isl.strength = spec.height * spec.radius / RELIEF_RADIUS
+	isl.shape_seed = spec.shape_seed
+	isl.stretch = st
+	isl.angle = deg_to_rad(spec.angle)
+	isl.roughness = spec.roughness
+	isl.hills = spec.hills
+	isl.forest = spec.forest
+	isl.fields = spec.fields
+
+
+static func stamp_of(isl: MapData.Island) -> Terrain.Stamp:
+	var s := Terrain.Stamp.new()
+	s.island_id = isl.id
+	s.center = isl.center
+	s.radius = isl.radius / isl.stretch
+	s.strength = isl.strength
+	s.stretch = isl.stretch
+	s.angle = isl.angle
+	s.roughness = isl.roughness
+	s.hills = isl.hills
+	s.offset = Terrain.shape_offset(isl.shape_seed) if isl.shape_seed != 0 else isl.center
+	return s
+
+
+## The mainland's masses round the map's edge (x, z, radius), from the world seed
+## alone, so they stay put whatever the islands do.
+static func mainland_masses(world_seed: int, half_size: float) -> Array[Vector3]:
+	var r := RandomNumberGenerator.new()
+	r.seed = world_seed * 7 + 3
+	var out: Array[Vector3] = []
+	var count := r.randi_range(4, 6)
+	var start := r.randf() * TAU
 	for k in count:
-		var ang := start + TAU * k / count + rng.randf_range(-0.25, 0.25)
-		var dist := rng.randf_range(map.half_size + 400.0, map.half_size + 890.0)
-		var isl := _new_island(Vector2(cos(ang), sin(ang)) * dist, rng.randf_range(1190.0, 1580.0), 1.3, false)
+		var ang := start + TAU * k / count + r.randf_range(-0.25, 0.25)
+		var dist := r.randf_range(half_size + 400.0, half_size + 890.0)
+		out.append(Vector3(cos(ang) * dist, sin(ang) * dist, r.randf_range(1190.0, 1580.0)))
+	return out
+
+
+func _place_mainland() -> void:
+	for m in mainland_masses(map.map_seed, map.half_size):
+		var isl := _new_island(Vector2(m.x, m.y), m.z, 1.3, false)
 		isl.is_mainland = true
 
 
-func _place_islands() -> void:
-	var target := rng.randi_range(8, 11)
-	var limit := map.half_size - 1090.0
-	var placed := 0
-	for attempt in 5000:
-		if placed >= target:
-			break
-		var r := rng.randf_range(450.0, 690.0)
-		var c := Vector2(rng.randf_range(-limit, limit), rng.randf_range(-limit, limit))
-		var ok := true
-		for o in map.islands:
-			var reach := o.radius * (0.72 if o.is_mainland else 1.0)
-			if c.distance_to(o.center) < r + reach + (255.0 if o.is_mainland else ISLAND_GAP):
-				ok = false
+# --- Rolling layouts --------------------------------------------------------------------
+
+## A whole random layout: 8-11 islands (-1), one per name (-2) or `count`, named
+## from `names` shuffled.
+static func roll_layout(world_seed: int, names: Array, count := -1) -> MapLayout:
+	var r := RandomNumberGenerator.new()
+	r.seed = world_seed
+	var lay := MapLayout.new()
+	lay.world_seed = world_seed
+	var pool := names.duplicate()
+	for i in range(pool.size() - 1, 0, -1):
+		var j := r.randi_range(0, i)
+		var t = pool[i]
+		pool[i] = pool[j]
+		pool[j] = t
+	if count == -1:
+		count = r.randi_range(8, 11)
+	elif count == -2:
+		count = pool.size()
+	for k in count:
+		var spec := MapLayout.IslandSpec.new()
+		spec.name = str(pool[k % pool.size()]) if not pool.is_empty() else "Island %d" % (k + 1)
+		roll_shape(spec, r)
+		# No room: try it a little smaller, and leave it out after that.
+		for shrink in 6:
+			if roll_position(lay, spec, r):
+				lay.islands.append(spec)
 				break
-		if ok:
-			_new_island(c, r, rng.randf_range(0.9, 1.15) * r / RELIEF_RADIUS, true)
-			placed += 1
+			spec.radius *= 0.88
+	return lay
+
+
+## New size, coastline, hills and cover for `spec`, leaving where it is.
+static func roll_shape(spec: MapLayout.IslandSpec, r: RandomNumberGenerator) -> void:
+	spec.radius = r.randf_range(450.0, 690.0)
+	spec.height = r.randf_range(0.9, 1.15)
+	spec.shape_seed = r.randi_range(1, 99999)
+	spec.stretch = r.randf_range(1.0, 1.45)
+	spec.angle = r.randf_range(0.0, 180.0)
+	spec.roughness = r.randf_range(0.8, 1.2)
+	spec.hills = r.randf_range(0.7, 1.3)
+	spec.forest = r.randf_range(0.7, 1.2)
+	spec.fields = r.randf_range(0.25, 0.6)
+
+
+## Somewhere for `spec` clear of the mainland and every island in `lay` but itself
+## (and any in `ignore`). False, leaving it where it was, if there's no room.
+static func roll_position(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomNumberGenerator,
+		ignore: Array = []) -> bool:
+	var half := MapData.new().half_size
+	var limit := half - 1090.0
+	var masses := mainland_masses(lay.world_seed, half)
+	var reach := spec.radius * maxf(spec.stretch, 1.0)
+	for attempt in 5000:
+		var c := Vector2(r.randf_range(-limit, limit), r.randf_range(-limit, limit))
+		if _fits(lay, spec, c, reach, masses, ignore):
+			spec.x = c.x
+			spec.z = c.y
+			return true
+	return false
+
+
+## Whether `spec` sits clear of everything where it is now.
+static func fits(lay: MapLayout, spec: MapLayout.IslandSpec) -> bool:
+	var half := MapData.new().half_size
+	return _fits(lay, spec, Vector2(spec.x, spec.z), spec.radius * maxf(spec.stretch, 1.0),
+		mainland_masses(lay.world_seed, half), [])
+
+
+static func _fits(lay: MapLayout, spec: MapLayout.IslandSpec, c: Vector2, reach: float,
+		masses: Array[Vector3], ignore: Array) -> bool:
+	for m in masses:
+		if c.distance_to(Vector2(m.x, m.y)) < reach + m.z * 0.72 + 255.0:
+			return false
+	for o in lay.islands:
+		if o == spec or ignore.has(o):
+			continue
+		if c.distance_to(Vector2(o.x, o.z)) < reach + o.radius * maxf(o.stretch, 1.0) + ISLAND_GAP:
+			return false
+	return true
 
 
 func _main_islands() -> Array[MapData.Island]:
@@ -536,7 +655,7 @@ func _place_islets() -> void:
 					break
 		if ok:
 			var isl := _new_island(c, r, rng.randf_range(0.85, 1.0), false)
-			terrain.stamp_island(isl.center, isl.radius, isl.strength)
+			terrain.stamp_island(isl.center, isl.radius, isl.strength, isl.id)
 			placed += 1
 
 
@@ -745,17 +864,9 @@ func _flatten_terminals() -> void:
 	terrain.apply_flats()
 
 
+## Names come from the layout; population and growth are rolled.
 func _name_islands() -> void:
-	var names := NAMES.duplicate()
-	for i in range(names.size() - 1, 0, -1):
-		var j := rng.randi_range(0, i)
-		var t: String = names[i]
-		names[i] = names[j]
-		names[j] = t
-	var k := 0
 	for isl in _main_islands():
-		isl.name = names[k % names.size()]
-		k += 1
 		isl.population = int(rng.randf_range(900.0, 6500.0) / 10.0) * 10
 		isl.growth = rng.randf_range(-0.5, 4.5)
 

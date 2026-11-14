@@ -17,6 +17,16 @@ class Island:
 	var growth := 0.0               # base % per year
 	var wildlife_appeal := 1.0      # how strongly it pulls marine wildlife visits
 
+	# Shape (see Terrain.Stamp): 0 shape_seed samples the noise where the island stands.
+	var shape_seed := 0
+	var stretch := 1.0
+	var angle := 0.0                # radians
+	var roughness := 1.0
+	var hills := 1.0
+	# Cover: how thick the woods are, and how much is open fields instead.
+	var forest := 1.0
+	var fields := 0.4
+
 	# Ferry terminal (valid when has_terminal)
 	var has_terminal := false
 	var shore := Vector3.ZERO       # where the pier meets land, y = 0
