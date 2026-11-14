@@ -36,6 +36,11 @@ var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
 var _info_button: Button
+var _captain_box: VBoxContainer
+var _captain_why: Label
+var _captain_buttons: Array[Button] = []
+var _captain_note: Label
+var _crossings_seen := -1
 var _terminal_bar: PanelContainer
 var _tb := {}
 var _fleet_panel: PanelContainer
@@ -377,6 +382,7 @@ func select_island(isl: MapData.Island, focus: bool) -> void:
 
 func select_ferry(f: Ferry) -> void:
 	selected_ferry = f
+	_crossings_seen = -1
 	selected_island = null
 	selected_vessel = null
 	rig.follow = f
@@ -461,12 +467,77 @@ func _build_info_panel() -> void:
 	_info_grid.add_theme_constant_override("h_separation", 24)
 	_info_grid.add_theme_constant_override("v_separation", 4)
 	v.add_child(_info_grid)
+	_build_captain_box(v)
 	_info_button = Button.new()
 	_info_button.focus_mode = Control.FOCUS_NONE
 	_info_button.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 8, 5))
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
 	_info_panel.visible = false
+
+
+## The selected ferry's choice of captain: one button each, showing what the
+## crossing would take under them (the simulation's forecast).
+func _build_captain_box(parent: VBoxContainer) -> void:
+	_captain_box = VBoxContainer.new()
+	_captain_box.add_theme_constant_override("separation", 5)
+	parent.add_child(_captain_box)
+	_captain_box.add_child(HSeparator.new())
+	_captain_box.add_child(_label("CAPTAIN", 11, MUTED, true))
+	_captain_why = _label("", 12, TEXT)
+	_captain_why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_captain_box.add_child(_captain_why)
+	for c in Captain.roster():
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.toggle_mode = true
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size.y = 58
+		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 10, 6))
+		b.pressed.connect(_on_captain_chosen.bind(c))
+		_captain_box.add_child(b)
+		_captain_buttons.append(b)
+	_captain_note = _label("", 12, MUTED)
+	_captain_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_captain_box.add_child(_captain_note)
+	_captain_box.add_child(HSeparator.new())
+
+
+func _on_captain_chosen(c: Captain) -> void:
+	if selected_ferry:
+		selected_ferry.assign_captain(c)
+		_refresh_panels()
+
+
+func _refresh_captains(f: Ferry) -> void:
+	var roster := Captain.roster()
+	var best := f.best_captain()
+	var slowest := 0.0
+	for c in roster:
+		slowest = maxf(slowest, f.forecast_minutes(c))
+	var saved := roundi(slowest - f.forecast_minutes(best))
+	var km := "%.1f km" % (f.run_length() / 1000.0)
+	if saved < 1:
+		_captain_why.text = "A %s crossing: either captain makes it in about the same time." % km
+	elif best.sea > 1.0:
+		_captain_why.text = "A %s crossing is mostly open water, so speed at sea counts most. %s saves about %d min a sailing." % [km, best.surname(), saved]
+	else:
+		_captain_why.text = "A %s crossing is mostly getting in and out of the slips, so docking counts most. %s saves about %d min a sailing." % [km, best.surname(), saved]
+	for i in roster.size():
+		var c := roster[i]
+		var b := _captain_buttons[i]
+		b.text = "%s%s  ·  ~%d min\n%s" % ["★ " if c == best and saved >= 1 else "", c.name, roundi(f.forecast_minutes(c)), c.strength]
+		b.set_pressed_no_signal(c == f.next_captain)
+	if f.next_captain != f.captain:
+		_captain_note.text = "%s finishes this crossing. %s takes the helm at the next sailing." % [f.captain.surname(), f.next_captain.surname()]
+	else:
+		_captain_note.text = "Tap a captain to put them in command from the next sailing."
+
+
+## What a timed crossing took, and under whom.
+func _crossing_text(minutes: float, c: Captain) -> String:
+	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
 
 func _on_info_button() -> void:
@@ -505,6 +576,7 @@ func _refresh_panels() -> void:
 	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
 	_terminal_bar.visible = selected_island != null and sim.terminals.has(selected_island.id)
 	_help.visible = not _terminal_bar.visible
+	_captain_box.visible = selected_ferry != null
 	if selected_ferry:
 		var f := selected_ferry
 		_info_title.text = f.ferry_name.to_upper()
@@ -514,9 +586,20 @@ func _refresh_panels() -> void:
 			["Class", f.fc.label],
 			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],
 			["Speed", "%.1f kn" % Units.knots(f.speed)],
-			["Crossing time", "~%d min" % roundi(f.crossing_minutes())],
+			["Captain", f.captain.name],
+			["Forecast crossing", "~%d min" % roundi(f.crossing_minutes())],
+			["Last crossing", _crossing_text(f.last_crossing, f.last_crossing_captain)],
+			["Before that", _crossing_text(f.previous_crossing, f.previous_crossing_captain)],
 			["Crossings", str(f.trips)],
 		])
+		_refresh_captains(f)
+		if f.trips != _crossings_seen:
+			if _crossings_seen >= 0 and f.last_crossing >= 0.0 and f.last_crossing_captain == f.captain:
+				var body := "%d min under Captain %s." % [roundi(f.last_crossing), f.captain.surname()]
+				if f.previous_crossing >= 0.0 and f.previous_crossing_captain != f.captain:
+					body += "\nThe crossing before took %d min under Captain %s." % [roundi(f.previous_crossing), f.previous_crossing_captain.surname()]
+				show_toast("%s DOCKED AT %s" % [f.ferry_name.to_upper(), f.here().island.name.to_upper()], body, 8.0)
+			_crossings_seen = f.trips
 		_info_button.text = "Stop following" if rig.follow == f else "Follow"
 	elif selected_vessel:
 		var v := selected_vessel
