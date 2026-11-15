@@ -36,12 +36,12 @@ func _initialize() -> void:
 	ferry.fc.rows = 3
 	ferry.fc.tall = PackedInt32Array([1])
 	ferry.fc.blocked = PackedInt32Array([0])
-	ferry._slots.resize(6)
+	ferry.deck = FerryDeck.new(ferry.fc)
 	car.slots = 2
 	car.is_tall = true
 	for from_a: bool in [true, false]:
 		ferry.at_a = from_a
-		ferry._slots.fill(null)
+		ferry.deck.clear()
 		var preferred := 1 if from_a else 5
 		var fallback := 2 if from_a else 4
 		check(ferry._free_slot(car) == preferred, "Tall lane from end A=%s" % from_a)
