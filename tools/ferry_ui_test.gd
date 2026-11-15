@@ -15,7 +15,7 @@ func press(label: String, prefix := false) -> bool:
 	for button: Button in current_scene.find_children("*", "Button", true, false):
 		if not button.is_visible_in_tree():
 			continue
-		if button.text != label and not (prefix and button.text.begins_with(label)):
+		if button.text != label and button.tooltip_text != label and not (prefix and button.text.begins_with(label)):
 			continue
 		return click_control(button, button.size * 0.5, label)
 	return fail("Missing visible button: " + label)
@@ -96,7 +96,9 @@ func exercise_layout() -> bool:
 		return fail("Escape left stale selection")
 	if not await exercise_map_controls(hud):
 		return false
-	if not await press("▶▶▶"):
+	if not exercise_touch_camera(hud.rig):
+		return false
+	if not await press("Speed 3"):
 		return false
 	if Engine.time_scale <= 1.0:
 		return fail("Speed control did not accelerate")
@@ -126,4 +128,45 @@ func exercise_map_controls(hud: Hud) -> bool:
 		return fail("Routes control did not enable the overlay")
 	if not await press("ROUTES") or hud.routes_forced:
 		return fail("Routes control did not restore automatic visibility")
+	return true
+
+func touch(index: int, point: Vector2, pressed: bool) -> void:
+	var event := InputEventScreenTouch.new()
+	event.index = index
+	event.position = point
+	event.pressed = pressed
+	root.push_input(event, true)
+
+
+func drag(index: int, start: Vector2, end: Vector2) -> void:
+	var event := InputEventScreenDrag.new()
+	event.index = index
+	event.position = end
+	event.relative = end - start
+	root.push_input(event, true)
+
+
+func exercise_touch_camera(rig: CameraRig) -> bool:
+	var center := root.get_visible_rect().size * 0.5
+	var left := center - Vector2(60, 0)
+	var right := center + Vector2(60, 0)
+	var spread := right + Vector2(90, 0)
+	var distance := rig.target_dist
+	touch(0, left, true)
+	touch(1, right, true)
+	drag(1, right, spread)
+	if rig.target_dist >= distance:
+		return fail("Spreading fingers did not zoom in")
+	drag(1, spread, right)
+	if not is_equal_approx(rig.target_dist, distance):
+		return fail("Pinching back did not restore the zoom")
+	touch(2, center, true)
+	var pitch := rig.target_pitch
+	var shifted := center + Vector2(0, -30)
+	drag(2, center, shifted)
+	touch(2, shifted, false)
+	touch(1, right, false)
+	touch(0, left, false)
+	if rig.target_pitch >= pitch:
+		return fail("Three-finger drag did not tilt toward the horizon")
 	return true
