@@ -21,9 +21,10 @@ class IslandSpec:
 	var forest := 1.0
 	var fields := 0.4
 	var pinned := false
+	var mainland := false   # sits on the mainland's coast, its land joined to it
 
 	const KEYS := ["name", "x", "z", "radius", "height", "hills", "shape_seed", "stretch",
-		"angle", "roughness", "forest", "fields", "pinned"]
+		"angle", "roughness", "forest", "fields", "pinned", "mainland"]
 
 	func to_dict() -> Dictionary:
 		var d := {}

@@ -178,8 +178,26 @@ static func roll_position(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomN
 	var limit := half - 1090.0
 	var masses := mainland_masses(lay.world_seed, half)
 	var reach := spec.radius * maxf(spec.stretch, 1.0)
+	if spec.mainland:
+		return _roll_coast(lay, spec, r, ignore, masses, reach)
 	for attempt in 5000:
 		var c := Vector2(r.randf_range(-limit, limit), r.randf_range(-limit, limit))
+		if _fits(lay, spec, c, reach, masses, ignore):
+			spec.x = c.x
+			spec.z = c.y
+			return true
+	return false
+
+
+## A place on the mainland's coast facing the islands, half out in the water so
+## it reads as a headland of the mainland, clear of every island.
+static func _roll_coast(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomNumberGenerator,
+		ignore: Array, masses: Array[Vector3], reach: float) -> bool:
+	for attempt in 2000:
+		var m: Vector3 = masses[r.randi_range(0, masses.size() - 1)]
+		var ang := atan2(-m.y, -m.x) + r.randf_range(-0.55, 0.55)
+		var c := Vector2(m.x, m.y) + Vector2(cos(ang), sin(ang)) * (m.z * 0.72 + reach * 0.2)
+		c = c.clamp(Vector2(-2950.0, -2950.0), Vector2(2950.0, 2950.0))
 		if _fits(lay, spec, c, reach, masses, ignore):
 			spec.x = c.x
 			spec.z = c.y
@@ -197,6 +215,8 @@ static func fits(lay: MapLayout, spec: MapLayout.IslandSpec) -> bool:
 static func _fits(lay: MapLayout, spec: MapLayout.IslandSpec, c: Vector2, reach: float,
 		masses: Array[Vector3], ignore: Array) -> bool:
 	for m in masses:
+		if spec.mainland:
+			break
 		if c.distance_to(Vector2(m.x, m.y)) < reach + m.z * 0.72 + 255.0:
 			return false
 	for o in lay.islands:

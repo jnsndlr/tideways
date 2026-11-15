@@ -4,9 +4,9 @@
 	"islands": [
 		{
 			"name": "Port Rosario",
-			"x": -159.599,
-			"z": -1019.581,
-			"radius": 535.307,
+			"x": 2663.127,
+			"z": -49.463,
+			"radius": 520.0,
 			"height": 1.117,
 			"hills": 0.9,
 			"shape_seed": 61037,
@@ -15,7 +15,8 @@
 			"roughness": 1.123,
 			"forest": 0.7,
 			"fields": 0.5,
-			"pinned": false
+			"pinned": false,
+			"mainland": true
 		},
 		{
 			"name": "Madrona Island",
@@ -30,7 +31,8 @@
 			"roughness": 1.092,
 			"forest": 0.75,
 			"fields": 0.6,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Cypress Island",
@@ -45,7 +47,8 @@
 			"roughness": 0.951,
 			"forest": 1.25,
 			"fields": 0.1,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Juniper Island",
@@ -60,7 +63,8 @@
 			"roughness": 1.145,
 			"forest": 0.8,
 			"fields": 0.65,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Bracken Island",
@@ -75,7 +79,8 @@
 			"roughness": 0.98,
 			"forest": 0.45,
 			"fields": 1.0,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Kestrel Island",
@@ -90,7 +95,8 @@
 			"roughness": 0.934,
 			"forest": 0.7,
 			"fields": 0.4,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Gullrock Island",
@@ -105,7 +111,8 @@
 			"roughness": 1.45,
 			"forest": 0.3,
 			"fields": 0.05,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "San Vela Island",
@@ -120,7 +127,8 @@
 			"roughness": 0.891,
 			"forest": 0.75,
 			"fields": 0.5,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Cordero Landing",
@@ -135,7 +143,8 @@
 			"roughness": 1.045,
 			"forest": 0.85,
 			"fields": 0.45,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		},
 		{
 			"name": "Eagle Island",
@@ -150,7 +159,8 @@
 			"roughness": 1.095,
 			"forest": 1.0,
 			"fields": 0.2,
-			"pinned": false
+			"pinned": false,
+			"mainland": false
 		}
 	]
 }

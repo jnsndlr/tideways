@@ -41,6 +41,7 @@ var _toggle: Button
 var _picker: OptionButton
 var _name: LineEdit
 var _pinned: CheckBox
+var _mainland: CheckBox
 var _status: Label
 var _apply: Button
 var _remove: Button
@@ -161,7 +162,16 @@ func _build_panel() -> void:
 		if not _syncing:
 			_spec().pinned = on
 			_mark_unsaved())
+	_mainland = CheckBox.new()
+	_mainland.text = "Mainland"
+	_mainland.tooltip_text = "Joins it to the mainland's coast, as a mainland port."
+	_mainland.toggled.connect(func(on):
+		if not _syncing:
+			_spec().mainland = on
+			_mark_unsaved()
+			_reroll_position())
 	nm.add_child(_name)
+	nm.add_child(_mainland)
 	nm.add_child(_pinned)
 	v.add_child(nm)
 
@@ -297,6 +307,7 @@ func _sync() -> void:
 	var s := _spec()
 	_name.text = s.name
 	_pinned.button_pressed = s.pinned
+	_mainland.button_pressed = s.mainland
 	for key in _sliders:
 		var e: Array = _sliders[key]
 		(e[0] as HSlider).value = s.get(key)
@@ -438,6 +449,10 @@ func _reroll_unpinned() -> void:
 
 func _reroll_world() -> void:
 	main.layout.world_seed = _rng.randi_range(1, 99999)
+	# The mainland moved: mainland ports go with it.
+	for s in main.layout.islands:
+		if s.mainland:
+			MapGenerator.roll_position(main.layout, s, _rng)
 	_mark_unsaved()
 	_rebuild()
 
