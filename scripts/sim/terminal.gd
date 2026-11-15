@@ -98,12 +98,16 @@ func queue_position(v: float, ahead: int, car: Vehicle) -> Vector3:
 	return _local(v, mid - car.center_offset)
 
 
+func _park_in_queue(car: Vehicle, lane: Lane, ahead: int) -> void:
+	car.park_in_lane(queue_position(lane.v, ahead, car), atan2(island.dock_dir.x, island.dock_dir.z))
+
+
 ## Moves each car in `lane` up to its place in the queue.
 func _close_up(lane: Lane) -> void:
 	var k := 0
 	var ahead: Vehicle = null
 	for c: Vehicle in lane.queue:
-		c.drive(PackedVector3Array([queue_position(lane.v, k, c)]))
+		_park_in_queue(c, lane, k)
 		c.leader = ahead
 		ahead = c
 		k += c.slots
@@ -173,7 +177,7 @@ func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
 	queue.append(car)
 	car.lane_v = lane.v
 	car.lot_arrival = sim.minutes
-	car.drive(PackedVector3Array([queue_position(lane.v, ahead, car)]))
+	_park_in_queue(car, lane, ahead)
 
 
 ## Places some already-waiting cars so the lot isn't empty at the start.
