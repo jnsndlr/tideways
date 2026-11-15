@@ -13,7 +13,7 @@ Record overlap, grounding and stall results and compare with main. For touch, fr
 
 ## Manual TestFlight delivery
 
-Either Jon or Paul owns a delivery from archive through tester availability. Open a release ticket with the intended main commit, changes and tester group. Check current main for a distribution-capable iOS preset. The initial [iPad playtest export](https://github.com/jnsndlr/Tideways/pull/6) targets a development app identity. Before the first shared-repo distribution, confirm the App Store Connect app record, matching bundle ID, signing team, supported devices and next unused build number.
+Either Jon or Paul owns a delivery from archive through tester availability. Open a release ticket with the intended main commit, changes and tester group. Check current main for a distribution-capable iOS preset. The initial [iPad playtest export](https://github.com/jnsndlr/Tideways/pull/6) targets a development app identity. [TID-252](https://linear.app/tideways/issue/TID-252) tracks validation of the first distribution archive. Before the first shared-repo distribution, confirm the App Store Connect app record, matching bundle ID, signing team, supported devices and next unused build number.
 
 1. Start from the verified main commit on a Mac with the matching Godot export templates and Xcode. Export the iOS project using the distribution identity and version. Keep signing credentials on the release machine.
 2. Open the exported Xcode project. Select the app scheme and a generic iOS device, then archive the Release configuration. Inspect the archive's bundle ID, version, build number and device family. Validate it and upload through Organizer to App Store Connect.

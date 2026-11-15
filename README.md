@@ -33,6 +33,9 @@ wind, tide).
 
 ## Architecture
 
+The map supplies authored or generated data. The simulation owns the clock, terminals and ferries. A ferry coordinates the loading and sailing sequence. Its deck owns space reservations, and the fare ledger owns receipts. The HUD presents those results and sends player actions to their owner. Put a new rule beside the state it governs and exercise it with a focused test. Use a seeded scene test when the outcome depends on several systems acting together.
+
+
 ```
 scripts/
   scenes.gd               scene paths: menu, main map, sandbox
@@ -53,6 +56,8 @@ scripts/
   sim/wildlife.gd         species table, daily visits, sightings, island wildlife reputation
   sim/terminal.gd         spawning, lane queues, boarding/exit paths
   sim/vessel.gd           base for anything afloat: hull capsule, path lookahead, right of way
+  sim/fare_ledger.gd      fare credits, daily receipts and lifetime revenue
+  sim/ferry_deck.gd       capacity, lane preference and reservations for a crossing
   sim/ferry.gd            load → sail → unload state machine along a Curve3D
   sim/ferry_class.gd      the five ferry sizes: lanes, rows, hull, speed, fittings
   sim/sailboat.gd         marina-to-marina sailing: back out, sail, wait for and enter a berth
