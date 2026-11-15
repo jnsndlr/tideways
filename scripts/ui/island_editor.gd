@@ -18,8 +18,8 @@ const SHAPE := [
 	["roughness", "Coastline", 0.2, 2.0, 0.01, "×"],
 ]
 const PLACE := [
-	["x", "East – west", -3000, 3000, 5, " m"],
-	["z", "North – south", -3000, 3000, 5, " m"],
+	["x", "East – west", -3300, 3300, 5, " m"],
+	["z", "North – south", -3300, 3300, 5, " m"],
 ]
 const RELIEF := [
 	["height", "Height", 0.5, 1.6, 0.01, "×"],

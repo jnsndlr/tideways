@@ -39,6 +39,8 @@ func generate_from(layout: MapLayout) -> MapData:
 	_place_mainland()
 	for spec in layout.islands:
 		_island_from_spec(spec)
+		if spec.mainland:
+			terrain.mainland.add_port(Vector2(spec.x, spec.z), spec.radius * maxf(spec.stretch, 1.0))
 	for isl in map.islands:
 		terrain.stamp(stamp_of(isl))
 	terrain.finalize()
@@ -189,15 +191,18 @@ static func roll_position(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomN
 	return false
 
 
-## A place on the mainland's coast facing the islands, half out in the water so
-## it reads as a headland of the mainland, clear of every island.
+## A place against the map's edge on one of the mainland's shores, reaching past
+## the edge, where the shore comes in to meet it (Mainland.add_port), clear of
+## every island.
 static func _roll_coast(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomNumberGenerator,
 		ignore: Array, masses: Array[Vector3], reach: float) -> bool:
+	var half := MapData.new().half_size
+	var ml := Mainland.new(lay.world_seed, half)
+	var v := half - reach * 0.3
 	for attempt in 2000:
-		var m: Vector3 = masses[r.randi_range(0, masses.size() - 1)]
-		var ang := atan2(-m.y, -m.x) + r.randf_range(-0.55, 0.55)
-		var c := Vector2(m.x, m.y) + Vector2(cos(ang), sin(ang)) * (m.z * 0.72 + reach * 0.2)
-		c = c.clamp(Vector2(-2950.0, -2950.0), Vector2(2950.0, 2950.0))
+		var u := r.randf_range(-(half - reach - 300.0), half - reach - 300.0)
+		var sgn := 1.0 if r.randf() < 0.5 else -1.0
+		var c := Vector2(u, sgn * v) if ml.axis == 0 else Vector2(sgn * v, u)
 		if _fits(lay, spec, c, reach, masses, ignore):
 			spec.x = c.x
 			spec.z = c.y

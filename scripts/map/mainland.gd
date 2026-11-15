@@ -33,6 +33,9 @@ var _phase := 0.0
 var _islands: Array[Vector4] = []  # x, z, radius, strength
 var _peaks: Array[Vector4] = []    # x, z, radius, height
 var _volcano := Vector4.ZERO
+## Where the shore reaches in to meet a mainland port: along-channel position,
+## side (+1 / -1), half-width of the reach.
+var _ports: Array[Vector3] = []
 var _shore := FastNoiseLite.new()
 var _hills := FastNoiseLite.new()
 var _ridges := FastNoiseLite.new()
@@ -99,6 +102,19 @@ func _init(map_seed: int, half_size: float) -> void:
 	_volcano = Vector4(vxz.x, vxz.y, rng.randf_range(9000.0, 10500.0), rng.randf_range(3750.0, 4350.0))
 
 
+## The side of the channel (+1 / -1) facing x, z.
+func side_of(x: float, z: float) -> float:
+	var uv := _to_uv(x, z)
+	return 1.0 if uv.y - _centre_v(uv.x) >= 0.0 else -1.0
+
+
+## Brings the shore in to just past the map's edge alongside `c`, so an island
+## stamped there against the edge joins the mainland.
+func add_port(c: Vector2, reach: float) -> void:
+	var uv := _to_uv(c.x, c.y)
+	_ports.append(Vector3(uv.x, side_of(c.x, c.y), reach * 1.1))
+
+
 ## Along-channel (u) and across-channel (v) coordinates.
 func _to_uv(x: float, z: float) -> Vector2:
 	return Vector2(x, z) if axis == 0 else Vector2(z, x)
@@ -122,6 +138,11 @@ func inland(x: float, z: float) -> float:
 	# Alongside the map the shore stays well clear of the ships' lanes past its edge.
 	w = maxf(w, half + SHORE_CLEAR)
 	w *= 1.0 - smoothstep(7800.0, 18600.0, absf(uv.x)) * _close[0 if uv.x >= 0.0 else 1]
+	var sgn := 1.0 if v >= 0.0 else -1.0
+	for p in _ports:
+		if p.y == sgn:
+			var f := 1.0 - smoothstep(p.z * 0.5, p.z * 1.6, absf(uv.x - p.x))
+			w = lerpf(w, half + 60.0, f)
 	return absf(v) - w
 
 
