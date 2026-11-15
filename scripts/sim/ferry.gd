@@ -401,12 +401,13 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 			# Into a wing lane: in through the apron's opening, then out round the fork's end.
 			path.append(to_global(Vector3(local.x, Layout.DECK_Y, signf(entry_z) * fc.turn_z)))
 	path.append(to_global(local))
-	_send(car, path, _on_boarded.bind(park))
+	_send(car, path, _on_boarded.bind(park, term))
 	sim.collect_fare(car)
 
 
-func _on_boarded(car: Vehicle, park: Transform3D) -> void:
+func _on_boarded(car: Vehicle, park: Transform3D, term: Terminal) -> void:
 	car.reparent(self)
+	term.finish_boarding(car)
 	_set_parked(car, park)
 	aboard.append(car)
 	_boarding -= 1
