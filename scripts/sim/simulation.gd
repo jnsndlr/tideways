@@ -4,12 +4,6 @@ extends Node3D
 ## plus the other traffic afloat (MarineTraffic).
 ## One real second = one game minute at 1x speed (Engine.time_scale scales it).
 
-const FARE_CAR := 18.5
-const FARE_TRUCK := 42.0   # (the code-built truck)
-# Fares go by length, as WSF's do: a car's fare up to 22 ft (6.7 m), then this much
-# more of it for every metre over.
-const CAR_FARE_LENGTH := 6.7
-const FARE_PER_METRE := 0.3
 const SEASON_DAYS := 30
 const SEASONS := ["Spring", "Summer", "Autumn", "Winter"]
 const FERRY_NAMES := ["Cedar Star", "Orca Spirit", "Madrona Belle", "Tidewater", "Salish Dawn",
@@ -25,9 +19,13 @@ var ferries: Array[Ferry] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
-var revenue_today := 0.0
-var revenue_total := 0.0
-var cars_today := 0
+var fares := FareLedger.new()
+var revenue_today: float:
+	get: return fares.revenue_today
+var revenue_total: float:
+	get: return fares.revenue_total
+var cars_today: int:
+	get: return fares.cars_today
 var weather := "Partly Cloudy"
 var wind_dir := "SW"
 var wind_speed := 12
@@ -97,8 +95,7 @@ func _process(delta: float) -> void:
 	if minutes >= 24.0 * 60.0:
 		minutes -= 24.0 * 60.0
 		day += 1
-		revenue_today = 0.0
-		cars_today = 0
+		fares.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
 
@@ -127,15 +124,11 @@ func make_vehicle(parent: Node3D = null) -> Vehicle:
 
 
 func collect_fare(car: Vehicle) -> void:
-	var fare := FARE_CAR
-	if car.model == "":
-		fare = FARE_TRUCK if car.is_truck else FARE_CAR
+	if car.model.is_empty():
+		fares.credit_flat(car.is_truck)
 	else:
-		var metres := car.length / Models.VEHICLE_SCALE
-		fare *= 1.0 + FARE_PER_METRE * maxf(metres - CAR_FARE_LENGTH, 0.0)
-	revenue_today += fare
-	revenue_total += fare
-	cars_today += 1
+		fares.credit_measured(car.length / Models.VEHICLE_SCALE)
+
 
 
 func hour() -> float:
