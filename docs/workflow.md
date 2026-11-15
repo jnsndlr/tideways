@@ -6,7 +6,7 @@ These are defaults Paul and Jon can adjust as they learn. On shared main, passin
 
 Jon and Paul can each build a feature on a branch and open a draft PR. During iteration, try the feature in the game or run the one check that answers the immediate question. Use an existing system when it already owns the behavior. For example, the HUD can show a fare computed by the simulation without maintaining its own fare table. Temporary shortcuts are fine on the branch. Identify any that would become a second source of truth if shipped.
 
-When Paul or one of his agents picks up an existing ticket, assign it to **Paul Hise** and move it to **In Progress** before starting the implementation or investigation. When splitting work among agents, claim each ticket before dispatching its work. If Jon already owns active work on that ticket, coordinate a handoff first. Experiments can still start immediately in quick mode.
+When picking up an existing implementation or investigation ticket, assign it to yourself and move it to **In Progress** before starting. Agents assign tickets to the contributor they are working for. Claim each ticket before dispatching parallel work. Check open PRs so you can continue existing work where appropriate. If the other contributor owns the ticket, coordinate a handoff first. Experiments can start immediately in quick mode.
 
 ## Merge mode
 
