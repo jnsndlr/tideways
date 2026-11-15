@@ -20,9 +20,8 @@ func _initialize() -> void:
 func reserved() -> Dictionary:
 	var result := {}
 	for boat: Ferry in sandbox.sim.ferries:
-		for car in boat._slots:
-			if car:
-				var id := car.get_instance_id()
+		for id in boat.deck.occupants:
+			if id:
 				result[id] = int(result.get(id, 0)) + 1
 	return result
 
