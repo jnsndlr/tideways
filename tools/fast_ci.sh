@@ -44,6 +44,7 @@ check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
 check region-contract test --script tools/region_contract_test.gd
+check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
 check model-parts test --script tools/model_parts_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
