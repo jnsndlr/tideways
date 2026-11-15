@@ -1,5 +1,7 @@
 # From playable idea to merged change
 
+These are defaults Paul and Jon can adjust as they learn. On shared main, passing CI is a team convention. Either of you may verify and merge; GitHub branch protection and a second reviewer are optional by team choice.
+
 ## Quick mode
 
 Jon and Paul can each build a feature on a branch and open a draft PR. During iteration, try the feature in the game or run the one check that answers the immediate question. Use an existing system when it already owns the behavior. For example, the HUD can show a fare computed by the simulation without maintaining its own fare table. Temporary shortcuts are fine on the branch. Identify any that would become a second source of truth if shipped.
@@ -34,3 +36,7 @@ Mark a feature **Done** when its outcome is verified and merged to main in jnsnd
 Track TestFlight delivery on a separate release ticket. Either person can ship once the release checks pass. Record the build, included changes and tester group, and close the release ticket once the build is available to that group.
 
 [Linear release planning and pickup queues](https://linear.app/tideways/document/start-here-tideways-release-planning-5ecd09fccfe5)
+
+## Keeping the repo tidy
+
+One reviewable outcome per branch works well for this team. Keep an exploratory stack if it helps the author iterate. Before pickup, compare Linear and open PRs so nobody starts a second implementation. Before merge, check current main, the actual diff and the final check result. Rebase or merge main into the work branch when another change affects the same paths. Keep art references under docs, generated release products outside the checkout and signing material local. Close or remove your own merged branches when you are through with them. A weekly look at blocked or conflicting PRs is usually enough for two contributors.
