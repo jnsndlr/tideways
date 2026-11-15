@@ -221,15 +221,18 @@ func take_car(rid: int, fits := Callable()) -> Vehicle:
 
 func boarding_path(car: Vehicle, rid: int) -> PackedVector3Array:
 	var sv: float = slip_v[rid]
+	# Approach from opposite sides of the lot in parallel before converging on
+	# the boarding lane. Leave room at the curb and for unloading.
+	var entrance := sv + (-4.5 if car.lane_v < sv - 3.0 else -0.6)
 	var path := PackedVector3Array([
 		_local(car.lane_v, Layout.LANE_HEAD + 6.0),
-		_local(sv - 3.0, Layout.LOT_FRONT + 1.5),
+		_local(entrance, Layout.LOT_FRONT + 1.5),
+		_local(entrance, SlipRamp.HINGE_U),
 	])
 	if ramps.has(rid):
 		# Up the span to its tip, a little above the ferry's deck (the apron slopes down onto it).
 		var ramp: SlipRamp = ramps[rid]
-		for p in ramp.crossing(-3.0):
-			path.append(to_global(p))
+		path.append(to_global(ramp.crossing(-3.0)[1]))
 	else:
 		path.append(_local(sv - 3.0, Layout.PIER_END))
 	return path
