@@ -2,7 +2,7 @@
 
 Open [our shared Godot game](https://github.com/jnsndlr/Tideways) and run **Sandbox** for the working ferry region. **Play** is the entry point for the authored map. You can build a feature, change a design or sketch an idea as soon as you want to try it. Paul usually takes the lead on code structure, verification and releases. Either of you can do any of those things.
 
-**When you want something to pick up**, look for a verification handoff, then look at [Ready work](https://linear.app/tideways/view/c608f2d9-0e35-4ef6-bcd5-065da3d03582). Check the open PRs too. The [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) shows what belongs in the public iPad game and what can wait.
+**When you want something to pick up**, start with your current gameplay, design or art idea. For a scoped next step, look at [Ready work](https://linear.app/tideways/view/c608f2d9-0e35-4ef6-bcd5-065da3d03582). Check the open PRs too. The [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) shows what belongs in the public iPad game and what can wait.
 
 **When an experiment works**, put the player outcome on its Linear ticket. If you changed the design, a sentence about what you decided and why saves Paul or his agent from accidentally undoing it. A Discord heads-up helps when someone is already editing the same system.
 

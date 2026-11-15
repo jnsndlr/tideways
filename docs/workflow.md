@@ -33,7 +33,7 @@ Keep gameplay rules independent of iPad-specific code. Test other platforms when
 
 ## Board and delivery
 
-Start with unassigned verification handoffs, then check Ready tickets by priority. Either person can choose another task. Keep the board current as work happens. Once a week, either contributor or their agent can clear stale reviews, identify blocked handoffs, and check Ready priorities and prerequisites.
+Jon and his agents start with his current gameplay, design or art priority. When choosing from the board, use **Ready to pick up** and check active work for overlap. After a playable handoff, continue with the next design priority. Paul and his agents usually pick up unassigned **Ready for verification** tickets, pending deliveries and integration work. Either person can take a different task or verify and ship their own change. Keep the board current as work happens. Once a week, either contributor or their agent can clear stale reviews, identify blocked handoffs, and check Ready priorities and prerequisites.
 
 Mark a feature **Done** when its outcome is verified and merged to main in jnsndlr/Tideways, the shared development and release repository. Use paulhise1/tideways-3d as an earlier reference. For stacks, use contributing PR links for partial work and reserve a closing reference for the PR that delivers the full verified outcome on main.
 
