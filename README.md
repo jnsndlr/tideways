@@ -1,4 +1,4 @@
-# Ferry Tycoon (preview)
+# Tideways
 
 A low-poly ferry-system management game prototype in **Godot 4.7**. It procedurally
 generates an archipelago with towns, terminals and routes. Cars drive from town to
@@ -6,10 +6,14 @@ the holding lots, queue in lanes, board double-ended ferries, cross, and drive o
 at the other side.
 
 Open the folder in Godot 4.7 and press **Play** (F5). The menu offers **Play** (the main map, still empty) and
-**Sandbox** (the procedural archipelago where features are prototyped first). Everything is built in code,
-so there are no assets to import.
+**Sandbox** (the procedural archipelago where features are prototyped first). Godot imports the project assets on first open.
 
-For Paul, Jon and their AI agents, see the [development and merge workflow](docs/workflow.md).
+## Working on Tideways
+
+- Start a gameplay change with the [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) and [game design document](docs/tideways-gdd.md). The affected Linear ticket records current decisions.
+- Use the [team workflow](docs/workflow.md) for branch handoff, verification and merge. The [gameplay handoff](docs/claude-gameplay-handoff.md) gives Claude the project context.
+- Use the system map below and the [engineering queue](https://linear.app/tideways/project/engineering-foundations-e97de6837467) when changing shared code.
+- Follow the [CI and TestFlight guide](docs/delivery.md) to validate a PR or deliver a build.
 
 ## Controls
 
@@ -44,7 +48,7 @@ scripts/
   world/glow_builder.gd   night-light quads (glows, pools, beams, reflections) for glow.gdshader
   world/night_lights.gd   dusk-to-dawn switching, car head/tail lights, ferry nav lights, bokeh focus
   world/seagulls.gd       simulated gulls perching on lamps, lifts, ferries, water
-  world/orcas.gd          orca pods: formation, breathing rolls, blows, breaches, spyhops
+  world/cetaceans.gd          orca pods: formation, breathing rolls, blows, breaches, spyhops
   sim/simulation.gd       clock (1 s = 1 game min), seasons, demand curve, fares, satisfaction
   sim/wildlife.gd         species table, daily visits, sightings, island wildlife reputation
   sim/terminal.gd         spawning, lane queues, boarding/exit paths
