@@ -2,6 +2,7 @@ extends SceneTree
 ## Rule checks on TinyRegion, which builds in milliseconds:
 ##   - the region builds and a simulation starts on it quickly,
 ##   - the navigation grid tells water from land and routes round an island,
+##   - a boat steering itself gets round that island without touching land,
 ##   - one ferry carries its cars across: fares match the cars aboard, she docks
 ##     at the far terminal and every car she left with drives off,
 ##   - three ferries whose routes meet never touch, never share the stretch of
@@ -11,11 +12,13 @@ extends SceneTree
 
 const BUILD_BUDGET_MS := 1000
 const START_BUDGET_MS := 3000
+const STEERING_FRAMES := 3000
+const ARRIVED := 45.0
 const CROSSING_FRAMES := 4000
 const MEETING_FRAMES := 6000
 const MEETING_TRIPS := 2
 
-enum Stage { SETUP, CROSSING, MEETING }
+enum Stage { SETUP, CROSSING, STEERING, MEETING }
 
 var failures := 0
 var frame := 0
@@ -23,6 +26,11 @@ var stage := Stage.SETUP
 var stage_frame := 0
 var sim: Simulation
 var region: TinyRegion
+
+# Steering
+var launch: Launch
+var steered := 0.0
+var shallowest := -INF
 
 # Crossing
 var ferry: Ferry
@@ -50,6 +58,8 @@ func _process(_delta: float) -> bool:
 			check_build()
 			check_navigation()
 			begin_crossing()
+		Stage.STEERING:
+			tick_steering(_delta)
 		Stage.CROSSING:
 			tick_crossing()
 		Stage.MEETING:
@@ -111,6 +121,53 @@ func check_navigation() -> void:
 		expect(length > north.distance_to(south) * 1.1, "The way round should be longer than the line through the island")
 
 
+## A small boat that only follows its helm: the least a HelmVessel needs.
+class Launch extends HelmVessel:
+	func setup(t: MarineTraffic, at: Vector2) -> void:
+		traffic = t
+		apply_spec(VesselTypes.fishing_boats()[0])
+		position = Vector3(at.x, 0.0, at.y)
+		helm = Helm.new(self, t)
+		t.register(self, MarineTraffic.RANK_POWER)
+
+	func _process(delta: float) -> void:
+		helm.update(delta)
+		_make_way(delta, helm.want_yaw, helm.want_speed, spec.turn)
+
+
+func begin_steering() -> void:
+	if sim == null or failures > 0:
+		finish()
+		return
+	var west := region.map.islands[0]
+	launch = Launch.new()
+	sim.add_child(launch)
+	launch.setup(sim.marine, west.center + Vector2(0.0, -360.0))
+	expect(launch.helm.set_goal(west.center + Vector2(0.0, 360.0)), "The helm should find a way to the far side of the island")
+	stage = Stage.STEERING
+	stage_frame = 0
+
+
+func tick_steering(delta: float) -> void:
+	var at := launch.pos2()
+	steered += launch.speed * delta
+	shallowest = maxf(shallowest, region.terrain.height_at(at.x, at.y))
+	if shallowest > -1.0:
+		expect(false, "The boat ran into %.1f m of water at %s on frame %d" % [-shallowest, at.round(), frame])
+		finish()
+		return
+	if launch.helm.distance_left() < ARRIVED:
+		var straight := 720.0
+		expect(steered > straight * 1.05, "The boat covered %d m; the island is in the way of the %d m straight line" % [roundi(steered), roundi(straight)])
+		print("Steered %d m round the island by frame %d; shallowest water %.1f m" % [roundi(steered), frame, -shallowest])
+		sim.free()
+		sim = null
+		begin_meeting()
+	elif stage_frame > STEERING_FRAMES:
+		expect(false, "The boat was still %d m from its goal after %d frames" % [roundi(launch.helm.distance_left()), STEERING_FRAMES])
+		finish()
+
+
 func begin_crossing() -> void:
 	if sim == null or failures > 0:
 		finish()
@@ -143,9 +200,7 @@ func tick_crossing() -> void:
 		for car in ferry.aboard:
 			expect(not left_with.has(car.get_instance_id()), "A car that crossed is still aboard after unloading")
 		print("One crossing: %d cars carried, docked on frame %d" % [left_with.size(), frame])
-		sim.free()
-		sim = null
-		begin_meeting()
+		begin_steering()
 		return
 	if stage_frame > CROSSING_FRAMES:
 		expect(false, "The crossing did not finish in %d frames (sailed %s, docked %s)" % [CROSSING_FRAMES, sailed, docked])

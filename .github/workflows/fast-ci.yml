@@ -2,6 +2,9 @@ name: Fast CI
 
 on:
   workflow_dispatch:
+  schedule:
+    # Nightly traffic diagnostics, 2:17 AM Pacific standard time.
+    - cron: '17 10 * * *'
   push:
     branches: [main]
   pull_request:
@@ -17,10 +20,10 @@ concurrency:
 
 jobs:
   validate:
-    name: ${{ github.event_name == 'workflow_dispatch' && 'Seeded traffic diagnostics' || 'Godot fast check' }}
+    name: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 'Seeded traffic diagnostics' || 'Godot fast check' }}
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 15 || 5 }}
+    timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 15 || 8 }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -39,5 +42,5 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Run game checks
         env:
-          SUITE: ${{ github.event_name == 'workflow_dispatch' && 'traffic' || 'fast' }}
+          SUITE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 'traffic' || 'fast' }}
         run: bash tools/fast_ci.sh "$SUITE"
