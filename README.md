@@ -1,6 +1,6 @@
 # Tideways
 
-A low-poly ferry-system management game prototype in **Godot 4.7**. It procedurally
+The shared development and release repository for Tideways, a regional development game in **Godot 4.7**. The Sandbox procedurally
 generates an archipelago with towns, terminals and routes. Cars drive from town to
 the holding lots, queue in lanes, board double-ended ferries, cross, and drive off
 at the other side.
@@ -10,9 +10,10 @@ Open the folder in Godot 4.7 and press **Play** (F5). The menu offers **Play** (
 
 ## Working on Tideways
 
+- For Jon and Paul, start with the [short team handoff](docs/jon-handoff.md). Agents can use the [detailed handoff](docs/claude-gameplay-handoff.md).
 - Start a gameplay change with the [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) and [game design document](docs/tideways-gdd.md). The affected Linear ticket records current decisions.
-- Use the [team workflow](docs/workflow.md) for branch handoff, verification and merge. The [gameplay handoff](docs/claude-gameplay-handoff.md) gives Claude the project context.
-- Use the system map below and the [engineering queue](https://linear.app/tideways/project/engineering-foundations-e97de6837467) when changing shared code.
+- Use the [team workflow](docs/workflow.md) for branch handoff, verification and merge.
+- Use the [architecture guide](docs/architecture.md), [verification map](docs/verification.md), system map below and the [engineering queue](https://linear.app/tideways/project/engineering-foundations-e97de6837467) when changing shared code.
 - Follow the [CI and TestFlight guide](docs/delivery.md) to validate a PR or deliver a build.
 
 ## Controls

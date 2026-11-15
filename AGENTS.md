@@ -7,3 +7,5 @@ Link work you keep to a Tideways Linear ticket before handoff or merge. To hand 
 Switch to **merge mode** when asked to land work or when Paul or Jon claims a verification handoff. Claiming means assigning the ticket to the verifier and moving it to **In Review**. Their agent can fix, test and merge passing changes. Pause on an unresolved failure or a change to the intended design.
 
 Read [the team workflow](docs/workflow.md) for verification, release and board upkeep.
+
+For owner responsibilities, test selection and worked examples, see [architecture](docs/architecture.md), [verification](docs/verification.md) and [the agent handoff](docs/claude-gameplay-handoff.md). These are team defaults that Paul and Jon may revise together or in the relevant ticket.

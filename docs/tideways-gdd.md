@@ -2,6 +2,8 @@
 
 ## Game Design Document (v0.4, 2026-10-31)
 
+**Reading this design today.** This is the October design baseline. Use the [Linear design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) for current public iPad release scope and the issues that own later changes. In particular, captain and crew management are included in the public release. The earlier Phase 1 list below describes the first-playable milestone. The opening timetable modes, economy, first expansion and presentation choices are tracked together in [TID-241](https://linear.app/tideways/issue/TID-241).
+
 Built from GDD v0.3 in the Tideways prototype repo, the systems on the "Ferry game" FigJam board, and the October 2026 design review.
 
 **How to read this document**

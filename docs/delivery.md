@@ -2,7 +2,7 @@
 
 ## Pull request verification
 
-Run `bash tools/fast_ci.sh` at the repository root with Godot 4.7.2 on PATH, or set GODOT_BIN to the editor executable. The script imports the project, runs focused rules tests and launches the game headlessly. Its exit status includes script and resource errors from Godot's output. GitHub Actions runs this same command on a ready PR targeting main. Drafts skip the job. Check **Godot fast check** on the commit you intend to merge.
+Run `bash tools/fast_ci.sh` at the repository root with Godot 4.7.2 on PATH, or set GODOT_BIN to the editor executable. The script imports the project, runs focused rules tests and launches the game headlessly. Its exit status includes script and resource errors from Godot's output. GitHub Actions runs this same command on a ready PR targeting main and again on merged main. Drafts skip the job. **Run workflow** starts the longer traffic checks. Check **Godot fast check** on the commit you intend to merge.
 
 For changes to boarding or navigation, run the relevant diagnostics on the same commit and seed.
 

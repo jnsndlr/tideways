@@ -23,4 +23,16 @@ Start with the live pickup queue and check open PRs before claiming a gameplay t
 
 The first public iPad release includes the authored region, playable scheduling, research, terminal expansion, captain and crew management, local save/resume and device checks. The [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) maps ideas to issues, including later ideas and explicit cuts. The [opening-playthrough ticket](https://linear.app/tideways/issue/TID-241) tracks unsettled choices about fares and onboarding, operating costs and idle boats, the first expansion and visible town change, and minimum readability and audio.
 
-Paul’s [code and testing audit](https://linear.app/tideways/document/code-architecture-cleanliness-and-test-audit-tideways-main-5ca0b8b57074) prioritizes protecting fare and deck-allocation rules, testing a complete vehicle journey and real UI controls, and fixing Sandbox teardown. Accounting and deck refactors follow their tests. These are coordination points for gameplay work. The goal is to keep behavior testable and preserve Jon’s visuals while features move quickly.
+## Engineering sessions and handoff details
+
+Check the requested focus at the start of the session. For an engineering session, pick the failure mode or maintenance cost on the ticket. Work on isolated branches from current shared main. Inspect the diff and existing owners before moving code. Use the [architecture guide](architecture.md) for state ownership and the [verification map](verification.md) for the smallest representative scenario. Keep player-visible behavior stable during cleanup. If the work exposes a gameplay decision, write it on the ticket so its author can resolve it.
+
+For example, a fare cleanup starts at the boarding call and follows the vehicle facts through Simulation to FareLedger. Capture a measured and fallback fare, change ownership, then replay the saved cases and a complete crossing. A HUD cleanup starts at the visible control and follows its action into simulation or camera state. Exercise the control through the viewport so occlusion and wiring errors both surface.
+
+A handoff comment can be three short lines:
+
+- **Review order** — PR links from base to tip, plus any overlap with another branch.
+- **Try it** — starting scene, seed or setup, and the control or command to use.
+- **Expected result** — what the player sees or what regression should fail; include any remaining device or design question.
+
+When a stack or old branch diverges from main, compare the combined behavior, resolve conflicts on the work branch and rerun the affected checks. A passing older commit is historical evidence. Keep unrelated local edits and other people's PRs intact. Delete merged task branches when their author is finished with them. Either person can update this guide and the workflow when a simpler practice works better.
