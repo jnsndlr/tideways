@@ -13,10 +13,18 @@ Record overlap, grounding and stall results and compare with main. For touch, fr
 
 ## Manual TestFlight delivery
 
-Either Jon or Paul owns a delivery from archive through tester availability. Open a release ticket with the intended main commit, changes and tester group. Check current main for a distribution-capable iOS preset. The initial [iPad playtest export](https://github.com/jnsndlr/Tideways/pull/6) targets a development app identity. [TID-252](https://linear.app/tideways/issue/TID-252) tracks validation of the first distribution archive. Before the first shared-repo distribution, confirm the App Store Connect app record, matching bundle ID, signing team, supported devices and next unused build number.
+Either Jon or Paul owns a delivery from archive through tester availability. Open a release ticket with the intended main commit, changes and tester group.
 
-1. Start from the verified main commit on a Mac with the matching Godot export templates and Xcode. Export the iOS project using the distribution identity and version. Keep signing credentials on the release machine.
-2. Open the exported Xcode project. Select the app scheme and a generic iOS device, then archive the Release configuration. Inspect the archive's bundle ID, version, build number and device family. Validate it and upload through Organizer to App Store Connect.
+The shared game continues the existing **Tideways 3D** app (Apple ID `6829315477`, bundle `com.paulhise.tideways3d.graphicslab`, team `BC6278S7RY`). The TestFlight preset supports iPhone and iPad. The development app in [PR #6](https://github.com/jnsndlr/Tideways/pull/6) uses a separate identity.
+
+1. On the release Mac, use Godot 4.7.2 with its matching iOS templates and Xcode with the team's signing account. In Godot's **Project → Export → TestFlight**, set the App Store team ID on this Mac. Godot stores it in the ignored local export credentials. Check the marketing version and choose an unused build number in App Store Connect. Keep generated files outside the game checkout.
+
+       mkdir -p /tmp/tideways-release
+       godot --headless --editor --path . --import
+       godot --headless --path . --export-release TestFlight /tmp/tideways-release/Tideways.xcodeproj
+       xcodebuild -project /tmp/tideways-release/Tideways.xcodeproj -scheme Tideways -configuration Release -destination 'generic/platform=iOS' -archivePath /tmp/tideways-release/Tideways.xcarchive -allowProvisioningUpdates archive
+
+2. Open the archive in Xcode Organizer. Verify its identity, version, build and supported devices. Xcode archives with Apple Development under automatic signing and uses Apple Distribution for the App Store package. Choose **Validate App** for a rehearsal. If Organizer offers to create an app record, recheck the bundle and selected team. Record the validation result and any warnings. Use **Distribute App** for an authorized delivery.
 3. Wait for processing, complete any required build metadata, and assign the processed build to the intended TestFlight group. For external testing, check beta review status when applicable.
 4. Confirm the exact build is available to the group and install it through TestFlight for a launch smoke check. Record commit, version/build, group and result on the release ticket. Close the ticket after availability is confirmed.
 
