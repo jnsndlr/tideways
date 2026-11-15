@@ -23,6 +23,10 @@ class Island:
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
 	var slips: Array[int] = []      # route ids, ordered left → right along lateral()
 	var lot_half_width := 36.0
+	## A positive quote reserves one expansion site on the left of this lot.
+	var lane_extension_price := 0
+	## Contiguous holding lanes needed alongside the extension for materials and machines.
+	var construction_staging_lanes := 1
 
 	# Town
 	var town_center := Vector3.ZERO

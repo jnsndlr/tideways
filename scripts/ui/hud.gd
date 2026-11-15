@@ -34,6 +34,7 @@ var _info_panel: PanelContainer
 var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
+var _lane_button := Button.new()
 var _info_button: Button
 var _terminal_bar: PanelContainer
 var _tb := {}
@@ -493,7 +494,19 @@ func _build_info_panel() -> void:
 	_info_button.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 8, 5))
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
+	_lane_button.custom_minimum_size.y = 48
+	_lane_button.pressed.connect(_buy_lane)
+	v.add_child(_lane_button)
 	_info_panel.visible = false
+
+
+func _buy_lane() -> void:
+	if selected_island == null:
+		return
+	var terminal: Terminal = sim.terminals.get(selected_island.id)
+	if terminal and terminal.buy_holding_lane():
+		rig.focus_on(terminal.to_global(Vector3(terminal.extension_offset(), Layout.LOT_Y, -40)), 180.0)
+		_refresh_panels()
 
 
 func _on_info_button() -> void:
@@ -529,6 +542,7 @@ func _refresh_panels() -> void:
 	# Cargo ships leave the map.
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
+	var offer_lane := false
 	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
 	_terminal_bar.visible = selected_island != null and sim.terminals.has(selected_island.id)
 	_help.visible = not _terminal_bar.visible
@@ -596,13 +610,47 @@ func _refresh_panels() -> void:
 		rows.append(["Wildlife draw", _draw_text(isl)])
 		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(isl))])
 		if term:
-			rows.append(["Queued vehicles", "%d / %d" % [term.total_queued(), term.capacity()]])
+			rows.append(["Vehicles waiting", str(term.total_queued())])
+			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
+			if isl.lane_extension_price > 0:
+				var route: MapData.Route = sim.map.routes[isl.slips[0]]
+				var destination := sim.map.islands[route.b if route.a == isl.id else route.a].name
+				rows.append(["Extra lane to", destination])
+				if term.extra_lane != null:
+					rows.append(["In extra lane", "%d waiting · %d spaces inbound" % [term.extra_lane.queue.size(), term.extra_lane.enroute]])
+				elif term.build_remaining > 0.0:
+					var count := term.staging_lanes.size()
+					var phase: String = {
+						Terminal.WorkStage.DRAINING: "Clearing the lanes",
+						Terminal.WorkStage.ARRIVING: "Crew arriving",
+						Terminal.WorkStage.PAVING: "Paving the lane",
+						Terminal.WorkStage.LEAVING: "Crew leaving",
+					}[term.work_stage]
+					rows.append(["Construction", phase])
+					rows.append(["Staging closure", _staging_loss(count, term.slots_per_lane)])
+					if term.work_stage != Terminal.WorkStage.DRAINING:
+						rows.append(["Lane opens in", "%d game min" % ceili(term.build_remaining)])
+				elif not term.can_stage_construction():
+					rows.append(["Expansion", "Keep one lane open for service"])
+				else:
+					rows.append(["Available cash", fmt_money(sim.available_cash)])
+					rows.append(["While building", _staging_loss(isl.construction_staging_lanes, term.slots_per_lane) + " closed"])
+					rows.append(["After opening", "%d car spaces" % (term.capacity() + term.slots_per_lane)])
+					rows.append(["Build time", "%d min after lanes clear" % int(Terminal.BUILD_MINUTES)])
+					_lane_button.text = "Buy lane (+%d spaces) · $%d" % [term.slots_per_lane, isl.lane_extension_price]
+					_lane_button.disabled = sim.available_cash < isl.lane_extension_price
+					offer_lane = true
 			rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
 			rows.append(["Carried today", fmt_int(term.served_today)])
 		_set_rows(rows)
 		_info_button.text = "Center view"
 		if term:
 			_update_terminal_bar(term)
+	_lane_button.visible = offer_lane
+
+
+func _staging_loss(count: int, slots: int) -> String:
+	return "%d lane%s · %d spaces" % [count, "" if count == 1 else "s", count * slots]
 
 
 # --- Terminal bar (bottom) ----------------------------------------------------------
