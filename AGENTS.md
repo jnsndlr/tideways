@@ -4,6 +4,8 @@ Use **quick mode** by default. Work on a branch and get the gameplay change into
 
 Before starting an existing implementation or investigation ticket, assign it to the person you are working for (Paul Hise or Jon Sandler) and move it to **In Progress**. Claim each ticket before dispatching parallel work. Check linked PRs for work already underway. If the other contributor owns the ticket, coordinate a handoff before taking it over.
 
+Paul and Jon may each run more than one agent under their own name. When you claim a ticket, add your **Agent** label (`Claude` or `ChatGPT`), and remove it when you hand off. Do not start on a ticket that carries another agent's label. Read its comments, leave a comment with anything that agent should know, and stop.
+
 Link work you keep to a Tideways Linear ticket before handoff or merge. To hand off, link PRs in merge order, give the steps to try the feature and the expected player experience, move the ticket to **Ready for verification**, and clear the assignee.
 
 Switch to **merge mode** when asked to land work or when Paul or Jon claims a verification handoff. Claiming means assigning the ticket to the verifier and moving it to **In Review**. Their agent can fix, test and merge passing changes. Pause on an unresolved failure or a change to the intended design.
