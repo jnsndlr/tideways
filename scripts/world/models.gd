@@ -156,7 +156,7 @@ static func tree_variant(at: Vector3, count: int) -> int:
 
 
 static func _tree_part(n: String) -> ArrayMesh:
-	return _cached("tree_" + n, func(): return _gltf_parts(TREES_GLB, [n.replace("_", "")]).commit())
+	return _cached("tree_" + n, func(): return ModelParts.merge_named(TREES_GLB, [n.replace("_", "")]).commit())
 
 
 static func rock() -> ArrayMesh:
@@ -320,7 +320,7 @@ static func pick_paint(u: float) -> int:
 ## Vehicle `model` (a VehicleData key) in paint `paint`, at its modelled (real) size.
 static func vehicle(model: String, paint: int) -> ArrayMesh:
 	return _cached("%s_%d" % [model, paint], func():
-		var lib := _gltf_library(VEHICLES_GLB)
+		var lib := ModelParts.library(VEHICLES_GLB)
 		var key := model.replace("_", "")
 		var mb := MeshBuilder.new()
 		_append_part(mb, lib[key + "fixed"], Transform3D.IDENTITY)
@@ -421,7 +421,7 @@ static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
 
 ## One part of the mid-poly slip, about its own pivot (see SlipRamp).
 static func slip_part(part: String) -> MeshBuilder:
-	return _gltf_library(MID_SLIP_GLB)[part]
+	return ModelParts.library(MID_SLIP_GLB)[part]
 
 
 static func slip_mesh(part: String) -> ArrayMesh:
@@ -456,7 +456,7 @@ static func ferry_net(fc: FerryClass) -> ArrayMesh:
 ## net.gdshader scales by the wind. Posts and brackets keep alpha 1.
 static func _mid_ferry_net(fc: FerryClass) -> ArrayMesh:
 	return _cached("ferry_net_mid_%d" % fc.size, func():
-		var lib := _gltf_library(MID_NET_GLB)
+		var lib := ModelParts.library(MID_NET_GLB)
 		var k := FerryClass.MID_SCALE
 		var w := fc.net_half_w
 		var span := 2.0 * w / 3.0
@@ -519,7 +519,7 @@ static func ferry_thin_shadow(fc: FerryClass) -> ArrayMesh:
 	if src.is_empty():
 		return null
 	return _cached("ferry_thin_shadow_%d" % fc.size, func():
-		var p := _gltf_parts(src[0], ["thinshadow"])
+		var p := ModelParts.merge_named(src[0], ["thinshadow"])
 		var mb := MeshBuilder.new()
 		for i in p.verts.size():
 			mb.verts.append(p.verts[i] * FerryClass.MID_SCALE - Vector3(0, src[1], 0))
@@ -534,7 +534,7 @@ static func _mid_ferry(fc: FerryClass, glb: String, drop_y: float, parts: Array)
 	var drop := Vector3(0, drop_y, 0)
 	var lens := lamp_glass(CAR_DECK_LIGHT)
 	for part: String in parts:
-		var p := _gltf_parts(glb, [part])
+		var p := ModelParts.merge_named(glb, [part])
 		if part == "thin":
 			mb.no_shadow.append(Vector2i(mb.verts.size(), mb.verts.size() + p.verts.size()))
 		for i in p.verts.size():
@@ -547,7 +547,7 @@ static func _mid_ferry(fc: FerryClass, glb: String, drop_y: float, parts: Array)
 			for i in p.verts.size():
 				mb.colors.append(c)
 	if not fc.ribs.is_empty() and ResourceLoader.exists(FerryClass.RIB_GLB):
-		var rib := _gltf_parts(FerryClass.RIB_GLB, ["fixed", "sling"])
+		var rib := ModelParts.merge_named(FerryClass.RIB_GLB, ["fixed", "sling"])
 		for r: Array in fc.ribs:
 			var b := Basis(Vector3.UP, r[1])
 			var at: Vector3 = r[0]
@@ -803,7 +803,7 @@ static var mid_seagull := not "--classic-gull" in OS.get_cmdline_user_args() \
 
 static func seagull() -> ArrayMesh:
 	if mid_seagull:
-		return _cached("seagull_mid", func(): return _gltf_mesh(MID_SEAGULL_GLB, "seagull"))
+		return _cached("seagull_mid", func(): return ModelParts.shader_mesh(MID_SEAGULL_GLB, "seagull", vc_material()))
 	return _cached("seagull", func():
 		var mb := MeshBuilder.new()
 		var white := Color(0.95, 0.95, 0.93)
@@ -846,7 +846,7 @@ const EAGLE_GLB := "res://assets/models/eagle_mid.glb"
 static func eagle() -> ArrayMesh:
 	if not ResourceLoader.exists(EAGLE_GLB):
 		return null
-	return _cached("eagle_mid", func(): return _gltf_mesh(EAGLE_GLB, "eagle"))
+	return _cached("eagle_mid", func(): return ModelParts.shader_mesh(EAGLE_GLB, "eagle", vc_material()))
 
 
 ## Orcas use the mid-poly orca modelled in Blender (MID_ORCA_GLB, built by
@@ -868,7 +868,7 @@ static var mid_orca := not "--classic-orca" in OS.get_cmdline_user_args() \
 ## the tail. Belly, chin, eye patch and flank are white, the saddle grey.
 static func orca() -> ArrayMesh:
 	if mid_orca:
-		return _cached("orca_mid", func(): return _gltf_mesh(MID_ORCA_GLB, "orca"))
+		return _cached("orca_mid", func(): return ModelParts.shader_mesh(MID_ORCA_GLB, "orca", vc_material()))
 	return _cached("orca", func():
 		var mb := MeshBuilder.new()
 		var black := Color(0.05, 0.055, 0.065)
@@ -1044,7 +1044,7 @@ static var mid_whales := not "--classic-whales" in OS.get_cmdline_user_args() \
 ## pale flippers and broad flukes whose undersides are mostly white.
 static func humpback() -> ArrayMesh:
 	if mid_whales:
-		return _cached("humpback_mid", func(): return _gltf_mesh(MID_WHALES_GLB, "humpback"))
+		return _cached("humpback_mid", func(): return ModelParts.shader_mesh(MID_WHALES_GLB, "humpback", vc_material()))
 	return _cached("humpback", func():
 		var mb := MeshBuilder.new()
 		var dark := Color(0.09, 0.095, 0.11)
@@ -1074,7 +1074,7 @@ static func humpback() -> ArrayMesh:
 ## fin but a low hump and a row of knuckles down its tail stock.
 static func gray_whale() -> ArrayMesh:
 	if mid_whales:
-		return _cached("gray_whale_mid", func(): return _gltf_mesh(MID_WHALES_GLB, "graywhale"))
+		return _cached("gray_whale_mid", func(): return ModelParts.shader_mesh(MID_WHALES_GLB, "graywhale", vc_material()))
 	return _cached("gray_whale", func():
 		var mb := MeshBuilder.new()
 		var base := Color(0.4, 0.42, 0.43)
@@ -1202,7 +1202,7 @@ static var mid_pinnipeds := not "--classic-seals" in OS.get_cmdline_user_args() 
 ## it silver, tawny or dark).
 static func harbor_seal() -> ArrayMesh:
 	if mid_pinnipeds:
-		return _cached("harbor_seal_mid", func(): return _gltf_mesh(MID_PINNIPEDS_GLB, "harborseal"))
+		return _cached("harbor_seal_mid", func(): return ModelParts.shader_mesh(MID_PINNIPEDS_GLB, "harborseal", vc_material()))
 	return _cached("harbor_seal", func():
 		var mb := MeshBuilder.new()
 		var coat := Color(0.86, 0.85, 0.82)
@@ -1233,7 +1233,7 @@ static func harbor_seal() -> ArrayMesh:
 ## along the back (the instance colour tints bulls dark, females golden).
 static func sea_lion() -> ArrayMesh:
 	if mid_pinnipeds:
-		return _cached("sea_lion_mid", func(): return _gltf_mesh(MID_PINNIPEDS_GLB, "sealion"))
+		return _cached("sea_lion_mid", func(): return ModelParts.shader_mesh(MID_PINNIPEDS_GLB, "sealion", vc_material()))
 	return _cached("sea_lion", func():
 		var mb := MeshBuilder.new()
 		var coat := Color(0.86, 0.84, 0.8)
@@ -1351,7 +1351,7 @@ static func ferry_lights(fc: FerryClass) -> ArrayMesh:
 ## Where the Evergreen State's car deck lights are (her metres, x and z): the centres
 ## of the model's `lamp` lenses, which lie well apart.
 static func _mid_car_deck_lights() -> PackedVector3Array:
-	var p := _gltf_parts(FerryClass.MID_GLB, ["lamp"])
+	var p := ModelParts.merge_named(FerryClass.MID_GLB, ["lamp"])
 	var sums := PackedVector3Array()
 	var counts := PackedInt32Array()
 	for v in p.verts:
@@ -1389,33 +1389,6 @@ static func jib_head() -> Vector3:
 	return MID_JIB_HEAD if mid_sailboat else SAIL_JIB_HEAD
 
 
-## The parts of an imported glTF model named in `parts` (node names lower-cased, spaces
-## and underscores dropped), merged in their own frames into one MeshBuilder so they
-## take the shared material. glTF vertex colours are linear; the shader wants sRGB.
-static func _gltf_parts(path: String, parts: Array) -> MeshBuilder:
-	var mb := MeshBuilder.new()
-	var root := (load(path) as PackedScene).instantiate()
-	for n in root.find_children("*", "MeshInstance3D", true, false):
-		var key := String(n.name).to_lower().replace(" ", "").replace("_", "")
-		if not key in parts:
-			continue
-		var mesh: Mesh = (n as MeshInstance3D).mesh
-		for s in mesh.get_surface_count():
-			var arr := mesh.surface_get_arrays(s)
-			var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-			var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-			var col: PackedColorArray = arr[Mesh.ARRAY_COLOR] if arr[Mesh.ARRAY_COLOR] != null else PackedColorArray()
-			var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-			var count := idx.size() if not idx.is_empty() else v.size()
-			for k in count:
-				var i := idx[k] if not idx.is_empty() else k
-				mb.verts.append(v[i])
-				mb.normals.append(nrm[i])
-				mb.colors.append(col[i].linear_to_srgb() if not col.is_empty() else WHITE)
-	root.free()
-	return mb
-
-
 ## The hull's outline where it meets the water, as seen from above: the glTF part
 ## `part` (waterline at y = 0, z along its length) from its waterline up to `top`,
 ## taking in any flare or guard overhanging the water. Its half length, then `n`
@@ -1428,7 +1401,7 @@ static func waterline(path: String, part: String, n: int, top: float) -> PackedF
 	var key := "%s:%s:%d:%f" % [path, part, n, top]
 	if _waterlines.has(key):
 		return _waterlines[key]
-	var mb := _gltf_parts(path, [part])
+	var mb := ModelParts.merge_named(path, [part])
 	# Fine bins over |z|, each holding the widest |x| the hull reaches there. A
 	# triangle's widest point within the slab lies on its edges clipped to it, or
 	# where the slab's faces cut it.
@@ -1479,29 +1452,10 @@ static func waterline(path: String, part: String, n: int, top: float) -> PackedF
 	return out
 
 
-## One part of an imported glTF model as it is (smooth normals, UVs, indices), its
-## vertex colours turned sRGB for the shaders. No shadow mesh.
-static func _gltf_mesh(path: String, part: String) -> ArrayMesh:
-	var root := (load(path) as PackedScene).instantiate()
-	var mesh := ArrayMesh.new()
-	for n in root.find_children("*", "MeshInstance3D", true, false):
-		if String(n.name).to_lower().replace(" ", "").replace("_", "") != part:
-			continue
-		var arr := (n as MeshInstance3D).mesh.surface_get_arrays(0)
-		var col: PackedColorArray = arr[Mesh.ARRAY_COLOR]
-		for i in col.size():
-			col[i] = col[i].linear_to_srgb()
-		arr[Mesh.ARRAY_COLOR] = col
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		mesh.surface_set_material(0, vc_material())
-	root.free()
-	return mesh
-
-
 static func sailboat() -> ArrayMesh:
 	if mid_sailboat:
 		return _cached("sailboat_mid", func():
-			var mb := _gltf_parts(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL)
+			var mb := ModelParts.merge_named(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL)
 			add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
 			return mb.commit())
 	return _cached("sailboat", func():
@@ -1522,7 +1476,7 @@ const SAIL_JIB_HEAD := Vector3(0, 3.6, 0.35)
 
 static func sailboat_main() -> ArrayMesh:
 	if mid_sailboat:
-		return _cached("sailboat_main_mid", func(): return _gltf_parts(MID_SAILBOAT_GLB, ["mainsail"]).commit())
+		return _cached("sailboat_main_mid", func(): return ModelParts.merge_named(MID_SAILBOAT_GLB, ["mainsail"]).commit())
 	return _cached("sailboat_main", func():
 		var mb := MeshBuilder.new()
 		var a := Vector3(0, 0.7, 0)
@@ -1536,7 +1490,7 @@ static func sailboat_main() -> ArrayMesh:
 
 static func sailboat_jib() -> ArrayMesh:
 	if mid_sailboat:
-		return _cached("sailboat_jib_mid", func(): return _gltf_parts(MID_SAILBOAT_GLB, ["jib"]).commit())
+		return _cached("sailboat_jib_mid", func(): return ModelParts.merge_named(MID_SAILBOAT_GLB, ["jib"]).commit())
 	return _cached("sailboat_jib", func():
 		var mb := MeshBuilder.new()
 		var head := SAIL_JIB_HEAD - SAIL_JIB_TACK
@@ -1550,7 +1504,7 @@ static func sailboat_jib() -> ArrayMesh:
 static func sailboat_furled() -> ArrayMesh:
 	if mid_sailboat:
 		return _cached("sailboat_furled_mid", func():
-			var mb := _gltf_parts(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL + ["furled"])
+			var mb := ModelParts.merge_named(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL + ["furled"])
 			add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
 			return mb.commit())
 	return _cached("sailboat_furled", func():
@@ -1778,39 +1732,6 @@ const MID_CARGO_LINE_WEIGHTS := [1.0, 1.0, 1.0, 1.0, 0.8, 0.8, 0.7, 0.7, 0.9, 0.
 const MID_CARGO_SIDELIGHT_SCALE := 1.4
 const MID_CARGO_NAME_CAP := 0.8
 const MID_CARGO_REGISTRIES := ["NASSAU", "MAJURO", "MONROVIA", "VALLETTA", "LIMASSOL"]
-static var _gltf_libs := {}
-
-
-## Every part of an imported glTF model by key (named as _gltf_parts names them), each
-## a MeshBuilder holding its triangles with sRGB colours; loaded once per file.
-static func _gltf_library(path: String) -> Dictionary:
-	if _gltf_libs.has(path):
-		return _gltf_libs[path]
-	var lib := {}
-	var root := (load(path) as PackedScene).instantiate()
-	for n in root.find_children("*", "MeshInstance3D", true, false):
-		var key := String(n.name).to_lower().replace(" ", "").replace("_", "")
-		lib[key] = _gltf_parts_of(n as MeshInstance3D)
-	root.free()
-	_gltf_libs[path] = lib
-	return lib
-
-
-static func _gltf_parts_of(n: MeshInstance3D) -> MeshBuilder:
-	var mb := MeshBuilder.new()
-	for s in n.mesh.get_surface_count():
-		var arr := n.mesh.surface_get_arrays(s)
-		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-		var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-		var col: PackedColorArray = arr[Mesh.ARRAY_COLOR] if arr[Mesh.ARRAY_COLOR] != null else PackedColorArray()
-		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-		var count := idx.size() if not idx.is_empty() else v.size()
-		for k in count:
-			var i := idx[k] if not idx.is_empty() else k
-			mb.verts.append(v[i])
-			mb.normals.append(nrm[i])
-			mb.colors.append(col[i].linear_to_srgb() if not col.is_empty() else WHITE)
-	return mb
 
 
 ## Appends `part` to `mb` moved by `xf` (rigid, or uniformly scaled), its colours multiplied by
@@ -1835,7 +1756,7 @@ static func _append_part(mb: MeshBuilder, part: MeshBuilder, xf: Transform3D, ti
 static func _mid_cargo(variant: int) -> MeshBuilder:
 	var mb := _mid_cargo_ship(MID_CARGO_GLB, {"hull": MID_CARGO_HULLS[variant % MID_CARGO_HULLS.size()],
 		"funnel": CARGO_FUNNELS[variant % CARGO_FUNNELS.size()]})
-	_stow_containers(mb, _gltf_library(MID_CARGO_GLB), variant)
+	_stow_containers(mb, ModelParts.library(MID_CARGO_GLB), variant)
 	return mb
 
 
@@ -1843,7 +1764,7 @@ static func _mid_cargo(variant: int) -> MeshBuilder:
 ## carrier, from `glb`): its fixed parts, the livery's parts each painted as `paint`
 ## has them, the glass, and the lanterns and sidelights where CargoMidData has them.
 static func _mid_cargo_ship(glb: String, paint: Dictionary) -> MeshBuilder:
-	var lib := _gltf_library(glb)
+	var lib := ModelParts.library(glb)
 	var mb := MeshBuilder.new()
 	var one := Transform3D.IDENTITY
 	_append_part(mb, lib["fixed"], one)
@@ -1939,7 +1860,7 @@ static func cargo_name_plate(ship_name: String) -> ArrayMesh:
 	if not mid_cargo:
 		return null
 	return _cached("cargo_name_" + ship_name, func():
-		var lib := _gltf_library(MID_CARGO_GLB)
+		var lib := ModelParts.library(MID_CARGO_GLB)
 		var mb := MeshBuilder.new()
 		var text := ship_name.to_upper()
 		var cap := MID_CARGO_NAME_CAP
@@ -2081,13 +2002,13 @@ const MID_TRAWLER_HOUSE_FLOOD := Vector3(0.7, 5.65, 0.35)
 
 
 static func _mid_trawler(variant: int) -> MeshBuilder:
-	var mb := _gltf_parts(MID_TRAWLER_GLB, ["fixed"])
+	var mb := ModelParts.merge_named(MID_TRAWLER_GLB, ["fixed"])
 	var paint := {"hull": TRAWLER_HULLS[variant % TRAWLER_HULLS.size()],
 		"gantry": TRAWLER_GANTRIES[variant % TRAWLER_GANTRIES.size()],
 		"net": TRAWLER_NETS[variant % TRAWLER_NETS.size()], "glass": WINDOW_LIT, "window": WINDOW,
 		"lens": lamp_glass(GlowBuilder.LED)}
 	for part: String in paint:
-		var p := _gltf_parts(MID_TRAWLER_GLB, [part])
+		var p := ModelParts.merge_named(MID_TRAWLER_GLB, [part])
 		mb.verts.append_array(p.verts)
 		mb.normals.append_array(p.normals)
 		for i in p.verts.size():
@@ -2407,12 +2328,12 @@ static func _pilot_red() -> Vector3:
 
 ## The mid-poly pilot boat in `variant`'s livery.
 static func _mid_pilot(variant: int) -> MeshBuilder:
-	var mb := _gltf_parts(MID_PILOT_GLB, ["fixed"])
+	var mb := ModelParts.merge_named(MID_PILOT_GLB, ["fixed"])
 	var paint := {"hull": MID_PILOT_HULLS[variant % MID_PILOT_HULLS.size()],
 		"trim": MID_PILOT_TRIMS[variant % MID_PILOT_TRIMS.size()], "glass": WINDOW_LIT,
 		"lens": lamp_glass(GlowBuilder.LED)}
 	for part: String in paint:
-		var p := _gltf_parts(MID_PILOT_GLB, [part])
+		var p := ModelParts.merge_named(MID_PILOT_GLB, [part])
 		mb.verts.append_array(p.verts)
 		mb.normals.append_array(p.normals)
 		for i in p.verts.size():
@@ -2582,12 +2503,12 @@ static func _tug_stern_light() -> Vector3:
 
 ## The mid-poly tug in `variant`'s livery.
 static func _mid_tug(variant: int) -> MeshBuilder:
-	var mb := _gltf_parts(MID_TUG_GLB, ["fixed"])
+	var mb := ModelParts.merge_named(MID_TUG_GLB, ["fixed"])
 	var paint := {"hull": TUG_HULLS[variant % TUG_HULLS.size()], "house": TUG_HOUSES[variant % TUG_HOUSES.size()],
 		"stack": TUG_STACKS[variant % TUG_STACKS.size()], "glass": WINDOW_LIT, "window": WINDOW,
 		"lens": lamp_glass(GlowBuilder.LED)}
 	for part: String in paint:
-		var p := _gltf_parts(MID_TUG_GLB, [part])
+		var p := ModelParts.merge_named(MID_TUG_GLB, [part])
 		mb.verts.append_array(p.verts)
 		mb.normals.append_array(p.normals)
 		for i in p.verts.size():

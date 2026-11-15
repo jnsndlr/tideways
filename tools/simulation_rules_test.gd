@@ -11,6 +11,7 @@ func expect(condition: bool, message: String) -> void:
 func _initialize() -> void:
 	check_wind()
 	check_demand()
+	check_departures()
 	check_lane_capacity()
 	check_navigation()
 	check_harbour_access()
@@ -73,6 +74,45 @@ func check_lane_capacity() -> void:
 	expect(terminal._pick_lane(0, 1) == first, "One remaining slot still fits a car")
 	truck.free()
 	terminal.free()
+
+
+func check_departures() -> void:
+	var sim := Simulation.new()
+	var origin := Terminal.new()
+	var destination := Terminal.new()
+	var elsewhere := Terminal.new()
+	origin.sim = sim
+	var route := MapData.Route.new()
+	route.length = 1000.0
+	var first := loading_ferry(route, origin, destination)
+	var second := loading_ferry(route, origin, destination)
+	second._state_time = 5.0
+	var unrelated := loading_ferry(MapData.Route.new(), elsewhere, destination)
+	unrelated._state_time = 100.0
+	sim.ferries.assign([first, unrelated, second])
+	var expected := [second.minutes_until_departure_from(origin), second]
+	expect(origin.next_departure() == expected, "Departure board should pick the earliest ferry serving the terminal")
+	sim.ferries.reverse()
+	expect(origin.next_departure() == expected, "Different fleet order changed the earliest departure")
+	first._state_time = second._state_time
+	expect(origin.next_departure()[1] == second, "Equal departures should retain fleet order")
+	sim.ferries.erase(second)
+	expect(origin.next_departure()[1] == first, "Removed ferry still appears on the board")
+	first.term_a = elsewhere
+	expect(origin.next_departure() == [INF, null], "A terminal without service should show no departure")
+	for node in [first, second, unrelated, origin, destination, elsewhere, sim]:
+		node.free()
+
+
+func loading_ferry(route: MapData.Route, a: Terminal, b: Terminal) -> Ferry:
+	var boat := Ferry.new()
+	boat.route = route
+	boat.fc = FerryClass.of(1)
+	boat.term_a = a
+	boat.term_b = b
+	boat.state = Ferry.State.LOADING
+	boat.at_a = true
+	return boat
 
 
 func check_navigation() -> void:

@@ -90,8 +90,6 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	wake = WakeTrail.new(fc.half_length, 8.0 * fc.half_length / 15.0, 24.0, 46)
 	term_a = sim.terminals[r.a]
 	term_b = sim.terminals[r.b]
-	term_a.ferry_for[r.id] = self
-	term_b.ferry_for[r.id] = self
 	deck = FerryDeck.new(fc)
 	hull = MeshInstance3D.new()
 	hull.mesh = Models.ferry(fc)

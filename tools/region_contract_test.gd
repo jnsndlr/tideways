@@ -2,13 +2,27 @@ extends SceneTree
 ## Generated regions currently use array indices as IDs at simulation entry.
 
 func _initialize() -> void:
+	var fixture: MapData
 	for seed_value in [121, 123]:
-		var map := MapGenerator.new().generate(seed_value)
-		var failure := inspect(map)
+		fixture = MapGenerator.new().generate(seed_value)
+		var failure := inspect(fixture)
 		if not failure.is_empty():
 			push_error("Region seed %s: %s" % [seed_value, failure])
 			quit(1)
 			return
+	# Use generated, valid data as the control. Each mutation breaks one reference.
+	fixture.islands.reverse()
+	if not inspect(fixture).contains("runtime index"):
+		push_error("Region check accepted reordered runtime island IDs")
+		quit(1)
+		return
+	fixture.islands.reverse()
+	var route := fixture.routes[0]
+	fixture.islands[route.a].slips.append(fixture.routes.size())
+	if not inspect(fixture).contains("missing route"):
+		push_error("Region check accepted a dangling terminal slip")
+		quit(1)
+		return
 	print("TEST PASSED")
 	quit(0)
 

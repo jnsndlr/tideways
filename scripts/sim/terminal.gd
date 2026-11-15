@@ -25,7 +25,6 @@ var sim: Simulation
 var island: MapData.Island
 var lanes := {}        # route id -> Array[Lane]
 var slip_v := {}       # route id -> lateral offset of that route's slip
-var ferry_for := {}    # route id -> Ferry
 var ramps := {}        # route id -> SlipRamp (none with the classic slip)
 var slots_per_lane := Layout.slots_per_lane()
 var avg_wait := 6.0    # minutes, moving average
@@ -280,8 +279,11 @@ func satisfaction() -> float:
 func next_departure() -> Array:
 	var best_min := INF
 	var best_ferry: Ferry = null
-	for rid in ferry_for.keys():
-		var f: Ferry = ferry_for[rid]
+	if sim == null:
+		return [best_min, best_ferry]
+	for f in sim.ferries:
+		if f.term_a != self and f.term_b != self:
+			continue
 		var m := f.minutes_until_departure_from(self)
 		if m < best_min:
 			best_min = m
