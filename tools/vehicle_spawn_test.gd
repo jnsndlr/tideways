@@ -93,13 +93,11 @@ func check_world_isolation() -> void:
 
 
 func check_queue_parking() -> void:
-	Models.mid_cars = true
 	var sim := make_world()
-	sim.rng.seed = 123
-	var rig := sim.make_vehicle()
-	while not rig.trailer:
-		rig.free()
-		rig = sim.make_vehicle()
+	var rig := Vehicle.new()
+	rig.setup(BoxMesh.new(), true, "tractor_classic", Models.VEHICLE_SCALE)
+	rig.attach_trailer("trailer_van", BoxMesh.new())
+	sim.traffic.add_child(rig)
 	var terminal := Terminal.new()
 	terminal.island = MapData.Island.new()
 	terminal.island.dock_dir = Vector3.BACK
