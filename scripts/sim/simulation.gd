@@ -21,6 +21,9 @@ var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
+var terminal_spending := 0.0
+var available_cash: float:
+	get: return revenue_total - terminal_spending
 var fares := FareLedger.new()
 var revenue_today: float:
 	get: return fares.revenue_today

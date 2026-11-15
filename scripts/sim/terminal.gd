@@ -5,6 +5,10 @@ extends Node3D
 ## off the pier, out through the exit lane and back into town.
 ## The node's transform is the terminal frame (see Layout).
 
+signal extension_changed
+
+const BUILD_MINUTES := 120.0
+
 ## A holding lane reserves room for vehicles still driving in as well as those queued.
 class Lane:
 	var v: float
@@ -26,6 +30,9 @@ var island: MapData.Island
 var lanes := {}        # route id -> Array[Lane]
 var slip_v := {}       # route id -> lateral offset of that route's slip
 var ramps := {}        # route id -> SlipRamp (none with the classic slip)
+var build_remaining := 0.0
+var extra_lane: Lane
+
 var slots_per_lane := Layout.slots_per_lane()
 var avg_wait := 6.0    # minutes, moving average
 var turned_recent := 0.0
@@ -33,6 +40,21 @@ var served_today := 0
 var _inbound: Array[PackedVector3Array] = []
 var _outbound: Array[PackedVector3Array] = []
 var _spawn_acc := 0.0
+
+
+func buy_holding_lane() -> bool:
+	if island.lane_extension_price <= 0 or island.slips.is_empty() or extra_lane != null or build_remaining > 0.0:
+		return false
+	if sim.available_cash < island.lane_extension_price:
+		return false
+	sim.terminal_spending += island.lane_extension_price
+	build_remaining = BUILD_MINUTES
+	extension_changed.emit()
+	return true
+
+
+func extension_offset() -> float:
+	return -island.lot_half_width - Layout.LANE_WIDTH * 0.5
 
 
 func setup(s: Simulation, isl: MapData.Island) -> void:
@@ -114,6 +136,12 @@ func _close_up(lane: Lane) -> void:
 
 
 func _process(delta: float) -> void:
+	if build_remaining > 0.0:
+		build_remaining = maxf(0.0, build_remaining - delta)
+		if build_remaining == 0.0:
+			extra_lane = Lane.new(extension_offset())
+			lanes[island.slips[0]].append(extra_lane)
+			extension_changed.emit()
 	_spawn_acc += sim.demand_rate(island) * delta
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0
