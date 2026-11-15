@@ -366,19 +366,16 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 
 
 func select_island(isl: MapData.Island, focus: bool) -> void:
+	_reset_selection()
 	selected_island = isl
-	selected_ferry = null
-	selected_vessel = null
-	rig.follow = null
 	if focus:
 		rig.focus_on(isl.town_center, 390.0)
 	_refresh_panels()
 
 
 func select_ferry(f: Ferry) -> void:
+	_reset_selection()
 	selected_ferry = f
-	selected_island = null
-	selected_vessel = null
 	rig.follow = f
 	if rig.target_dist > 540.0:
 		rig.target_dist = 330.0
@@ -388,9 +385,8 @@ func select_ferry(f: Ferry) -> void:
 ## Anything afloat but a ferry: shows its panel and follows it, from closer in
 ## the smaller it is.
 func select_vessel(v: Vessel) -> void:
+	_reset_selection()
 	selected_vessel = v
-	selected_island = null
-	selected_ferry = null
 	rig.follow = v
 	var near := clampf(120.0 + v.spec.half_length * 5.0, 165.0, 420.0) if v.spec else 420.0
 	if rig.target_dist > near * 1.6:
@@ -399,11 +395,15 @@ func select_vessel(v: Vessel) -> void:
 
 
 func clear_selection() -> void:
+	_reset_selection()
+	_refresh_panels()
+
+
+func _reset_selection() -> void:
 	selected_island = null
 	selected_ferry = null
 	selected_vessel = null
 	rig.follow = null
-	_refresh_panels()
 
 
 func _unhandled_input(event: InputEvent) -> void:

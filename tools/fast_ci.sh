@@ -21,5 +21,6 @@ check import --editor --import
 check rules --script tools/fast_ferry_test.gd
 check rules --script tools/fare_deck_test.gd
 check menu --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
+check hud --fixed-fps 30 --script tools/ferry_ui_test.gd
 check launch --fixed-fps 30 --quit-after 120 res://scenes/sandbox.tscn -- --seed=123
 check leaving-sandbox --fixed-fps 30 --script tools/scene_cycle_test.gd

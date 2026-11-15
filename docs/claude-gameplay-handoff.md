@@ -6,13 +6,9 @@ Develop and release from [jnsndlr/Tideways](https://github.com/jnsndlr/Tideways)
 
 Jon and Paul are equal contributors. Work with Jon on gameplay implementation, gameplay design and art. Paul and his agent are prioritizing architecture, code cleanliness, tests, CI and delivery. Either person can work in any area, make design decisions, verify a change or ship to TestFlight.
 
-## Recommended first pickup
+## Choosing gameplay work
 
-**[TID-66 · Choose a captain whose strengths suit the crossing](https://linear.app/tideways/issue/TID-66).** On November 14 it was Ready, unassigned and unblocked. Jon’s active cards covered Madrona and camera work. Check the live board and open PRs again before claiming it. If someone has started it, coordinate on the ticket before editing.
-
-Start with a working Sandbox ferry. Offer two named captains whose strengths make the choice intelligible for that crossing. Show the player what will change, allow reassignment, and let the next sailing demonstrate one real effect. A difference in voyage time is a candidate to try with Jon. The design ticket allows an operating-cost effect too. Keep the first slice small enough to compare the same ferry and route under both captains. Show what happened in play and record the chosen tradeoff in the ticket. This unlocks [crew effects on service](https://linear.app/tideways/issue/TID-67).
-
-Keep the captain rule in simulation code and have the UI display its result. Coordinate if the change touches the HUD selection or ferry-loading paths Paul is covering. Payroll, benefits, fatigue and the broader hiring system have their own tickets.
+Start with the live pickup queue and check open PRs before claiming a gameplay ticket. The [captain assignment change](https://github.com/jnsndlr/Tideways/pull/14) is an example of a small playable slice with a rule the player can observe on the next crossing. Check the [crew effects ticket](https://linear.app/tideways/issue/TID-67) for its prerequisites before extending that system.
 
 ## Pick up, implement and hand off
 
