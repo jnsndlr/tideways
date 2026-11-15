@@ -12,7 +12,7 @@ Link work you keep to a Tideways Linear ticket before handoff or merge. To hand 
 
 Switch to **merge mode** when asked to land work or when Paul or Jon claims a verification handoff. Claiming means assigning the ticket to the verifier and moving it to **In Review**. Their agent can fix, test and merge passing changes. Pause on an unresolved failure or a change to the intended design.
 
-Squash-merge, so main gets one commit per ticket. After the merge, delete the branch on GitHub and in your local clone, and run `git fetch --prune`. Delete only branches whose PR has merged; leave anyone else's branch to its owner.
+After merging, the verifier checks whether the PR branch can be retired. Follow the branch cleanup step in the [team workflow](docs/workflow.md#merge-mode).
 
 Read [the team workflow](docs/workflow.md) for verification, release and board upkeep.
 
