@@ -4,9 +4,10 @@ extends "res://scripts/sandbox.gd"
 ## ISLANDS button) rolls and dials its islands, then saves or copies the layout.
 ## Takes the sandbox's debug args, plus --edit=K (open the editor on island K).
 
-## Until the real island names are in, a fresh layout is rolled with these.
-const PLACEHOLDER_NAMES := ["Island A", "Island B", "Island C", "Island D", "Island E",
-	"Island F", "Island G", "Island H", "Island I", "Island J"]
+## The starter islands. If the layout file is missing, a fresh one is rolled with these.
+const ISLAND_NAMES := ["Port Rosario", "Madrona Island", "Cypress Island", "Juniper Island",
+	"Bracken Island", "Kestrel Island", "Gullrock Island", "San Vela Island", "Cordero Landing",
+	"Eagle Island"]
 
 ## The working copy, kept across rebuilds (a rebuild reloads the scene).
 static var layout: MapLayout
@@ -22,7 +23,7 @@ func _generate(gen: MapGenerator) -> MapData:
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
 		if layout == null:
-			layout = MapGenerator.roll_layout(randi_range(1, 99999), PLACEHOLDER_NAMES, -2)
+			layout = MapGenerator.roll_layout(randi_range(1, 99999), ISLAND_NAMES, -2)
 			unsaved = true
 	return gen.generate_from(layout)
 
