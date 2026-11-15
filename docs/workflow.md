@@ -8,6 +8,8 @@ Jon and Paul can each build a feature on a branch and open a draft PR. During it
 
 When picking up an existing implementation or investigation ticket, assign it to yourself and move it to **In Progress** before starting. Agents assign tickets to the contributor they are working for. Claim each ticket before dispatching parallel work. Check open PRs so you can continue existing work where appropriate. If the other contributor owns the ticket, coordinate a handoff first. Experiments can start immediately in quick mode.
 
+When one person runs several agents, the assignee alone does not show which agent holds a ticket. Each agent adds its **Agent** label (`Claude` or `ChatGPT`) when claiming and removes it at handoff. An agent that finds another agent's label on a ticket leaves that work alone and uses the ticket's comments to pass on what it knows. A comment is read the next time that agent opens the ticket, so tell the person directly when something is urgent.
+
 ## Merge mode
 
 Link any prototype you keep to a Linear ticket before handoff or merge. Either person can finish their own work or hand it off. Put the PR links in merge order on the ticket, explain how to try the change and what the player should experience, move it to **Ready for verification**, and clear the assignee.
