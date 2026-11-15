@@ -111,7 +111,7 @@ func exercise_layout() -> bool:
 
 
 func exercise_map_controls(hud: Hud) -> bool:
-	if not await press("WILDLIFE") or not await press("● ", true):
+	if not await press("WILDLIFE") or not await press("• ", true):
 		return false
 	if hud.rig.follow == null or hud.selected_ferry != null:
 		return fail("Active sighting did not switch the camera to wildlife")
