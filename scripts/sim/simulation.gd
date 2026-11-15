@@ -38,6 +38,23 @@ var _tide_phase := 0.0
 
 
 func setup(m: MapData, t: Terrain) -> void:
+	_start(m, t, null)
+
+
+## Restore just the fleet and route identities into a fresh simulation.
+## Voyage progress, economics and queues are outside this save slice.
+func setup_from_network(m: MapData, t: Terrain, saved_json: String) -> String:
+	if map != null:
+		return "Network restore needs a fresh simulation"
+	var network := CompanyNetwork.new()
+	var error := network.read(saved_json, m)
+	if not error.is_empty():
+		return error
+	_start(m, t, network)
+	return ""
+
+
+func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	map = m
 	terrain = t
 	rng.seed = m.map_seed + 99
@@ -54,13 +71,14 @@ func setup(m: MapData, t: Terrain) -> void:
 			add_child(term)
 			term.setup(self, isl)
 			terminals[isl.id] = term
-	var sizes := _ferry_sizes()
-	for i in map.routes.size():
-		var r := map.routes[i]
-		var f := Ferry.new()
-		add_child(f)
-		f.setup(self, r, FERRY_NAMES[r.id % FERRY_NAMES.size()], sizes[i])
-		ferries.append(f)
+	if network == null:
+		var sizes := _ferry_sizes()
+		for i in map.routes.size():
+			var r := map.routes[i]
+			_spawn_ferry("hull-%d" % i, r, FERRY_NAMES[r.id % FERRY_NAMES.size()], sizes[i])
+	else:
+		for hull in network.fleet:
+			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
 	for term: Terminal in terminals.values():
 		term.prefill()
 	for i in ferries.size():
@@ -72,6 +90,14 @@ func setup(m: MapData, t: Terrain) -> void:
 	marine = MarineTraffic.new()
 	add_child(marine)
 	marine.setup(self)
+
+
+func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
+	var ferry := Ferry.new()
+	ferry.fleet_key = key
+	add_child(ferry)
+	ferry.setup(self, route, display_name, size)
+	ferries.append(ferry)
 
 
 ## The size of ferry each route gets (FerryClass), by how busy it is: the mean

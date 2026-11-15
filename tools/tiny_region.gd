@@ -50,6 +50,7 @@ static func build(towns := 2) -> TinyRegion:
 		for b in range(a + 1, map.islands.size()):
 			var r := MapData.Route.new()
 			r.id = map.routes.size()
+			r.key = "link-%s-%s" % [map.islands[a].key, map.islands[b].key]
 			r.a = a
 			r.b = b
 			map.routes.append(r)

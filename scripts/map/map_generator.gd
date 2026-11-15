@@ -50,6 +50,7 @@ func generate(map_seed: int) -> MapData:
 func _new_island(center: Vector2, radius: float, strength: float, inhabited: bool) -> MapData.Island:
 	var isl := MapData.Island.new()
 	isl.id = map.islands.size()
+	isl.key = "island-%d" % isl.id
 	isl.center = center
 	isl.radius = radius
 	isl.strength = strength
@@ -194,6 +195,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		var r := MapData.Route.new()
 		r.id = map.routes.size()
+		r.key = "link-%s-%s" % [a.key, b.key]
 		r.a = a.id
 		r.b = b.id
 		r.curve = test
