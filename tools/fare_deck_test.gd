@@ -58,4 +58,6 @@ func _initialize() -> void:
 		car.slots = 2
 	ferry.free()
 	car.free()
+	if failures == 0:
+		print("TEST PASSED")
 	quit(1 if failures else 0)

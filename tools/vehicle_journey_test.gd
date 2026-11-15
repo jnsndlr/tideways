@@ -74,6 +74,7 @@ func _process(_delta: float) -> bool:
 			"driving off":
 				if not car:
 					print("Completed queued vehicle journey on frame ", frame)
+					print("TEST PASSED")
 					quit(0)
 					return false
 	previous = occupied

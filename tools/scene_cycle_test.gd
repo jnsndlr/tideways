@@ -70,6 +70,7 @@ func _report() -> bool:
 			grew = true
 			push_error("Each Sandbox visit leaves about %d more %s behind." % [per_visit, key])
 	if not grew:
+		print("TEST PASSED")
 		print("Leaving Sandbox leaves nothing behind (%d visits)." % cycles)
 	quit(1 if grew else 0)
 	return true
