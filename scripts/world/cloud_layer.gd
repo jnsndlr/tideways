@@ -11,6 +11,13 @@ const COVERAGE := {"Sunny": 0.18, "Light Breeze": 0.32, "Partly Cloudy": 0.48, "
 const DIRS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 var visual_mat: ShaderMaterial
+var coverage := 0.45
+
+
+## Hides the deck and its shadows on the ground and water (the island editor's clear view).
+func set_shown(on: bool) -> void:
+	visible = on
+	RenderingServer.global_shader_parameter_set("cloud_coverage", coverage if on else 0.0)
 
 
 func setup(weather: String, wind_dir: String, wind_speed: float) -> void:
@@ -21,8 +28,8 @@ func setup(weather: String, wind_dir: String, wind_speed: float) -> void:
 	# Wind is named for where it blows from; clouds drift the other way (-Z is north).
 	var a := DIRS.find(wind_dir) * TAU / 8.0
 	var drift := Vector2(-sin(a), cos(a)) * wind_speed * 1.2
-	var cov: float = COVERAGE.get(weather, 0.45)
-	RenderingServer.global_shader_parameter_set("cloud_coverage", cov)
+	coverage = COVERAGE.get(weather, 0.45)
+	RenderingServer.global_shader_parameter_set("cloud_coverage", coverage)
 	RenderingServer.global_shader_parameter_set("cloud_wind", drift)
 	# Overcast skies diffuse the light, so their shadows are broad but soft.
 	RenderingServer.global_shader_parameter_set("cloud_shadow_strength", 0.4 if weather == "Overcast" else 0.65)

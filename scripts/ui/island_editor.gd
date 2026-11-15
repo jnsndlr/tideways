@@ -89,6 +89,7 @@ func open(k := 0) -> void:
 	_toggle.text = "CLOSE EDITOR  (I)"
 	main.hud.visible = false
 	main.hud.set_speed(0)
+	_clear_sky(true)
 	_refresh_picker()
 	_select(clampi(k, 0, main.layout.islands.size() - 1), false)
 
@@ -97,6 +98,13 @@ func close() -> void:
 	_panel.visible = false
 	_toggle.text = "ISLANDS  (I)"
 	main.hud.visible = true
+	_clear_sky(false)
+
+
+## No clouds, cloud shadows or haze while editing, so the islands are easy to see.
+func _clear_sky(on: bool) -> void:
+	main.clouds.set_shown(not on)
+	main.env.volumetric_fog_enabled = not on
 
 
 func _unhandled_input(event: InputEvent) -> void:

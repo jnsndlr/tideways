@@ -23,6 +23,7 @@ var sun: DirectionalLight3D
 var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var day_cycle: DayCycle
+var clouds: CloudLayer
 var water_mat: ShaderMaterial
 var route_overlay: MeshInstance3D
 var cetaceans: Cetaceans
@@ -71,7 +72,7 @@ func _ready() -> void:
 	sim.name = "Simulation"
 	add_child(sim)
 	sim.setup(map, terrain)
-	var clouds := CloudLayer.new()
+	clouds = CloudLayer.new()
 	clouds.setup(sim.weather, sim.wind_dir, sim.wind_speed)
 	add_child(clouds)
 	var backdrop := Backdrop.new()
