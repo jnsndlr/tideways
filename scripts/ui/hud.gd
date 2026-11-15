@@ -619,10 +619,24 @@ func _refresh_panels() -> void:
 				if term.extra_lane != null:
 					rows.append(["In extra lane", "%d waiting · %d spaces inbound" % [term.extra_lane.queue.size(), term.extra_lane.enroute]])
 				elif term.build_remaining > 0.0:
-					rows.append(["Lane opens in", "%d game min" % ceili(term.build_remaining)])
+					var count := term.staging_lanes.size()
+					var phase: String = {
+						Terminal.WorkStage.DRAINING: "Clearing the lanes",
+						Terminal.WorkStage.ARRIVING: "Crew arriving",
+						Terminal.WorkStage.PAVING: "Paving the lane",
+						Terminal.WorkStage.LEAVING: "Crew leaving",
+					}[term.work_stage]
+					rows.append(["Construction", phase])
+					rows.append(["Staging closure", _staging_loss(count, term.slots_per_lane)])
+					if term.work_stage != Terminal.WorkStage.DRAINING:
+						rows.append(["Lane opens in", "%d game min" % ceili(term.build_remaining)])
+				elif not term.can_stage_construction():
+					rows.append(["Expansion", "Keep one lane open for service"])
 				else:
 					rows.append(["Available cash", fmt_money(sim.available_cash)])
-					rows.append(["Build time", "%d game min" % int(Terminal.BUILD_MINUTES)])
+					rows.append(["While building", _staging_loss(isl.construction_staging_lanes, term.slots_per_lane) + " closed"])
+					rows.append(["After opening", "%d car spaces" % (term.capacity() + term.slots_per_lane)])
+					rows.append(["Build time", "%d min after lanes clear" % int(Terminal.BUILD_MINUTES)])
 					_lane_button.text = "Buy lane (+%d spaces) · $%d" % [term.slots_per_lane, isl.lane_extension_price]
 					_lane_button.disabled = sim.available_cash < isl.lane_extension_price
 					offer_lane = true
@@ -633,6 +647,10 @@ func _refresh_panels() -> void:
 		if term:
 			_update_terminal_bar(term)
 	_lane_button.visible = offer_lane
+
+
+func _staging_loss(count: int, slots: int) -> String:
+	return "%d lane%s · %d spaces" % [count, "" if count == 1 else "s", count * slots]
 
 
 # --- Terminal bar (bottom) ----------------------------------------------------------

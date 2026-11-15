@@ -7,7 +7,11 @@ extends Node3D
 
 signal extension_changed
 
+enum WorkStage { IDLE, DRAINING, ARRIVING, PAVING, LEAVING, OPEN }
+
 const BUILD_MINUTES := 120.0
+const ARRIVAL_MINUTES := 20.0
+const DEPARTURE_MINUTES := 20.0
 
 ## A holding lane reserves room for vehicles still driving in as well as those queued.
 class Lane:
@@ -30,6 +34,10 @@ var island: MapData.Island
 var lanes := {}        # route id -> Array[Lane]
 var slip_v := {}       # route id -> lateral offset of that route's slip
 var ramps := {}        # route id -> SlipRamp (none with the classic slip)
+var work_stage := WorkStage.IDLE
+var staging_lanes: Array[Lane] = []
+# Cars dispatched from the terminal may still be driving through their old lane.
+var _boarding_from: Dictionary[int, Lane] = {}
 var build_remaining := 0.0
 var extra_lane: Lane
 
@@ -42,15 +50,69 @@ var _outbound: Array[PackedVector3Array] = []
 var _spawn_acc := 0.0
 
 
+## Equipment and material staging is on the outer side of the slip next to the
+## extension. Every service keeps at least one full-width lane and its exit.
+func can_stage_construction() -> bool:
+	if island.slips.is_empty() or island.construction_staging_lanes not in [1, 2]:
+		return false
+	var route_lanes: Array = lanes.get(island.slips[0], [])
+	var count := island.construction_staging_lanes
+	return route_lanes.size() > count and route_lanes[count - 1].v <= -Layout.EXIT_CLEAR
+
+
 func buy_holding_lane() -> bool:
-	if island.lane_extension_price <= 0 or island.slips.is_empty() or extra_lane != null or build_remaining > 0.0:
+	if island.lane_extension_price <= 0 or work_stage != WorkStage.IDLE or not can_stage_construction():
 		return false
 	if sim.available_cash < island.lane_extension_price:
 		return false
 	sim.terminal_spending += island.lane_extension_price
+	for i in island.construction_staging_lanes:
+		staging_lanes.append(lanes[island.slips[0]][i])
 	build_remaining = BUILD_MINUTES
-	extension_changed.emit()
+	_set_work_stage(WorkStage.DRAINING)
 	return true
+
+
+func _set_work_stage(stage: WorkStage) -> void:
+	work_stage = stage
+	extension_changed.emit()
+
+
+func stage_progress() -> float:
+	match work_stage:
+		WorkStage.ARRIVING:
+			return (BUILD_MINUTES - build_remaining) / ARRIVAL_MINUTES
+		WorkStage.PAVING:
+			return (BUILD_MINUTES - ARRIVAL_MINUTES - build_remaining) / (BUILD_MINUTES - ARRIVAL_MINUTES - DEPARTURE_MINUTES)
+		WorkStage.LEAVING:
+			return 1.0 - build_remaining / DEPARTURE_MINUTES
+	return 0.0
+
+
+func _staging_clear() -> bool:
+	for lane in staging_lanes:
+		if lane.enroute > 0 or not lane.queue.is_empty() or _boarding_from.values().has(lane):
+			return false
+	return true
+
+
+func _advance_construction(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	if work_stage == WorkStage.DRAINING:
+		if _staging_clear():
+			_set_work_stage(WorkStage.ARRIVING)
+		return
+	build_remaining = maxf(0.0, build_remaining - delta)
+	if build_remaining == 0.0:
+		extra_lane = Lane.new(extension_offset())
+		lanes[island.slips[0]].append(extra_lane)
+		staging_lanes.clear()
+		_set_work_stage(WorkStage.OPEN)
+	elif build_remaining <= DEPARTURE_MINUTES and work_stage != WorkStage.LEAVING:
+		_set_work_stage(WorkStage.LEAVING)
+	elif build_remaining <= BUILD_MINUTES - ARRIVAL_MINUTES and work_stage == WorkStage.ARRIVING:
+		_set_work_stage(WorkStage.PAVING)
 
 
 func extension_offset() -> float:
@@ -137,11 +199,7 @@ func _close_up(lane: Lane) -> void:
 
 func _process(delta: float) -> void:
 	if build_remaining > 0.0:
-		build_remaining = maxf(0.0, build_remaining - delta)
-		if build_remaining == 0.0:
-			extra_lane = Lane.new(extension_offset())
-			lanes[island.slips[0]].append(extra_lane)
-			extension_changed.emit()
+		_advance_construction(delta)
 	_spawn_acc += sim.demand_rate(island) * delta
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0
@@ -169,6 +227,8 @@ func _pick_lane(rid: int, need := 1) -> Lane:
 	var best: Lane
 	var best_count := slots_per_lane - need + 1
 	for lane: Lane in lanes[rid]:
+		if lane in staging_lanes:
+			continue
 		var count: int = lane.queued_slots() + lane.enroute
 		if count < best_count:
 			best_count = count
@@ -229,22 +289,36 @@ func prefill() -> void:
 				k += car.slots
 
 
-## Removes the front car of the longest lane for this route whose front car `fits`
-## (fn(Vehicle) -> bool: room for it on the deck), or null.
-func take_car(rid: int, fits := Callable()) -> Vehicle:
+func _longest_fitting_lane(candidates: Array, fits: Callable) -> Lane:
 	var best: Lane
-	for lane: Lane in lanes[rid]:
+	for lane: Lane in candidates:
 		if lane.queue.size() > 0 and (best == null or lane.queue.size() > best.queue.size()):
 			if fits.is_null() or fits.call(lane.queue[0]):
 				best = lane
+	return best
+
+
+## Give the closing lanes a chance to drain. When their front vehicle is too
+## large for the available deck slots, keep serving other lanes as usual.
+func take_car(rid: int, fits := Callable()) -> Vehicle:
+	var best: Lane
+	if work_stage == WorkStage.DRAINING and rid == island.slips[0]:
+		best = _longest_fitting_lane(staging_lanes, fits)
+	if best == null:
+		best = _longest_fitting_lane(lanes[rid], fits)
 	if best == null:
 		return null
 	var queue: Array[Vehicle] = best.queue
 	var car: Vehicle = queue.pop_front()
+	_boarding_from[car.get_instance_id()] = best
 	_close_up(best)
 	avg_wait = lerpf(avg_wait, sim.minutes - car.lot_arrival, 0.1)
 	served_today += 1
 	return car
+
+
+func finish_boarding(car: Vehicle) -> void:
+	_boarding_from.erase(car.get_instance_id())
 
 
 func boarding_path(car: Vehicle, rid: int) -> PackedVector3Array:
@@ -303,7 +377,7 @@ func capacity() -> int:
 	var total := 0
 	for rid in lanes.keys():
 		total += lanes[rid].size() * slots_per_lane
-	return total
+	return total - staging_lanes.size() * slots_per_lane
 
 
 func satisfaction() -> float:
