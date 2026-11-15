@@ -45,6 +45,7 @@ var _hitch := Vector3.ZERO     # the fifth wheel, in the tractor's frame (model 
 var _trailer_axle := Vector3.ZERO  # the trailer's axle centre, in the parent's space
 var _trailer_reach := 0.0          # fifth wheel to that, in the parent's space
 var _on_arrive := Callable()
+var _parking_yaw := NAN
 ## The vehicle it follows (the one sent off just before it, or the one ahead in its
 ## queue): while that is on the move it holds back behind its tail.
 var leader: Vehicle
@@ -147,12 +148,27 @@ func _ready() -> void:
 
 
 func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0.0) -> void:
+	_parking_yaw = NAN
 	path = _round_corners(points)
 	_on_arrive = on_arrive
 	delay = start_delay
 	if trailer:
 		_reset_trailer()
 	_set_moving(not path.is_empty())
+
+
+## The final straight maneuver into a reserved holding lane. Long trailers need
+## to settle parallel to the lane even when the turn into a busy lot was tight.
+func park_in_lane(spot: Vector3, heading: float) -> void:
+	drive(PackedVector3Array([spot]))
+	_parking_yaw = heading
+
+
+func _align_in_lane(weight: float) -> void:
+	rotation.y = lerp_angle(rotation.y, _parking_yaw, weight)
+	if trailer:
+		trailer.rotation.y = lerp_angle(trailer.rotation.y, 0.0, weight)
+		_reset_trailer()
 
 
 ## The global point at the front of the bumper.
@@ -292,6 +308,7 @@ func _process(delta: float) -> void:
 			_held = 0.0
 			_creep = 1.0
 		step = minf(step, room)
+	var parking_weight := 0.0
 	while step > 0.0 and not path.is_empty():
 		var target := path[0]
 		var to := target - position
@@ -301,6 +318,9 @@ func _process(delta: float) -> void:
 			step -= dist
 			path.remove_at(0)
 			if path.is_empty():
+				if not is_nan(_parking_yaw):
+					_align_in_lane(1.0)
+					_parking_yaw = NAN
 				_set_moving(false)  # before the callback, which may drive() again
 				var cb := _on_arrive
 				_on_arrive = Callable()
@@ -309,10 +329,15 @@ func _process(delta: float) -> void:
 				return
 		else:
 			var dir := to / dist
+			if not is_nan(_parking_yaw):
+				# Blend toward the parking pose as the remaining approach is driven.
+				parking_weight = step / dist
 			position += dir * step
 			step = 0.0
 			if dir.x * dir.x + dir.z * dir.z > 0.0001:
 				rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), minf(1.0, delta * 12.0))
 	if trailer:
 		_drag_trailer()
+	if parking_weight > 0.0:
+		_align_in_lane(parking_weight)
 	_cache_ends()

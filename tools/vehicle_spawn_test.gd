@@ -20,6 +20,7 @@ func run() -> void:
 	for authored: bool in [true, false]:
 		Models.mid_cars = authored
 		check_spawned_traffic(authored)
+	check_queue_parking()
 	check_world_isolation()
 	Models.mid_cars = original_mode
 	if failures == 0:
@@ -89,3 +90,34 @@ func check_world_isolation() -> void:
 	first.free()
 	expect(second.moving_vehicles == [other_world_car], "Closing one world changed the other world's traffic")
 	second.free()
+
+
+func check_queue_parking() -> void:
+	var sim := make_world()
+	var rig := Vehicle.new()
+	rig.setup(BoxMesh.new(), true, "tractor_classic", Models.VEHICLE_SCALE)
+	rig.attach_trailer("trailer_van", BoxMesh.new())
+	sim.traffic.add_child(rig)
+	var terminal := Terminal.new()
+	terminal.island = MapData.Island.new()
+	terminal.island.dock_dir = Vector3.BACK
+	terminal.sim = sim
+	sim.add_child(terminal)
+	var lane := Terminal.Lane.new(Layout.LANE_WIDTH)
+	lane.enroute = rig.slots
+	var spot := terminal.queue_position(lane.v, 0, rig)
+	rig.position = spot - Vector3(0, 0, 14)
+	rig.trailer.rotation.y = deg_to_rad(35)
+	terminal._on_car_reached_lot(rig, lane)
+	rig._process(0.1)
+	expect(absf(rig.trailer.rotation.y) > 0.01, "Rig should ease into its lane over the approach")
+	for tick in 100:
+		if rig.path.is_empty():
+			break
+		rig._process(0.033)
+	expect(rig.position.is_equal_approx(spot), "Rig should arrive at the reserved queue position")
+	expect(absf(rig._tail().x - lane.v) < 0.01, "Parked trailer should fit in its own lane")
+	terminal._close_up(lane)
+	rig._process(0.033)
+	expect(absf(rig._tail().x - lane.v) < 0.01, "Closing a queue should preserve the parked pose")
+	sim.free()
