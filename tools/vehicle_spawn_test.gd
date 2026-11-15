@@ -21,6 +21,7 @@ func run() -> void:
 		Models.mid_cars = authored
 		check_spawned_traffic(authored)
 	check_queue_parking()
+	check_boarding_approaches()
 	check_world_isolation()
 	Models.mid_cars = original_mode
 	if failures == 0:
@@ -121,3 +122,34 @@ func check_queue_parking() -> void:
 	rig._process(0.033)
 	expect(absf(rig._tail().x - lane.v) < 0.01, "Closing a queue should preserve the parked pose")
 	sim.free()
+
+
+func check_boarding_approaches() -> void:
+	var terminal := Terminal.new()
+	root.add_child(terminal)
+	terminal.rotation.y = 1.1
+	terminal.position = Vector3(45, 0, 80)
+	var slip := 30.0
+	terminal.slip_v[0] = slip
+	var car := Vehicle.new()
+	var widest := 0.0
+	for data: Dictionary in VehicleData.VARIANTS.values():
+		widest = maxf(widest, data.size.x * Models.VEHICLE_SCALE)
+	for mid: bool in [false, true]:
+		if mid:
+			var ramp := SlipRamp.new(slip)
+			terminal.add_child(ramp)
+			terminal.ramps[0] = ramp
+		car.lane_v = slip - 18
+		var left := terminal.boarding_path(car, 0)
+		car.lane_v = slip + 18
+		var right := terminal.boarding_path(car, 0)
+		var left_center := terminal.to_local(left[1]).x - slip
+		var right_center := terminal.to_local(right[1]).x - slip
+		# The authored transfer span has curbs at ±6.6 and an exit lane at +3.
+		expect(left_center - widest * 0.5 > -6.6, "Approach meets the ramp curb")
+		expect(right_center - left_center > widest, "Boarding streams cross at the lot edge")
+		expect(3.0 - right_center > widest, "Boarding approach meets the unloading lane")
+		expect(left[-1].is_equal_approx(right[-1]), "Boarding vehicles should converge before the ferry")
+	terminal.free()
+	car.free()
