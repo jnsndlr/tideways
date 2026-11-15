@@ -73,7 +73,7 @@ func _ready() -> void:
 	add_child(sim)
 	sim.setup(map, terrain)
 	var clouds := CloudLayer.new()
-	clouds.setup(sim.weather, sim.wind_dir, sim.wind_speed)
+	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
 	var backdrop := Backdrop.new()
 	add_child(backdrop)

@@ -310,8 +310,8 @@ func release_berth(m: MapData.Marina, b: int, boat: MarinaBoat) -> void:
 ## across each other's lanes there. Boats waiting their turn to come in (see
 ## queue_for) go in the order they got there, before any boat leaving.
 func try_lock(h: MapData.Harbour, who: Vessel) -> bool:
-	var holder: Vessel = _lock.get(h)
-	if holder != null and holder != who and is_instance_valid(holder):
+	var holder := lock_holder(h)
+	if holder != null and holder != who:
 		return false
 	var q: Array = _queue.get(h, [])
 	while not q.is_empty() and not is_instance_valid(q[0]):
@@ -338,7 +338,7 @@ func leave_queue(h: MapData.Harbour, who: Vessel) -> void:
 
 
 func lock_holder(h: MapData.Harbour) -> Vessel:
-	var who: Vessel = _lock.get(h) if h else null
+	var who: Variant = _lock.get(h)
 	return who if is_instance_valid(who) else null
 
 

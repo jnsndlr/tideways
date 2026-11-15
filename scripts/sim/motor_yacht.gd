@@ -257,7 +257,7 @@ func _navigate(delta: float) -> void:
 		State.WAITING:
 			target = minf(target, 2.7)
 			if helm.distance_left() < HOLD_R and helm.give_way_to == null:
-				want_yaw = _wind_yaw()
+				want_yaw = traffic.sim.wind_yaw()
 				target = 0.0
 		State.ANCHORING:
 			# Up to the spot slowly, head to wind, to stop over it.
@@ -345,7 +345,7 @@ func _lie_at_anchor(delta: float) -> void:
 
 
 func _swing_yaw() -> float:
-	return _wind_yaw() + sin(_swing * 0.05) * 0.22 + sin(_swing * 0.013 + 1.3) * 0.12
+	return traffic.sim.wind_yaw() + sin(_swing * 0.05) * 0.22 + sin(_swing * 0.013 + 1.3) * 0.12
 
 
 ## Motoring up over the anchor and breaking it out, then off home.
@@ -365,11 +365,6 @@ func _weigh(delta: float) -> void:
 	free_nav = true
 	helm = Helm.new(self, traffic)
 	helm.set_goal(_goals[0])
-
-
-func _wind_yaw() -> float:
-	var w := traffic.sim.wind_from()
-	return atan2(w.x, w.y)
 
 
 # --- Speed and attitude ---------------------------------------------------------------

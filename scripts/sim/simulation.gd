@@ -4,6 +4,7 @@ extends Node3D
 ## plus the other traffic afloat (MarineTraffic).
 ## One real second = one game minute at 1x speed (Engine.time_scale scales it).
 
+const WIND_DIRECTIONS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 const SEASON_DAYS := 30
 const SEASONS := ["Spring", "Summer", "Autumn", "Winter"]
 const FERRY_NAMES := ["Cedar Star", "Orca Spirit", "Madrona Belle", "Tidewater", "Salish Dawn",
@@ -16,6 +17,7 @@ var minutes := 6.0 * 60.0
 var day := 12
 var terminals := {}             # island id -> Terminal
 var ferries: Array[Ferry] = []
+var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
@@ -36,7 +38,7 @@ func setup(m: MapData, t: Terrain) -> void:
 	map = m
 	terrain = t
 	rng.seed = m.map_seed + 99
-	wind_dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][rng.randi_range(0, 7)]
+	wind_dir = WIND_DIRECTIONS[rng.randi_range(0, WIND_DIRECTIONS.size() - 1)]
 	wind_speed = rng.randi_range(4, 24)
 	weather = ["Partly Cloudy", "Sunny", "Overcast", "Light Breeze"][rng.randi_range(0, 3)]
 	_tide_phase = rng.randf() * TAU
@@ -101,34 +103,17 @@ func _process(delta: float) -> void:
 
 
 func make_vehicle(parent: Node3D = null) -> Vehicle:
-	var v := Vehicle.new()
-	var truck := rng.randf() < 0.12
-	if not Models.mid_cars:
-		var col := rng.randi_range(0, Models.CAR_COLORS.size() - 1)
-		v.setup(Models.truck(col) if truck else Models.car(col), truck)
-	elif truck:
-		var model := Models.pick_weighted(Models.TRUCKS, rng.randf())
-		var rig := model == "rig"
-		if rig:
-			model = Models.pick_weighted(Models.TRACTORS, rng.randf())
-		v.setup(Models.vehicle(model, Models.pick_paint(rng.randf())), true, model, Models.VEHICLE_SCALE)
-		v.speed = 20.0
-		if rig:
-			var trailer := Models.pick_weighted(Models.TRAILERS, rng.randf())
-			v.attach_trailer(trailer, Models.vehicle(trailer, Models.pick_paint(rng.randf())))
-	else:
-		var model := Models.pick_vehicle(rng.randf())
-		v.setup(Models.vehicle(model, Models.pick_paint(rng.randf())), false, model, Models.VEHICLE_SCALE)
-	(parent if parent else traffic).add_child(v)
-	return v
+	var vehicle := VehicleFactory.create(rng)
+	vehicle.moving_traffic = moving_vehicles
+	(parent if parent else traffic).add_child(vehicle)
+	return vehicle
 
 
 func collect_fare(car: Vehicle) -> void:
 	if car.model.is_empty():
 		fares.credit_flat(car.is_truck)
 	else:
-		fares.credit_measured(car.length / Models.VEHICLE_SCALE)
-
+		fares.credit_measured(car.length_metres())
 
 
 func hour() -> float:
@@ -138,34 +123,27 @@ func hour() -> float:
 ## Unit vector (x, z) pointing to where the wind blows from (it is named for that;
 ## -Z is north).
 func wind_from() -> Vector2:
-	var a := CloudLayer.DIRS.find(wind_dir) * TAU / 8.0
+	var a := WIND_DIRECTIONS.find(wind_dir) * TAU / WIND_DIRECTIONS.size()
 	return Vector2(sin(a), -cos(a))
+
+
+## Rotation about Y for animals or vessels facing into the wind (+Z forward).
+func wind_yaw() -> float:
+	var direction := wind_from()
+	return atan2(direction.x, direction.y)
 
 
 ## Commuter-shaped demand: morning and evening peaks, quiet nights.
 func demand_factor() -> float:
-	var h := hour()
-	var f := 0.18 + 1.25 * exp(-pow((h - 7.4) / 1.1, 2.0)) + 1.0 * exp(-pow((h - 17.3) / 1.3, 2.0)) \
-		+ 0.45 * exp(-pow((h - 12.5) / 2.5, 2.0))
-	if h < 5.0 or h > 22.5:
-		f *= 0.3
-	return f
+	return TrafficDemand.factor(hour())
 
 
-## Cars per game minute arriving at an island's terminal.
 func demand_rate(isl: MapData.Island) -> float:
-	return isl.population / 5200.0 * demand_factor()
+	return TrafficDemand.arrivals_per_minute(isl.population, hour())
 
 
 func demand_label(isl: MapData.Island) -> String:
-	var r := demand_rate(isl)
-	if r > 0.9:
-		return "Very High"
-	if r > 0.5:
-		return "High"
-	if r > 0.2:
-		return "Medium"
-	return "Low"
+	return TrafficDemand.label(demand_rate(isl))
 
 
 func satisfaction() -> float:

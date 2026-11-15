@@ -189,8 +189,7 @@ func setup(s: Simulation, d: DayCycle, perches: Array[Perch]) -> void:
 	rng.seed = sim.map.map_seed * 17 + 5
 	_bound = sim.terrain.half_size - 120.0
 	# Perched gulls face into the wind (named for where it blows from; -Z is north).
-	var a: float = CloudLayer.DIRS.find(sim.wind_dir) * TAU / 8.0
-	_wind_yaw = atan2(sin(a), -cos(a))
+	_wind_yaw = sim.wind_yaw()
 	_perches.append_array(perches)
 	for f in sim.ferries:
 		for fp: Array in f.fc.perches:
