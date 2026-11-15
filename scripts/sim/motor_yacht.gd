@@ -486,18 +486,18 @@ func status_text() -> String:
 		State.ARRIVING:
 			return "Berthing at " + marina_name(dest)
 		State.SETTING:
-			return "Dropping anchor " + spot.anchorage.place
+			return "Dropping anchor " + spot.place
 		State.ANCHORED:
-			return "At anchor %s%s" % [spot.anchorage.place, " for the night" if overnight and _leave_at - _now() > 120.0 else ""]
+			return "At anchor %s%s" % [spot.place, " for the night" if overnight and _leave_at - _now() > 120.0 else ""]
 		State.WEIGHING:
 			return "Weighing anchor"
 	if helm and helm.give_way_why != "":
 		return helm.give_way_why
 	var where := ""
 	if state == State.ANCHORING:
-		where = "Coming up to anchor " + spot.anchorage.place
+		where = "Coming up to anchor " + spot.place
 	elif _outbound:
-		where = "Heading for a cove" + spot.anchorage.place.trim_prefix("in a cove")
+		where = "Heading for a cove" + spot.place.trim_prefix("in a cove")
 	elif trip == Trip.RUN and _goals.size() > 1:
 		where = "Out for a run"
 	elif dest == marina:
