@@ -30,6 +30,7 @@ const RAMP_LOWER_AT := 40.0
 var sim: Simulation
 var fc: FerryClass
 var route: MapData.Route
+var fleet_key := ""                 # follows the hull through renames and route changes
 var ferry_name := ""
 var term_a: Terminal
 var term_b: Terminal

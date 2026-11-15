@@ -6,6 +6,7 @@ extends RefCounted
 
 
 class Island:
+	var key := ""                   # durable within this region; shared by its terminal
 	var id := 0
 	var name := ""
 	var center := Vector2.ZERO      # x, z
@@ -190,6 +191,7 @@ class HaulSpot:
 
 
 class Route:
+	var key := ""                   # independent of the runtime array position
 	var id := 0
 	var a := 0      # island id
 	var b := 0
