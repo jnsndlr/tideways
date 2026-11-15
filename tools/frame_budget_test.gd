@@ -13,9 +13,11 @@ extends SceneTree
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tools/frame_budget_test.gd -- --seed=123
 
-# Median frame time over the yardstick. Baseline about 1.9 on main at dff8d09,
-# measured on a cloud Xeon; the budget leaves about a third of headroom.
-const BUDGET := 2.6
+# Median frame time over the yardstick. On main at b0e4c9e the ratio is about
+# 1.65 on the hosted CI runner and about 1.9 on a cloud Xeon (the yardstick
+# evens machines out to within about 15%). The budget leaves the hosted runner
+# about 40% of headroom.
+const BUDGET := 2.3
 const WARM_FRAMES := 300
 const MEASURED_FRAMES := 900
 const YARDSTICK_EVERY := 90
