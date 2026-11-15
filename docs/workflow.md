@@ -6,6 +6,8 @@ These are defaults Paul and Jon can adjust as they learn. On shared main, passin
 
 Jon and Paul can each build a feature on a branch and open a draft PR. During iteration, try the feature in the game or run the one check that answers the immediate question. Use an existing system when it already owns the behavior. For example, the HUD can show a fare computed by the simulation without maintaining its own fare table. Temporary shortcuts are fine on the branch. Identify any that would become a second source of truth if shipped.
 
+Claim a ticket before starting on it. Check that it is unassigned and has no open PR, assign it to the person doing the work (an agent assigns it to the person it is working for) and move it to **In Progress**. If someone else holds it, coordinate on the ticket first. A throwaway prototype can start without a ticket. Claim one before pushing a branch, so the board shows who is in that part of the game.
+
 ## Merge mode
 
 Link any prototype you keep to a Linear ticket before handoff or merge. Either person can finish their own work or hand it off. Put the PR links in merge order on the ticket, explain how to try the change and what the player should experience, move it to **Ready for verification**, and clear the assignee.
