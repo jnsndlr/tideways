@@ -8,4 +8,5 @@ func _initialize() -> void:
 		quit(1)
 		return
 	print("Ferry sizes follow route demand.")
+	print("TEST PASSED")
 	quit(0)

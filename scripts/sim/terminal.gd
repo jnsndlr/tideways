@@ -5,9 +5,25 @@ extends Node3D
 ## off the pier, out through the exit lane and back into town.
 ## The node's transform is the terminal frame (see Layout).
 
+## A holding lane reserves room for vehicles still driving in as well as those queued.
+class Lane:
+	var v: float
+	var queue: Array[Vehicle] = []
+	var enroute := 0
+
+	func _init(offset: float) -> void:
+		v = offset
+
+	func queued_slots() -> int:
+		var count := 0
+		for vehicle in queue:
+			count += vehicle.slots
+		return count
+
+
 var sim: Simulation
 var island: MapData.Island
-var lanes := {}        # route id -> Array of {v: float, queue: Array, enroute: int (slots)}
+var lanes := {}        # route id -> Array[Lane]
 var slip_v := {}       # route id -> lateral offset of that route's slip
 var ferry_for := {}    # route id -> Ferry
 var ramps := {}        # route id -> SlipRamp (none with the classic slip)
@@ -33,9 +49,9 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 			var ramp := SlipRamp.new(slip_v[rid])
 			add_child(ramp)
 			ramps[rid] = ramp
-		var arr: Array = []
+		var arr: Array[Lane] = []
 		for v in lane_sets[i]:
-			arr.append({"v": v, "queue": [], "enroute": 0})
+			arr.append(Lane.new(v))
 		lanes[rid] = arr
 	_build_road_paths()
 
@@ -83,16 +99,8 @@ func queue_position(v: float, ahead: int, car: Vehicle) -> Vector3:
 	return _local(v, mid - car.center_offset)
 
 
-## Slots a lane's queue takes.
-static func _slots_in(queue: Array) -> int:
-	var n := 0
-	for c: Vehicle in queue:
-		n += c.slots
-	return n
-
-
 ## Moves each car in `lane` up to its place in the queue.
-func _close_up(lane: Dictionary) -> void:
+func _close_up(lane: Lane) -> void:
 	var k := 0
 	var ahead: Vehicle = null
 	for c: Vehicle in lane.queue:
@@ -126,11 +134,11 @@ func _pick_route() -> int:
 	return lanes.keys()[0]
 
 
-func _pick_lane(rid: int, need := 1) -> Dictionary:
-	var best := {}
+func _pick_lane(rid: int, need := 1) -> Lane:
+	var best: Lane
 	var best_count := slots_per_lane - need + 1
-	for lane in lanes[rid]:
-		var count: int = _slots_in(lane.queue) + lane.enroute
+	for lane: Lane in lanes[rid]:
+		var count: int = lane.queued_slots() + lane.enroute
 		if count < best_count:
 			best_count = count
 			best = lane
@@ -142,7 +150,7 @@ func _spawn_car() -> void:
 		return
 	var car := sim.make_vehicle()
 	var lane := _pick_lane(_pick_route(), car.slots)
-	if lane.is_empty():
+	if lane == null:
 		turned_recent += 1.0
 		car.queue_free()
 		return
@@ -158,10 +166,10 @@ func _spawn_car() -> void:
 	car.drive(path, _on_car_reached_lot.bind(lane))
 
 
-func _on_car_reached_lot(car: Vehicle, lane: Dictionary) -> void:
+func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
 	lane.enroute -= car.slots
-	var queue: Array = lane.queue
-	var ahead := _slots_in(queue)
+	var queue: Array[Vehicle] = lane.queue
+	var ahead := lane.queued_slots()
 	car.leader = queue.back() if not queue.is_empty() else null
 	queue.append(car)
 	car.lane_v = lane.v
@@ -172,8 +180,8 @@ func _on_car_reached_lot(car: Vehicle, lane: Dictionary) -> void:
 ## Places some already-waiting cars so the lot isn't empty at the start.
 func prefill() -> void:
 	for rid in lanes.keys():
-		for lane in lanes[rid]:
-			var queue: Array = lane.queue
+		for lane: Lane in lanes[rid]:
+			var queue: Array[Vehicle] = lane.queue
 			var want := sim.rng.randi_range(1, slots_per_lane - 2)
 			var k := 0
 			while k < want:
@@ -193,14 +201,14 @@ func prefill() -> void:
 ## Removes the front car of the longest lane for this route whose front car `fits`
 ## (fn(Vehicle) -> bool: room for it on the deck), or null.
 func take_car(rid: int, fits := Callable()) -> Vehicle:
-	var best: Dictionary = {}
-	for lane in lanes[rid]:
-		if lane.queue.size() > 0 and (best.is_empty() or lane.queue.size() > best.queue.size()):
+	var best: Lane
+	for lane: Lane in lanes[rid]:
+		if lane.queue.size() > 0 and (best == null or lane.queue.size() > best.queue.size()):
 			if fits.is_null() or fits.call(lane.queue[0]):
 				best = lane
-	if best.is_empty():
+	if best == null:
 		return null
-	var queue: Array = best.queue
+	var queue: Array[Vehicle] = best.queue
 	var car: Vehicle = queue.pop_front()
 	_close_up(best)
 	avg_wait = lerpf(avg_wait, sim.minutes - car.lot_arrival, 0.1)
@@ -245,7 +253,7 @@ func exit_path(rid: int) -> PackedVector3Array:
 
 func queued_for(rid: int) -> int:
 	var total := 0
-	for lane in lanes[rid]:
+	for lane: Lane in lanes[rid]:
 		total += lane.queue.size()
 	return total
 

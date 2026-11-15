@@ -38,8 +38,7 @@ var _info_grid: GridContainer
 var _info_button: Button
 var _terminal_bar: PanelContainer
 var _tb := {}
-var _fleet_panel: PanelContainer
-var _fleet_list: VBoxContainer
+var _fleet_panel: FleetPanel
 var _wild_panel: PanelContainer
 var _wild_list: VBoxContainer
 var _wild_islands: Label
@@ -248,7 +247,7 @@ func _on_sidebar(id: String) -> void:
 		"fleet":
 			_fleet_panel.visible = not _fleet_panel.visible
 			_wild_panel.visible = false
-			_rebuild_fleet()
+			_fleet_panel.refresh(sim.ferries)
 		"wildlife":
 			_wild_panel.visible = not _wild_panel.visible
 			_fleet_panel.visible = false
@@ -641,33 +640,10 @@ func _update_terminal_bar(term: Terminal) -> void:
 # --- Fleet list ---------------------------------------------------------------------
 
 func _build_fleet_panel() -> void:
-	_fleet_panel = PanelContainer.new()
-	_fleet_panel.position = Vector2(132, 112)
-	_fleet_panel.custom_minimum_size = Vector2(320, 0)
+	_fleet_panel = FleetPanel.new()
 	root.add_child(_fleet_panel)
-	var v := VBoxContainer.new()
-	_fleet_panel.add_child(v)
-	v.add_child(_label("FLEET", 13, MUTED, true))
-	_fleet_list = VBoxContainer.new()
-	v.add_child(_fleet_list)
-	_fleet_panel.visible = false
-
-
-func _rebuild_fleet() -> void:
-	if _fleet_list.get_child_count() != sim.ferries.size():
-		for c in _fleet_list.get_children():
-			_fleet_list.remove_child(c)
-			c.queue_free()
-		for f in sim.ferries:
-			var b := Button.new()
-			b.focus_mode = Control.FOCUS_NONE
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.add_theme_font_size_override("font_size", 13)
-			b.pressed.connect(select_ferry.bind(f))
-			_fleet_list.add_child(b)
-	for i in sim.ferries.size():
-		var f := sim.ferries[i]
-		(_fleet_list.get_child(i) as Button).text = "%s  ·  %d/%d  ·  %s" % [f.ferry_name, f.load_count(), f.fc.capacity, f.status_text()]
+	_fleet_panel.setup(_label("FLEET", 13, MUTED, true))
+	_fleet_panel.ferry_selected.connect(select_ferry)
 
 
 # --- Wildlife ----------------------------------------------------------------------
@@ -986,6 +962,6 @@ func _process(delta: float) -> void:
 	_stat["time"].text = sim.clock_text()
 	_refresh_panels()
 	if _fleet_panel.visible:
-		_rebuild_fleet()
+		_fleet_panel.refresh(sim.ferries)
 	if _wild_panel.visible:
 		_rebuild_wildlife()

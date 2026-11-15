@@ -1,5 +1,7 @@
 extends SceneTree
-## Exercise the actual menu and HUD control bindings, with a fixed Sandbox map.
+## Exercise the menu and ferry inspector with the project's normal canvas scaling.
+
+const LANDSCAPE_SIZES := [Vector2i(1366, 1024), Vector2i(1133, 744)]
 
 
 func _initialize() -> void:
@@ -7,12 +9,35 @@ func _initialize() -> void:
 
 
 func press(label: String, prefix := false) -> bool:
+	# Fleet rows and inspector controls are laid out after their panel is shown.
+	await process_frame
+	await process_frame
 	for button: Button in current_scene.find_children("*", "Button", true, false):
-		if button.is_visible_in_tree() and (button.text == label or (prefix and button.text.begins_with(label))):
-			button.pressed.emit()
-			return true
-	push_error("Missing visible button: " + label)
-	return false
+		if not button.is_visible_in_tree():
+			continue
+		if button.text != label and not (prefix and button.text.begins_with(label)):
+			continue
+		return click_control(button, button.size * 0.5, label)
+	return fail("Missing visible button: " + label)
+
+
+func click_control(control: Control, local_point: Vector2, label: String) -> bool:
+	var point := control.get_global_transform_with_canvas() * local_point
+	if not root.get_visible_rect().has_point(point):
+		return fail("%s is outside the viewport at %s" % [label, point])
+	var move := InputEventMouseMotion.new()
+	move.position = point
+	root.push_input(move, true)
+	var hit := root.gui_get_hovered_control()
+	if hit != control and (hit == null or not control.is_ancestor_of(hit)):
+		return fail("%s at %s is blocked by %s" % [label, point, hit.get_path() if hit else "no control"])
+	for down: bool in [true, false]:
+		var click := InputEventMouseButton.new()
+		click.position = point
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = down
+		root.push_input(click, true)
+	return true
 
 
 func key(code: Key) -> void:
@@ -25,42 +50,80 @@ func key(code: Key) -> void:
 	root.push_input(event)
 
 
-func check(ok: bool, message: String) -> bool:
-	if not ok:
-		push_error(message)
-		quit(1)
-	return ok
+func fail(message: String) -> bool:
+	push_error("Ferry UI at %s: %s" % [root.size, message])
+	return false
 
 
 func run() -> void:
 	preload("res://scripts/sandbox.gd").map_seed = 123
+	for size: Vector2i in LANDSCAPE_SIZES:
+		root.size = size
+		if not await exercise_layout():
+			quit(1)
+			return
+		print("Fleet UI passed at %s, game canvas %s." % [root.size, root.get_visible_rect().size])
+	print("TEST PASSED")
+	quit(0)
+
+
+func exercise_layout() -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
-	if not check(press("Sandbox"), "Could not open Sandbox"):
-		return
+	if not await press("Sandbox"):
+		return false
 	# Bound scene transitions even if the control is disconnected.
 	for i in 4:
 		await process_frame
-	if not check(current_scene != null and current_scene.scene_file_path == Scenes.SANDBOX, "Sandbox button did not navigate"):
-		return
+	if current_scene == null or current_scene.scene_file_path != Scenes.SANDBOX:
+		return fail("Sandbox button did not navigate")
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
-	if not check(press("FLEET") and press(boat.ferry_name, true), "Could not select first ferry via fleet"):
-		return
-	if not check(hud._info_panel.visible and hud._info_title.text == boat.ferry_name.to_upper() and hud.rig.follow == boat, "Wrong ferry inspector or follow target"):
-		return
-	if not check(press("Stop following") and hud.rig.follow == null and press("Follow") and hud.rig.follow == boat, "Follow button did not toggle"):
-		return
+	if not await press("FLEET") or not await press(boat.ferry_name, true):
+		return false
+	if not hud._info_panel.visible or hud._info_title.text != boat.ferry_name.to_upper() or hud.rig.follow != boat:
+		return fail("Wrong ferry inspector or follow target")
+	if not await press("Stop following"):
+		return false
+	if hud.rig.follow != null:
+		return fail("Stop following left the camera locked")
+	if not await press("Follow"):
+		return false
+	if hud.rig.follow != boat:
+		return fail("Follow did not restore the camera target")
 	key(KEY_ESCAPE)
-	if not check(hud.selected_ferry == null and hud.rig.follow == null and not hud._info_panel.visible, "Escape left stale ferry selection"):
-		return
-	key(KEY_3)
-	if not check(Engine.time_scale > 1.0, "Speed control did not accelerate"):
-		return
+	if hud.selected_ferry != null or hud.rig.follow != null or hud._info_panel.visible:
+		return fail("Escape left stale selection")
+	if not await exercise_map_controls(hud):
+		return false
+	if not await press("▶▶▶"):
+		return false
+	if Engine.time_scale <= 1.0:
+		return fail("Speed control did not accelerate")
 	key(KEY_M)
 	for i in 4:
 		await process_frame
-	if not check(current_scene != null and current_scene.scene_file_path == Scenes.MENU and Engine.time_scale == 1.0, "Return to menu or speed reset failed"):
-		return
-	print("Fleet selection, camera follow, clearing selection and return to menu passed.")
-	quit(0)
+	if current_scene == null or current_scene.scene_file_path != Scenes.MENU or Engine.time_scale != 1.0:
+		return fail("Return to menu or speed reset failed")
+	return true
+
+
+func exercise_map_controls(hud: Hud) -> bool:
+	if not await press("WILDLIFE") or not await press("● ", true):
+		return false
+	if hud.rig.follow == null or hud.selected_ferry != null:
+		return fail("Active sighting did not switch the camera to wildlife")
+	var target := hud._minimap_rect
+	if not click_control(target, target.size * Vector2(0.75, 0.25), "Minimap"):
+		return false
+	var half_size := float(hud.map.half_size)
+	var expected := Vector3(half_size * 0.5, 0, -half_size * 0.5)
+	if hud.rig.follow != null or not hud.rig.target_pos.is_equal_approx(expected):
+		return fail("Minimap did not center the camera on the chosen location")
+	if not await press("MAP") or not hud.rig.target_pos.is_zero_approx():
+		return fail("Map overview did not recenter the camera")
+	if not await press("ROUTES") or not hud.routes_forced:
+		return fail("Routes control did not enable the overlay")
+	if not await press("ROUTES") or hud.routes_forced:
+		return fail("Routes control did not restore automatic visibility")
+	return true

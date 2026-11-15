@@ -25,8 +25,8 @@ const MAX_HOLD := 4.0
 ## behind: traffic on the same road, whoever sent it.
 const SAME_WAY := 0.7
 
-## Every vehicle under way (each looks for one ahead of it among these).
-static var _moving: Array[Vehicle] = []
+## Vehicles under way in the same simulation. Shared before entering the scene tree.
+var moving_traffic: Array[Vehicle] = []
 
 var path := PackedVector3Array()
 var speed := 24.0
@@ -53,6 +53,11 @@ var _g_tail := Vector3.ZERO
 var _g_fwd := Vector3.FORWARD
 var _held := 0.0               # seconds held up behind traffic
 var _creep := 0.0              # seconds left edging on regardless
+
+
+## Real bumper-to-bumper metres for a model-backed vehicle, including a trailer.
+func length_metres() -> float:
+	return length / Models.VEHICLE_SCALE
 
 
 func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGACY_SCALE) -> void:
@@ -203,7 +208,7 @@ func _room_ahead() -> float:
 		else:
 			leader = null
 	var reach := room if room < INF else 60.0
-	for o in _moving:
+	for o in moving_traffic:
 		if o == self or o == leader or o._g_fwd.dot(_g_fwd) < SAME_WAY:
 			continue
 		var d := o._g_tail - _g_front
@@ -219,12 +224,12 @@ func _set_moving(on: bool) -> void:
 
 
 func _list(on: bool) -> void:
-	var i := _moving.find(self)
+	var i := moving_traffic.find(self)
 	if on and i < 0:
 		_cache_ends()
-		_moving.append(self)
+		moving_traffic.append(self)
 	elif not on and i >= 0:
-		_moving.remove_at(i)
+		moving_traffic.remove_at(i)
 
 
 # (Reparenting takes it out of the tree and back.)
