@@ -97,6 +97,7 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 	isl.forest = spec.forest
 	isl.fields = spec.fields
 	isl.mainland_port = spec.mainland
+	isl.ferry = spec.ferry
 	isl.manual_dock = spec.dock
 	isl.manual_at = Vector2(spec.dock_x, spec.dock_z)
 	isl.manual_dir = Vector2.from_angle(deg_to_rad(spec.dock_angle))
@@ -273,7 +274,10 @@ static func _find(parent: Array, i: int) -> int:
 ## banned and the network planned again without it, so the docks face the links
 ## that remain.
 func _plan_routes() -> void:
-	var mains := _main_islands()
+	var mains: Array[MapData.Island] = []
+	for isl in _main_islands():
+		if isl.ferry:
+			mains.append(isl)
 	var banned := {}
 	while true:
 		var bad := _try_routes(mains, banned)

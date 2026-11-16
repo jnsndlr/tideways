@@ -38,6 +38,7 @@ class Island:
 	var slips: Array[int] = []      # route ids, ordered left → right along lateral()
 	var lot_half_width := 36.0
 	# Placed by hand in the layout: used as given instead of searching the coast.
+	var ferry := true               # may get a terminal at all
 	var manual_dock := false
 	var manual_at := Vector2.ZERO
 	var manual_dir := Vector2.RIGHT

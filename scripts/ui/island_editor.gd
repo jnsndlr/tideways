@@ -56,6 +56,8 @@ var _timer: Timer
 var _rng := RandomNumberGenerator.new()
 var _dock_info: Label
 var _dock_btn: Button
+var _auto_btn: Button
+var _ferry: CheckBox
 var _facing: HSlider
 var _facing_val: Label
 var _placing := false
@@ -368,6 +370,16 @@ func _on_ground_clicked(screen: Vector2) -> void:
 
 func _build_dock_section(v: VBoxContainer) -> void:
 	v.add_child(_label("FERRY DOCK", 12, Hud.ACCENT))
+	_ferry = CheckBox.new()
+	_ferry.text = "Ferry terminal"
+	_ferry.tooltip_text = "Off: no dock or routes here until one is built in game."
+	_ferry.toggled.connect(func(on):
+		if _syncing:
+			return
+		_spec().ferry = on
+		_set_placing(false)
+		_dock_changed())
+	v.add_child(_ferry)
 	_dock_info = _label("", 12, Hud.MUTED)
 	_dock_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(_dock_info)
@@ -391,13 +403,22 @@ func _build_dock_section(v: VBoxContainer) -> void:
 	row.add_child(_facing_val)
 	v.add_child(row)
 	_dock_btn = _button("📍 Place dock", func(): _set_placing(not _placing))
-	_row_buttons(v, [["Auto", _auto_dock]], [_dock_btn])
+	_auto_btn = _button("Auto", _auto_dock)
+	_row_buttons(v, [], [_auto_btn, _dock_btn])
 	_dock_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 
 func _sync_dock() -> void:
 	var s := _spec()
-	_facing.editable = s.dock
+	_ferry.button_pressed = s.ferry
+	_dock_btn.disabled = not s.ferry
+	_auto_btn.disabled = not s.ferry
+	_facing.editable = s.ferry and s.dock
+	if not s.ferry:
+		_facing_val.text = "—"
+		_dock_info.text = "No ferry terminal: no dock or routes here. Apply to rebuild."
+		_update_marker()
+		return
 	_facing.value = s.dock_angle
 	_facing_val.text = "%d°" % int(s.dock_angle) if s.dock else "auto"
 	if s.dock:
@@ -470,8 +491,8 @@ func _build_marker() -> void:
 
 func _update_marker() -> void:
 	var s := _spec()
-	_marker.visible = is_open() and s.dock
-	if not s.dock:
+	_marker.visible = is_open() and s.dock and s.ferry
+	if not _marker.visible:
 		return
 	var dir := Vector2.from_angle(deg_to_rad(s.dock_angle))
 	var shore := MapGenerator.snap_shore(main.terrain, Vector2(s.dock_x, s.dock_z), dir)
