@@ -87,7 +87,8 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	wildlife.name = "Wildlife"
 	add_child(wildlife)
 	wildlife.setup(self)
-	marine = MarineTraffic.new()
+	if marine == null:
+		marine = MarineTraffic.new()
 	add_child(marine)
 	marine.setup(self)
 

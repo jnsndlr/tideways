@@ -141,17 +141,14 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 			mm.use_colors = not colors.is_empty()
 			mm.mesh = m
 			mm.instance_count = idx.size()
-			for j in idx.size():
-				mm.set_instance_transform(j, xforms[idx[j]])
-				if mm.use_colors:
-					mm.set_instance_color(j, colors[idx[j]])
+			fill_multimesh(mm, xforms, colors, idx)
 			return mm
 		var base := "%s_%d_%d" % [node_name, key.x, key.y]
 		for l in levels.size():
 			var lv: Array = levels[l]
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = make.call(lv[0])
-			Models.dither_lod(mmi, lv[0], lv[1], lv[2], _tile_slack(mmi.multimesh, idx, xforms), lv[3] if lv.size() > 3 else Vector3.ONE)
+			Models.dither_lod(mmi, lv[0], lv[1], lv[2], tile_slack(lv[0], idx, xforms), lv[3] if lv.size() > 3 else Vector3.ONE)
 			mmi.name = base if l == 0 else "%s_lod%d" % [base, l]
 			group.add_child(mmi)
 			if not variant.is_empty() and (levels.size() > 1 or levels[0][0] != variant[0]):
@@ -173,8 +170,34 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 
 ## How far from the middle of a tile's bounds (which its visibility range is measured
 ## from) any of its trees stands.
-static func _tile_slack(mm: MultiMesh, idx: Array, xforms: Array[Transform3D]) -> float:
-	var c := mm.get_aabb().get_center()
+## Fills `mm` (instance_count already set) with xforms[idx[j]] (and colors[idx[j]]
+## when it uses colours) in one buffer upload rather than a renderer call per
+## instance: from the loading screen's worker thread each of those calls syncs
+## with the renderer.
+static func fill_multimesh(mm: MultiMesh, xforms: Array[Transform3D], colors: Array[Color], idx: Array) -> void:
+	var stride := 16 if mm.use_colors else 12
+	var buf := PackedFloat32Array()
+	buf.resize(idx.size() * stride)
+	for j in idx.size():
+		var t: Transform3D = xforms[idx[j]]
+		var o := j * stride
+		buf[o] = t.basis.x.x; buf[o + 1] = t.basis.y.x; buf[o + 2] = t.basis.z.x; buf[o + 3] = t.origin.x
+		buf[o + 4] = t.basis.x.y; buf[o + 5] = t.basis.y.y; buf[o + 6] = t.basis.z.y; buf[o + 7] = t.origin.y
+		buf[o + 8] = t.basis.x.z; buf[o + 9] = t.basis.y.z; buf[o + 10] = t.basis.z.z; buf[o + 11] = t.origin.z
+		if mm.use_colors:
+			var c: Color = colors[idx[j]]
+			buf[o + 12] = c.r; buf[o + 13] = c.g; buf[o + 14] = c.b; buf[o + 15] = c.a
+	mm.buffer = buf
+
+
+## Bounds are worked out here rather than asked of the MultiMesh: get_aabb() waits
+## on the renderer, a frame at a time when called from a worker thread.
+static func tile_slack(mesh: Mesh, idx: Array, xforms: Array[Transform3D]) -> float:
+	var local := mesh.get_aabb()
+	var box := xforms[idx[0]] * local
+	for i: int in idx:
+		box = box.merge(xforms[i] * local)
+	var c := box.get_center()
 	var r := 0.0
 	for i: int in idx:
 		r = maxf(r, xforms[i].origin.distance_to(c))

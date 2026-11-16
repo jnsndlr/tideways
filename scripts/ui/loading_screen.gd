@@ -21,6 +21,11 @@ const ACCENT := Color(0.47, 0.86, 0.6)
 const MIN_TIME := 0.6
 const CROSSING_SPEED := 1.2
 const FADE_TIME := 0.45
+## Share of the crossing for reading the scene file; the world build gets the rest.
+const FILE_SHARE := 0.04
+## Within a stage of unknown length the ferry eases toward the stage's end at this
+## rate (per second, exponential), so it never stops but never overshoots.
+const CREEP_RATE := 0.45
 
 const TIPS := [
 	"The islands wake early. So do the ferries.",
@@ -35,9 +40,12 @@ enum Phase { LOADING, ENTERING, FADING }
 var _path := ""
 var _phase := Phase.LOADING
 var _t := 0.0
-var _target := 0.0
+## The ferry eases toward _ceiling and never falls behind _floor.
+var _floor := 0.0
+var _ceiling := 0.0
 var _shown := 0.0
 var _frames := 0
+var _scene: Node
 var _stars: Array[Vector3] = []
 var _caption: Label
 
@@ -110,10 +118,16 @@ func _process(delta: float) -> void:
 		Phase.LOADING:
 			var progress := []
 			var status := ResourceLoader.load_threaded_get_status(_path, progress)
+			_ceiling = FILE_SHARE
 			if not progress.is_empty():
-				_target = progress[0] * 0.7
+				_floor = progress[0] * FILE_SHARE
 			if status == ResourceLoader.THREAD_LOAD_LOADED and _t > MIN_TIME:
-				get_tree().change_scene_to_packed(ResourceLoader.load_threaded_get(_path))
+				var packed: PackedScene = ResourceLoader.load_threaded_get(_path)
+				_scene = packed.instantiate()
+				# Scenes that can build over several frames (sandbox.gd) report their stages.
+				if "async_build" in _scene:
+					_scene.async_build = true
+				get_tree().change_scene_to_node(_scene)
 				_enter()
 			elif status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
 				push_error("Loading %s failed; falling back to a blocking load." % _path)
@@ -121,8 +135,14 @@ func _process(delta: float) -> void:
 				_enter()
 		Phase.ENTERING:
 			_frames += 1
-			if _frames >= 3:
-				_target = 1.0
+			var done := _frames >= 3
+			if is_instance_valid(_scene) and "built" in _scene:
+				_floor = _share(_scene.build_from)
+				_ceiling = _share(_scene.build_to)
+				done = _scene.built and _frames >= 3
+			if done:
+				_floor = 1.0
+				_ceiling = 1.0
 				if _shown >= 0.999:
 					_phase = Phase.FADING
 					mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -130,14 +150,23 @@ func _process(delta: float) -> void:
 			modulate.a -= d / FADE_TIME
 			if modulate.a <= 0.0:
 				get_parent().queue_free()
-	_shown = move_toward(_shown, _target, d * CROSSING_SPEED)
+	# Creep toward the end of the current stage, never quite reaching it; catch up
+	# at crossing speed when a stage finishes.
+	var aim := maxf(_floor, _shown + (_ceiling - _shown) * (1.0 - exp(-d * CREEP_RATE)))
+	_shown = move_toward(_shown, aim, d * CROSSING_SPEED)
 	queue_redraw()
 
 
 func _enter() -> void:
 	_phase = Phase.ENTERING
-	_target = 0.85
 	_frames = 0
+	_floor = FILE_SHARE
+	_ceiling = 0.9
+
+
+## A share of the world build as a share of the whole crossing.
+func _share(build: float) -> float:
+	return lerpf(FILE_SHARE, 1.0, build)
 
 
 # --- Illustration -------------------------------------------------------------

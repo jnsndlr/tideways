@@ -29,7 +29,7 @@ func _generate(gen: MapGenerator) -> MapData:
 
 
 func _ready() -> void:
-	super._ready()
+	await super._ready()
 	editor = IslandEditor.new()
 	add_child(editor)
 	editor.setup(self)
