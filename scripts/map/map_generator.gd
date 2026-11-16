@@ -64,6 +64,7 @@ func generate_from(layout: MapLayout) -> MapData:
 func _new_island(center: Vector2, radius: float, strength: float, inhabited: bool) -> MapData.Island:
 	var isl := MapData.Island.new()
 	isl.id = map.islands.size()
+	isl.key = "island-%d" % isl.id
 	isl.center = center
 	isl.radius = radius
 	isl.strength = strength
@@ -355,6 +356,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		var r := MapData.Route.new()
 		r.id = map.routes.size()
+		r.key = "link-%s-%s" % [a.key, b.key]
 		r.a = a.id
 		r.b = b.id
 		r.curve = test
@@ -371,6 +373,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		var lat := isl.lateral()
 		isl.slips.sort_custom(func(ra, rb): return _departure_lateral(isl, ra, lat) < _departure_lateral(isl, rb, lat))
+		isl.lane_extension_price = 150
+		isl.construction_staging_lanes = 2 if isl.slips.size() > 1 else 1
 		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
 		var last := isl.slips.size() - 1
 		for i in isl.slips.size():
@@ -902,7 +906,7 @@ func _flatten_terminals() -> void:
 			continue
 		var hw := isl.lot_half_width
 		terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - 6.0, Layout.LOT_FRONT + 3.0,
-			-hw - 4.5, hw + 33.0, Layout.LOT_Y - 0.15, 21.0)
+			-hw - Layout.LANE_WIDTH - 4.5, hw + 33.0, Layout.LOT_Y - 0.15, 21.0)
 	terrain.apply_flats()
 
 

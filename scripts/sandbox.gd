@@ -68,8 +68,13 @@ func _ready() -> void:
 	sim.name = "Simulation"
 	add_child(sim)
 	sim.setup(map, terrain)
+	for terminal: Terminal in sim.terminals.values():
+		if terminal.island.lane_extension_price > 0:
+			var extension := HoldingLaneView.new()
+			terminal.add_child(extension)
+			extension.setup(terminal)
 	clouds = CloudLayer.new()
-	clouds.setup(sim.weather, sim.wind_dir, sim.wind_speed)
+	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
 	var backdrop := Backdrop.new()
 	add_child(backdrop)

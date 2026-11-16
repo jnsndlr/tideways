@@ -1,3 +1,11 @@
 .godot/
 *.import
 .DS_Store
+
+# Local release products and signing material
+/exports/
+*.xcarchive/
+*.ipa
+*.p8
+*.p12
+*.mobileprovision

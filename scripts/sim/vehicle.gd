@@ -25,8 +25,8 @@ const MAX_HOLD := 4.0
 ## behind: traffic on the same road, whoever sent it.
 const SAME_WAY := 0.7
 
-## Every vehicle under way (each looks for one ahead of it among these).
-static var _moving: Array[Vehicle] = []
+## Vehicles under way in the same simulation. Shared before entering the scene tree.
+var moving_traffic: Array[Vehicle] = []
 
 var path := PackedVector3Array()
 var speed := 24.0
@@ -45,6 +45,7 @@ var _hitch := Vector3.ZERO     # the fifth wheel, in the tractor's frame (model 
 var _trailer_axle := Vector3.ZERO  # the trailer's axle centre, in the parent's space
 var _trailer_reach := 0.0          # fifth wheel to that, in the parent's space
 var _on_arrive := Callable()
+var _parking_yaw := NAN
 ## The vehicle it follows (the one sent off just before it, or the one ahead in its
 ## queue): while that is on the move it holds back behind its tail.
 var leader: Vehicle
@@ -53,6 +54,11 @@ var _g_tail := Vector3.ZERO
 var _g_fwd := Vector3.FORWARD
 var _held := 0.0               # seconds held up behind traffic
 var _creep := 0.0              # seconds left edging on regardless
+
+
+## Real bumper-to-bumper metres for a model-backed vehicle, including a trailer.
+func length_metres() -> float:
+	return length / Models.VEHICLE_SCALE
 
 
 func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGACY_SCALE) -> void:
@@ -142,12 +148,27 @@ func _ready() -> void:
 
 
 func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0.0) -> void:
+	_parking_yaw = NAN
 	path = _round_corners(points)
 	_on_arrive = on_arrive
 	delay = start_delay
 	if trailer:
 		_reset_trailer()
 	_set_moving(not path.is_empty())
+
+
+## The final straight maneuver into a reserved holding lane. Long trailers need
+## to settle parallel to the lane even when the turn into a busy lot was tight.
+func park_in_lane(spot: Vector3, heading: float) -> void:
+	drive(PackedVector3Array([spot]))
+	_parking_yaw = heading
+
+
+func _align_in_lane(weight: float) -> void:
+	rotation.y = lerp_angle(rotation.y, _parking_yaw, weight)
+	if trailer:
+		trailer.rotation.y = lerp_angle(trailer.rotation.y, 0.0, weight)
+		_reset_trailer()
 
 
 ## The global point at the front of the bumper.
@@ -203,7 +224,7 @@ func _room_ahead() -> float:
 		else:
 			leader = null
 	var reach := room if room < INF else 60.0
-	for o in _moving:
+	for o in moving_traffic:
 		if o == self or o == leader or o._g_fwd.dot(_g_fwd) < SAME_WAY:
 			continue
 		var d := o._g_tail - _g_front
@@ -219,12 +240,12 @@ func _set_moving(on: bool) -> void:
 
 
 func _list(on: bool) -> void:
-	var i := _moving.find(self)
+	var i := moving_traffic.find(self)
 	if on and i < 0:
 		_cache_ends()
-		_moving.append(self)
+		moving_traffic.append(self)
 	elif not on and i >= 0:
-		_moving.remove_at(i)
+		moving_traffic.remove_at(i)
 
 
 # (Reparenting takes it out of the tree and back.)
@@ -287,6 +308,7 @@ func _process(delta: float) -> void:
 			_held = 0.0
 			_creep = 1.0
 		step = minf(step, room)
+	var parking_weight := 0.0
 	while step > 0.0 and not path.is_empty():
 		var target := path[0]
 		var to := target - position
@@ -296,6 +318,9 @@ func _process(delta: float) -> void:
 			step -= dist
 			path.remove_at(0)
 			if path.is_empty():
+				if not is_nan(_parking_yaw):
+					_align_in_lane(1.0)
+					_parking_yaw = NAN
 				_set_moving(false)  # before the callback, which may drive() again
 				var cb := _on_arrive
 				_on_arrive = Callable()
@@ -304,10 +329,15 @@ func _process(delta: float) -> void:
 				return
 		else:
 			var dir := to / dist
+			if not is_nan(_parking_yaw):
+				# Blend toward the parking pose as the remaining approach is driven.
+				parking_weight = step / dist
 			position += dir * step
 			step = 0.0
 			if dir.x * dir.x + dir.z * dir.z > 0.0001:
 				rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), minf(1.0, delta * 12.0))
 	if trailer:
 		_drag_trailer()
+	if parking_weight > 0.0:
+		_align_in_lane(parking_weight)
 	_cache_ends()

@@ -30,6 +30,7 @@ const RAMP_LOWER_AT := 40.0
 var sim: Simulation
 var fc: FerryClass
 var route: MapData.Route
+var fleet_key := ""                 # follows the hull through renames and route changes
 var ferry_name := ""
 var term_a: Terminal
 var term_b: Terminal
@@ -42,7 +43,7 @@ var _net_wind := Vector2.ZERO
 var traveled := 0.0      # how far the hull's centre has come, dock to dock
 var trips := 0
 var aboard: Array[Vehicle] = []
-var _slots: Array[Vehicle] = []
+var deck: FerryDeck
 var _boarding := 0
 var _unload_queue: Array[Vehicle] = []
 var _dispatch_timer := 0.0
@@ -90,9 +91,7 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	wake = WakeTrail.new(fc.half_length, 8.0 * fc.half_length / 15.0, 24.0, 46)
 	term_a = sim.terminals[r.a]
 	term_b = sim.terminals[r.b]
-	term_a.ferry_for[r.id] = self
-	term_b.ferry_for[r.id] = self
-	_slots.resize(fc.lanes * fc.rows)
+	deck = FerryDeck.new(fc)
 	hull = MeshInstance3D.new()
 	hull.mesh = Models.ferry(fc)
 	# Fixes which of its rooms are lit (lit_vc.gdshader); the origin would change every frame.
@@ -245,40 +244,12 @@ func _arc_path(x: float, z0: float, z1: float) -> PackedVector3Array:
 
 
 ## The slots of `car`'s run from `slot`, going back toward the end it boards from.
-func _run(slot: int, car: Vehicle) -> PackedInt32Array:
-	var out := PackedInt32Array()
-	var step := fc.lanes if at_a else -fc.lanes
-	for k in car.slots:
-		out.append(slot + k * step)
-	return out
-
-
 func _take_slots(slot: int, car: Vehicle) -> void:
-	for i in _run(slot, car):
-		_slots[i] = car
+	deck.reserve(slot, car.slots, at_a, car.get_instance_id())
 
 
-## Fills from the far end first so cars drive in past the ones already parked, and
-## sends trucks and high-roofed vans to the lanes with the headroom (cars to the
-## others) while there's room there. A long vehicle needs a run of free rows in one
-## lane. -1 if there's no room for `car`.
 func _free_slot(car: Vehicle) -> int:
-	var fallback := -1
-	for r in fc.rows - car.slots + 1:
-		var row := r if at_a else fc.rows - 1 - r
-		for c in fc.lanes:
-			var idx := row * fc.lanes + c
-			var free := true
-			for i in _run(idx, car):
-				if _slots[i] != null or fc.blocked.has(i):
-					free = false
-					break
-			if free:
-				if fc.lane_suits(c, car.is_tall):
-					return idx
-				if fallback < 0:
-					fallback = idx
-	return fallback
+	return deck.find_space(car.slots, car.is_tall, at_a)
 
 
 func _process(delta: float) -> void:
@@ -317,7 +288,7 @@ func _begin_unloading() -> void:
 	var exit_sign := -1.0 if at_a else 1.0
 	_unload_queue.sort_custom(func(a: Vehicle, b: Vehicle): return a.position.z * exit_sign > b.position.z * exit_sign)
 	aboard.clear()
-	_slots.fill(null)
+	deck.clear()
 
 
 func _tick_unloading(delta: float) -> void:
@@ -431,12 +402,13 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 			# Into a wing lane: in through the apron's opening, then out round the fork's end.
 			path.append(to_global(Vector3(local.x, Layout.DECK_Y, signf(entry_z) * fc.turn_z)))
 	path.append(to_global(local))
-	_send(car, path, _on_boarded.bind(park))
+	_send(car, path, _on_boarded.bind(park, term))
 	sim.collect_fare(car)
 
 
-func _on_boarded(car: Vehicle, park: Transform3D) -> void:
+func _on_boarded(car: Vehicle, park: Transform3D, term: Terminal) -> void:
 	car.reparent(self)
+	term.finish_boarding(car)
 	_set_parked(car, park)
 	aboard.append(car)
 	_boarding -= 1

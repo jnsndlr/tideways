@@ -9,7 +9,6 @@ const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
 const SPEEDS := [0.0, 1.0, 3.0, 8.0]
-const SPEED_LABELS := ["❚❚", "▶", "▶▶", "▶▶▶"]
 const WILD := Color(0.98, 0.78, 0.42)
 
 var main: Node
@@ -35,11 +34,11 @@ var _info_panel: PanelContainer
 var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
+var _lane_button := Button.new()
 var _info_button: Button
 var _terminal_bar: PanelContainer
 var _tb := {}
-var _fleet_panel: PanelContainer
-var _fleet_list: VBoxContainer
+var _fleet_panel: FleetPanel
 var _wild_panel: PanelContainer
 var _wild_list: VBoxContainer
 var _wild_islands: Label
@@ -198,11 +197,20 @@ func _build_top_bar() -> void:
 	var speeds := HBoxContainer.new()
 	for i in SPEEDS.size():
 		var b := Button.new()
-		b.text = SPEED_LABELS[i]
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(40, 26)
+		b.tooltip_text = "Pause" if i == 0 else "Speed %d" % i
 		b.pressed.connect(set_speed.bind(i))
+		# Drawn rather than typed: iPad's system fonts lack the ❚❚ / ▶ glyphs.
+		var icon := Control.new()
+		icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.draw.connect(_draw_speed_icon.bind(icon, b, i))
+		b.add_child(icon)
+		b.toggled.connect(func(_on: bool) -> void: icon.queue_redraw())
+		b.mouse_entered.connect(icon.queue_redraw)
+		b.mouse_exited.connect(icon.queue_redraw)
 		speeds.add_child(b)
 		_speed_buttons.append(b)
 	clock.add_child(speeds)
@@ -230,8 +238,11 @@ func _build_sidebar() -> void:
 
 
 func _build_help() -> void:
-	var l := _label("Drag: pan · Right-drag / Q E: rotate & tilt · Wheel / pinch: zoom · Click: select (or photograph wildlife)\n" +
-		"Space: pause · 1-3: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock", 12, Color(1, 1, 1, 0.75))
+	var text := "Drag: pan · Right-drag / Q E: rotate & tilt · Wheel / pinch: zoom · Click: select (or photograph wildlife)\n" + \
+		"Space: pause · 1-3: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock"
+	if DisplayServer.is_touchscreen_available() and OS.has_feature("mobile"):
+		text = "Drag: pan · Two fingers: pinch to zoom, twist to rotate · Three fingers up/down: tilt · Tap: select"
+	var l := _label(text, 12, Color(1, 1, 1, 0.75))
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
 	l.add_theme_constant_override("shadow_offset_y", 1)
 	l.anchor_top = 1.0
@@ -248,7 +259,7 @@ func _on_sidebar(id: String) -> void:
 		"fleet":
 			_fleet_panel.visible = not _fleet_panel.visible
 			_wild_panel.visible = false
-			_rebuild_fleet()
+			_fleet_panel.refresh(sim.ferries)
 		"wildlife":
 			_wild_panel.visible = not _wild_panel.visible
 			_fleet_panel.visible = false
@@ -260,6 +271,23 @@ func _on_sidebar(id: String) -> void:
 			rig.focus_on(Vector3.ZERO, 1680.0)
 		_:
 			show_toast(id.to_upper(), "Coming soon: this screen is a placeholder in the preview.")
+
+
+func _draw_speed_icon(icon: Control, b: Button, i: int) -> void:
+	var col := ACCENT if b.button_pressed else (Color.WHITE if b.is_hovered() else TEXT)
+	var c := icon.size * 0.5
+	var h := 11.0
+	if i == 0:
+		icon.draw_rect(Rect2(c + Vector2(-5.0, -h * 0.5), Vector2(3.5, h)), col)
+		icon.draw_rect(Rect2(c + Vector2(1.5, -h * 0.5), Vector2(3.5, h)), col)
+		return
+	var w := 8.0
+	var step := 7.0
+	var x0 := c.x - (w + step * (i - 1)) * 0.5
+	for k in i:
+		var x := x0 + step * k
+		icon.draw_colored_polygon(PackedVector2Array([
+			Vector2(x, c.y - h * 0.5), Vector2(x + w, c.y), Vector2(x, c.y + h * 0.5)]), col)
 
 
 func set_speed(i: int) -> void:
@@ -285,7 +313,7 @@ func _build_labels() -> void:
 		var title := HBoxContainer.new()
 		title.add_theme_constant_override("separation", 6)
 		if isl.has_terminal:
-			title.add_child(_label("⚓", 13, ACCENT))
+			title.add_child(_label("•", 13, ACCENT))
 		title.add_child(_label(isl.name.to_upper(), 13, TEXT, true))
 		v.add_child(title)
 		v.add_child(_label("pop. " + fmt_int(isl.population), 12, MUTED))
@@ -366,19 +394,16 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 
 
 func select_island(isl: MapData.Island, focus: bool) -> void:
+	_reset_selection()
 	selected_island = isl
-	selected_ferry = null
-	selected_vessel = null
-	rig.follow = null
 	if focus:
 		rig.focus_on(isl.town_center, 390.0)
 	_refresh_panels()
 
 
 func select_ferry(f: Ferry) -> void:
+	_reset_selection()
 	selected_ferry = f
-	selected_island = null
-	selected_vessel = null
 	rig.follow = f
 	if rig.target_dist > 540.0:
 		rig.target_dist = 330.0
@@ -388,9 +413,8 @@ func select_ferry(f: Ferry) -> void:
 ## Anything afloat but a ferry: shows its panel and follows it, from closer in
 ## the smaller it is.
 func select_vessel(v: Vessel) -> void:
+	_reset_selection()
 	selected_vessel = v
-	selected_island = null
-	selected_ferry = null
 	rig.follow = v
 	var near := clampf(120.0 + v.spec.half_length * 5.0, 165.0, 420.0) if v.spec else 420.0
 	if rig.target_dist > near * 1.6:
@@ -399,11 +423,15 @@ func select_vessel(v: Vessel) -> void:
 
 
 func clear_selection() -> void:
+	_reset_selection()
+	_refresh_panels()
+
+
+func _reset_selection() -> void:
 	selected_island = null
 	selected_ferry = null
 	selected_vessel = null
 	rig.follow = null
-	_refresh_panels()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -466,7 +494,19 @@ func _build_info_panel() -> void:
 	_info_button.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 8, 5))
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
+	_lane_button.custom_minimum_size.y = 48
+	_lane_button.pressed.connect(_buy_lane)
+	v.add_child(_lane_button)
 	_info_panel.visible = false
+
+
+func _buy_lane() -> void:
+	if selected_island == null:
+		return
+	var terminal: Terminal = sim.terminals.get(selected_island.id)
+	if terminal and terminal.buy_holding_lane():
+		rig.focus_on(terminal.to_global(Vector3(terminal.extension_offset(), Layout.LOT_Y, -40)), 180.0)
+		_refresh_panels()
 
 
 func _on_info_button() -> void:
@@ -502,13 +542,14 @@ func _refresh_panels() -> void:
 	# Cargo ships leave the map.
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
+	var offer_lane := false
 	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
 	_terminal_bar.visible = selected_island != null and sim.terminals.has(selected_island.id)
 	_help.visible = not _terminal_bar.visible
 	if selected_ferry:
 		var f := selected_ferry
 		_info_title.text = f.ferry_name.to_upper()
-		_info_sub.text = "M/V · %s ⇄ %s" % [f.term_a.island.name, f.term_b.island.name]
+		_info_sub.text = "M/V · %s – %s" % [f.term_a.island.name, f.term_b.island.name]
 		_set_rows([
 			["Status", f.status_text()],
 			["Class", f.fc.label],
@@ -569,13 +610,47 @@ func _refresh_panels() -> void:
 		rows.append(["Wildlife draw", _draw_text(isl)])
 		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(isl))])
 		if term:
-			rows.append(["Queued vehicles", "%d / %d" % [term.total_queued(), term.capacity()]])
+			rows.append(["Vehicles waiting", str(term.total_queued())])
+			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
+			if isl.lane_extension_price > 0:
+				var route: MapData.Route = sim.map.routes[isl.slips[0]]
+				var destination := sim.map.islands[route.b if route.a == isl.id else route.a].name
+				rows.append(["Extra lane to", destination])
+				if term.extra_lane != null:
+					rows.append(["In extra lane", "%d waiting · %d spaces inbound" % [term.extra_lane.queue.size(), term.extra_lane.enroute]])
+				elif term.build_remaining > 0.0:
+					var count := term.staging_lanes.size()
+					var phase: String = {
+						Terminal.WorkStage.DRAINING: "Clearing the lanes",
+						Terminal.WorkStage.ARRIVING: "Crew arriving",
+						Terminal.WorkStage.PAVING: "Paving the lane",
+						Terminal.WorkStage.LEAVING: "Crew leaving",
+					}[term.work_stage]
+					rows.append(["Construction", phase])
+					rows.append(["Staging closure", _staging_loss(count, term.slots_per_lane)])
+					if term.work_stage != Terminal.WorkStage.DRAINING:
+						rows.append(["Lane opens in", "%d game min" % ceili(term.build_remaining)])
+				elif not term.can_stage_construction():
+					rows.append(["Expansion", "Keep one lane open for service"])
+				else:
+					rows.append(["Available cash", fmt_money(sim.available_cash)])
+					rows.append(["While building", _staging_loss(isl.construction_staging_lanes, term.slots_per_lane) + " closed"])
+					rows.append(["After opening", "%d car spaces" % (term.capacity() + term.slots_per_lane)])
+					rows.append(["Build time", "%d min after lanes clear" % int(Terminal.BUILD_MINUTES)])
+					_lane_button.text = "Buy lane (+%d spaces) · $%d" % [term.slots_per_lane, isl.lane_extension_price]
+					_lane_button.disabled = sim.available_cash < isl.lane_extension_price
+					offer_lane = true
 			rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
 			rows.append(["Carried today", fmt_int(term.served_today)])
 		_set_rows(rows)
 		_info_button.text = "Center view"
 		if term:
 			_update_terminal_bar(term)
+	_lane_button.visible = offer_lane
+
+
+func _staging_loss(count: int, slots: int) -> String:
+	return "%d lane%s · %d spaces" % [count, "" if count == 1 else "s", count * slots]
 
 
 # --- Terminal bar (bottom) ----------------------------------------------------------
@@ -629,7 +704,7 @@ func _update_terminal_bar(term: Terminal) -> void:
 		var mins: float = nd[0]
 		var when := "Boarding now" if f.state == Ferry.State.LOADING and f.here() == term else sim.clock_text(sim.minutes + mins)
 		var dest := f.term_b if f.term_a == term else f.term_a
-		_tb_set("departure", "NEXT DEPARTURE", when, "%s → %s" % [f.ferry_name, dest.island.name])
+		_tb_set("departure", "NEXT DEPARTURE", when, "%s to %s" % [f.ferry_name, dest.island.name])
 	else:
 		_tb_set("departure", "NEXT DEPARTURE", "-", "")
 	_tb_set("weather", "WEATHER", sim.weather, "%d°C" % sim.temperature())
@@ -641,33 +716,10 @@ func _update_terminal_bar(term: Terminal) -> void:
 # --- Fleet list ---------------------------------------------------------------------
 
 func _build_fleet_panel() -> void:
-	_fleet_panel = PanelContainer.new()
-	_fleet_panel.position = Vector2(132, 112)
-	_fleet_panel.custom_minimum_size = Vector2(320, 0)
+	_fleet_panel = FleetPanel.new()
 	root.add_child(_fleet_panel)
-	var v := VBoxContainer.new()
-	_fleet_panel.add_child(v)
-	v.add_child(_label("FLEET", 13, MUTED, true))
-	_fleet_list = VBoxContainer.new()
-	v.add_child(_fleet_list)
-	_fleet_panel.visible = false
-
-
-func _rebuild_fleet() -> void:
-	if _fleet_list.get_child_count() != sim.ferries.size():
-		for c in _fleet_list.get_children():
-			_fleet_list.remove_child(c)
-			c.queue_free()
-		for f in sim.ferries:
-			var b := Button.new()
-			b.focus_mode = Control.FOCUS_NONE
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.add_theme_font_size_override("font_size", 13)
-			b.pressed.connect(select_ferry.bind(f))
-			_fleet_list.add_child(b)
-	for i in sim.ferries.size():
-		var f := sim.ferries[i]
-		(_fleet_list.get_child(i) as Button).text = "%s  ·  %d/%d  ·  %s" % [f.ferry_name, f.load_count(), f.fc.capacity, f.status_text()]
+	_fleet_panel.setup(_label("FLEET", 13, MUTED, true))
+	_fleet_panel.ferry_selected.connect(select_ferry)
 
 
 # --- Wildlife ----------------------------------------------------------------------
@@ -722,8 +774,8 @@ func _rebuild_wildlife() -> void:
 			for isl in v.credited:
 				names.append(isl.name)
 			seen = "seen from " + ", ".join(names)
-		b.text = "%s%s · %s%s\n%s · %s" % ["● " if v.active() else "", v.title(), v.target.name,
-			"  📷" if v.photographed else "", when, seen]
+		b.text = "%s%s · %s%s\n%s · %s" % ["• " if v.active() else "", v.title(), v.target.name,
+			"  · photo" if v.photographed else "", when, seen]
 		b.add_theme_color_override("font_color", WILD if v.active() else TEXT)
 		b.set_meta("visit", v)
 	var lines := PackedStringArray()
@@ -986,6 +1038,6 @@ func _process(delta: float) -> void:
 	_stat["time"].text = sim.clock_text()
 	_refresh_panels()
 	if _fleet_panel.visible:
-		_rebuild_fleet()
+		_fleet_panel.refresh(sim.ferries)
 	if _wild_panel.visible:
 		_rebuild_wildlife()

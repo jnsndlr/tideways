@@ -370,10 +370,10 @@ func _find_queue(along_lane: bool) -> bool:
 	var v := 0.0
 	var most := -1
 	for rid in best.lanes:
-		for lane: Dictionary in best.lanes[rid]:
-			if (lane["queue"] as Array).size() > most:
-				most = (lane["queue"] as Array).size()
-				v = lane["v"]
+		for lane: Terminal.Lane in best.lanes[rid]:
+			if lane.queue.size() > most:
+				most = lane.queue.size()
+				v = lane.v
 	# Between the fullest lane and the next, from its seaward head, or the whole lot from further off.
 	var at := Vector3(v + Layout.LANE_WIDTH * 0.5, 0.0, -26.0) if along_lane else Vector3(0.0, 0.0, -30.0)
 	return _set_terminal(best, best.to_global(at))
