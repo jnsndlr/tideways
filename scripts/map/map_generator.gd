@@ -97,6 +97,9 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 	isl.forest = spec.forest
 	isl.fields = spec.fields
 	isl.mainland_port = spec.mainland
+	isl.manual_dock = spec.dock
+	isl.manual_at = Vector2(spec.dock_x, spec.dock_z)
+	isl.manual_dir = Vector2.from_angle(deg_to_rad(spec.dock_angle))
 
 
 static func stamp_of(isl: MapData.Island) -> Terrain.Stamp:
@@ -333,7 +336,13 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			desired[me.id] = v + (other.center - me.center).normalized()
 	var taken: Array[Vector3] = []
 	for isl in mains:
-		if desired.has(isl.id):
+		if desired.has(isl.id) and isl.manual_dock:
+			isl.shore = snap_shore(terrain, isl.manual_at, isl.manual_dir)
+			isl.dock_dir = Vector3(isl.manual_dir.x, 0.0, isl.manual_dir.y)
+			isl.has_terminal = true
+			taken.append(isl.dock_dir)
+	for isl in mains:
+		if desired.has(isl.id) and not isl.manual_dock:
 			var dir: Vector2 = desired[isl.id]
 			if dir.length() < 0.1:
 				dir = -isl.center if isl.center.length() > 3.0 else Vector2.RIGHT
@@ -492,6 +501,32 @@ func _find_dock(isl: MapData.Island, desired: Vector2, taken: Array[Vector3]) ->
 			isl.dock_dir = n3
 			return true
 	return false
+
+
+## Where a pier heading `dir` out to sea meets the shore nearest `at`: walks
+## seaward from land, or back landward from the water, to the waterline.
+static func snap_shore(t: Terrain, at: Vector2, dir: Vector2) -> Vector3:
+	var step := dir.normalized() * 1.5
+	var p := at
+	if t.height_at(p.x, p.y) >= 0.9:
+		for i in 400:
+			if t.height_at(p.x, p.y) < 0.9:
+				break
+			p += step
+	else:
+		for i in 400:
+			if t.height_at(p.x - step.x, p.y - step.y) >= 0.9:
+				break
+			p -= step
+	return Vector3(p.x, 0.0, p.y)
+
+
+## The way out to sea at `at`: straight downhill, from the ground's slope.
+static func seaward(t: Terrain, at: Vector2) -> Vector2:
+	var e := 30.0
+	var g := Vector2(t.height_at(at.x + e, at.y) - t.height_at(at.x - e, at.y),
+		t.height_at(at.x, at.y + e) - t.height_at(at.x, at.y - e))
+	return -g.normalized() if g.length() > 0.001 else Vector2.RIGHT
 
 
 func _dock_fits(s3: Vector3, n3: Vector3) -> bool:

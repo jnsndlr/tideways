@@ -4,7 +4,8 @@ extends CanvasLayer
 ## dial its shape, place, height and cover, and the ground under it is stamped
 ## again straight away. Towns, trees, docks and routes go stale meanwhile and are
 ## hidden; Apply rebuilds the whole map around the new islands. Save writes
-## MapLayout.MAIN_STORY, Copy / Paste move the layout as JSON.
+## MapLayout.MAIN_STORY, Copy / Paste move the layout as JSON. Place dock then a
+## click by the shore sets that island's ferry dock by hand (Auto hands it back).
 
 const WIDTH := 372
 const RESTAMP_DELAY := 0.18
@@ -53,6 +54,13 @@ var _stale := false
 var _pending := {}   # layout indices waiting to be stamped again
 var _timer: Timer
 var _rng := RandomNumberGenerator.new()
+var _dock_info: Label
+var _dock_btn: Button
+var _facing: HSlider
+var _facing_val: Label
+var _placing := false
+var _dock_dirty := false   # a dock moved since the last build
+var _marker: Node3D
 
 
 func setup(m) -> void:
@@ -80,6 +88,7 @@ func setup(m) -> void:
 	_panel.visible = false
 	main.builder.terrain_material.set_shader_parameter("facet", facet)
 	main.rig.ground_clicked.connect(_on_ground_clicked)
+	_build_marker()
 
 
 func is_open() -> bool:
@@ -98,6 +107,8 @@ func open(k := 0) -> void:
 
 func close() -> void:
 	_panel.visible = false
+	_set_placing(false)
+	_marker.visible = false
 	_toggle.text = "ISLANDS  (I)"
 	main.hud.visible = true
 	_clear_sky(false)
@@ -190,6 +201,7 @@ func _build_panel() -> void:
 		["🎲 Reroll shape", _reroll_shape]])
 	_section(v, "POSITION", PLACE)
 	_row_buttons(v, [["🎲 Reroll position", _reroll_position]])
+	_build_dock_section(v)
 	_section(v, "HEIGHT", RELIEF)
 	_section(v, "COVER", COVER)
 
@@ -318,6 +330,7 @@ func _sync() -> void:
 	_name.text = s.name
 	_pinned.button_pressed = s.pinned
 	_mainland.button_pressed = s.mainland
+	_sync_dock()
 	for key in _sliders:
 		var e: Array = _sliders[key]
 		(e[0] as HSlider).value = s.get(key)
@@ -341,10 +354,129 @@ func _on_ground_clicked(screen: Vector2) -> void:
 	var d := cam.project_ray_normal(screen)
 	if d.y > -0.01:
 		return
+	if _placing:
+		var w := o + d * (-o.y / d.y)
+		_place_dock(Vector2(w.x, w.z))
+		return
 	var p := o + d * ((20.0 - o.y) / d.y)
 	var k: int = main.terrain.island_at(p.x, p.z) - _first_id()
 	if k >= 0 and k < main.layout.islands.size():
 		_select(k, false)
+
+
+# --- Ferry dock -------------------------------------------------------------------
+
+func _build_dock_section(v: VBoxContainer) -> void:
+	v.add_child(_label("FERRY DOCK", 12, Hud.ACCENT))
+	_dock_info = _label("", 12, Hud.MUTED)
+	_dock_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(_dock_info)
+	var row := HBoxContainer.new()
+	row.add_child(_fixed_label("Facing", 108))
+	_facing = HSlider.new()
+	_facing.min_value = 0
+	_facing.max_value = 359
+	_facing.step = 1
+	_facing.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_facing.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_facing_val = _fixed_label("", 64)
+	_facing_val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_facing.value_changed.connect(func(x):
+		_facing_val.text = "%d°" % int(x)
+		if _syncing or not _spec().dock:
+			return
+		_spec().dock_angle = x
+		_dock_changed())
+	row.add_child(_facing)
+	row.add_child(_facing_val)
+	v.add_child(row)
+	_dock_btn = _button("📍 Place dock", func(): _set_placing(not _placing))
+	_row_buttons(v, [["Auto", _auto_dock]], [_dock_btn])
+	_dock_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+
+func _sync_dock() -> void:
+	var s := _spec()
+	_facing.editable = s.dock
+	_facing.value = s.dock_angle
+	_facing_val.text = "%d°" % int(s.dock_angle) if s.dock else "auto"
+	if s.dock:
+		_dock_info.text = "Placed by hand at %d, %d. Apply to rebuild the routes." % [int(s.dock_x), int(s.dock_z)]
+		var id := _first_id() + selected
+		if not _stale and not _dock_dirty and id < main.map.islands.size() and not main.map.islands[id].has_terminal:
+			_dock_info.text += " No route could use it last build: face it towards a neighbour."
+	else:
+		_dock_info.text = "Auto: the map picks a spot facing its neighbours. Place dock, then click by the shore."
+	_update_marker()
+
+
+func _set_placing(on: bool) -> void:
+	_placing = on
+	if _dock_btn:
+		_dock_btn.text = "Click the shore… (cancel)" if on else "📍 Place dock"
+
+
+func _place_dock(at: Vector2) -> void:
+	var s := _spec()
+	var dir := MapGenerator.seaward(main.terrain, at)
+	s.dock = true
+	s.dock_x = snappedf(at.x, 1.0)
+	s.dock_z = snappedf(at.y, 1.0)
+	s.dock_angle = roundf(fposmod(rad_to_deg(dir.angle()), 360.0))
+	_set_placing(false)
+	_dock_changed()
+
+
+func _auto_dock() -> void:
+	_set_placing(false)
+	_spec().dock = false
+	_dock_changed()
+
+
+func _dock_changed() -> void:
+	_dock_dirty = true
+	_syncing = true
+	_sync_dock()
+	_syncing = false
+	_mark_unsaved()
+
+
+## A pole where the pier meets the shore and a bar out along it, for the selected
+## island's hand-placed dock.
+func _build_marker() -> void:
+	_marker = Node3D.new()
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.45, 0.1)
+	var pole := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 6.0
+	cm.bottom_radius = 6.0
+	cm.height = 90.0
+	pole.mesh = cm
+	pole.position = Vector3(0, 45, 0)
+	pole.material_override = mat
+	_marker.add_child(pole)
+	var bar := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(10, 6, Layout.DOCK_U + 60.0)
+	bar.mesh = bm
+	bar.position = Vector3(0, 6, bm.size.z * 0.5)
+	bar.material_override = mat
+	_marker.add_child(bar)
+	_marker.visible = false
+	add_child(_marker)
+
+
+func _update_marker() -> void:
+	var s := _spec()
+	_marker.visible = is_open() and s.dock
+	if not s.dock:
+		return
+	var dir := Vector2.from_angle(deg_to_rad(s.dock_angle))
+	var shore := MapGenerator.snap_shore(main.terrain, Vector2(s.dock_x, s.dock_z), dir)
+	var d3 := Vector3(dir.x, 0.0, dir.y)
+	_marker.global_transform = Transform3D(Basis(Vector3.UP.cross(d3), Vector3.UP, d3), shore)
 
 
 # --- Editing ----------------------------------------------------------------------
@@ -399,6 +531,7 @@ func _restamp_pending() -> void:
 		var rect: Rect2i = main.terrain.replace_stamp(id, MapGenerator.stamp_of(isl))
 		main.builder.rebuild_terrain(rect)
 	_pending.clear()
+	_update_marker()
 	_go_stale()
 
 

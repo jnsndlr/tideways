@@ -24,9 +24,15 @@ class IslandSpec:
 	var fields := 0.4
 	var pinned := false
 	var mainland := false   # sits on the mainland's coast, its land joined to it
+	# Ferry dock placed by hand (else the generator picks one facing its neighbours):
+	# a spot by the shore and the way the pier points out to sea.
+	var dock := false
+	var dock_x := 0.0
+	var dock_z := 0.0
+	var dock_angle := 0.0   # degrees, the heading out to sea (0 = +x, 90 = +z)
 
 	const KEYS := ["name", "x", "z", "radius", "height", "hills", "peak", "lakes", "shape_seed", "stretch",
-		"angle", "roughness", "forest", "fields", "pinned", "mainland"]
+		"angle", "roughness", "forest", "fields", "pinned", "mainland", "dock", "dock_x", "dock_z", "dock_angle"]
 
 	func to_dict() -> Dictionary:
 		var d := {}
