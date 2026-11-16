@@ -18,12 +18,17 @@
 			"forest": 0.7,
 			"fields": 0.5,
 			"pinned": true,
-			"mainland": true
+			"mainland": true,
+			"ferry": true,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Madrona Island",
-			"x": -945.0,
-			"z": -625.0,
+			"x": 145.0,
+			"z": -440.0,
 			"radius": 895.0,
 			"height": 1.6,
 			"hills": 0.0,
@@ -31,12 +36,17 @@
 			"lakes": 0.0,
 			"shape_seed": 28072,
 			"stretch": 1.35,
-			"angle": 53.0,
+			"angle": 32.0,
 			"roughness": 0.68,
 			"forest": 0.75,
 			"fields": 0.72,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": true,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Cypress Island",
@@ -54,12 +64,17 @@
 			"forest": 0.78,
 			"fields": 0.518,
 			"pinned": false,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Juniper Island",
 			"x": 1290.0,
-			"z": 1310.0,
+			"z": 1475.0,
 			"radius": 615.0,
 			"height": 1.082,
 			"hills": 0.8,
@@ -72,12 +87,17 @@
 			"forest": 1.22,
 			"fields": 0.65,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Bracken Island",
-			"x": -570.0,
-			"z": 1360.0,
+			"x": -1145.0,
+			"z": 1620.0,
 			"radius": 589.424,
 			"height": 1.41,
 			"hills": 1.44,
@@ -90,12 +110,17 @@
 			"forest": 1.16,
 			"fields": 0.61,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Kestrel Island",
-			"x": 760.0,
-			"z": -326.609,
+			"x": -1735.0,
+			"z": -1120.0,
 			"radius": 470.0,
 			"height": 1.14,
 			"hills": 1.074,
@@ -108,7 +133,12 @@
 			"forest": 0.86,
 			"fields": 0.4,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": true,
+			"dock_x": 942.0,
+			"dock_z": -365.0,
+			"dock_angle": 3.0
 		},
 		{
 			"name": "Gullrock Island",
@@ -126,7 +156,12 @@
 			"forest": 0.3,
 			"fields": 0.05,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": true,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "San Vela Island",
@@ -144,7 +179,12 @@
 			"forest": 0.75,
 			"fields": 0.5,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Cordero Landing",
@@ -162,25 +202,35 @@
 			"forest": 0.85,
 			"fields": 0.45,
 			"pinned": false,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		},
 		{
 			"name": "Eagle Island",
-			"x": -2765.0,
-			"z": 390.0,
-			"radius": 770.0,
+			"x": -2410.0,
+			"z": 725.0,
+			"radius": 875.0,
 			"height": 0.972,
 			"hills": 0.933,
-			"peak": 0.95,
+			"peak": 0.73,
 			"lakes": 0.0,
 			"shape_seed": 56352,
-			"stretch": 1.248,
+			"stretch": 1.0,
 			"angle": 82.0,
-			"roughness": 1.087,
+			"roughness": 0.8,
 			"forest": 1.009,
 			"fields": 0.32,
 			"pinned": true,
-			"mainland": false
+			"mainland": false,
+			"ferry": false,
+			"dock": false,
+			"dock_x": 0.0,
+			"dock_z": 0.0,
+			"dock_angle": 0.0
 		}
 	]
 }
