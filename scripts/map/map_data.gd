@@ -13,6 +13,7 @@ class Island:
 	var strength := 1.0             # elevation multiplier
 	var inhabited := true
 	var is_mainland := false
+	var mainland_port := false      # set against the mainland's shore (the layout's `mainland`)
 	var population := 0
 	var growth := 0.0               # base % per year
 	var wildlife_appeal := 1.0      # how strongly it pulls marine wildlife visits
@@ -23,6 +24,8 @@ class Island:
 	var angle := 0.0                # radians
 	var roughness := 1.0
 	var hills := 1.0
+	var peak := 0.0
+	var lakes := 1.0
 	# Cover: how thick the woods are, and how much is open fields instead.
 	var forest := 1.0
 	var fields := 0.4

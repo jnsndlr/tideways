@@ -27,3 +27,19 @@ vec4 backdrop_haze(vec3 world, float depth) {
 	a = max(a, low);
 	return vec4(col, a);
 }
+
+// The engine's depth fog as the Sandbox sets it up (density 0.85, linear over
+// fog_range), for blending into at the map's edge.
+const float ENGINE_FOG_DENSITY = 0.85;
+// Over this far past the map's edge (map_half: Terrain.half_size) the Backdrop
+// turns from the engine's own fog, as on the terrain beside it, to its haze.
+const float EDGE_HAZE = 1200.0;
+
+float edge_near(vec3 world, float map_half) {
+	return 1.0 - smoothstep(0.0, EDGE_HAZE, max(abs(world.x), abs(world.z)) - map_half);
+}
+
+vec4 edge_haze(vec3 world, float depth, float map_half) {
+	float engine = clamp((depth - fog_range.x) / max(fog_range.y - fog_range.x, 1.0), 0.0, 1.0) * ENGINE_FOG_DENSITY;
+	return mix(backdrop_haze(world, depth), vec4(haze_fog, engine), edge_near(world, map_half));
+}

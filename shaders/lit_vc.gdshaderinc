@@ -70,6 +70,10 @@ vec3 net_flap(vec3 v, float a, vec3 origin) {
 }
 #endif
 
+#ifdef TREE_LOD
+#include "res://shaders/lod_dither.gdshaderinc"
+#endif
+
 varying vec3 world_pos;
 varying float local_z;
 // Flat: a whole face takes its first vertex's key (MeshBuilder starts both of a quad's
@@ -93,6 +97,15 @@ void vertex() {
 #ifdef NET
 	VERTEX = net_flap(VERTEX, COLOR.a, MODEL_MATRIX[3].xyz);
 #endif
+#ifdef TREE_LOD
+	vec3 lw = lod_weights(MODEL_MATRIX[3].xyz, CAMERA_POSITION_WORLD);
+	lod_in = lw.x;
+	lod_out = lw.y;
+	lod_seed = lw.z;
+	if (lw.x <= 0.0 || lw.y <= 0.0) {
+		VERTEX = vec3(0.0);
+	}
+#endif
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	local_z = VERTEX.z;
 	// Instance origin (or room_seed), wall (normal) and storey (in metres, however big
@@ -108,7 +121,13 @@ uniform float facet : hint_range(0.0, 1.0) = 0.4;
 #endif
 
 void fragment() {
+#ifdef TREE_LOD
+	lod_dither(FRAGCOORD.xy);
+#endif
 	ALBEDO = srgb_to_linear(COLOR.rgb);
+#ifdef TREE_LOD
+	ALBEDO *= lod_gain;
+#endif
 	ROUGHNESS = 0.92;
 #ifdef TERRAIN
 	vec3 flat_n = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));

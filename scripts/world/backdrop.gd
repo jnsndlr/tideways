@@ -26,18 +26,29 @@ const ALPINE_LIGHT := Color(0.46, 0.49, 0.56)
 const SNOW := Color(0.94, 0.95, 0.98)
 
 ## Modelled trees where the mainland touches the map; flat cards (tree_card.gdshader)
-## on the far shores, thinning out with distance.
-const TREE_BAND := 360.0
+## on the far shores, thinning out with distance. The two cross-fade between
+## TREE_FADE and TREE_BAND past the edge, so there's no line where one gives way.
+const TREE_FADE := 60.0
+const TREE_BAND := 200.0  # (without a WorldBuilder; with one, WorldBuilder.card_share)
+## Over this far past the edge the ground and its woods turn from the islands' own
+## (WorldBuilder.ground_color, tree_density: fields and patchy woods) to the
+## mainland's unbroken forest, so the map's edge doesn't show as a line.
+const EDGE_BLEND := 600.0
+## Within this far past the edge the land is coloured per vertex, not per facet.
+const VERTEX_COLOURED := 1500.0
 const TREE_TILE := 384.0
 const CARD_SHADER := "res://shaders/tree_card.gdshader"
+const CARD_SPRITE := "res://assets/textures/pine_card.png"
 const CARD_FAR := 3000.0
 const CARD_TILE := 768.0
 
 var terrain: Terrain
+var builder: WorldBuilder
 var _rng := RandomNumberGenerator.new()
 var _trees: Array[Transform3D] = []
 var _tree_cols: Array[Color] = []
 var _cards: Array[Transform3D] = []
+var _near_trees: Array[MultiMeshInstance3D] = []
 var _card_cols: Array[Color] = []
 # Cloud mesh arrays, filled by _puff.
 var _cv := PackedVector3Array()
@@ -46,11 +57,16 @@ var _cc := PackedColorArray()
 var _ci := PackedInt32Array()
 
 
-func setup(t: Terrain, weather: String) -> void:
+func setup(t: Terrain, weather: String, b: WorldBuilder = null) -> void:
 	name = "Backdrop"
 	terrain = t
+	builder = b
 	_rng.seed = int(t.mainland.snowline * 1000.0)
 	_build_land()
+	if builder:
+		# The cards WorldBuilder put inside the map, on the mainland's shores.
+		for at in builder.edge_cards:
+			_card_at(at)
 	_build_trees()
 	_build_clouds(weather)
 
@@ -84,6 +100,7 @@ func _build_land() -> void:
 	mi.mesh = mb.commit()
 	var mat := ShaderMaterial.new()
 	mat.shader = load(LAND_SHADER)
+	mat.set_shader_parameter("map_half", terrain.half_size)
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
@@ -171,14 +188,41 @@ func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
 	if nrm.y < 0.0:
 		nrm = -nrm
 	var p := (a + b + c) / 3.0
-	mb.tri(a, b, c, _color(p, nrm.y), Vector3.UP)
-	# Forest on gentle ground near the map gets real trees, as on the islands.
 	var out := maxf(absf(p.x), absf(p.z)) - terrain.half_size
-	if out < CARD_FAR and p.y > 4.8 and nrm.y > 0.72 and p.y < _treeline(p) - 180.0:
+	var blend := 1.0
+	if builder and not builder.backdrop_side(p.x, p.z):
+		blend = smoothstep(0.0, EDGE_BLEND, out)
+	if out < VERTEX_COLOURED:
+		# Coloured per corner near the map, like the terrain, so the beach line runs
+		# smoothly instead of stepping from one facet to the next.
+		mb.tri3(a, b, c, _ground(a, nrm.y, blend), _ground(b, nrm.y, blend), _ground(c, nrm.y, blend), Vector3.UP)
+	else:
+		mb.tri(a, b, c, _ground(p, nrm.y, blend), Vector3.UP)
+	_wood(a, b, c, p, nrm.y, out, blend)
+
+
+func _ground(p: Vector3, ny: float, blend: float) -> Color:
+	var col := _color(p, ny)
+	if blend < 1.0:
+		col = builder.ground_color(p.y, ny, p.x, p.z).lerp(col, blend)
+	return col
+
+
+## Forest on gentle ground near the map gets real trees, as on the islands.
+func _wood(a: Vector3, b: Vector3, c: Vector3, p: Vector3, ny: float, out: float, blend: float) -> void:
+	if out < CARD_FAR and p.y > 4.8 and ny > 0.72 and p.y < _treeline(p) - 180.0:
 		var area := (b - a).cross(c - a).length() * 0.5
-		if out >= TREE_BAND - 30.0:
-			_scatter_cards(a, b, c, area / 378.0 * (1.0 - smoothstep(1050.0, CARD_FAR, out)))
-		var want := area / 81.0 * (1.0 - smoothstep(TREE_BAND - 90.0, TREE_BAND, out))
+		# Woods as thick as the islands' at the edge (one try per 8.1 m step),
+		# filling in to the mainland's unbroken forest.
+		var dense := 1.0
+		if blend < 1.0:
+			dense = lerpf(clampf(builder.tree_density(p.x, p.z, p.y) * 81.0 / 65.6, 0.0, 1.0), 1.0, blend)
+		# Modelled trees give way to cards across the band either side of the edge
+		# (WorldBuilder.card_share); a side with no port is cards all the way.
+		var cards := builder.card_share(p.x, p.z) if builder else smoothstep(TREE_FADE, TREE_BAND, out)
+		if cards > 0.0:
+			_scatter_cards(a, b, c, area / 420.0 * dense * cards * (1.0 - smoothstep(1050.0, CARD_FAR, out)))
+		var want := area / 81.0 * dense * (1.0 - cards)
 		while want > 0.0:
 			if _rng.randf() < want:
 				var u := _rng.randf()
@@ -190,7 +234,7 @@ func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
 				var s := _rng.randf_range(0.8, 1.45)
 				var basis := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.9, 1.25), s) * Models.LEGACY_SCALE)
 				_trees.append(Transform3D(basis, at - Vector3(0, 0.3, 0)))
-				_tree_cols.append(Color(_rng.randf_range(0.75, 0.95), _rng.randf_range(0.8, 0.95), _rng.randf_range(0.8, 0.95)))
+				_tree_cols.append(Color(_rng.randf_range(0.75, 0.95), _rng.randf_range(0.8, 0.95), _rng.randf_range(0.8, 0.95)).darkened(cards * 0.15))
 			want -= 1.0
 
 
@@ -220,6 +264,7 @@ func _color(p: Vector3, ny: float) -> Color:
 	return col.darkened(r * 0.06)
 
 
+
 func _scatter_cards(a: Vector3, b: Vector3, c: Vector3, want: float) -> void:
 	while want > 0.0:
 		if _rng.randf() < want:
@@ -228,12 +273,17 @@ func _scatter_cards(a: Vector3, b: Vector3, c: Vector3, want: float) -> void:
 			if u + v > 1.0:
 				u = 1.0 - u
 				v = 1.0 - v
-			var h := _rng.randf_range(21.0, 33.0)
-			var basis := Basis.from_scale(Vector3(h * _rng.randf_range(0.5, 0.62), h, 1.0))
-			_cards.append(Transform3D(basis, a + (b - a) * u + (c - a) * v - Vector3(0, 0.9, 0)))
-			var k := _rng.randf_range(0.8, 1.15)
-			_card_cols.append(Color(k * _rng.randf_range(0.9, 1.05), k, k * _rng.randf_range(0.9, 1.05)))
+			_card_at(a + (b - a) * u + (c - a) * v)
 		want -= 1.0
+
+
+func _card_at(at: Vector3) -> void:
+	var h := _rng.randf_range(21.0, 33.0)
+	# The sprite's own proportions (250 x 353), give or take.
+	var basis := Basis.from_scale(Vector3(h * 0.71 * _rng.randf_range(0.88, 1.08), h, 1.0))
+	_cards.append(Transform3D(basis, at - Vector3(0, 0.9, 0)))
+	var k := _rng.randf_range(0.85, 1.1)
+	_card_cols.append(Color(k * _rng.randf_range(0.9, 1.05), k, k * _rng.randf_range(0.9, 1.05)))
 
 
 ## Snowline and treeline wander smoothly along the ranges (no per-facet speckle).
@@ -273,8 +323,12 @@ func _build_trees() -> void:
 			mmi.multimesh = mm
 			# Dense forest hides its own floor; their shadows aren't worth the cascades.
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mmi.visibility_range_begin = levels[l][1]
-			mmi.visibility_range_end = levels[l][2]
+			var c := mm.get_aabb().get_center()
+			var slack := 0.0
+			for i: int in idx:
+				slack = maxf(slack, _trees[i].origin.distance_to(c))
+			Models.dither_lod(mmi, levels[l][0], levels[l][1], levels[l][2], slack, levels[l][3] if levels[l].size() > 3 else Vector3.ONE)
+			_near_trees.append(mmi)
 			mmi.name = "MainlandPines_%d_%d_%d%s" % [key.x, key.y, key.z, "_lod%d" % l if l > 0 else ""]
 			add_child(mmi)
 	var quad := QuadMesh.new()
@@ -282,6 +336,8 @@ func _build_trees() -> void:
 	quad.center_offset = Vector3(0.0, 0.5, 0.0)
 	var mat := ShaderMaterial.new()
 	mat.shader = load(CARD_SHADER)
+	mat.set_shader_parameter("sprite", load(CARD_SPRITE))
+	mat.set_shader_parameter("map_half", terrain.half_size)
 	quad.material = mat
 	tiles = {}
 	for i in _cards.size():
@@ -308,6 +364,12 @@ func _build_trees() -> void:
 		mmi.name = "TreeCards_%d_%d" % [key.x, key.y]
 		add_child(mmi)
 	print("Backdrop: %d mainland trees, %d tree cards" % [_trees.size(), _cards.size()])
+
+
+## Hides the modelled trees by the map's edge (the island editor's ground preview).
+func show_near_trees(on: bool) -> void:
+	for mmi in _near_trees:
+		mmi.visible = on
 
 
 static func _hash(x: float, z: float) -> float:

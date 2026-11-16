@@ -14,6 +14,8 @@ class IslandSpec:
 	var radius := 560.0
 	var height := 1.0       # times the usual height for its size
 	var hills := 1.0        # height variance inland
+	var peak := 0.0         # a mountain rising from the middle
+	var lakes := 1.0        # how far the valleys may dip under the sea (0: never)
 	var shape_seed := 1
 	var stretch := 1.0
 	var angle := 0.0        # degrees
@@ -23,7 +25,7 @@ class IslandSpec:
 	var pinned := false
 	var mainland := false   # sits on the mainland's coast, its land joined to it
 
-	const KEYS := ["name", "x", "z", "radius", "height", "hills", "shape_seed", "stretch",
+	const KEYS := ["name", "x", "z", "radius", "height", "hills", "peak", "lakes", "shape_seed", "stretch",
 		"angle", "roughness", "forest", "fields", "pinned", "mainland"]
 
 	func to_dict() -> Dictionary:

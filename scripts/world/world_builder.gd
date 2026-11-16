@@ -4,6 +4,12 @@ extends RefCounted
 ## towns, forests, rocks, marinas, the route overlay and all of their night lights.
 ## Pure presentation — no sim state.
 
+## How far in from the map's edge on the mainland's shores the woods close up (edge_wood).
+const EDGE_WOOD := 420.0
+## On a shore with a mainland port the modelled woods give way to the Backdrop's
+## flat tree cards (and its darker forest floor) across half this band, just past the
+## map's edge, so the map itself is all modelled and neither style stops at a line.
+const EDGE_MIX := 700.0
 const ASPHALT := Color(0.26, 0.27, 0.29)
 const CONCRETE := Color(0.62, 0.62, 0.6)
 const ROAD := Color(0.3, 0.31, 0.33)
@@ -32,6 +38,10 @@ const EAGLE_CELL := 27.0
 var map: MapData
 var terrain: Terrain
 var rng := RandomNumberGenerator.new()
+## Tree cards inside the map, on the mainland's shores (the Backdrop draws them).
+var edge_cards: Array[Vector3] = []
+# Card picks by the edge, kept apart from `rng` so the rest of the woods don't reshuffle.
+var _edge_rng := RandomNumberGenerator.new()
 ## The terrain's material (its `facet` sets how faceted the ground looks).
 var terrain_material: ShaderMaterial
 var _forest_noise := FastNoiseLite.new()
@@ -140,26 +150,35 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 		for l in levels.size():
 			var lv: Array = levels[l]
 			var mmi := MultiMeshInstance3D.new()
-			mmi.multimesh = make.call(lv[0] if l > 0 else mesh)
-			mmi.visibility_range_begin = lv[1]
-			mmi.visibility_range_end = lv[2]
+			mmi.multimesh = make.call(lv[0])
+			Models.dither_lod(mmi, lv[0], lv[1], lv[2], _tile_slack(mmi.multimesh, idx, xforms), lv[3] if lv.size() > 3 else Vector3.ONE)
 			mmi.name = base if l == 0 else "%s_lod%d" % [base, l]
 			group.add_child(mmi)
-			if levels.size() > 1:
-				# Every level's shadow is cast by a shadow-only copy of the farthest:
+			if not variant.is_empty() and (levels.size() > 1 or levels[0][0] != variant[0]):
+				# Every level's shadow is cast by a shadow-only copy of the cheapest model:
 				# nobody can tell them apart in a shadow, and they cost a fraction.
 				mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if levels.size() > 1:
+		if not variant.is_empty() and (levels.size() > 1 or levels[0][0] != variant[0]):
 			var shade := MultiMeshInstance3D.new()
-			shade.multimesh = make.call(levels[-1][0])
+			shade.multimesh = make.call(Models.tree_shadow_mesh(variant))
 			shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 			# Far off, a tree's shadow is under a pixel but still costs a draw in every
-			# cascade, so the copies stop short (Sandbox.TREE_SHADOW_REACH).
+			# cascade; the sandbox ends them where the shadow cascades end.
 			shade.visibility_range_end = 1200.0
 			shade.name = base + "_shadow"
 			group.add_child(shade)
 			tree_shadows.append(shade)
 
+
+
+## How far from the middle of a tile's bounds (which its visibility range is measured
+## from) any of its trees stands.
+static func _tile_slack(mm: MultiMesh, idx: Array, xforms: Array[Transform3D]) -> float:
+	var c := mm.get_aabb().get_center()
+	var r := 0.0
+	for i: int in idx:
+		r = maxf(r, xforms[i].origin.distance_to(c))
+	return r
 
 # --- Blocking grid so props don't overlap roads, lots and houses -------------------
 
@@ -271,7 +290,7 @@ func _terrain_tile(i0: int, j0: int, i1: int, j1: int) -> ArrayMesh:
 					var nrm := Vector3(h[cj * vn + maxi(ci - 1, 0)] - h[cj * vn + mini(ci + 1, n)], 2.0 * c,
 						h[maxi(cj - 1, 0) * vn + ci] - h[mini(cj + 1, n) * vn + ci]).normalized()
 					normals.append(nrm)
-					colors.append(_ground_color(y, nrm.y, x, z))
+					colors.append(ground_color(y, nrm.y, x, z))
 				q[corner] = local[li]
 			if (i + j) % 2 == 0:
 				idx.append_array([q[0], q[1], q[3], q[0], q[3], q[2]])
@@ -297,7 +316,8 @@ func _terrain_tile(i0: int, j0: int, i1: int, j1: int) -> ArrayMesh:
 	return mesh
 
 
-func _ground_color(h: float, ny: float, x: float, z: float) -> Color:
+## The islands' ground colour (the Backdrop blends the mainland's edge into it too).
+func ground_color(h: float, ny: float, x: float, z: float) -> Color:
 	var r := _hash(x, z)
 	var col: Color
 	if h < -0.9:
@@ -313,6 +333,10 @@ func _ground_color(h: float, ny: float, x: float, z: float) -> Color:
 		var f := field_at(x, z)
 		if f > 0.0:
 			col = col.lerp(Color(0.68, 0.7, 0.36), f * 0.55 * (1.0 - g * 0.6))
+		# Into the mainland's forest floor where its woods close up at the map's edge.
+		var w := edge_wood(x, z)
+		if w > 0.0:
+			col = col.lerp(Backdrop.FOREST.lerp(Backdrop.FOREST_LIGHT, r), w)
 	return col.darkened(r * 0.08)
 
 
@@ -320,6 +344,7 @@ func _ground_color(h: float, ny: float, x: float, z: float) -> Color:
 
 func _setup_cover() -> void:
 	_forest_noise.seed = map.map_seed + 5
+	_edge_rng.seed = map.map_seed + 7
 	_forest_noise.frequency = 0.0033333
 	_pasture_noise.seed = map.map_seed + 6
 	_pasture_noise.frequency = 0.0014
@@ -332,7 +357,41 @@ func field_at(x: float, z: float) -> float:
 	var id := terrain.island_at(x, z)
 	var amount := map.islands[id].fields if id >= 0 else 0.4
 	var t := lerpf(0.6, -0.5, amount)
-	return smoothstep(t, t + 0.12, _pasture_noise.get_noise_2d(x, z))
+	return smoothstep(t, t + 0.12, _pasture_noise.get_noise_2d(x, z)) * (1.0 - edge_wood(x, z))
+
+
+## 1 where the ground runs into the mainland's unbroken forest at the map's edge
+## (on the channel's shores), easing to 0 a few hundred metres in: no fields or
+## clearings there, so the woods carry on past the edge without a seam.
+func edge_wood(x: float, z: float) -> float:
+	var v := absf(x) if terrain.mainland.axis == 1 else absf(z)
+	return smoothstep(terrain.half_size - EDGE_WOOD, terrain.half_size - 40.0, v)
+
+
+## The mainland's side of the channel that x, z lies on has no port: nothing there
+## is played on, so it is all Backdrop (Mainland.port_side).
+func backdrop_side(x: float, z: float) -> bool:
+	return not terrain.mainland.has_port(x, z)
+
+
+## Share of the woods at x, z drawn as the Backdrop's flat cards rather than
+## modelled trees: 1 on a side with no port, and on a port's side easing from 0
+## 0 at the map's edge to 1 EDGE_MIX / 2 outside it.
+func card_share(x: float, z: float) -> float:
+	var v := absf(x) if terrain.mainland.axis == 1 else absf(z)
+	if backdrop_side(x, z):
+		return 1.0 if v > terrain.half_size else 0.0
+	return smoothstep(0.0, EDGE_MIX * 0.5, v - terrain.half_size)
+
+
+## Chance of a tree on each 8.1 m step of gentle ground at x, z (height h), before
+## towns thin it: the woods' patches, the island's `forest`, its open fields, and
+## taller, thinner stands up on the hills. Past the map the Backdrop starts from it.
+func tree_density(x: float, z: float, h: float) -> float:
+	var density := (0.85 + _forest_noise.get_noise_2d(x, z) * 1.2) * forest_at(x, z)
+	density *= 1.0 - field_at(x, z)
+	density *= 1.0 - smoothstep(12.0, 36.0, h) * 0.45
+	return lerpf(density, 0.7, edge_wood(x, z))
 
 
 ## The island's woods density multiplier at x, z.
@@ -829,11 +888,8 @@ func _build_vegetation() -> void:
 			var slope := Vector2(terrain.height_at(px + 3.0, pz) - terrain.height_at(px - 3.0, pz),
 				terrain.height_at(px, pz + 3.0) - terrain.height_at(px, pz - 3.0)).length() / 6.0
 			if h > 3.9 and slope < 1.0:
-				var density := (0.85 + _forest_noise.get_noise_2d(px, pz) * 1.2) * forest_at(px, pz)
-				# Open fields here and there, and taller, thinner stands up on the hills.
-				density *= 1.0 - field_at(px, pz)
+				var density := tree_density(px, pz, h)
 				var upland := smoothstep(12.0, 36.0, h)
-				density *= 1.0 - upland * 0.45
 				var near_town := false
 				for isl in towns:
 					var town_r := sqrt(isl.population / 90.0) * 9.0 + 18.0
@@ -844,10 +900,18 @@ func _build_vegetation() -> void:
 					density *= 0.2
 				if rng.randf() > density:
 					continue
+				var cs := card_share(px, pz)
+				if cs > 0.0 and _edge_rng.randf() < cs:
+					# A card stands for the ~7 trees around it (Backdrop: one per 420 m²).
+					if _edge_rng.randf() < 81.0 / 420.0:
+						edge_cards.append(Vector3(px, h, pz))
+					continue
 				var s := rng.randf_range(0.75, 1.35) * (1.0 + upland * 0.25)
 				var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.9, 1.2), s) * Models.LEGACY_SCALE)
 				var xf := Transform3D(basis, Vector3(px, h - 0.3, pz))
 				var tint := Color(rng.randf_range(0.8, 1.0), rng.randf_range(0.85, 1.0), rng.randf_range(0.8, 0.95))
+				# Darkening toward the cards' shade where they mix in.
+				tint = tint.darkened(cs * 0.15)
 				if rng.randf() < (0.45 if near_town else 0.2):
 					rounds.append(xf)
 					round_cols.append(tint)
@@ -860,6 +924,8 @@ func _build_vegetation() -> void:
 				rocks.append(Transform3D(basis, Vector3(px, h, pz)))
 		z += step
 	_eagle_trees(pines)
+	Models.card_material().set_shader_parameter("map_half", terrain.half_size)
+	Models.card_material(true).set_shader_parameter("map_half", terrain.half_size)
 	_forest(Models.tree_variants(false), pines, pine_cols, "Pines")
 	_forest(Models.tree_variants(true), rounds, round_cols, "RoundTrees")
 	var no_colors: Array[Color] = []

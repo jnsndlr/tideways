@@ -24,6 +24,8 @@ const PLACE := [
 const RELIEF := [
 	["height", "Height", 0.5, 1.6, 0.01, "×"],
 	["hills", "Height variance", 0.0, 2.2, 0.01, "×"],
+	["peak", "Mountain", 0.0, 2.0, 0.01, "×"],
+	["lakes", "Lakes", 0.0, 1.0, 0.01, ""],
 ]
 const COVER := [
 	["forest", "Forest", 0.0, 1.6, 0.01, "×"],
@@ -406,9 +408,12 @@ func _go_stale() -> void:
 		return
 	_stale = true
 	for c in main.builder.root.get_children():
-		if not (str(c.name).begins_with("Terrain_") or c.name == "Water" or c.name == "SeaFloor"):
+		if not (str(c.name).begins_with("Terrain_") or c.name in ["Water", "WaterRing", "SeaFloor"]):
 			c.visible = false
 	for c in main.get_children():
+		# The islands' woods are gone until Apply, so the mainland's lose theirs too.
+		if c is Backdrop:
+			(c as Backdrop).show_near_trees(false)
 		if c is Node3D and not (c is CameraRig or c is DirectionalLight3D or c is Backdrop \
 				or c is CloudLayer or c == main.builder.root):
 			c.visible = false

@@ -17,14 +17,26 @@ const FAR := 27000.0
 ## Elevation per metre inland; 0.27 is the waterline (see Terrain._height_of).
 const SHORE_SLOPE := 0.004
 const SHORE_E := 0.27
-## Nearest the shores come to the map's edge alongside it.
-const SHORE_CLEAR := 540.0
+## Alongside the map the shores run inside its grid, this far in from the edge
+## (give or take INSET_VARY), so their coastlines are the islands' own terrain and
+## only unbroken forest crosses the edge. Past the channel's open ends they ease
+## back out to their own line over SHORE_EASE.
+const INSET := 240.0
+const INSET_VARY := 170.0
+const SHORE_EASE := 2700.0
+## A side with no mainland port isn't played on: its shore stays this far out past
+## the map's edge (give or take FAR_VARY), so it is all Backdrop, drawn in one style.
+const FAR_CLEAR := 380.0
+const FAR_VARY := 110.0
 
 ## 0: the channel runs east-west (along X), so open water lies E and W; 1: north-south.
 var axis := 0
 var half: float
 ## Height (m) above which faces facing the sky are snow.
 var snowline := 1680.0
+## Whether the +v / -v side has a mainland port (Terrain.set_mainland_ports). Only
+## those shores come in past the map's edge.
+var port_side: Array[bool] = [false, false]
 
 var _width := PackedFloat32Array([0.0, 0.0])  # shore distance on the +v / -v side
 var _close := PackedFloat32Array([0.0, 0.0])  # how far the +u / -u reaches close up (1: shut)
@@ -33,9 +45,6 @@ var _phase := 0.0
 var _islands: Array[Vector4] = []  # x, z, radius, strength
 var _peaks: Array[Vector4] = []    # x, z, radius, height
 var _volcano := Vector4.ZERO
-## Where the shore reaches in to meet a mainland port: along-channel position,
-## side (+1 / -1), half-width of the reach.
-var _ports: Array[Vector3] = []
 var _shore := FastNoiseLite.new()
 var _hills := FastNoiseLite.new()
 var _ridges := FastNoiseLite.new()
@@ -108,13 +117,6 @@ func side_of(x: float, z: float) -> float:
 	return 1.0 if uv.y - _centre_v(uv.x) >= 0.0 else -1.0
 
 
-## Brings the shore in to just past the map's edge alongside `c`, so an island
-## stamped there against the edge joins the mainland.
-func add_port(c: Vector2, reach: float) -> void:
-	var uv := _to_uv(c.x, c.y)
-	_ports.append(Vector3(uv.x, side_of(c.x, c.y), reach * 1.1))
-
-
 ## Along-channel (u) and across-channel (v) coordinates.
 func _to_uv(x: float, z: float) -> Vector2:
 	return Vector2(x, z) if axis == 0 else Vector2(z, x)
@@ -129,21 +131,32 @@ func _centre_v(u: float) -> float:
 	return _meander * smoothstep(half + 900.0, half + 9000.0, absf(u)) * sin(u / 9600.0 + _phase)
 
 
+## How far across the channel (from its centreline) the shore on `side` (0: +v,
+## 1: -v) stands at along-channel position `u`.
+func shore_w(u: float, side: int) -> float:
+	var far := _width[side] + _shore.get_noise_1d(u + side * 15000.0) * 660.0
+	var near := half - INSET - _shore.get_noise_1d(u * 3.0 + side * 31000.0) * INSET_VARY
+	if not port_side[side]:
+		near = half + FAR_CLEAR + _shore.get_noise_1d(u * 3.0 + side * 31000.0) * FAR_VARY
+	var w := lerpf(near, maxf(far, near), smoothstep(half - 300.0, half + SHORE_EASE, absf(u)))
+	return w * (1.0 - smoothstep(7800.0, 18600.0, absf(u)) * _close[0 if u >= 0.0 else 1])
+
+
 ## Signed distance (m) inland from the channel's shore; negative out in the channel.
 func inland(x: float, z: float) -> float:
 	var uv := _to_uv(x, z)
 	var v := uv.y - _centre_v(uv.x)
-	var side := 0 if v >= 0.0 else 1
-	var w := _width[side] + _shore.get_noise_1d(uv.x + side * 15000.0) * 660.0
-	# Alongside the map the shore stays well clear of the ships' lanes past its edge.
-	w = maxf(w, half + SHORE_CLEAR)
-	w *= 1.0 - smoothstep(7800.0, 18600.0, absf(uv.x)) * _close[0 if uv.x >= 0.0 else 1]
-	var sgn := 1.0 if v >= 0.0 else -1.0
-	for p in _ports:
-		if p.y == sgn:
-			var f := 1.0 - smoothstep(p.z * 0.5, p.z * 1.6, absf(uv.x - p.x))
-			w = lerpf(w, half + 60.0, f)
-	return absf(v) - w
+	return absf(v) - shore_w(uv.x, 0 if v >= 0.0 else 1)
+
+
+## Whether the side of the channel facing x, z has a mainland port.
+func has_port(x: float, z: float) -> bool:
+	return port_side[0 if side_of(x, z) > 0.0 else 1]
+
+
+## Along-channel / across-channel position of x, z (u, v).
+func to_uv(x: float, z: float) -> Vector2:
+	return _to_uv(x, z)
 
 
 ## Island-style elevation of the shores and far islands (no mountains).
@@ -165,7 +178,7 @@ func relief(x: float, z: float, inl: float, e: float) -> float:
 	var out := sq - half
 	if out <= 0.0 or e < 0.3 or inl < 0.0:
 		return 0.0
-	var g := smoothstep(0.0, 240.0, out) * smoothstep(0.3, 0.7, e) * (1.0 - smoothstep(FAR * 0.9, FAR, sq))
+	var g := smoothstep(0.0, 240.0 + 0.5 * maxf(inl - out, 0.0), out) * smoothstep(0.3, 0.7, e) * (1.0 - smoothstep(FAR * 0.9, FAR, sq))
 	# Low forested hills along the shore...
 	var h := smoothstep(60.0, 2100.0, inl) * (60.0 + 330.0 * (_hills.get_noise_2d(x, z) * 0.5 + 0.5))
 	# ...then a layer of blue ridges, kept below the snow...

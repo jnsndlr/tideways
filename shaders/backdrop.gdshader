@@ -16,6 +16,10 @@ const float DECK_FADE_END = 4800.0;
 
 const float WRAP = 0.3;
 
+// Terrain.half_size: by the map's edge the land is lit and fogged like the
+// terrain it carries on from, so the two meet without a seam.
+uniform float map_half = 3000.0;
+
 varying vec3 world_pos;
 
 vec3 srgb_to_linear(vec3 c) {
@@ -29,7 +33,7 @@ void vertex() {
 void fragment() {
 	ALBEDO = srgb_to_linear(COLOR.rgb);
 	ROUGHNESS = 0.95;
-	FOG = backdrop_haze(world_pos, length(VERTEX));
+	FOG = edge_haze(world_pos, length(VERTEX), map_half);
 }
 
 void light() {
@@ -41,5 +45,6 @@ void light() {
 		}
 	}
 	// A little wrap softens facet-to-facet contrast into broad painted planes.
-	DIFFUSE_LIGHT += clamp((dot(NORMAL, LIGHT) + WRAP) / (1.0 + WRAP), 0.0, 1.0) * ATTENUATION * LIGHT_COLOR / PI * shade;
+	float wrap = WRAP * (1.0 - edge_near(world_pos, map_half));
+	DIFFUSE_LIGHT += clamp((dot(NORMAL, LIGHT) + wrap) / (1.0 + wrap), 0.0, 1.0) * ATTENUATION * LIGHT_COLOR / PI * shade;
 }

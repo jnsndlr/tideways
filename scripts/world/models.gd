@@ -117,36 +117,292 @@ static func round_tree() -> ArrayMesh:
 const TREES_GLB := "res://assets/models/trees.glb"
 static var mid_trees := not "--classic-trees" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(TREES_GLB)
-const PINE_VARIANTS := ["spruce", "spruce_open", "spruce_lean", "spruce_broad", "spruce_tall", "spruce_young"]
+const SPRUCE_VARIANTS := ["spruce", "spruce_open", "spruce_lean", "spruce_broad", "spruce_tall", "spruce_young"]
+## Jon's pine (matching the Backdrop's card sprite), baked by art/pines_meshy.py; the
+## spruces above with `--old-pines`.
+const MPINES_GLB := "res://assets/models/pines_meshy.glb"
+const MPINE_VARIANTS := ["mpine", "mpine_tall", "mpine_broad", "mpine_young"]
+static var PINE_VARIANTS: Array = MPINE_VARIANTS if ResourceLoader.exists(MPINES_GLB) \
+	and not "--old-pines" in OS.get_cmdline_user_args() else SPRUCE_VARIANTS
 const BROAD_VARIANTS := ["oak", "poplar", "spreading", "leaning", "round", "birches"]
-# Past this distance (m, to a tile's centre) a forest tile draws the stand-ins.
-const TREE_LOD_DIST := 540.0
+# Past this distance (m, to a tile's centre) a forest tile draws the broadleaves'
+# stand-ins: as far out as Jon's pines' last step, where a tree is a few pixels, so the
+# swap doesn't show as the camera pans (the full ones out to here cost ~0.5 ms).
+const TREE_LOD_DIST := 1000.0
 # Spruces (the heaviest trees) also have a middle version, drawn from TREE_NEAR_DIST to
 # TREE_MID_DIST, and their stand-ins (which keep their stepped tiers) take over sooner.
 const TREE_NEAR_DIST := 90.0
 const TREE_MID_DIST := 270.0
+# Jon's pines are the full model to MPINE_NEAR_DIST, a decimated one to MPINE_MID_DIST and
+# a coarser one past it: modelled all over the map (the card sprite, tree_card.gdshader,
+# only stands in on the Backdrop's banks). All cards with `--sprite-trees`.
+# (and past MPINE_FAR_DIST, where it's a few pixels, the stacked cones). Tune with
+# `--mpine=near,mid,far`.
+static var MPINE_NEAR_DIST := 150.0
+static var MPINE_MID_DIST := 400.0
+static var MPINE_FAR_DIST := 1000.0
+static var _mpine_args := func():
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--mpine="):
+			var d := a.substr(8).split_floats(",")
+			MPINE_NEAR_DIST = d[0]; MPINE_MID_DIST = d[1]; MPINE_FAR_DIST = d[2]
+	return true
+static var sprite_trees := "--sprite-trees" in OS.get_cmdline_user_args()
+const CARD_SHADER := "res://shaders/tree_card.gdshader"
+const CARD_SPRITE := "res://assets/textures/pine_card.png"
+const BROAD_CARD_SPRITE := "res://assets/textures/broad_card.png"
+static var _card_mat: ShaderMaterial
+static var _broad_card_mat: ShaderMaterial
+# Past this the broadleaves are drawn as the broadleaf card. `--broad-card=M`.
+static var BROAD_CARD_DIST: float = (func() -> float:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--broad-card="):
+			return a.substr(13).to_float()
+	return TREE_LOD_DIST).call()
 
 
-## The pine (or broadleaf) variants as [near mesh, far mesh or null, middle mesh or null].
+## The pine (or broadleaf) variants as [near mesh, far mesh or null, middle mesh or null,
+## card or null, farthest mesh or null]. Jon's pines' and the broadleaves' "far"
+## (stand-ins) only cast their shadows (or with `--cone-trees`, are drawn in place of the
+## card); "farthest" is what Jon's pines draw from MPINE_MID_DIST.
 static func tree_variants(broadleaf: bool) -> Array:
 	if not mid_trees:
-		return [[round_tree() if broadleaf else pine_tree(), null, null]]
+		return [[round_tree() if broadleaf else pine_tree(), null, null, null]]
 	var out := []
 	for n: String in BROAD_VARIANTS if broadleaf else PINE_VARIANTS:
-		out.append([_tree_part(n), _tree_part(n + "_lod"), _tree_part(n + "_mid") if n.begins_with("spruce") else null])
+		var near := _tree_part(n)
+		var lod := _tree_part(n + "_lod")
+		if (broadleaf or n.begins_with("mpine")) and not "--raw-stand-ins" in OS.get_cmdline_user_args():
+			lod = _fit_stand_in(n, lod, near)
+		out.append([near, lod, _tree_part(n + "_mid") if n.begins_with("spruce") or n.begins_with("mpine") else null,
+			tree_card(n, near) if n.begins_with("mpine") or broadleaf else null,
+			_tree_part(n + "_far") if n.begins_with("mpine") else null])
 	return out
 
 
-## The levels a variant is drawn at, as [mesh, from (m), to (m, 0 = no limit)].
+## How wide a stand-in is drawn against its full tree's crown: being solid, it reads
+## bigger than an airy crown of the same outline (Jon's pines', the broadleaves' clumps).
+const STAND_IN_WIDTH := {"mpine": 0.8, "broad": 0.85}
+
+
+## `lod` moved and scaled so it stands where `near` does, so zooming across the swap
+## doesn't grow or shift the trees: its foliage (green vertices) fitted to `near`'s
+## crown, STAND_IN_WIDTH as wide, the trunk below stretched to meet it.
+static func _fit_stand_in(n: String, lod: ArrayMesh, near: ArrayMesh) -> ArrayMesh:
+	return _cached("tree_fit_" + n, func():
+		var a := _foliage_box(lod)
+		var b := _foliage_box(near)
+		var k: float = STAND_IN_WIDTH["mpine" if n.begins_with("mpine") else "broad"]
+		var foot := near.get_aabb().position.y
+		var sx := b.size.x / a.size.x * k
+		var sz := b.size.z / a.size.z * k
+		var ca := a.get_center()
+		var cb := b.get_center()
+		var out := ArrayMesh.new()
+		for i in lod.get_surface_count():
+			var arr := lod.surface_get_arrays(i)
+			var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR] if arr[Mesh.ARRAY_COLOR] != null else PackedColorArray()
+			for j in vs.size():
+				var v := vs[j]
+				var y: float
+				if v.y >= a.position.y:
+					y = b.position.y + (v.y - a.position.y) * b.size.y / a.size.y
+				else:
+					y = foot + (v.y - foot) * (b.position.y - foot) / maxf(a.position.y - foot, 0.01)
+				if cs.is_empty() or _leafy(cs[j]):
+					vs[j] = Vector3(cb.x + (v.x - ca.x) * sx, y, cb.z + (v.z - ca.z) * sz)
+				else:
+					vs[j] = Vector3(v.x, y, v.z)
+			arr[Mesh.ARRAY_VERTEX] = vs
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			out.surface_set_material(i, lod.surface_get_material(i))
+		return out)
+
+
+static func _leafy(c: Color) -> bool:
+	return c.g > c.r
+
+
+## The box round a tree's green (foliage) vertices.
+static func _foliage_box(m: ArrayMesh) -> AABB:
+	var box := AABB()
+	var first := true
+	for i in m.get_surface_count():
+		var arr := m.surface_get_arrays(i)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var cs = arr[Mesh.ARRAY_COLOR]
+		for j in vs.size():
+			if cs != null and not _leafy(cs[j]):
+				continue
+			if first:
+				box = AABB(vs[j], Vector3.ZERO); first = false
+			else:
+				box = box.expand(vs[j])
+	return box if not first else m.get_aabb()
+
+
+## The material of every pine card (in the woods and the Backdrop's), or with
+## `broadleaf` every broadleaf card; map_half is set once the terrain is known.
+static func card_material(broadleaf := false) -> ShaderMaterial:
+	if broadleaf:
+		if _broad_card_mat == null:
+			_broad_card_mat = ShaderMaterial.new()
+			_broad_card_mat.shader = load(CARD_SHADER)
+			_broad_card_mat.set_shader_parameter("sprite", load(BROAD_CARD_SPRITE))
+			# Its greens are the broadleaves' own: no grading towards the pines'.
+			_broad_card_mat.set_shader_parameter("grade", Color.WHITE)
+			_broad_card_mat.set_shader_parameter("yellow_cap", 1.0)
+			_broad_card_mat.set_shader_parameter("low_sun", CARD_LOW_SUN)
+			_broad_card_mat.set_shader_parameter("low_sun_direct", CARD_LOW_SUN_DIRECT)
+		return _broad_card_mat
+	if _card_mat == null:
+		_card_mat = ShaderMaterial.new()
+		_card_mat.shader = load(CARD_SHADER)
+		_card_mat.set_shader_parameter("sprite", load(CARD_SPRITE))
+		_card_mat.set_shader_parameter("sprite_mean", _sprite_mean(CARD_SPRITE))
+		_card_mat.set_shader_parameter("contrast", CARD_CONTRAST)
+		_card_mat.set_shader_parameter("saturation", CARD_SATURATION)
+		_card_mat.set_shader_parameter("yellow_cap", CARD_YELLOW_CAP)
+		_card_mat.set_shader_parameter("low_sun", CARD_LOW_SUN)
+		_card_mat.set_shader_parameter("low_sun_direct", CARD_LOW_SUN_DIRECT)
+	return _card_mat
+
+
+## The average colour of a sprite's opaque texels, linear (as the shader samples it).
+static func _sprite_mean(path: String) -> Vector3:
+	var img: Image = (load(path) as Texture2D).get_image()
+	if img.is_compressed():
+		img.decompress()
+	var sum := Vector3.ZERO
+	var n := 0
+	for y in range(0, img.get_height(), 2):
+		for x in range(0, img.get_width(), 2):
+			var c := img.get_pixel(x, y)
+			if c.a > 0.5:
+				var l := c.srgb_to_linear()
+				sum += Vector3(l.r, l.g, l.b)
+				n += 1
+	return sum / maxi(n, 1)
+
+
+## A tree drawn as its card sprite, standing as tall as the modelled `near` one: a pine
+## in the sprite's own 250 x 353 proportions, a broadleaf as wide as its crown.
+## tree_card.gdshader turns it to the camera.
+static var _cards := {}
+
+
+static func tree_card(n: String, near: Mesh) -> Mesh:
+	if not _cards.has(n):
+		var box := near.get_aabb()
+		var q := QuadMesh.new()
+		var broadleaf := not n.begins_with("mpine")
+		q.size = Vector2(maxf(box.size.x, box.size.z) if broadleaf else box.size.y * 0.71, box.size.y)
+		q.center_offset = Vector3(0.0, box.position.y + box.size.y * 0.5, 0.0)
+		# It faces the camera whichever way the tree is turned.
+		q.custom_aabb = AABB(Vector3(-q.size.x, box.position.y, -q.size.x), Vector3(q.size.x * 2.0, box.size.y, q.size.x * 2.0))
+		q.material = card_material(broadleaf)
+		_cards[n] = q
+	return _cards[n]
+
+
+## The mesh that casts a variant's shadow (its cheapest modelled level).
+static func tree_shadow_mesh(variant: Array) -> Mesh:
+	return variant[1] if variant[1] != null else variant[0]
+
+
+## How much each of Jon's pines' levels (full, middle, far, card) is brightened to
+## read as the full model does (measured with tools/lod_shots.gd).
+const MPINE_GAIN := [Vector3.ONE, Vector3(1.16, 1.12, 1.03), Vector3(1.72, 1.5, 1.12), Vector3(3.7, 2.7, 2.1)]
+## The pine card toned to the far pines' muted olive (tree_card.gdshader). Tune with
+## `--card-tone=contrast,saturation[,yellow_cap,low_sun,low_sun_direct]`.
+static var CARD_CONTRAST := 0.6
+static var CARD_SATURATION := 0.85
+static var CARD_YELLOW_CAP := 0.65
+static var CARD_LOW_SUN := 0.7
+static var CARD_LOW_SUN_DIRECT := 0.3
+static var _card_tone: bool = (func() -> bool:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--card-tone="):
+			var d := a.substr(12).split_floats(",")
+			CARD_CONTRAST = d[0]; CARD_SATURATION = d[1]
+			if d.size() > 2:
+				CARD_YELLOW_CAP = d[2]
+			if d.size() > 3:
+				CARD_LOW_SUN = d[3]
+			if d.size() > 4:
+				CARD_LOW_SUN_DIRECT = d[4]
+	return true).call()
+## The same for the broadleaf card.
+const BROAD_CARD_GAIN := Vector3(0.62, 0.76, 1.2)
+
+
+## The levels a variant is drawn at, as [mesh, from (m), to (m, 0 = no limit), and
+## optionally the colour gain that matches it to the first].
 static func tree_lod_levels(variant: Array) -> Array:
 	var near: Mesh = variant[0]
 	var far: Mesh = variant[1]
 	var mid: Mesh = variant[2]
+	var card: Mesh = variant[3] if variant.size() > 3 else null
+	if card != null and sprite_trees:
+		return [[card, 0.0, 0.0]]
+	if card != null and variant[4] == null:
+		# A broadleaf: modelled out to the card.
+		if "--cone-trees" in OS.get_cmdline_user_args():
+			return [[near, 0.0, TREE_LOD_DIST], [far, TREE_LOD_DIST, 0.0]]
+		return [[near, 0.0, BROAD_CARD_DIST], [card, BROAD_CARD_DIST, 0.0, BROAD_CARD_GAIN]]
+	if card != null:
+		_mpine_args.call()
+		return [[near, 0.0, MPINE_NEAR_DIST], [mid, MPINE_NEAR_DIST, MPINE_MID_DIST, MPINE_GAIN[1]],
+			[variant[4], MPINE_MID_DIST, MPINE_FAR_DIST, MPINE_GAIN[2]],
+			[far, MPINE_FAR_DIST, 0.0] if "--cone-trees" in OS.get_cmdline_user_args() else [card, MPINE_FAR_DIST, 0.0, MPINE_GAIN[3]]]
 	if far == null:
 		return [[near, 0.0, 0.0]]
 	if mid == null:
 		return [[near, 0.0, TREE_LOD_DIST], [far, TREE_LOD_DIST, 0.0]]
 	return [[near, 0.0, TREE_NEAR_DIST], [mid, TREE_NEAR_DIST, TREE_MID_DIST], [far, TREE_MID_DIST, 0.0]]
+
+
+## Trees dither from one level of detail into the next over this many metres, centred
+## on each swap (lod_dither.gdshaderinc), rather than popping. `--lod-fade=M` (0 = hard swaps).
+static var LOD_FADE: float = (func() -> float:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--lod-fade="):
+			return a.substr(11).to_float()
+	return 30.0).call()
+static var _lod_mats := {}
+
+
+## Shows `mmi` (a tile of trees drawn with `mesh`, one level of tree_lod_levels) from
+## `begin` to `end` (m, 0 = no limit). Each tree is placed by its own distance in the
+## shader, while the tile's visibility range is by its middle: the range is widened by
+## `slack` (as far as a tree can stand from the middle) and the fade, and the shader
+## drops the trees outside.
+static func dither_lod(mmi: GeometryInstance3D, mesh: Mesh, begin: float, end: float, slack: float,
+		gain := Vector3.ONE) -> void:
+	if begin <= 0.0 and end <= 0.0 and gain == Vector3.ONE:
+		mmi.visibility_range_begin = begin
+		mmi.visibility_range_end = end
+		return
+	var mat: ShaderMaterial
+	if mesh is QuadMesh:
+		# A card: the last level, and the only one its material is drawn at.
+		mat = (mesh as QuadMesh).material
+	else:
+		var key := [begin, end, gain]
+		if not _lod_mats.has(key):
+			var m := ShaderMaterial.new()
+			m.shader = load("res://shaders/tree_lod.gdshader")
+			_lod_mats[key] = m
+		mat = _lod_mats[key]
+		mmi.material_override = mat
+	mat.set_shader_parameter("lod_begin", begin)
+	mat.set_shader_parameter("lod_end", end)
+	mat.set_shader_parameter("lod_fade", maxf(LOD_FADE, 0.0))
+	mat.set_shader_parameter("lod_gain", gain)
+	var pad := maxf(LOD_FADE, 0.0) * 0.5 + slack
+	mmi.visibility_range_begin = maxf(begin - pad, 0.0) if begin > 0.0 else 0.0
+	mmi.visibility_range_end = end + pad if end > 0.0 else 0.0
 
 
 ## Which variant a tree standing at `at` is: from its position, so the choice draws
@@ -156,7 +412,8 @@ static func tree_variant(at: Vector3, count: int) -> int:
 
 
 static func _tree_part(n: String) -> ArrayMesh:
-	return _cached("tree_" + n, func(): return _gltf_parts(TREES_GLB, [n.replace("_", "")]).commit())
+	var glb := MPINES_GLB if n.begins_with("mpine") else TREES_GLB
+	return _cached("tree_" + n, func(): return _gltf_parts(glb, [n.replace("_", "")]).commit())
 
 
 static func rock() -> ArrayMesh:

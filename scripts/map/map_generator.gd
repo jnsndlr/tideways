@@ -36,11 +36,14 @@ func generate_from(layout: MapLayout) -> MapData:
 	map = MapData.new()
 	map.map_seed = map_seed
 	terrain = Terrain.new(map_seed, map.half_size)
+	var ports: Array[Vector2] = []
+	for spec in layout.islands:
+		if spec.mainland:
+			ports.append(Vector2(spec.x, spec.z))
+	terrain.set_mainland_ports(ports)
 	_place_mainland()
 	for spec in layout.islands:
 		_island_from_spec(spec)
-		if spec.mainland:
-			terrain.mainland.add_port(Vector2(spec.x, spec.z), spec.radius * maxf(spec.stretch, 1.0))
 	for isl in map.islands:
 		terrain.stamp(stamp_of(isl))
 	terrain.finalize()
@@ -88,8 +91,11 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 	isl.angle = deg_to_rad(spec.angle)
 	isl.roughness = spec.roughness
 	isl.hills = spec.hills
+	isl.peak = spec.peak
+	isl.lakes = spec.lakes
 	isl.forest = spec.forest
 	isl.fields = spec.fields
+	isl.mainland_port = spec.mainland
 
 
 static func stamp_of(isl: MapData.Island) -> Terrain.Stamp:
@@ -102,6 +108,8 @@ static func stamp_of(isl: MapData.Island) -> Terrain.Stamp:
 	s.angle = isl.angle
 	s.roughness = isl.roughness
 	s.hills = isl.hills
+	s.peak = isl.peak
+	s.lakes = isl.lakes
 	s.offset = Terrain.shape_offset(isl.shape_seed) if isl.shape_seed != 0 else isl.center
 	return s
 
@@ -114,15 +122,24 @@ static func mainland_masses(world_seed: int, half_size: float) -> Array[Vector3]
 	var out: Array[Vector3] = []
 	var count := r.randi_range(4, 6)
 	var start := r.randf() * TAU
+	var axis := Mainland.new(world_seed, half_size).axis
 	for k in count:
 		var ang := start + TAU * k / count + r.randf_range(-0.25, 0.25)
 		var dist := r.randf_range(half_size + 400.0, half_size + 890.0)
-		out.append(Vector3(cos(ang) * dist, sin(ang) * dist, r.randf_range(1190.0, 1580.0)))
+		var m := Vector3(cos(ang) * dist, sin(ang) * dist, r.randf_range(1190.0, 1580.0))
+		# Only on the mainland's shores: the channel's open ends stay open water.
+		var across := absf(m.y) if axis == 0 else absf(m.x)
+		var along := absf(m.x) if axis == 0 else absf(m.y)
+		if across >= along:
+			out.append(m)
 	return out
 
 
 func _place_mainland() -> void:
 	for m in mainland_masses(map.map_seed, map.half_size):
+		# Only where the shore comes into the map: a side with no port is all Backdrop.
+		if not terrain.mainland.has_port(m.x, m.y):
+			continue
 		var isl := _new_island(Vector2(m.x, m.y), m.z, 1.3, false)
 		isl.is_mainland = true
 
@@ -192,7 +209,7 @@ static func roll_position(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomN
 
 
 ## A place against the map's edge on one of the mainland's shores, reaching past
-## the edge, where the shore comes in to meet it (Mainland.add_port), clear of
+## the edge, where it runs into the mainland's shore, clear of
 ## every island.
 static func _roll_coast(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomNumberGenerator,
 		ignore: Array, masses: Array[Vector3], reach: float) -> bool:

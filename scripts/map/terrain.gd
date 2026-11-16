@@ -8,6 +8,8 @@ extends RefCounted
 ## the edge's sample count twice, so the count must divide by 4.
 const CELL := 6600.0 / 1600.0
 const SEA_FLOOR := -16.5
+## Lowest an inland valley comes with Lakes at 0 (m above the sea).
+const LAKE_FLOOR := 2.5
 
 
 ## One island's footprint in the elevation grid. Its coastline and hills are
@@ -22,6 +24,8 @@ class Stamp:
 	var angle := 0.0       # radians, of the long axis
 	var roughness := 1.0   # how ragged the coastline is
 	var hills := 1.0       # scales the inland relief
+	var peak := 0.0        # a mountain rising over the island's middle
+	var lakes := 1.0       # 1: valleys may dip under the sea; 0: they ease off above it
 	var offset := Vector2.ZERO
 	var ax := Vector2.RIGHT
 	var ay := Vector2.DOWN
@@ -48,8 +52,13 @@ var hills := FastNoiseLite.new()
 var flats: Array[Dictionary] = []
 ## The land past the grid's edge (heights there come from it, see outer_height).
 var mainland: Mainland
-# Stamps that reach past the grid's edge, continued by outer_height.
-var _edge_stamps: Array[Stamp] = []
+## owner_grid's mark for ground the mainland shaped (not an island's stamp).
+const MAINLAND := -2
+## Island stamps sink away over this far in from the grid's edge, so only the
+## mainland crosses it and the Backdrop has nothing else to carry on.
+const EDGE_FADE := 150.0
+## How far the mainland's coastline wanders either side of its line (m).
+const MAINLAND_RAGGED := 170.0
 # Samples the noise where it stands, for the mainland's own elevation.
 var _world_stamp := Stamp.new()
 # Grid rects stamped since the last finalize().
@@ -77,6 +86,17 @@ func _init(map_seed: int, half: float) -> void:
 	hills.frequency = 0.0024
 	hills.fractal_octaves = 3
 	mainland = Mainland.new(map_seed, half)
+	_world_stamp.offset = Vector2.ZERO
+
+
+## Which sides of the channel have a mainland port (points on them), then stamps
+## those shores into the grid. Call once, before any island stamps.
+func set_mainland_ports(ports: Array[Vector2]) -> void:
+	for p in ports:
+		mainland.port_side[0 if mainland.side_of(p.x, p.y) > 0.0 else 1] = true
+	var all := Rect2i(0, 0, n + 1, n + 1)
+	_mainland_into(all)
+	_dirty.append(all)
 
 
 func _index_of(coord: float) -> int:
@@ -103,8 +123,6 @@ static func shape_offset(shape_seed: int) -> Vector2:
 func stamp(s: Stamp) -> void:
 	s.setup()
 	stamps.append(s)
-	if maxf(absf(s.center.x), absf(s.center.y)) + s.reach() > half_size:
-		_edge_stamps.append(s)
 	var r := stamp_rect(s)
 	_dirty.append(r)
 	_stamp_into(stamps.size() - 1, r)
@@ -126,17 +144,13 @@ func replace_stamp(idx: int, s: Stamp) -> Rect2i:
 	var old := stamps[idx]
 	var r := stamp_rect(old).merge(stamp_rect(s))
 	stamps[idx] = s
-	var k := _edge_stamps.find(old)
-	if k >= 0:
-		_edge_stamps.remove_at(k)
-	if maxf(absf(s.center.x), absf(s.center.y)) + s.reach() > half_size:
-		_edge_stamps.append(s)
 	for j in range(r.position.y, r.end.y):
 		for i in range(r.position.x, r.end.x):
 			var g := j * (n + 1) + i
 			e_grid[g] = 0.0
 			owner_grid[g] = -1
 			h_grid[g] = SEA_FLOOR
+	_mainland_into(r)
 	for o in stamps.size():
 		var clip := stamp_rect(stamps[o]).intersection(r)
 		if clip.has_area():
@@ -196,23 +210,39 @@ func _stamp_into(idx: int, clip: Rect2i) -> void:
 			var c0 := cj * cw + ci
 			var wv := lerpf(lerpf(coarse[c0], coarse[c0 + 1], ti), lerpf(coarse[c0 + cw], coarse[c0 + cw + 1], ti), tj)
 			var e := clampf(1.0 - base - wv * amp, 0.0, 1.0) * s.strength
+			var edge := half_size - maxf(absf(px + s.center.x), absf(pz + s.center.y))
+			if edge < EDGE_FADE:
+				e *= smoothstep(0.0, EDGE_FADE, edge)
 			var k := j * (n + 1) + i
 			if e > e_grid[k]:
 				e_grid[k] = e
 				owner_grid[k] = idx
 
 
-## Elevation of one stamp at x, z, sampling the warp directly (past the grid's edge).
-func _stamp_e(s: Stamp, x: float, z: float) -> float:
-	var p := Vector2(x - s.center.x, z - s.center.y)
-	var lx := p.dot(s.ax) / s.stretch
-	var ly := p.dot(s.ay) * s.stretch
-	var base := sqrt(lx * lx + ly * ly) / s.radius
-	var amp := 0.55 * s.roughness
-	if base - amp >= 1.0:
-		return 0.0
-	var d := base + warp.get_noise_2d(p.x + s.offset.x, p.y + s.offset.y) * amp
-	return clampf(1.0 - d, 0.0, 1.0) * s.strength
+## The mainland's elevation at x, z (with `inl`, its distance inland, roughened
+## so its coastline is as ragged as an island's). Shared by the grid and
+## outer_height, so the two agree exactly at the grid's edge.
+func mainland_e(x: float, z: float) -> Vector2:
+	var inl := mainland.inland(x, z) + warp.get_noise_2d(x + 91000.0, z) * MAINLAND_RAGGED
+	return Vector2(mainland.elev(x, z, inl), inl)
+
+
+## Stamps the mainland's shores into the grid inside `r` (vertex indices): the
+## strips along the channel's sides where they come in past the edge.
+func _mainland_into(r: Rect2i) -> void:
+	var reach := half_size - Mainland.INSET - Mainland.INSET_VARY - MAINLAND_RAGGED - Mainland.SHORE_E / Mainland.SHORE_SLOPE - 40.0
+	for j in range(r.position.y, r.end.y):
+		var z := -half_size + j * CELL
+		for i in range(r.position.x, r.end.x):
+			var x := -half_size + i * CELL
+			var v := absf(x) if mainland.axis == 1 else absf(z)
+			if v < reach or not mainland.has_port(x, z):
+				continue
+			var e := mainland_e(x, z).x
+			var k := j * (n + 1) + i
+			if e > e_grid[k]:
+				e_grid[k] = e
+				owner_grid[k] = MAINLAND
 
 
 ## Turns elevation into heights, for the parts stamped since the last call (the
@@ -230,6 +260,8 @@ func finalize() -> void:
 				var o := owner_grid[k]
 				if o >= 0:
 					h_grid[k] = _height_of(e_grid[k], -half_size + i * CELL, z, stamps[o])
+				elif o == MAINLAND:
+					h_grid[k] = _height_of(e_grid[k], -half_size + i * CELL, z, _world_stamp)
 	_dirty.clear()
 
 
@@ -245,7 +277,18 @@ func _height_of(e: float, x: float, z: float, s: Stamp) -> float:
 	# Past the shore the ground eases off, leaving room for towns and farms.
 	var rise := minf(e, 0.4) + maxf(e - 0.4, 0.0) * 0.5
 	var bumps := detail.get_noise_2d(nx, nz) * 5.4 + rubble.get_noise_2d(nx, nz) * 1.3
-	return SEA_FLOOR + land * 18.6 + rise * 21.0 + bumps * land + relief
+	var ground := SEA_FLOOR + land * 18.6 + rise * 21.0 + bumps * land
+	if s.peak > 0.0:
+		# How far in from the shore, 0..1 (e over the stamp's full strength), so the
+		# mountain follows the island's own shape; the hill noise breaks up its flanks.
+		var t := clampf(e / maxf(s.strength, 0.01), 0.0, 1.0)
+		var mount := smoothstep(0.15, 1.0, t)
+		ground += s.peak * 150.0 * mount * mount * (0.8 + 0.35 * hills.get_noise_2d(nx * 1.7, nz * 1.7))
+	if relief < 0.0 and s.lakes < 1.0:
+		# Valleys ease off as they near the sea instead of cutting under it.
+		var room := maxf(ground - LAKE_FLOOR, 0.01)
+		relief = lerpf(-room * (1.0 - exp(relief / room)), relief, s.lakes)
+	return ground + relief
 
 
 ## The island whose stamp shaped the ground at x, z (-1: open sea, mainland, islets).
@@ -254,25 +297,11 @@ func island_at(x: float, z: float) -> int:
 	return stamps[o].island_id if o >= 0 else -1
 
 
-## Height past the grid: the mainland's shores, hills and mountains, and the parts
-## of island stamps that reach out past the edge.
+## Height past the grid: the mainland's shores, hills and mountains. (Island
+## stamps sink away before the edge, so nothing else crosses it.)
 func outer_height(x: float, z: float) -> float:
-	var inl := mainland.inland(x, z)
-	var e := mainland.elev(x, z, inl)
-	var best: Stamp = null
-	# Out in the open channel, stamps sink away just past the edge so they leave
-	# the shipping lanes clear; near the shores they run on into the mainland.
-	var out := maxf(absf(x), absf(z)) - half_size
-	var keep := 1.0 - smoothstep(0.0, 180.0, out) * (1.0 - smoothstep(-660.0, -180.0, inl))
-	if keep > 0.0:
-		for s in _edge_stamps:
-			var se := _stamp_e(s, x, z) * keep
-			if se > e:
-				e = se
-				best = s
-	if best == null:
-		best = _world_stamp
-	return _height_of(e, x, z, best) + mainland.relief(x, z, inl, e)
+	var m := mainland_e(x, z)
+	return _height_of(m.x, x, z, _world_stamp) + mainland.relief(x, z, m.y, m.x)
 
 
 func add_flat(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1: float, height: float, blend: float) -> void:

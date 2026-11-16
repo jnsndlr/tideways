@@ -37,10 +37,6 @@ var _args := {}
 ## Frame caps: the sim is slow-paced, so 60 fps is plenty, and nobody is watching
 ## when the window is in the background. Headless runs (soak tests) stay uncapped.
 const MAX_FPS := 60
-# How far trees cast shadows, as a multiple of the camera's distance (and a floor so
-# close-up views keep the trees around them shaded).
-const TREE_SHADOW_REACH := 1.25
-const TREE_SHADOW_MIN := 450.0
 const BACKGROUND_FPS := 15
 ## Benchmarks render flat out regardless of focus.
 var uncapped := false
@@ -77,7 +73,7 @@ func _ready() -> void:
 	add_child(clouds)
 	var backdrop := Backdrop.new()
 	add_child(backdrop)
-	backdrop.setup(terrain, sim.weather)
+	backdrop.setup(terrain, sim.weather, builder)
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
 	day_cycle.sim = sim
@@ -188,6 +184,8 @@ func _setup_environment() -> void:
 	sun.shadow_blur = 1.5
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_max_distance = 1200.0
+	# Shadows thin out over the last 40% of their range rather than ending in a line.
+	sun.directional_shadow_fade_start = 0.6
 	add_child(sun)
 
 
@@ -213,7 +211,10 @@ func _process(_delta: float) -> void:
 	sun.directional_shadow_split_1 = near
 	sun.directional_shadow_split_2 = lerpf(0.2, near * 2.0, close)
 	sun.directional_shadow_split_3 = lerpf(0.5, maxf(0.5, near * 3.5), close)
-	var reach := maxf(d * TREE_SHADOW_REACH, TREE_SHADOW_MIN)
+	# Tree shadows reach as far as the cascades do, so they fade out with the sun's
+	# shadow (directional_shadow_fade_start) instead of popping tile by tile as the
+	# camera pans.
+	var reach := shadow_far * 1.05
 	if absf(reach - _tree_shadow_reach) > _tree_shadow_reach * 0.03:
 		_tree_shadow_reach = reach
 		for t in tree_shadows:

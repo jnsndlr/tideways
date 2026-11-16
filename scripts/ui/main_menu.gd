@@ -51,10 +51,15 @@ func _build() -> void:
 	gap.custom_minimum_size.y = 28
 	col.add_child(gap)
 
-	var play := _button(col, "Play", func(): Scenes.go(get_tree(), Scenes.MAIN_MAP))
-	_button(col, "Sandbox", func(): Scenes.go(get_tree(), Scenes.SANDBOX))
+	var play := _button(col, "Play", func(): _start(Scenes.MAIN_MAP, "Setting out for the islands"))
+	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Quit", func(): get_tree().quit())
 	play.grab_focus()
+
+
+func _start(path: String, caption: String) -> void:
+	Engine.time_scale = 1.0
+	LoadingScreen.open(get_tree(), path, caption)
 
 
 func _button(parent: Control, text: String, on_press: Callable) -> Button:
