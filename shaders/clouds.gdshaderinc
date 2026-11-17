@@ -1,14 +1,19 @@
-// Shared cloud field: the visible cloud layer draws it, and every lit surface
-// samples it along the sun direction for soft, drifting cloud shadows, so the two
-// always line up. Coverage, wind and sun come from project-wide shader globals set
+// Shared cloud field: the visible cloud layer draws it, the sky carries it on out
+// to the horizon, and every lit surface samples it along the sun direction for
+// soft, drifting cloud shadows, so they all line up. Coverage, wind and sun come from project-wide shader globals set
 // by CloudLayer and DayCycle.
 
 global uniform float cloud_coverage;
 global uniform vec2 cloud_wind;
+// Seconds, advanced by CloudLayer. Shared by the deck, every cloud shadow and the
+// sky (where TIME would re-render the radiance every frame), so they stay aligned.
+global uniform float cloud_time;
+// 0..1: how dark and heavy the clouds are (Weather.storm).
+global uniform float cloud_storm;
 global uniform float cloud_shadow_strength;
 global uniform vec3 sun_direction;
 
-const float CLOUD_ALTITUDE = 510.0;
+const float CLOUD_ALTITUDE = 2700.0;
 const float CLOUD_SCALE = 0.0015;
 
 // Random unit gradient per lattice cell (hash22 + normalise; no sin/cos).

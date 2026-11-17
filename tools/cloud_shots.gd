@@ -9,8 +9,8 @@ var frames := 0
 var shot := 0
 # weather, hour, dist, pitch°, yaw°
 var shots := [
-	["Sunny", 11.0, 1500.0, 54.0, 200.0],
-	["Light Breeze", 11.0, 1500.0, 54.0, 200.0],
+	["Clear", 11.0, 1500.0, 54.0, 200.0],
+	["Few Clouds", 11.0, 1500.0, 54.0, 200.0],
 	["Partly Cloudy", 11.0, 1500.0, 54.0, 200.0],
 	["Overcast", 11.0, 1500.0, 54.0, 200.0],
 	["Partly Cloudy", 11.0, 3600.0, 70.0, 200.0],
@@ -40,7 +40,7 @@ func _process(_delta: float) -> bool:
 		var s: Array = shots[shot]
 		main.day_cycle.set_hour(s[1])
 		main.day_cycle.apply(main.day_cycle.hour())
-		RenderingServer.global_shader_parameter_set("cloud_coverage", CloudLayer.COVERAGE[s[0]])
+		main.sim.weather.set_kind(s[0], 0.0)
 		main.rig.target_pos = Vector3(2900, 0, -50)
 		main.rig.target_dist = s[2]
 		main.rig.target_pitch = deg_to_rad(s[3])

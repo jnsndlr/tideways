@@ -175,7 +175,7 @@ void fragment() {
 void light() {
 	float shade = 1.0;
 	if (LIGHT_IS_DIRECTIONAL) {
-		shade = 1.0 - cloud_shadow(world_pos, TIME);
+		shade = 1.0 - cloud_shadow(world_pos, cloud_time);
 	}
 	DIFFUSE_LIGHT += clamp(dot(NORMAL, LIGHT), 0.0, 1.0) * ATTENUATION * LIGHT_COLOR / PI * shade;
 }

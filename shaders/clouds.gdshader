@@ -24,7 +24,7 @@ uniform float thickness = 240.0;
 // tree_card.gdshader).
 uniform float size_scale = 1.0;
 uniform vec2 fade_in = vec2(-2.0, -1.0); // radius where this ring fades in (none by default)
-uniform vec2 fade_out = vec2(3800.0, 4800.0);
+uniform vec2 fade_out = vec2(3000.0, 4900.0);
 
 varying vec3 world_pos;
 varying vec2 corner;
@@ -34,14 +34,17 @@ varying float seed;
 void vertex() {
 	vec4 c = INSTANCE_CUSTOM;
 	// Drift with the wind and wrap round the tile, out beyond the far fade.
-	vec2 p = MODEL_MATRIX[3].xz + cloud_wind * TIME;
+	vec2 p = MODEL_MATRIX[3].xz + cloud_wind * cloud_time;
 	p = mod(p + tile * 0.5, tile) - tile * 0.5;
-	float cov = cloud_local_coverage(p, TIME);
-	float n = cloud_octaves(p, TIME, 0, COARSE_OCTAVES) * 0.5 + 0.5;
+	float cov = cloud_local_coverage(p, cloud_time);
+	float n = cloud_octaves(p, cloud_time, 0, COARSE_OCTAVES) * 0.5 + 0.5;
 	float lo = cloud_lo(cov);
 	// Wider than the shadow's edge, so heaps round off into small puffs at the fringe.
 	body = smoothstep(lo - 0.03, lo + 0.3, n);
-	float size = body > 0.0 ? mix(330.0, 470.0, c.r) * (0.3 + 0.7 * body) * size_scale : 0.0;
+	// The outer ring's puffs start at the near ring's size and only grow to full
+	// size_scale well past the crossfade, so there's no seam where big puffs begin.
+	float grow = mix(1.0, size_scale, smoothstep(fade_in.x, fade_in.y + 2500.0, length(p)));
+	float size = body > 0.0 ? mix(330.0, 470.0, c.r) * (0.3 + 0.7 * body) * grow : 0.0;
 	vec3 centre = vec3(p.x, CLOUD_ALTITUDE + body * thickness + (c.g - 0.5) * 50.0, p.y);
 
 	vec3 right = INV_VIEW_MATRIX[0].xyz;
@@ -73,6 +76,8 @@ void fragment() {
 	// Greyer and cooler low in the heap, with flat bases.
 	float hfrac = clamp((world_pos.y - CLOUD_ALTITUDE) / (thickness + 120.0), 0.0, 1.0);
 	ALBEDO = mix(vec3(0.62, 0.66, 0.75), vec3(1.0), smoothstep(0.0, 0.75, hfrac));
+	// Storm cloud: slate grey, darkest low in the heap.
+	ALBEDO *= mix(vec3(1.0), mix(vec3(0.17, 0.18, 0.22), vec3(0.4, 0.42, 0.47), hfrac), cloud_storm);
 	float base = smoothstep(CLOUD_ALTITUDE - 50.0, CLOUD_ALTITUDE + 30.0, world_pos.y);
 
 	float near = mix(0.12, 1.0, smoothstep(near_fade_start, near_fade_end, length(VERTEX)));

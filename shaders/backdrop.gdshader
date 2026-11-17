@@ -41,7 +41,7 @@ void light() {
 	if (LIGHT_IS_DIRECTIONAL) {
 		float r = length(world_pos.xz);
 		if (r < DECK_FADE_END) {
-			shade = 1.0 - cloud_shadow(world_pos, TIME) * (1.0 - smoothstep(DECK_FADE_START, DECK_FADE_END, r));
+			shade = 1.0 - cloud_shadow(world_pos, cloud_time) * (1.0 - smoothstep(DECK_FADE_START, DECK_FADE_END, r));
 		}
 	}
 	// A little wrap softens facet-to-facet contrast into broad painted planes.

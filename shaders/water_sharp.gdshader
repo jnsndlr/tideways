@@ -223,7 +223,7 @@ void fragment() {
 	}
 	vec3 floor_col = textureLod(screen_texture, uv, 0.0).rgb;
 
-	float cloud = cloud_shadow(world_pos, TIME);
+	float cloud = cloud_shadow(world_pos, cloud_time);
 	float sun_up = smoothstep(0.0, 0.25, sun_direction.y) * daylight;
 	float floor_depth = max(world_pos.y - seen.y, 0.0);
 	// Caustics on the floor: sunlight that already crossed the water column down,

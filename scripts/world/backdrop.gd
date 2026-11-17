@@ -1,19 +1,16 @@
 class_name Backdrop
 extends Node3D
 ## The world past the map: the mainland's shores, foothills and snowy ranges
-## (Terrain.outer_height, i.e. Mainland) out to the horizon, and banks of chunky
-## cumulus standing over them. Both are painted with their own aerial haze
-## (backdrop.gdshader, cumulus.gdshader) so distant layers fade into the sky like a
-## landscape painting instead of vanishing into the depth fog.
+## (Terrain.outer_height, i.e. Mainland) out to the horizon. They're painted with
+## their own aerial haze (backdrop.gdshader) so distant layers fade into the sky like
+## a landscape painting instead of vanishing into the depth fog. The clouds behind
+## them are in the sky shader (sky.gdshader).
 ##
 ## The land is a ring of rings around the terrain grid: the first ring is the grid's
 ## own edge vertices (so the two meet without a crack), and each ring further out is
 ## a little larger, halving its samples twice so far ranges get broad facets.
 
 const LAND_SHADER := "res://shaders/backdrop.gdshader"
-const CLOUD_SHADER := "res://shaders/cumulus.gdshader"
-const CLOUD_LAYER := 2 # CloudLayer.VISUAL_LAYER: kept off the minimap
-const CLOUD_COUNT := {"Sunny": 12, "Light Breeze": 18, "Partly Cloudy": 26, "Overcast": 34}
 
 const SAND := Color(0.8, 0.73, 0.54)
 const CLIFF := Color(0.5, 0.43, 0.42)
@@ -50,14 +47,9 @@ var _tree_cols: Array[Color] = []
 var _cards: Array[Transform3D] = []
 var _near_trees: Array[MultiMeshInstance3D] = []
 var _card_cols: Array[Color] = []
-# Cloud mesh arrays, filled by _puff.
-var _cv := PackedVector3Array()
-var _cn := PackedVector3Array()
-var _cc := PackedColorArray()
-var _ci := PackedInt32Array()
 
 
-func setup(t: Terrain, weather: String, b: WorldBuilder = null) -> void:
+func setup(t: Terrain, b: WorldBuilder = null) -> void:
 	name = "Backdrop"
 	terrain = t
 	builder = b
@@ -68,7 +60,6 @@ func setup(t: Terrain, weather: String, b: WorldBuilder = null) -> void:
 		for at in builder.edge_cards:
 			_card_at(at)
 	_build_trees()
-	_build_clouds(weather)
 
 
 # --- Land ---------------------------------------------------------------------------
@@ -375,108 +366,3 @@ func show_near_trees(on: bool) -> void:
 static func _hash(x: float, z: float) -> float:
 	var v := sin(x * 12.9898 + z * 78.233) * 43758.5453
 	return v - floorf(v)
-
-
-# --- Clouds -------------------------------------------------------------------------
-
-## Banks of cumulus all round the horizon: clusters of squashed, flat-bottomed
-## icospheres, big rounded heads in the middle and smaller ones at the ends.
-func _build_clouds(weather: String) -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(terrain.mainland.snowline * 1000.0) + 1 # differs per map, independent of the sim
-	var ico := _icosphere(2)
-	var count: int = CLOUD_COUNT.get(weather, 22)
-	for c in count:
-		var ang := rng.randf() * TAU
-		var dist := rng.randf_range(16500.0, 31500.0)
-		var centre := Vector2(cos(ang), sin(ang)) * dist
-		var along := Vector2(-sin(ang), cos(ang))
-		var base := rng.randf_range(3300.0, 5400.0)
-		var width := rng.randf_range(2700.0, 7800.0)
-		var puffs := int(width / 660.0) + rng.randi_range(0, 3)
-		var tint := rng.randf()
-		for k in puffs:
-			var t := rng.randf_range(-1.0, 1.0)
-			var big := 1.0 - absf(t) * 0.55
-			var rad := rng.randf_range(600.0, 1260.0) * big * (width / 5700.0 + 0.5)
-			var p := centre + along * t * width * 0.5 + Vector2(cos(ang), sin(ang)) * rng.randf_range(-840.0, 840.0)
-			var lift := rad * rng.randf_range(0.2, 0.75) * big
-			_puff(ico, Vector3(p.x, base + lift, p.y), Vector3(rad, rad * rng.randf_range(0.7, 0.9), rad), base,
-				base + rad * 1.6, tint)
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = _cv
-	arrays[Mesh.ARRAY_NORMAL] = _cn
-	arrays[Mesh.ARRAY_COLOR] = _cc
-	arrays[Mesh.ARRAY_INDEX] = _ci
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mat := ShaderMaterial.new()
-	mat.shader = load(CLOUD_SHADER)
-	mat.set_shader_parameter("grey", 0.35 if weather == "Overcast" else 0.0)
-	var mi := MeshInstance3D.new()
-	mi.name = "Cumulus"
-	mi.mesh = mesh
-	mi.material_override = mat
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.layers = 1 << (CLOUD_LAYER - 1)
-	add_child(mi)
-
-
-## One puff, its underside flattened onto the cloud base. Colour: r = height up the
-## cloud (0 at the base), g = the cluster's tint.
-func _puff(ico: Array, at: Vector3, scale: Vector3, base: float, top: float, tint: float) -> void:
-	var first := _cv.size()
-	for u: Vector3 in ico[0]:
-		var p := at + u * scale
-		var nrm := (u / scale).normalized()
-		if p.y < base:
-			p.y = base
-			nrm = nrm.lerp(Vector3.DOWN, 0.7).normalized()
-		_cv.append(p)
-		_cn.append(nrm)
-		_cc.append(Color(clampf((p.y - base) / (top - base), 0.0, 1.0), tint, 0.0))
-	for i: int in ico[1]:
-		_ci.append(first + i)
-
-
-## [unit vertices, indices] of an icosphere subdivided `levels` times, wound for Godot.
-static func _icosphere(levels: int) -> Array:
-	var t := (1.0 + sqrt(5.0)) / 2.0
-	# An Array (not packed) so _mid can append to it.
-	var v: Array[Vector3] = [
-		Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
-		Vector3(0, -1, t), Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t),
-		Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
-	for i in v.size():
-		v[i] = v[i].normalized()
-	var f := PackedInt32Array([0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4,
-		11, 10, 2, 10, 7, 6, 7, 1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5,
-		2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1])
-	for l in levels:
-		var mid := {}
-		var nf := PackedInt32Array()
-		for k in range(0, f.size(), 3):
-			var a := f[k]
-			var b := f[k + 1]
-			var c := f[k + 2]
-			var ab := _mid(v, mid, a, b)
-			var bc := _mid(v, mid, b, c)
-			var ca := _mid(v, mid, c, a)
-			nf.append_array([a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca])
-		f = nf
-	# The table is counter-clockwise from outside; Godot's front faces are clockwise.
-	for k in range(0, f.size(), 3):
-		var tmp := f[k + 1]
-		f[k + 1] = f[k + 2]
-		f[k + 2] = tmp
-	return [v, f]
-
-
-static func _mid(v: Array[Vector3], cache: Dictionary, a: int, b: int) -> int:
-	var key := mini(a, b) * 100000 + maxi(a, b)
-	if cache.has(key):
-		return cache[key]
-	v.append(((v[a] + v[b]) * 0.5).normalized())
-	cache[key] = v.size() - 1
-	return v.size() - 1

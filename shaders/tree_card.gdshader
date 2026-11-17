@@ -72,7 +72,7 @@ void vertex() {
 	card_fwd = fwd;
 	// The cloud deck thins out past 10500-13500 m (as in backdrop.gdshader).
 	float r = length(world_pos.xz);
-	cloud_shade = r < 13500.0 ? 1.0 - cloud_shadow(world_pos, TIME) * (1.0 - smoothstep(10500.0, 13500.0, r)) : 1.0;
+	cloud_shade = r < 13500.0 ? 1.0 - cloud_shadow(world_pos, cloud_time) * (1.0 - smoothstep(10500.0, 13500.0, r)) : 1.0;
 }
 
 // The share of the sky's light the card keeps with the sun this high.
