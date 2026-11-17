@@ -45,6 +45,33 @@ func tri3(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, o
 	colors.append(cb)
 
 
+## An untransformed triangle with its own normal at each corner (smooth shading).
+## The face's normal still decides the winding.
+func tri_n(a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, ca: Color, cb: Color, cc: Color) -> void:
+	var n := (b - a).cross(c - a)
+	if n.length_squared() < 1e-10:
+		return
+	if n.y < 0.0:
+		var tb := b
+		b = c
+		c = tb
+		var tn := nb
+		nb = nc
+		nc = tn
+		var tcol := cb
+		cb = cc
+		cc = tcol
+	verts.append(a)
+	verts.append(c)
+	verts.append(b)
+	normals.append(na)
+	normals.append(nc)
+	normals.append(nb)
+	colors.append(ca)
+	colors.append(cc)
+	colors.append(cb)
+
+
 ## Fast path for an untransformed triangle whose unit normal `n` is already known and
 ## already matches the right-hand winding of a, b, c (no xform, no winding test).
 func tri_raw(a: Vector3, b: Vector3, c: Vector3, n: Vector3, col: Color) -> void:

@@ -28,6 +28,11 @@ const SHORE_EASE := 2700.0
 ## the map's edge (give or take FAR_VARY), so it is all Backdrop, drawn in one style.
 const FAR_CLEAR := 380.0
 const FAR_VARY := 110.0
+## How deep the ribs and gullies cut into the snowy peaks (share of their height).
+const CRAG_DEPTH := 0.13
+## The snowy peaks rise from this far inland, to their full height PEAK_RISE further.
+const PEAK_FOOT := 300.0
+const PEAK_RISE := 3600.0
 
 ## 0: the channel runs east-west (along X), so open water lies E and W; 1: north-south.
 var axis := 0
@@ -49,6 +54,7 @@ var _shore := FastNoiseLite.new()
 var _hills := FastNoiseLite.new()
 var _ridges := FastNoiseLite.new()
 var _warp := FastNoiseLite.new()
+var _crags := FastNoiseLite.new()
 
 
 func _init(map_seed: int, half_size: float) -> void:
@@ -58,9 +64,10 @@ func _init(map_seed: int, half_size: float) -> void:
 	axis = rng.randi_range(0, 1)
 	_width[0] = rng.randf_range(half + 780.0, half + 1560.0)
 	_width[1] = rng.randf_range(half + 780.0, half + 1560.0)
-	# One end of the passage closes off; the other narrows round a bend.
+	# Both ends of the passage stay open to the horizon: one narrows between the
+	# ranges to a gap, the other round a bend. (`shut` names the narrower end.)
 	var shut := rng.randi_range(0, 1)
-	_close[shut] = rng.randf_range(1.0, 1.15)
+	_close[shut] = rng.randf_range(0.55, 0.7)
 	_close[1 - shut] = rng.randf_range(0.45, 0.7)
 	_meander = rng.randf_range(1500.0, 2700.0) * (1.0 if rng.randf() < 0.5 else -1.0)
 	_phase = rng.randf() * TAU
@@ -79,6 +86,15 @@ func _init(map_seed: int, half_size: float) -> void:
 	_warp.seed = map_seed + 104
 	_warp.frequency = 0.0026667
 	_warp.fractal_octaves = 2
+	# Broad ribs and the gullies between them on the peaks' flanks, ~1.5 km apart.
+	# One octave only: finer ones fall between the backdrop's samples as sawteeth.
+	_crags.seed = map_seed + 105
+	_crags.frequency = 0.00065
+	_crags.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	_crags.fractal_octaves = 1
+	_crags.domain_warp_enabled = true
+	_crags.domain_warp_amplitude = 420.0
+	_crags.domain_warp_frequency = 0.0004
 
 	# Far islands out in the channel, clear of the map and of the shores.
 	var want := rng.randi_range(4, 7)
@@ -97,14 +113,16 @@ func _init(map_seed: int, half_size: float) -> void:
 		if not clash:
 			_islands.append(Vector4(xz.x, xz.y, r, rng.randf_range(2.0, 6.0)))
 
-	# Snowy peaks far back on both sides and beyond the shut end; a volcano stands
-	# alone on one side.
+	# Snowy peaks far back on both sides and either side of the narrow end's gap; a
+	# volcano stands alone on one side.
 	for sgn: float in [1.0, -1.0]:
 		for k in rng.randi_range(5, 8):
 			var xz := _from_uv(rng.randf_range(-19500.0, 19500.0), sgn * rng.randf_range(14400.0, 22200.0))
 			_peaks.append(Vector4(xz.x, xz.y, rng.randf_range(3900.0, 6900.0), rng.randf_range(1950.0, 3150.0)))
 	for k in rng.randi_range(2, 3):
-		var xz := _from_uv((1.0 if shut == 0 else -1.0) * rng.randf_range(18000.0, 22200.0), rng.randf_range(-10500.0, 10500.0))
+		# Pushed off the channel's line so the water runs out between them.
+		var across := rng.randf_range(-1.0, 1.0)
+		var xz := _from_uv((1.0 if shut == 0 else -1.0) * rng.randf_range(18000.0, 22200.0), signf(across) * (4500.0 + absf(across) * 6000.0))
 		_peaks.append(Vector4(xz.x, xz.y, rng.randf_range(3900.0, 6900.0), rng.randf_range(1950.0, 3000.0)))
 	var vs := 1.0 if rng.randf() < 0.5 else -1.0
 	var vxz := _from_uv(rng.randf_range(-10500.0, 10500.0), vs * rng.randf_range(18000.0, 21000.0))
@@ -183,16 +201,39 @@ func relief(x: float, z: float, inl: float, e: float) -> float:
 	var h := smoothstep(60.0, 2100.0, inl) * (60.0 + 330.0 * (_hills.get_noise_2d(x, z) * 0.5 + 0.5))
 	# ...then a layer of blue ridges, kept below the snow...
 	var ridge := _ridges.get_noise_2d(x, z) * 0.5 + 0.5
-	h += smoothstep(2700.0, 7800.0, inl) * (270.0 + 750.0 * ridge)
+	var crag := -2.0
+	var back := smoothstep(2700.0, 7800.0, inl)
+	if back > 0.0:
+		# (spurs and side valleys running down off their crests)
+		crag = _crag(x, z)
+		h += back * (270.0 + 750.0 * ridge) * (1.0 + 0.16 * crag * smoothstep(0.2, 0.6, ridge))
 	# ...and the snowy peaks far behind.
-	if inl > 1800.0:
+	# The peaks' flanks ease down to the water over a few kilometres instead of
+	# stopping dead short of it (which stood them up as sheer walls on the channel).
+	var rise := smoothstep(PEAK_FOOT, PEAK_FOOT + PEAK_RISE, inl)
+	if rise > 0.0:
 		for p in _peaks:
 			var d := Vector2(x - p.x, z - p.y).length()
 			if d < p.z:
-				h = maxf(h, p.w * pow(1.0 - d / p.z, 1.25) * (0.7 + 0.45 * ridge))
+				if crag < -1.0:
+					crag = _crag(x, z)
+				# Ribs and gullies cut deepest on the upper flanks, fading out at
+				# the foot and on the very top.
+				var f := 1.0 - d / p.z
+				var carve := 1.0 + CRAG_DEPTH * crag * smoothstep(0.0, 0.35, f) * (1.0 - 0.5 * smoothstep(0.7, 1.0, f))
+				h = maxf(h, p.w * pow(f, 1.25) * (0.7 + 0.45 * ridge) * carve * rise)
 		var dv := Vector2(x - _volcano.x, z - _volcano.y).length()
 		if dv < _volcano.z:
-			# Concave flanks up to a broad, slightly cut-off summit.
-			var cone := _volcano.w * pow(1.0 - dv / _volcano.z, 1.9)
-			h = maxf(h, minf(cone, _volcano.w * 0.93) * (0.94 + 0.12 * ridge))
+			# Concave flanks up to a broad, slightly cut-off summit, scored by
+			# gullies running straight down from the top.
+			var ang := atan2(z - _volcano.y, x - _volcano.x)
+			var gully := _crags.get_noise_2d(ang * _volcano.z * 0.4, dv * 0.18)
+			var f := 1.0 - dv / _volcano.z
+			var cone := _volcano.w * pow(f, 1.9) * (1.0 + 0.08 * gully * smoothstep(0.05, 0.4, f))
+			h = maxf(h, minf(cone, _volcano.w * 0.93) * (0.94 + 0.12 * ridge) * rise)
 	return h * g
+
+
+## Ridged crags around zero: ribs stand up (+), gullies cut down (-).
+func _crag(x: float, z: float) -> float:
+	return _crags.get_noise_2d(x, z) * 1.2 - 0.25

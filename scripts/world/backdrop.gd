@@ -31,8 +31,11 @@ const TREE_BAND := 200.0  # (without a WorldBuilder; with one, WorldBuilder.card
 ## (WorldBuilder.ground_color, tree_density: fields and patchy woods) to the
 ## mainland's unbroken forest, so the map's edge doesn't show as a line.
 const EDGE_BLEND := 600.0
-## Within this far past the edge the land is coloured per vertex, not per facet.
-const VERTEX_COLOURED := 1500.0
+## The land's facets turn to smooth shading over this band past the edge.
+const SMOOTH_FROM := 600.0
+const SMOOTH_TO := 2400.0
+## Each far ring of the land is this much larger than the last.
+const RING_GROWTH := 1.011
 const TREE_TILE := 384.0
 const CARD_SHADER := "res://shaders/tree_card.gdshader"
 const CARD_SPRITE := "res://assets/textures/pine_card.png"
@@ -70,31 +73,78 @@ func _build_land() -> void:
 	var smax := Mainland.FAR / hs
 	var mb := MeshBuilder.new()
 
-	var inner := _edge_ring()
-	# 15 m rings for the near shore, then 30 m samples on rings growing ~2% each.
+	var rings: Array[PackedVector3Array] = [_edge_ring()]
+	# 15 m rings for the near shore, then samples on rings growing ~1.1% each, so
+	# the far facets are about as deep as they are wide (long thin ones turn whole
+	# mountain faces into single planes).
 	var d := 24.0
 	var level := 1
 	while true:
 		var s := 1.0 + d / hs
 		if s > smax:
 			break
-		var outer := _ring(s, n >> level)
-		_stitch(mb, inner, outer)
-		inner = outer
+		rings.append(_ring(s, n >> level))
 		if d < 420.0:
 			d += 15.0
 		else:
 			level = 2
-			d = (s * 1.022 - 1.0) * hs
+			d = (s * RING_GROWTH - 1.0) * hs
+	var norms := _ring_normals(rings)
+	for k in rings.size() - 1:
+		_stitch(mb, rings[k], rings[k + 1], norms[k], norms[k + 1])
 	var mi := MeshInstance3D.new()
 	mi.name = "Mainland"
 	mi.mesh = mb.commit()
 	var mat := ShaderMaterial.new()
 	mat.shader = load(LAND_SHADER)
 	mat.set_shader_parameter("map_half", terrain.half_size)
+	mat.set_shader_parameter("snowline", terrain.mainland.snowline)
+	mat.set_shader_parameter("detail", _detail_texture())
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+
+
+## Smooth normals at each ring point, from its neighbours along the ring and on
+## the rings either side (the first, the terrain grid's edge, stays flat-shaded).
+func _ring_normals(rings: Array[PackedVector3Array]) -> Array[PackedVector3Array]:
+	var out: Array[PackedVector3Array] = []
+	for k in rings.size():
+		var r := rings[k]
+		var m := r.size()
+		var nr := PackedVector3Array()
+		nr.resize(m)
+		var ri := rings[maxi(k - 1, 0)]
+		var ro := rings[mini(k + 1, rings.size() - 1)]
+		for i in m:
+			var t := r[(i + 1) % m] - r[(i - 1 + m) % m]
+			var rad := ro[(i * ro.size() / m) % ro.size()] - ri[(i * ri.size() / m) % ri.size()]
+			var nn := t.cross(rad)
+			if nn.y < 0.0:
+				nn = -nn
+			nr[i] = nn.normalized() if nn.length_squared() > 1e-10 else Vector3.UP
+		out.append(nr)
+	return out
+
+
+## A tiling normal map of ridged noise: the shader streaks it downhill into gullies
+## and ribs across the far faces, finer than the mesh can carry.
+func _detail_texture() -> NoiseTexture2D:
+	var fn := FastNoiseLite.new()
+	fn.seed = _rng.randi()
+	fn.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	fn.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	fn.fractal_octaves = 4
+	fn.frequency = 0.008
+	var nt := NoiseTexture2D.new()
+	nt.width = 512
+	nt.height = 512
+	nt.seamless = true
+	nt.as_normal_map = true
+	nt.bump_strength = 4.0
+	nt.generate_mipmaps = true
+	nt.noise = fn
+	return nt
 
 
 ## The terrain grid's boundary vertices, clockwise from the (-x, -z) corner.
@@ -145,31 +195,30 @@ func _ring(s: float, m: int) -> PackedVector3Array:
 
 
 ## Joins two rings; the inner one has the same number of samples or twice as many.
-func _stitch(mb: MeshBuilder, a: PackedVector3Array, b: PackedVector3Array) -> void:
+func _stitch(mb: MeshBuilder, a: PackedVector3Array, b: PackedVector3Array, an: PackedVector3Array, bn: PackedVector3Array) -> void:
 	var na := a.size()
 	var nb := b.size()
 	if na == nb:
 		for k in na:
 			var k1 := (k + 1) % na
 			if k % 2 == 0:
-				_tri(mb, a[k], a[k1], b[k1])
-				_tri(mb, a[k], b[k1], b[k])
+				_tri(mb, a[k], a[k1], b[k1], an[k], an[k1], bn[k1])
+				_tri(mb, a[k], b[k1], b[k], an[k], bn[k1], bn[k])
 			else:
-				_tri(mb, a[k], a[k1], b[k])
-				_tri(mb, a[k1], b[k1], b[k])
+				_tri(mb, a[k], a[k1], b[k], an[k], an[k1], bn[k])
+				_tri(mb, a[k1], b[k1], b[k], an[k1], bn[k1], bn[k])
 	else:
 		for c in nb:
-			var f0 := a[2 * c]
-			var f1 := a[2 * c + 1]
-			var f2 := a[(2 * c + 2) % na]
-			var c0 := b[c]
-			var c1 := b[(c + 1) % nb]
-			_tri(mb, f0, f1, c0)
-			_tri(mb, f1, c1, c0)
-			_tri(mb, f1, f2, c1)
+			var i0 := 2 * c
+			var i1 := 2 * c + 1
+			var i2 := (2 * c + 2) % na
+			var c1 := (c + 1) % nb
+			_tri(mb, a[i0], a[i1], b[c], an[i0], an[i1], bn[c])
+			_tri(mb, a[i1], b[c1], b[c], an[i1], bn[c1], bn[c])
+			_tri(mb, a[i1], a[i2], b[c1], an[i1], an[i2], bn[c1])
 
 
-func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
+func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3) -> void:
 	if a.y < -15.6 and b.y < -15.6 and c.y < -15.6:
 		return
 	var nrm := (b - a).cross(c - a)
@@ -183,17 +232,21 @@ func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
 	var blend := 1.0
 	if builder and not builder.backdrop_side(p.x, p.z):
 		blend = smoothstep(0.0, EDGE_BLEND, out)
-	if out < VERTEX_COLOURED:
-		# Coloured per corner near the map, like the terrain, so the beach line runs
-		# smoothly instead of stepping from one facet to the next.
-		mb.tri3(a, b, c, _ground(a, nrm.y, blend), _ground(b, nrm.y, blend), _ground(c, nrm.y, blend), Vector3.UP)
+	# Flat facets by the map, like the islands; smooth, painted slopes further out.
+	var sm := smoothstep(SMOOTH_FROM, SMOOTH_TO, out)
+	na = nrm.lerp(na, sm).normalized()
+	nb = nrm.lerp(nb, sm).normalized()
+	nc = nrm.lerp(nc, sm).normalized()
+	if sm > 0.0:
+		# Smooth slopes get smooth colour too: each corner by its own normal.
+		mb.tri_n(a, b, c, na, nb, nc, _ground(a, na.y, blend, sm), _ground(b, nb.y, blend, sm), _ground(c, nc.y, blend, sm))
 	else:
-		mb.tri(a, b, c, _ground(p, nrm.y, blend), Vector3.UP)
+		mb.tri_n(a, b, c, na, nb, nc, _ground(a, nrm.y, blend), _ground(b, nrm.y, blend), _ground(c, nrm.y, blend))
 	_wood(a, b, c, p, nrm.y, out, blend)
 
 
-func _ground(p: Vector3, ny: float, blend: float) -> Color:
-	var col := _color(p, ny)
+func _ground(p: Vector3, ny: float, blend: float, smooth := 0.0) -> Color:
+	var col := _color(p, ny, smooth)
 	if blend < 1.0:
 		col = builder.ground_color(p.y, ny, p.x, p.z).lerp(col, blend)
 	return col
@@ -229,22 +282,18 @@ func _wood(a: Vector3, b: Vector3, c: Vector3, p: Vector3, ny: float, out: float
 			want -= 1.0
 
 
-## Island colours on the shore, forest on the hills, bare rock above the trees and
-## snow on the tops (what faces up, at least; the shader's haze does the rest).
-func _color(p: Vector3, ny: float) -> Color:
-	var r := _hash(p.x, p.z)
+## Island colours on the shore and forest on the hills. The shader paints the bare
+## rock above the trees and the snow on the tops per pixel (backdrop.gdshader).
+func _color(p: Vector3, ny: float, smooth := 0.0) -> Color:
+	# Speckled facet by facet near the map; out on the smooth slopes, broad patches.
+	var r := lerpf(_hash(p.x, p.z), 0.5 + 0.5 * sin(p.x * 0.0019 + 0.6) * sin(p.z * 0.0023 + 2.1), smooth)
 	var h := p.y
-	var snow := _snowline(p)
 	var treeline := _treeline(p)
 	var col: Color
 	if h < -0.9:
 		col = SAND.darkened(clampf(-h * 0.023333, 0.0, 0.45))
 	elif h < 3.45 and ny >= 0.72:
 		col = SAND
-	elif h > snow and ny > 0.42:
-		col = SNOW
-	elif h > treeline:
-		col = ALPINE.lerp(ALPINE_LIGHT, r * 0.5)
 	elif ny < 0.72 and h < 75.0:
 		col = CLIFF.lerp(CLIFF_LIGHT, r)
 	elif ny < 0.72:
