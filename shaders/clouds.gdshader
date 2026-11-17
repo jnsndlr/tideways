@@ -1,50 +1,82 @@
 shader_type spatial;
-render_mode blend_mix, cull_disabled, depth_draw_never, shadows_disabled, specular_disabled, diffuse_lambert_wrap;
+render_mode blend_mix, cull_disabled, depth_draw_never, shadows_disabled, specular_disabled, diffuse_lambert_wrap, skip_vertex_transform;
 
-// Visible cloud layer: soft billows lit by the sun (so they blush at sunset),
-// faded out near the camera so they never block the view when zoomed in.
+// Visible clouds: thousands of soft, camera-facing puffs (CloudLayer's MultiMesh).
+// Each drifts with the wind and sizes and lifts itself from the shared cloud field,
+// so puffs heap up into cumulus where the field is dense, thin out at its edges and
+// vanish in clear sky, always over the ground shadows that field casts. Each puff
+// is shaded as a soft sphere lit by the sun (so clouds blush at sunset), greyer low
+// down with flat bases, and the deck fades near the camera so it never blocks the
+// view when zoomed in.
 
 #include "res://shaders/clouds.gdshaderinc"
 
-uniform float opacity = 0.85;
+uniform float opacity = 0.92;
+uniform float tile = 10400.0;
+uniform sampler2D puff_noise : filter_linear_mipmap, repeat_enable;
 uniform float near_fade_start = 540.0;
 uniform float near_fade_end = 1560.0;
-uniform float puff = 5.0;
-// Out over the mainland the deck thins away and the backdrop's cumulus take over
-// (keep in sync with backdrop.gdshader).
-uniform float far_fade_start = 2700.0;
-uniform float far_fade_end = 4800.0;
+// How high the densest heaps stand above the cloud base.
+uniform float thickness = 240.0;
+// Two rings share this shader: dense, small puffs near the map and sparser, bigger
+// ones out over the mainland, crossfading between them. Past the outer ring the
+// backdrop's cumulus take over (keep the fade in sync with backdrop.gdshader and
+// tree_card.gdshader).
+uniform float size_scale = 1.0;
+uniform vec2 fade_in = vec2(-2.0, -1.0); // radius where this ring fades in (none by default)
+uniform vec2 fade_out = vec2(3800.0, 4800.0);
 
 varying vec3 world_pos;
+varying vec2 corner;
+varying float body;
+varying float seed;
 
 void vertex() {
-	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec4 c = INSTANCE_CUSTOM;
+	// Drift with the wind and wrap round the tile, out beyond the far fade.
+	vec2 p = MODEL_MATRIX[3].xz + cloud_wind * TIME;
+	p = mod(p + tile * 0.5, tile) - tile * 0.5;
+	float cov = cloud_local_coverage(p, TIME);
+	float n = cloud_octaves(p, TIME, 0, COARSE_OCTAVES) * 0.5 + 0.5;
+	float lo = cloud_lo(cov);
+	// Wider than the shadow's edge, so heaps round off into small puffs at the fringe.
+	body = smoothstep(lo - 0.03, lo + 0.3, n);
+	float size = body > 0.0 ? mix(330.0, 470.0, c.r) * (0.3 + 0.7 * body) * size_scale : 0.0;
+	vec3 centre = vec3(p.x, CLOUD_ALTITUDE + body * thickness + (c.g - 0.5) * 50.0, p.y);
+
+	vec3 right = INV_VIEW_MATRIX[0].xyz;
+	vec3 up = INV_VIEW_MATRIX[1].xyz;
+	world_pos = centre + (right * VERTEX.x + up * VERTEX.y) * size;
+	corner = VERTEX.xy * 2.0;
+	seed = c.b;
+	VERTEX = (VIEW_MATRIX * vec4(world_pos, 1.0)).xyz;
+	NORMAL = vec3(0.0, 0.0, 1.0);
 }
 
 void fragment() {
-	vec2 p = world_pos.xz;
-	float coarse = cloud_octaves(p, TIME, 0, COARSE_OCTAVES);
-	float d = 0.0;
-	vec3 wn = vec3(0.0, 1.0, 0.0);
-	// Clear sky (the fine octaves can't lift it past the threshold) needs no more work.
-	if (coarse + CLOUD_FINE_RANGE >= cloud_threshold()) {
-		float n = coarse + cloud_octaves(p, TIME, COARSE_OCTAVES, CLOUD_OCTAVES);
-		d = cloud_coverage_curve(n);
-		// The 12-unit finite difference smooths away the fine octaves anyway, so step
-		// only the broad ones and shift the full-detail value by that change.
-		float e = 36.0;
-		float dx = cloud_coverage_curve(n + cloud_octaves(p + vec2(e, 0.0), TIME, 0, COARSE_OCTAVES) - coarse) - d;
-		float dz = cloud_coverage_curve(n + cloud_octaves(p + vec2(0.0, e), TIME, 0, COARSE_OCTAVES) - coarse) - d;
-		// Treat density as height so edges shade like rounded billows.
-		wn = normalize(vec3(-dx * puff, 1.0, -dz * puff));
+	float r2 = dot(corner, corner);
+	if (r2 >= 1.0 || body <= 0.0) {
+		discard;
 	}
-	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
+	float fall = 1.0 - r2;
+	// Noise eats into the rim so overlapping puffs merge into one ragged mass
+	// instead of reading as discs.
+	float tex = texture(puff_noise, corner * 0.4 + vec2(seed * 3.7, seed * 1.9)).r;
+	float a = smoothstep(0.0, 0.4, fall - (0.62 - tex) * 0.9);
+
+	// Shade as a soft sphere, leaning toward world up so a heap reads as one mass
+	// rather than a pile of balls.
+	vec3 up_v = (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
+	vec3 sphere = normalize(vec3(corner, sqrt(fall) * 1.3));
+	NORMAL = normalize(mix(sphere, up_v, 0.3));
+
+	// Greyer and cooler low in the heap, with flat bases.
+	float hfrac = clamp((world_pos.y - CLOUD_ALTITUDE) / (thickness + 120.0), 0.0, 1.0);
+	ALBEDO = mix(vec3(0.62, 0.66, 0.75), vec3(1.0), smoothstep(0.0, 0.75, hfrac));
+	float base = smoothstep(CLOUD_ALTITUDE - 50.0, CLOUD_ALTITUDE + 30.0, world_pos.y);
 
 	float near = mix(0.12, 1.0, smoothstep(near_fade_start, near_fade_end, length(VERTEX)));
-	ALBEDO = mix(vec3(0.78, 0.8, 0.86), vec3(1.0), d);
-	float far = 1.0 - smoothstep(far_fade_start, far_fade_end, length(world_pos.xz));
-	// Seen edge-on the deck smears into streaks across the mountains: thin it out.
-	vec3 up = (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
-	float grazing = smoothstep(0.06, 0.22, abs(dot(normalize(VIEW), up)));
-	ALPHA = d * opacity * near * far * grazing;
+	float r = length(world_pos.xz);
+	float far = smoothstep(fade_in.x, fade_in.y, r) * (1.0 - smoothstep(fade_out.x, fade_out.y, r));
+	ALPHA = a * base * smoothstep(0.0, 0.2, body) * opacity * near * far;
 }

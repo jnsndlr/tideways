@@ -52,15 +52,30 @@ float cloud_octaves(vec2 xz, float t, int first, int last) {
 	return n;
 }
 
-// Raw fbm value below which the density is zero.
-float cloud_threshold() {
-	return (1.0 - cloud_coverage * 0.75 - 0.18) * 2.0 - 1.0;
+// Big, slow weather fronts drift through the deck and raise or lower the local
+// coverage, so an overcast day still has breaks and a sunny one the odd cloud bank.
+const float CLOUD_FRONT_SCALE = 0.00016;
+const float CLOUD_FRONT_SPREAD = 0.4;
+// Width of the soft edge, in 0..1 fbm units: narrower gives crisper, separate puffs.
+const float CLOUD_EDGE = 0.16;
+
+float cloud_local_coverage(vec2 xz, float t) {
+	vec2 p = (xz - cloud_wind * t * 0.7) * CLOUD_FRONT_SCALE + vec2(t * 0.0005, 0.0);
+	return clamp(cloud_coverage + cl_noise(p + vec2(31.7, 12.9)) * CLOUD_FRONT_SPREAD, 0.0, 1.0);
 }
 
-float cloud_coverage_curve(float n) {
-	n = n * 0.5 + 0.5;
-	float lo = 1.0 - cloud_coverage * 0.75 - 0.18;
-	return smoothstep(lo, lo + 0.22, n);
+float cloud_lo(float cov) {
+	return 1.0 - cov * 0.75 - 0.18;
+}
+
+// Raw fbm value below which the density is zero.
+float cloud_threshold(float cov) {
+	return cloud_lo(cov) * 2.0 - 1.0;
+}
+
+float cloud_coverage_curve(float n, float cov) {
+	float lo = cloud_lo(cov);
+	return smoothstep(lo, lo + CLOUD_EDGE, n * 0.5 + 0.5);
 }
 
 // Largest amount the octaves after COARSE_OCTAVES can add (|noise| <= ~1.06).
@@ -68,7 +83,7 @@ const float CLOUD_FINE_RANGE = (0.55 * 0.48 * 0.48 * 0.48 + 0.55 * 0.48 * 0.48 *
 
 // 0..1 cloud density at a world-space xz position.
 float cloud_density(vec2 xz, float t) {
-	return cloud_coverage_curve(cloud_octaves(xz, t, 0, CLOUD_OCTAVES));
+	return cloud_coverage_curve(cloud_octaves(xz, t, 0, CLOUD_OCTAVES), cloud_local_coverage(xz, t));
 }
 
 // 0 (clear sun) .. cloud_shadow_strength (under thick cloud) for a world position:
@@ -76,12 +91,16 @@ float cloud_density(vec2 xz, float t) {
 float cloud_shadow(vec3 world, float t) {
 	vec3 sd = normalize(sun_direction);
 	vec2 at = world.xz + sd.xz * (CLOUD_ALTITUDE - world.y) / max(sd.y, 0.12);
+	if (cloud_coverage <= 0.0) {
+		return 0.0;
+	}
+	float cov = cloud_local_coverage(at, t);
 	float n = cloud_octaves(at, t, 0, COARSE_OCTAVES);
 	// Clear sky overhead: the remaining octaves can't make a shadow.
-	if (n + CLOUD_FINE_RANGE < cloud_threshold()) {
+	if (n + CLOUD_FINE_RANGE < cloud_threshold(cov)) {
 		return 0.0;
 	}
 	// Shadows are soft, so the finest octave (amplitude ~0.03) is left out.
 	n += cloud_octaves(at, t, COARSE_OCTAVES, CLOUD_OCTAVES - 1);
-	return cloud_coverage_curve(n) * cloud_shadow_strength;
+	return cloud_coverage_curve(n, cov) * cloud_shadow_strength;
 }
