@@ -143,6 +143,9 @@ func _ready() -> void:
 	build_to = 1.0
 	built = true
 	world_ready.emit()
+	Music.set_mood(get_tree(), Music.Mood.SOFT)
+	RadioChatter.on_game(get_tree())
+	UiSounds.install(get_tree())
 
 
 ## Runs one stage of the world build. With async_build, `work` runs on a worker

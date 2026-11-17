@@ -60,6 +60,8 @@ static func open(tree: SceneTree, path: String, caption: String) -> void:
 	layer.add_child(screen)
 	tree.root.add_child(layer)
 	screen._caption.text = caption
+	Music.set_mood(tree, Music.Mood.FULL)
+	RadioChatter.on_loading(tree)
 
 
 func _init() -> void:

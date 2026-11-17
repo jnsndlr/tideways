@@ -35,6 +35,9 @@ const COVER := [
 
 ## How faceted the ground looks; a look setting, kept for the session.
 static var facet := 0.4
+## The panel folded down to its title bar (H), to see more of the map; kept for
+## the session, across rebuilds.
+static var collapsed := false
 
 var main
 var selected := 0
@@ -46,6 +49,8 @@ var _name: LineEdit
 var _pinned: CheckBox
 var _mainland: CheckBox
 var _status: Label
+var _body: ScrollContainer
+var _fold: Button
 var _apply: Button
 var _remove: Button
 var _sliders := {}   # key -> [HSlider, value Label, unit]
@@ -82,15 +87,36 @@ func setup(m) -> void:
 	add_child(_root)
 	_toggle = Button.new()
 	_toggle.text = "ISLANDS  (I)"
-	_toggle.position = Vector2(22, 472)
 	_toggle.add_theme_stylebox_override("normal", _box(Hud.PANEL_BG, 8))
 	_toggle.pressed.connect(_toggle_open)
 	_root.add_child(_toggle)
+	# Just under the HUD sidebar, however tall it grows.
+	main.hud.sidebar.resized.connect(_place_toggle)
+	_place_toggle()
 	_build_panel()
+	_apply_collapsed()
 	_panel.visible = false
 	main.builder.terrain_material.set_shader_parameter("facet", facet)
 	main.rig.ground_clicked.connect(_on_ground_clicked)
 	_build_marker()
+
+
+func _toggle_collapsed() -> void:
+	collapsed = not collapsed
+	_apply_collapsed()
+
+
+## Folded, the panel is just its title bar in the top right corner.
+func _apply_collapsed() -> void:
+	_body.visible = not collapsed
+	_fold.text = "Show  (H)" if collapsed else "Hide  (H)"
+	_panel.anchor_bottom = 0.0 if collapsed else 1.0
+	_panel.offset_bottom = _panel.offset_top if collapsed else -16.0
+
+
+func _place_toggle() -> void:
+	var bar: Control = main.hud.sidebar
+	_toggle.position = Vector2(bar.position.x + 2, bar.position.y + bar.size.y + 10)
 
 
 func is_open() -> bool:
@@ -123,10 +149,16 @@ func _clear_sky(on: bool) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo \
-			and (event as InputEventKey).physical_keycode == KEY_I:
-		_toggle_open()
-		get_viewport().set_input_as_handled()
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	match (event as InputEventKey).physical_keycode:
+		KEY_I:
+			_toggle_open()
+			get_viewport().set_input_as_handled()
+		KEY_H:
+			if is_open():
+				_toggle_collapsed()
+				get_viewport().set_input_as_handled()
 
 
 func _toggle_open() -> void:
@@ -149,15 +181,27 @@ func _build_panel() -> void:
 	_panel.offset_bottom = -16
 	_panel.add_theme_stylebox_override("panel", _box(Hud.PANEL_BG, 10, 14, 12))
 	_root.add_child(_panel)
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 6)
+	_panel.add_child(outer)
+	var header := HBoxContainer.new()
+	var title := _label("ISLAND EDITOR", 17, Hud.TEXT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	_fold = _button("Hide  (H)", _toggle_collapsed)
+	_fold.tooltip_text = "Fold the editor down to this bar to see more of the map."
+	header.add_child(_fold)
+	outer.add_child(header)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_panel.add_child(scroll)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(scroll)
+	_body = scroll
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_theme_constant_override("separation", 6)
 	scroll.add_child(v)
 
-	v.add_child(_label("ISLAND EDITOR", 17, Hud.TEXT))
 	_status = _label("", 12, Hud.MUTED)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(_status)
