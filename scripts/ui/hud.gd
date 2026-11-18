@@ -925,15 +925,15 @@ func show_toast(title: String, body: String, seconds := 6.0) -> void:
 # --- Map controls (screen edge) ----------------------------------------------------
 
 func _build_map_controls() -> void:
-	var layers := [["routes", "Routes"]]
+	var layers := []
 	if area_overlay:
-		layers.append(["areas", "Areas"])
-	layers.append(["names", "Names"])
+		layers.append(["areas", "Areas", "Water areas"])
+	layers.append(["routes", "Routes", "Ferry route lines"])
+	layers.append(["names", "Names", "Town names"])
 	map_controls = MapControls.new()
-	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 6, 6))
+	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 4, 4))
 	root.add_child(map_controls)
 	map_controls.setup(layers, sim, main.day_cycle, font, bold)
-	map_controls.dock_y = 16.0
 	map_controls.weather_toggled.connect(_on_weather_toggled)
 
 
