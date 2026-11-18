@@ -40,6 +40,7 @@ if [[ $suite == traffic ]]; then
   exit 0
 fi
 check ferry-assignment test --script tools/fast_ferry_test.gd
+check ferry-voyage test --script tools/ferry_voyage_test.gd
 check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
