@@ -89,6 +89,7 @@ func _ready() -> void:
 	sim.terrain = terrain
 	sim.marine = MarineTraffic.new()
 	await _stage(0.8, true, func(): sim.marine.prepare(sim))
+	sim.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
@@ -137,6 +138,7 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
+	sim.process_mode = Node.PROCESS_MODE_INHERIT
 	_apply_debug_args()
 	set_process(true)
 	build_from = 1.0
@@ -161,10 +163,13 @@ func _stage(to: float, threaded: bool, work: Callable) -> void:
 		await get_tree().process_frame
 		work.call()
 		return
-	var task := WorkerThreadPool.add_task(work, true, "World build")
-	while not WorkerThreadPool.is_task_completed(task):
+	var thread := Thread.new()
+	if thread.start(work) != OK:
+		work.call()
+		return
+	while thread.is_alive():
 		await get_tree().process_frame
-	WorkerThreadPool.wait_for_task_completion(task)
+	thread.wait_to_finish()
 
 
 ## The wildlife group whose animal is nearest `screen` (and showing), if any.

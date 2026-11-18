@@ -12,7 +12,7 @@ func press(label: String, prefix := false) -> bool:
 	# Fleet rows and inspector controls are laid out after their panel is shown.
 	await process_frame
 	await process_frame
-	for button: Button in current_scene.find_children("*", "Button", true, false):
+	for button: Button in root.find_children("*", "Button", true, false):
 		if not button.is_visible_in_tree():
 			continue
 		if button.text != label and button.tooltip_text != label and not (prefix and button.text.begins_with(label)):
@@ -78,15 +78,18 @@ func _loading() -> bool:
 func exercise_layout() -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
+	if not await press("Settings") or not await press("Done"):
+		return false
 	if not await press("Sandbox"):
 		return false
 	# The menu goes through the loading screen first. Bound the wait even if the
 	# control is disconnected.
-	for i in 600:
+	var deadline := Time.get_ticks_msec() + 90000
+	while Time.get_ticks_msec() < deadline:
 		await process_frame
 		if current_scene != null and current_scene.scene_file_path == Scenes.SANDBOX and not _loading():
 			break
-	if current_scene == null or current_scene.scene_file_path != Scenes.SANDBOX:
+	if current_scene == null or current_scene.scene_file_path != Scenes.SANDBOX or not current_scene.built or _loading():
 		return fail("Sandbox button did not navigate")
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
