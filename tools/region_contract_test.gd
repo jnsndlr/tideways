@@ -4,6 +4,12 @@ extends SceneTree
 func _initialize() -> void:
 	var fixture: MapData
 	for seed_value in [121, 123]:
+		var mainland := Mainland.new(seed_value, 4000.0)
+		for end in [-20000.0, 20000.0]:
+			if minf(mainland.shore_w(end, 0), mainland.shore_w(end, 1)) < 500.0:
+				push_error("Both channel ends need open water between their ranges")
+				quit(1)
+				return
 		fixture = MapGenerator.new().generate(seed_value)
 		var failure := inspect(fixture)
 		if not failure.is_empty():
