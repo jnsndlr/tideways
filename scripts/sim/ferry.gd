@@ -6,17 +6,9 @@ extends Vessel
 ## (FerryClass) sets how many cars it takes and how fast it goes; whatever its
 ## length, it docks with its end at the ramp.
 
-enum State { UNLOADING, LOADING, SAILING }
+const State = FerryVoyage.State
 
-const ACCEL := 4.2
-# Arrival: ferries ease off to APPROACH_SPEED along the run-in, then from the
-# moment the bow passes the outer dolphins the forward prop reverse-thrusts them
-# to a stop at the dock (the stern props backing off).
-const DECEL := 1.5
-# Braking to give way to other traffic.
-const YIELD_DECEL := 2.7
-const APPROACH_SPEED := 9.6
-const OUTER_DOLPHIN_U := Layout.DOLPHIN_OUTER.x
+const YIELD_DECEL := FerryVoyage.YIELD_DECEL
 const MIN_DWELL := 10.0
 const MAX_DWELL := 24.0
 const DISPATCH_GAP := 0.5
@@ -34,21 +26,33 @@ var fleet_key := ""                 # follows the hull through renames and route
 var ferry_name := ""
 var term_a: Terminal
 var term_b: Terminal
-var state := State.LOADING
-var at_a := true        # docked at A, or departed from A while sailing
+# Compatibility properties expose one owner to traffic, UI and setup callers.
+var voyage := FerryVoyage.new()
+var state: FerryVoyage.State:
+	get: return voyage.state
+	set(value): voyage.state = value
+var at_a: bool:        # docked at A, or departed from A while sailing
+	get: return voyage.at_a
+	set(value): voyage.at_a = value
 var hull: MeshInstance3D
 # The car deck nets at -Z and +Z (FerryClass.net_z).
 var _nets: Array[MeshInstance3D] = []
 var _net_wind := Vector2.ZERO
-var traveled := 0.0      # how far the hull's centre has come, dock to dock
-var trips := 0
+var traveled: float:      # how far the hull's centre has come, dock to dock
+	get: return voyage.traveled
+	set(value): voyage.traveled = value
+var trips: int:
+	get: return voyage.trips
+	set(value): voyage.trips = value
 var aboard: Array[Vehicle] = []
 var deck: FerryDeck
 var _boarding := 0
 var _unload_queue: Array[Vehicle] = []
 var _dispatch_timer := 0.0
 var _last_sent: Vehicle  # the last car sent on or off, which the next one follows
-var _state_time := 0.0
+var _state_time: float:
+	get: return voyage.state_time
+	set(value): voyage.state_time = value
 var _bob_time := 0.0
 var _thrust := 0.0   # forward prop reverse thrust while braking, 0..1
 var _last_pos := Vector3.ZERO
@@ -372,9 +376,7 @@ func _tick_loading(delta: float) -> void:
 			if not ramp.is_clear():
 				return
 		_casting_off = false
-		state = State.SAILING
-		traveled = 0.0
-		_state_time = 0.0
+		voyage.depart()
 		# The last crossing's wake has long faded by now, and it lies along the same
 		# water, so start a fresh trail.
 		wake.clear()
@@ -422,34 +424,25 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 func _tick_sailing(delta: float) -> void:
 	var remaining := run_length() - traveled
-	# Distance from the bow reaching the outer dolphins to being docked.
-	var zone := OUTER_DOLPHIN_U - Layout.PIER_END - 1.2
+	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
-	var brake_v: float
-	if rem > zone:
-		brake_v = APPROACH_SPEED + sqrt(2.0 * DECEL * (rem - zone))
-	else:
-		brake_v = 0.9 + (APPROACH_SPEED - 0.9) * sqrt(rem / zone)
-	# Picks up from wherever it is (it may have stopped for traffic mid-crossing).
-	var target := minf(fc.cruise, minf(brake_v, yield_speed()))
+	var traffic_limit := yield_speed()
 	var wait := _corridor_wait()
 	hold = wait
-	target = minf(target, sqrt(2.0 * YIELD_DECEL * maxf(wait - 1.5, 0.0)))
-	speed = minf(target, speed + ACCEL * delta)
+	speed = voyage.sailing_speed(delta, run_length(), speed, fc.cruise, traffic_limit, wait)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
-	traveled = minf(traveled + speed * delta, run_length())
+	voyage.advance(delta, speed, run_length())
 	_place(_route_s(traveled))
 	_bob_time += delta
 	position.y = sin(_bob_time * 1.3) * 0.21
-	if traveled >= run_length() - 0.03:
+	if voyage.has_arrived(run_length()):
 		_dock_corridors()
 		hold = INF
 		speed = 0.0
 		position.y = 0.0
-		at_a = not at_a
-		trips += 1
+		voyage.arrive()
 		_begin_unloading()
 
 
