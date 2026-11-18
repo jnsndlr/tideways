@@ -21,7 +21,7 @@ var rig: CameraRig
 var hud: Hud
 var sun: DirectionalLight3D
 var env: Environment
-var sky_mat: ProceduralSkyMaterial
+var sky_mat: ShaderMaterial
 var day_cycle: DayCycle
 var clouds: CloudLayer
 var water_mat: ShaderMaterial
@@ -104,7 +104,7 @@ func _ready() -> void:
 	add_child(clouds)
 	var backdrop := Backdrop.new()
 	# Built before it joins the tree, so it can go to the worker thread.
-	await _stage(0.99, true, func(): backdrop.setup(terrain, sim.weather, builder))
+	await _stage(0.99, true, func(): backdrop.setup(terrain, builder))
 	add_child(backdrop)
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
@@ -201,13 +201,13 @@ func regenerate() -> void:
 
 func _setup_environment() -> void:
 	# Colours, ambient, fog and sun direction are driven per frame by DayCycle.
-	sky_mat = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.36, 0.56, 0.8)
-	sky_mat.sky_horizon_color = Color(0.74, 0.83, 0.9)
-	sky_mat.ground_horizon_color = Color(0.74, 0.83, 0.9)
-	sky_mat.ground_bottom_color = Color(0.12, 0.28, 0.36)
+	sky_mat = ShaderMaterial.new()
+	sky_mat.shader = load("res://shaders/sky.gdshader")
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
+	# DayCycle changes the sky every game minute or so; spread each radiance
+	# re-render over several frames instead of doing it all at once.
+	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
@@ -226,6 +226,9 @@ func _setup_environment() -> void:
 	env.fog_density = 0.85
 	env.fog_depth_begin = 1800.0
 	env.fog_depth_end = 4800.0
+	# The sky draws its own haze (sky.gdshader); fogging it over washed out the
+	# horizon clouds and flattened the gradient.
+	env.fog_sky_affect = 0.15
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	# Thin volumetric haze so sunlight scatters and cloud shadows read as shafts.
@@ -282,8 +285,12 @@ func _process(_delta: float) -> void:
 		_tree_shadow_reach = reach
 		for t in tree_shadows:
 			t.visibility_range_end = reach
-	env.fog_depth_begin = rig.distance * 1.6 + 600.0
-	env.fog_depth_end = rig.distance * 4.0 + 2100.0
+	# Fog by distance past the point looked at, not a multiple of the zoom: the
+	# camera's depth to anything out there grows ~1:1 with zoom, so a fixed offset
+	# keeps the far shores equally hazy at every zoom instead of fogging them out
+	# as the camera comes in. (Matches the old look at the default 1500 m zoom.)
+	env.fog_depth_begin = rig.distance + 1500.0
+	env.fog_depth_end = rig.distance + 6600.0
 	RenderingServer.global_shader_parameter_set("fog_range", Vector2(env.fog_depth_begin, env.fog_depth_end))
 	env.volumetric_fog_length = clampf(rig.distance * 2.4, 750.0, 4800.0)
 	_update_dof()

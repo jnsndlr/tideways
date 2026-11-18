@@ -11,8 +11,8 @@ render_mode cull_back, specular_disabled;
 
 // The visible cloud deck (and so its shadows) thins out past this radius
 // (keep in sync with clouds.gdshader).
-const float DECK_FADE_START = 2700.0;
-const float DECK_FADE_END = 4800.0;
+const float DECK_FADE_START = 10500.0;
+const float DECK_FADE_END = 13500.0;
 
 const float WRAP = 0.3;
 
@@ -41,7 +41,7 @@ void light() {
 	if (LIGHT_IS_DIRECTIONAL) {
 		float r = length(world_pos.xz);
 		if (r < DECK_FADE_END) {
-			shade = 1.0 - cloud_shadow(world_pos, TIME) * (1.0 - smoothstep(DECK_FADE_START, DECK_FADE_END, r));
+			shade = 1.0 - cloud_shadow(world_pos, cloud_time) * (1.0 - smoothstep(DECK_FADE_START, DECK_FADE_END, r));
 		}
 	}
 	// A little wrap softens facet-to-facet contrast into broad painted planes.

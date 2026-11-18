@@ -242,7 +242,7 @@ func _build_sidebar() -> void:
 
 func _build_help() -> void:
 	var text := "Drag: pan · Right-drag / Q E: rotate & tilt · Wheel / pinch: zoom · Click: select (or photograph wildlife)\n" + \
-		"Space: pause · 1-3: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock"
+		"Space: pause · 1-3: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock · V: weather"
 	if DisplayServer.is_touchscreen_available() and OS.has_feature("mobile"):
 		text = "Drag: pan · Two fingers: pinch to zoom, twist to rotate · Three fingers up/down: tilt · Tap: select"
 	var l := _label(text, 12, Color(1, 1, 1, 0.75))
@@ -468,6 +468,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_T:
 			main.day_cycle.follow_clock()
 			show_toast("TIME OF DAY", "Lighting follows the game clock.", 3.0)
+		KEY_V:
+			if (event as InputEventKey).shift_pressed:
+				sim.weather.resume()
+				show_toast("WEATHER", "Weather changes on its own again.", 3.0)
+			else:
+				sim.weather.set_kind(sim.weather.next_kind(), 10.0)
+				show_toast("WEATHER", "Pinned to %s. Shift+V lets it change on its own." % sim.weather.kind, 3.0)
 
 
 # --- Info panel (top right) ---------------------------------------------------------
@@ -712,7 +719,7 @@ func _update_terminal_bar(term: Terminal) -> void:
 		_tb_set("departure", "NEXT DEPARTURE", when, "%s to %s" % [f.ferry_name, dest.island.name])
 	else:
 		_tb_set("departure", "NEXT DEPARTURE", "-", "")
-	_tb_set("weather", "WEATHER", sim.weather, "%d°C" % sim.temperature())
+	_tb_set("weather", "WEATHER", sim.weather.label(), "%d°C" % sim.temperature())
 	_tb_set("wind", "WIND", "%s %d km/h" % [sim.wind_dir, sim.wind_speed], "")
 	var tide := sim.tide()
 	_tb_set("tide", "TIDE", "Rising" if tide.y > 0.0 else "Falling", "%.1f m" % tide.x)

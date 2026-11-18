@@ -31,7 +31,7 @@ var revenue_total: float:
 	get: return fares.revenue_total
 var cars_today: int:
 	get: return fares.cars_today
-var weather := "Partly Cloudy"
+var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
 var _tide_phase := 0.0
@@ -60,7 +60,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	rng.seed = m.map_seed + 99
 	wind_dir = WIND_DIRECTIONS[rng.randi_range(0, WIND_DIRECTIONS.size() - 1)]
 	wind_speed = rng.randi_range(4, 24)
-	weather = ["Partly Cloudy", "Sunny", "Overcast", "Light Breeze"][rng.randi_range(0, 3)]
+	weather.setup(m.map_seed + 7)
 	_tide_phase = rng.randf() * TAU
 	traffic = Node3D.new()
 	traffic.name = "Traffic"
@@ -124,6 +124,7 @@ func _ferry_sizes() -> Array[int]:
 
 func _process(delta: float) -> void:
 	minutes += delta
+	weather.step(delta)
 	if minutes >= 24.0 * 60.0:
 		minutes -= 24.0 * 60.0
 		day += 1

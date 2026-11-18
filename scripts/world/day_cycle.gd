@@ -56,7 +56,7 @@ const KEYS := [
 var sim: Simulation
 var sun: DirectionalLight3D
 var env: Environment
-var sky_mat: ProceduralSkyMaterial
+var sky_mat: ShaderMaterial
 var water_mat: ShaderMaterial
 
 ## 0 by day .. 1 at night: lights come on from LIGHTS_ON and are off by LIGHTS_OFF.
@@ -138,28 +138,30 @@ func apply(h: float) -> void:
 	RenderingServer.global_shader_parameter_set("night_lights", night)
 
 	_place_sun(h)
+	# Storm cloud swallows much of the sun.
+	var dim := 1.0 - (sim.weather.storm * 0.4 if sim else 0.0)
 	sun.light_color = p.light
-	sun.light_energy = p.energy
+	sun.light_energy = p.energy * dim
 	sun.shadow_enabled = p.energy > 0.02
 	if _sky_sun:
 		_sky_sun.rotation_degrees = sun.rotation_degrees
 		_sky_sun.light_color = p.light
-		_sky_sun.light_energy = p.energy
+		_sky_sun.light_energy = p.energy * dim
 
-	sky_mat.sky_top_color = p.top
-	sky_mat.sky_horizon_color = p.horizon
-	sky_mat.ground_horizon_color = p.horizon
-	sky_mat.ground_bottom_color = p.top.lerp(Color(0.05, 0.16, 0.24), 0.6)
+	sky_mat.set_shader_parameter("sky_top_color", p.top)
+	sky_mat.set_shader_parameter("sky_horizon_color", p.horizon)
+	sky_mat.set_shader_parameter("ground_horizon_color", p.horizon)
+	sky_mat.set_shader_parameter("ground_bottom_color", (p.top as Color).lerp(Color(0.05, 0.16, 0.24), 0.6))
 	env.ambient_light_color = p.ambient
-	env.ambient_light_energy = p.ambient_energy
+	env.ambient_light_energy = p.ambient_energy * lerpf(1.0, dim, 0.5)
 	env.fog_light_color = p.fog
 	env.tonemap_exposure = p.exposure
 	env.volumetric_fog_density = p.haze
 	env.volumetric_fog_albedo = p.fog.lerp(Color.WHITE, 0.7)
 	env.glow_intensity = p.glow
 	env.adjustment_saturation = p.saturation
-	sky_mat.sun_angle_max = p.sun_glow
-	# For the hand-lit backdrop (mainland haze, horizon cumulus).
+	sky_mat.set_shader_parameter("sun_angle_max", p.sun_glow)
+	# For the hand-lit backdrop (mainland haze).
 	var sl: Color = (p.light as Color).srgb_to_linear() * p.energy
 	RenderingServer.global_shader_parameter_set("sun_light", Vector3(sl.r, sl.g, sl.b))
 	var zc: Color = (p.top as Color).srgb_to_linear()

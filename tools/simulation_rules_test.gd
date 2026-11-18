@@ -9,6 +9,7 @@ func expect(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	check_weather()
 	check_wind()
 	check_demand()
 	check_departures()
@@ -160,3 +161,17 @@ func check_wildlife_photo() -> void:
 	departed.phase = Wildlife.Phase.GONE
 	expect(not wildlife.photograph(departed), "A departed group should no longer be photographable")
 	wildlife.free()
+
+func check_weather() -> void:
+	var weather := Weather.new()
+	weather.setup(123)
+	weather.set_kind("Clear", 0.0)
+	weather.set_kind("Storm", 120.0)
+	weather.step(60.0)
+	expect(is_equal_approx(weather.storm, 0.5), "Storm should build gradually")
+	weather.step(2000.0)
+	expect(weather.kind == "Storm" and is_equal_approx(weather.storm, 1.0), "Pinned storm must persist")
+	weather.setup(123)
+	var fresh := Weather.new()
+	fresh.setup(123)
+	expect(not weather.pinned and weather.kind == fresh.kind, "Starting a region resets manual weather")
