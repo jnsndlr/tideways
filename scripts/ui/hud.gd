@@ -34,6 +34,8 @@ var _info_panel: PanelContainer
 var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
+## The left-hand menu (COMPANY … SETTINGS); the island editor sits its toggle below it.
+var sidebar: PanelContainer
 var _lane_button := Button.new()
 var _info_button: Button
 var _terminal_bar: PanelContainer
@@ -218,15 +220,16 @@ func _build_top_bar() -> void:
 
 
 func _build_sidebar() -> void:
-	var panel := PanelContainer.new()
-	panel.position = Vector2(20, 112)
-	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 6, 6))
-	root.add_child(panel)
+	sidebar = PanelContainer.new()
+	sidebar.position = Vector2(20, 112)
+	sidebar.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 6, 6))
+	root.add_child(sidebar)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 2)
-	panel.add_child(col)
+	sidebar.add_child(col)
 	for item in [["COMPANY", "company"], ["RESEARCH", "research"], ["FLEET", "fleet"],
-			["ROUTES", "routes"], ["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["MAP", "map"]]:
+			["ROUTES", "routes"], ["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["MAP", "map"],
+			["SETTINGS", "settings"]]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(96, 46)
@@ -269,6 +272,8 @@ func _on_sidebar(id: String) -> void:
 			show_toast("ROUTES", "Route overlay always on." if routes_forced else "Route overlay shows when zoomed out.")
 		"map":
 			rig.focus_on(Vector3.ZERO, 1680.0)
+		"settings":
+			SettingsPanel.open(get_tree())
 		_:
 			show_toast(id.to_upper(), "Coming soon: this screen is a placeholder in the preview.")
 

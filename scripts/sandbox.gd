@@ -41,18 +41,45 @@ const BACKGROUND_FPS := 15
 ## Benchmarks render flat out regardless of focus.
 var uncapped := false
 
+## Set by LoadingScreen before the scene enters the tree: build the world over
+## several frames, the heavy parts on a worker thread, so the loading screen keeps
+## animating. Left off, _ready builds everything at once (tools rely on that).
+var async_build := false
+## The stage being built runs from build_from to build_to (0..1 of the whole
+## build); the loading screen sails the ferry between them.
+var build_from := 0.0
+var build_to := 0.0
+## The world is fully built.
+var built := false
+signal world_ready
+
 
 func _ready() -> void:
 	_parse_args()
 	if not uncapped and DisplayServer.get_name() != "headless":
 		Engine.max_fps = MAX_FPS
+	set_process(false)
 	var t0 := Time.get_ticks_msec()
 	var gen := MapGenerator.new()
-	map = _generate(gen)
-	terrain = gen.terrain
+	# Stage ends are measured shares of the build (main map, threaded: ~4.1 s generate,
+	# ~5.6 s world, ~1.3 s sea charts, ~0.6 s simulation, ~2.1 s backdrop).
+	await _stage(0.3, true, func():
+		map = _generate(gen)
+		terrain = gen.terrain)
 	_setup_environment()
+	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
+	# on the rendering thread before the worker starts placing instances.
+	if async_build:
+		Models.tree_variants(false)
+		Models.tree_variants(true)
 	builder = WorldBuilder.new(map, terrain)
-	add_child(builder.build())
+	var world := []  # lambdas capture locals by value; the array carries the result out
+	await _stage(0.71, true, func(): world.append(builder.build()))
+	# Finish the backdrop while its tree meshes are still off the live render tree.
+	var backdrop := Backdrop.new()
+	await _stage(0.855, true, func(): backdrop.setup(terrain, builder))
+	add_child(world[0])
+	add_child(backdrop)
 	route_overlay = builder.route_overlay
 	tree_shadows = builder.tree_shadows
 	var fixed_lights := builder.night_lights
@@ -66,8 +93,16 @@ func _ready() -> void:
 	_setup_dof()
 	sim = Simulation.new()
 	sim.name = "Simulation"
+	# Marine traffic's charts (nav grid, fishing grounds, anchorages) are pure data.
+	sim.map = map
+	sim.terrain = terrain
+	sim.marine = MarineTraffic.new()
+	await _stage(0.95, true, func(): sim.marine.prepare(sim))
+	sim.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(sim)
-	sim.setup(map, terrain)
+	# The rest of the simulation spawns nodes into the live tree, so it stays on the
+	# main thread.
+	await _stage(0.99, false, func(): sim.setup(map, terrain))
 	for terminal: Terminal in sim.terminals.values():
 		if terminal.island.lane_extension_price > 0:
 			var extension := HoldingLaneView.new()
@@ -76,9 +111,6 @@ func _ready() -> void:
 	clouds = CloudLayer.new()
 	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
-	var backdrop := Backdrop.new()
-	add_child(backdrop)
-	backdrop.setup(terrain, builder)
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
 	day_cycle.sim = sim
@@ -111,7 +143,38 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
+	sim.process_mode = Node.PROCESS_MODE_INHERIT
 	_apply_debug_args()
+	set_process(true)
+	build_from = 1.0
+	build_to = 1.0
+	built = true
+	world_ready.emit()
+	Music.set_mood(get_tree(), Music.Mood.SOFT)
+	RadioChatter.on_game(get_tree())
+	UiSounds.install(get_tree())
+
+
+## Runs one stage of the world build. With async_build, `work` runs on a worker
+## thread (`threaded`) or on the main thread after a frame has been drawn, and the
+## progress window moves on to end at `to`. Without it, `work` just runs.
+func _stage(to: float, threaded: bool, work: Callable) -> void:
+	if not async_build:
+		work.call()
+		return
+	build_from = build_to
+	build_to = to
+	if not threaded:
+		await get_tree().process_frame
+		work.call()
+		return
+	var thread := Thread.new()
+	if thread.start(work) != OK:
+		work.call()
+		return
+	while thread.is_alive():
+		await get_tree().process_frame
+	thread.wait_to_finish()
 
 
 ## The wildlife group whose animal is nearest `screen` (and showing), if any.

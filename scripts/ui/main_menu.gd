@@ -53,8 +53,12 @@ func _build() -> void:
 
 	var play := _button(col, "Play", func(): _start(Scenes.MAIN_MAP, "Setting out for the islands"))
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
+	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
 	_button(col, "Quit", func(): get_tree().quit())
 	play.grab_focus()
+	Music.set_mood(get_tree(), Music.Mood.FULL)
+	RadioChatter.on_menu(get_tree())
+	UiSounds.install(get_tree())
 
 
 func _start(path: String, caption: String) -> void:

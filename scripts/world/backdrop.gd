@@ -380,17 +380,12 @@ func _build_trees() -> void:
 			mm.use_colors = true
 			mm.mesh = levels[l][0]
 			mm.instance_count = idx.size()
-			for j in idx.size():
-				mm.set_instance_transform(j, _trees[idx[j]])
-				mm.set_instance_color(j, _tree_cols[idx[j]])
+			WorldBuilder.fill_multimesh(mm, _trees, _tree_cols, idx)
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = mm
 			# Dense forest hides its own floor; their shadows aren't worth the cascades.
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var c := mm.get_aabb().get_center()
-			var slack := 0.0
-			for i: int in idx:
-				slack = maxf(slack, _trees[i].origin.distance_to(c))
+			var slack := WorldBuilder.tile_slack(levels[l][0], idx, _trees)
 			Models.dither_lod(mmi, levels[l][0], levels[l][1], levels[l][2], slack, levels[l][3] if levels[l].size() > 3 else Vector3.ONE)
 			_near_trees.append(mmi)
 			mmi.name = "MainlandPines_%d_%d_%d%s" % [key.x, key.y, key.z, "_lod%d" % l if l > 0 else ""]

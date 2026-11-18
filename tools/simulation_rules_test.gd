@@ -9,6 +9,7 @@ func expect(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	check_saved_volume()
 	check_weather()
 	check_wind()
 	check_demand()
@@ -175,3 +176,12 @@ func check_weather() -> void:
 	var fresh := Weather.new()
 	fresh.setup(123)
 	expect(not weather.pinned and weather.kind == fresh.kind, "Starting a region resets manual weather")
+
+func check_saved_volume() -> void:
+	# Use an in-memory configuration so running the test preserves player settings.
+	GameSettings._cfg = ConfigFile.new()
+	GameSettings._cfg.set_value("audio", "radio", "broken")
+	expect(is_equal_approx(GameSettings.volume("Radio"), GameSettings.VOLUMES.Radio), "Invalid saved radio volume uses its default")
+	GameSettings._cfg.set_value("audio", "radio", 2.0)
+	expect(is_equal_approx(GameSettings.volume("Radio"), 1.0), "Out-of-range saved radio volume stays bounded")
+	GameSettings._cfg = null
