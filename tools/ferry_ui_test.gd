@@ -110,6 +110,8 @@ func exercise_layout() -> bool:
 		return fail("Escape left stale selection")
 	if not await exercise_map_controls(hud):
 		return false
+	if not await exercise_layer_controls(hud, boat):
+		return false
 	if not exercise_touch_camera(hud.rig):
 		return false
 	if not await press("Speed 3"):
@@ -143,6 +145,128 @@ func exercise_map_controls(hud: Hud) -> bool:
 	if not await press("ROUTES") or hud.routes_forced:
 		return fail("Routes control did not restore automatic visibility")
 	return true
+
+func frames(count: int) -> void:
+	for i in count:
+		await process_frame
+
+
+func any_town_label(hud: Hud) -> bool:
+	for label: Control in hud._labels.values():
+		if label.visible:
+			return true
+	return false
+
+
+## Presses on a control and moves the pointer `by` before letting go.
+func drag_control(control: Control, local_point: Vector2, by: Vector2) -> void:
+	var from := control.get_global_transform_with_canvas() * local_point
+	var event := InputEventMouseButton.new()
+	event.position = from
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = true
+	root.push_input(event, true)
+	for step in 8:
+		var move := InputEventMouseMotion.new()
+		move.position = from + by * (step + 1) / 8.0
+		move.relative = by / 8.0
+		move.button_mask = MOUSE_BUTTON_MASK_LEFT
+		root.push_input(move, true)
+	event = InputEventMouseButton.new()
+	event.position = from + by
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = false
+	root.push_input(event, true)
+
+
+## The edge group: weather visibility, independent layers, hide all, room beside
+## the inspector, and a drag that neither taps nor pans.
+func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
+	await frames(2)
+	var controls := hud.map_controls
+	var widget := controls.widget
+	var art := widget.size * Vector2(0.5, 0.35)
+	var clouds: CloudLayer = current_scene.clouds
+	var minutes := hud.sim.minutes
+	if not click_control(widget, art, "Weather widget"):
+		return false
+	if controls.weather_shown or clouds.shown or clouds.visible:
+		return fail("Tapping the weather widget left map weather showing")
+	hud.rig.target_dist = 2000.0
+	hud.rig.distance = 2000.0
+	await frames(3)
+	if hud.sim.minutes <= minutes:
+		return fail("Hiding map weather stopped the clock")
+	if not hud.route_overlay.visible or not any_town_label(hud):
+		return fail("Routes and town names should start visible from the overview")
+	if not await press("Names"):
+		return false
+	await frames(2)
+	if any_town_label(hud) or not hud.route_overlay.visible:
+		return fail("Names off should hide town names and leave routes")
+	if not await press("Routes"):
+		return false
+	for distance: float in [2000.0, 120.0]:
+		hud.rig.target_dist = distance
+		hud.rig.distance = distance
+		await frames(2)
+		if hud.route_overlay.visible:
+			return fail("Hidden routes came back at camera distance %d" % distance)
+	hud.rig.target_dist = 2000.0
+	hud.rig.distance = 2000.0
+	if not await press("Routes"):
+		return false
+	await frames(2)
+	if not hud.route_overlay.visible or any_town_label(hud):
+		return fail("Routes on with names off did not hold as a mixed state")
+	if not await press("Hide all"):
+		return false
+	await frames(2)
+	if controls.any_shown() or hud.route_overlay.visible or any_town_label(hud):
+		return fail("Hide all left a map layer visible")
+	if not await press("Show all"):
+		return false
+	await frames(2)
+	if not hud.route_overlay.visible or not any_town_label(hud):
+		return fail("Show all did not restore the map layers")
+	if controls.weather_shown or clouds.shown:
+		return fail("Hide all or Show all changed weather visibility")
+
+	hud.select_ferry(boat)
+	await frames(3)
+	if controls.get_rect().intersects(hud._info_panel.get_rect()):
+		return fail("Map controls overlap the open inspector")
+	if not click_control(widget, art, "Weather widget beside the inspector"):
+		return false
+	if not controls.weather_shown or not clouds.shown:
+		return fail("Weather did not come back with the inspector open")
+	hud.clear_selection()
+	await frames(2)
+
+	var camera_target := hud.rig.target_pos
+	var across := -(root.get_visible_rect().size.x - controls.size.x - 80.0)
+	drag_control(widget, art, Vector2(across, 60.0))
+	touch(0, widget.get_global_transform_with_canvas() * art, true)
+	var leaked := not hud.rig._touches.is_empty()
+	touch(0, widget.get_global_transform_with_canvas() * art, false)
+	await frames(2)
+	if leaked:
+		return fail("A finger on the weather widget reached the camera")
+	if not controls.weather_shown:
+		return fail("Dragging the weather widget also toggled weather")
+	if not hud.rig.target_pos.is_equal_approx(camera_target):
+		return fail("Dragging the weather widget panned the map")
+	if controls.side != -1 or not root.get_visible_rect().encloses(controls.get_rect()):
+		return fail("Map controls did not settle on the left edge at %s" % controls.get_rect())
+	for panel: Control in [hud._top_bar, hud.sidebar]:
+		if controls.get_rect().intersects(panel.get_rect()):
+			return fail("Map controls settled over %s" % panel.get_path())
+	drag_control(widget, art, Vector2(-across, -60.0))
+	await frames(2)
+	if controls.side != 1 or not root.get_visible_rect().encloses(controls.get_rect()):
+		return fail("Map controls did not return to the right edge")
+	return true
+
 
 func touch(index: int, point: Vector2, pressed: bool) -> void:
 	var event := InputEventScreenTouch.new()

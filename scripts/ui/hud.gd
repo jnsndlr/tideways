@@ -1,8 +1,8 @@
 class_name Hud
 extends CanvasLayer
 ## Screen-space UI, built in code: top stats bar, sidebar, floating island labels,
-## selection panel, terminal status bar, fleet list, wildlife sightings, toasts and
-## a minimap.
+## selection panel, terminal status bar, fleet list, wildlife sightings, toasts,
+## a minimap and the map controls at the screen edge.
 
 const PANEL_BG := Color(0.07, 0.11, 0.13, 0.9)
 const TEXT := Color(0.9, 0.94, 0.95)
@@ -17,6 +17,9 @@ var wildlife: Wildlife
 var rig: CameraRig
 var map: MapData
 var route_overlay: Node3D
+## Water zones drawn on the map, if this region has any (the sandbox has none).
+var area_overlay: Node3D
+var map_controls: MapControls
 var routes_forced := false
 var selected_island: MapData.Island
 var selected_ferry: Ferry
@@ -50,6 +53,8 @@ var _toast_title: Label
 var _toast_body: Label
 var _toast_time := 0.0
 var _minimap_rect: TextureRect
+var _minimap_panel: PanelContainer
+var _top_bar: PanelContainer
 var _help: Label
 var _minimap_overlay: Control
 var _refresh := 0.0
@@ -63,6 +68,7 @@ func setup(m: Node) -> void:
 	rig = m.rig
 	map = m.map
 	route_overlay = m.route_overlay
+	area_overlay = m.get("area_overlay")
 	root = Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -78,6 +84,7 @@ func setup(m: Node) -> void:
 	_build_minimap(m.env)
 	_build_help()
 	_build_toast()
+	_build_map_controls()
 	rig.ground_clicked.connect(_on_ground_clicked)
 	wildlife.visit_started.connect(_on_visit_started)
 	wildlife.sighted.connect(_on_sighted)
@@ -174,6 +181,7 @@ func _build_top_bar() -> void:
 	var panel := PanelContainer.new()
 	panel.position = Vector2(20, 16)
 	root.add_child(panel)
+	_top_bar = panel
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 18)
 	panel.add_child(row)
@@ -335,11 +343,12 @@ func _on_label_input(event: InputEvent, isl: MapData.Island) -> void:
 
 func _update_labels() -> void:
 	var cam := rig.camera
+	var named := map_controls.shows("names")
 	for isl in map.islands:
 		if not _labels.has(isl.id):
 			continue
 		var p: PanelContainer = _labels[isl.id]
-		var off := cam.is_position_behind(isl.label_pos) or (rig.distance < 135.0 and isl != selected_island)
+		var off := not named or cam.is_position_behind(isl.label_pos) or (rig.distance < 135.0 and isl != selected_island)
 		p.visible = not off
 		if off:
 			continue
@@ -913,6 +922,51 @@ func show_toast(title: String, body: String, seconds := 6.0) -> void:
 	_toast_time = seconds
 
 
+# --- Map controls (screen edge) ----------------------------------------------------
+
+func _build_map_controls() -> void:
+	var layers := [["routes", "Routes"]]
+	if area_overlay:
+		layers.append(["areas", "Areas"])
+	layers.append(["names", "Names"])
+	map_controls = MapControls.new()
+	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 6, 6))
+	root.add_child(map_controls)
+	map_controls.setup(layers, sim, main.day_cycle, font, bold)
+	map_controls.dock_y = 16.0
+	map_controls.weather_toggled.connect(_on_weather_toggled)
+
+
+## Hides the cloud deck and its shadows. The weather itself carries on.
+func _on_weather_toggled(shown: bool) -> void:
+	main.clouds.set_shown(shown)
+	show_toast("WEATHER", "Map weather shown." if shown else "Map weather hidden. Conditions keep changing.", 2.5)
+
+
+## Keeps the group inside the screen's safe area and clear of whichever panels are
+## open, so it stays reachable beside the inspector.
+func _place_map_controls() -> void:
+	var obstacles: Array[Rect2] = []
+	for panel: Control in [_top_bar, sidebar, _info_panel, _fleet_panel, _wild_panel, _terminal_bar, _minimap_panel]:
+		if panel.visible:
+			obstacles.append(panel.get_rect())
+	map_controls.place(_usable_rect(), obstacles)
+
+
+## The canvas inside the HUD's usual margins and, on a device, the display's safe area.
+func _usable_rect() -> Rect2:
+	var usable := Rect2(Vector2.ZERO, root.size).grow_individual(-20, -16, -20, -16)
+	if not OS.has_feature("mobile"):
+		return usable
+	var window := Vector2(DisplayServer.window_get_size())
+	var safe := Rect2(DisplayServer.get_display_safe_area())
+	if window.x <= 0.0 or window.y <= 0.0 or not safe.has_area():
+		return usable
+	var to_canvas := root.size / window
+	var inset := Rect2(safe.position * to_canvas, safe.size * to_canvas).intersection(usable)
+	return inset if inset.size.x > 200.0 and inset.size.y > 200.0 else usable
+
+
 # --- Minimap ------------------------------------------------------------------------
 
 func _build_minimap(env: Environment) -> void:
@@ -950,6 +1004,7 @@ func _build_minimap(env: Environment) -> void:
 	panel.offset_right = -20
 	panel.offset_bottom = -20
 	root.add_child(panel)
+	_minimap_panel = panel
 	_minimap_rect = TextureRect.new()
 	_minimap_rect.texture = vp.get_texture()
 	_minimap_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -1021,7 +1076,10 @@ func _process(delta: float) -> void:
 	_update_labels()
 	_minimap_overlay.queue_redraw()
 	if route_overlay:
-		route_overlay.visible = routes_forced or rig.distance > 190.0
+		route_overlay.visible = map_controls.shows("routes") and (routes_forced or rig.distance > 190.0)
+	if area_overlay:
+		area_overlay.visible = map_controls.shows("areas")
+	_place_map_controls()
 
 	var real_dt := delta / maxf(Engine.time_scale, 0.001) if Engine.time_scale > 0.0 else 1.0 / 60.0
 	if _toast.visible:
