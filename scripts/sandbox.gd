@@ -288,9 +288,11 @@ func _process(_delta: float) -> void:
 	# Fog by distance past the point looked at, not a multiple of the zoom: the
 	# camera's depth to anything out there grows ~1:1 with zoom, so a fixed offset
 	# keeps the far shores equally hazy at every zoom instead of fogging them out
-	# as the camera comes in. (Matches the old look at the default 1500 m zoom.)
-	env.fog_depth_begin = rig.distance + 1500.0
-	env.fog_depth_end = rig.distance + 6600.0
+	# as the camera comes in. It starts past the far bank, so the shores across the
+	# water stay crisp; the Backdrop's blue haze (haze.gdshaderinc) handles the
+	# ranges behind.
+	env.fog_depth_begin = rig.distance + 4000.0
+	env.fog_depth_end = rig.distance + 18000.0
 	RenderingServer.global_shader_parameter_set("fog_range", Vector2(env.fog_depth_begin, env.fog_depth_end))
 	env.volumetric_fog_length = clampf(rig.distance * 2.4, 750.0, 4800.0)
 	_update_dof()
