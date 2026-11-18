@@ -90,8 +90,9 @@ func _build_land() -> void:
 			level = 2
 			d = (s * RING_GROWTH - 1.0) * hs
 	var norms := _ring_normals(rings)
+	var cols := _ring_colors(rings, norms)
 	for k in rings.size() - 1:
-		_stitch(mb, rings[k], rings[k + 1], norms[k], norms[k + 1])
+		_stitch(mb, rings[k], rings[k + 1], norms[k], norms[k + 1], cols[k], cols[k + 1])
 	var mi := MeshInstance3D.new()
 	mi.name = "Mainland"
 	mi.mesh = mb.commit()
@@ -124,6 +125,26 @@ func _ring_normals(rings: Array[PackedVector3Array]) -> Array[PackedVector3Array
 				nn = -nn
 			nr[i] = nn.normalized() if nn.length_squared() > 1e-10 else Vector3.UP
 		out.append(nr)
+	return out
+
+
+## The colour at each ring point out on the smooth slopes, worked out once there
+## rather than once per triangle meeting at it (six of them). Points nearer the map
+## are left unset (alpha -1): their triangles colour each corner themselves.
+func _ring_colors(rings: Array[PackedVector3Array], norms: Array[PackedVector3Array]) -> Array[PackedColorArray]:
+	var hs := terrain.half_size
+	var out: Array[PackedColorArray] = []
+	for k in rings.size():
+		var r := rings[k]
+		var c := PackedColorArray()
+		c.resize(r.size())
+		c.fill(Color(0, 0, 0, -1))
+		for i in r.size():
+			var p := r[i]
+			var o := maxf(absf(p.x), absf(p.z)) - hs
+			if o > SMOOTH_FROM:
+				c[i] = _color(p, norms[k][i].y, smoothstep(SMOOTH_FROM, SMOOTH_TO, o))
+		out.append(c)
 	return out
 
 
@@ -195,30 +216,30 @@ func _ring(s: float, m: int) -> PackedVector3Array:
 
 
 ## Joins two rings; the inner one has the same number of samples or twice as many.
-func _stitch(mb: MeshBuilder, a: PackedVector3Array, b: PackedVector3Array, an: PackedVector3Array, bn: PackedVector3Array) -> void:
+func _stitch(mb: MeshBuilder, a: PackedVector3Array, b: PackedVector3Array, an: PackedVector3Array, bn: PackedVector3Array, ac: PackedColorArray, bc: PackedColorArray) -> void:
 	var na := a.size()
 	var nb := b.size()
 	if na == nb:
 		for k in na:
 			var k1 := (k + 1) % na
 			if k % 2 == 0:
-				_tri(mb, a[k], a[k1], b[k1], an[k], an[k1], bn[k1])
-				_tri(mb, a[k], b[k1], b[k], an[k], bn[k1], bn[k])
+				_tri(mb, a[k], a[k1], b[k1], an[k], an[k1], bn[k1], ac[k], ac[k1], bc[k1])
+				_tri(mb, a[k], b[k1], b[k], an[k], bn[k1], bn[k], ac[k], bc[k1], bc[k])
 			else:
-				_tri(mb, a[k], a[k1], b[k], an[k], an[k1], bn[k])
-				_tri(mb, a[k1], b[k1], b[k], an[k1], bn[k1], bn[k])
+				_tri(mb, a[k], a[k1], b[k], an[k], an[k1], bn[k], ac[k], ac[k1], bc[k])
+				_tri(mb, a[k1], b[k1], b[k], an[k1], bn[k1], bn[k], ac[k1], bc[k1], bc[k])
 	else:
 		for c in nb:
 			var i0 := 2 * c
 			var i1 := 2 * c + 1
 			var i2 := (2 * c + 2) % na
 			var c1 := (c + 1) % nb
-			_tri(mb, a[i0], a[i1], b[c], an[i0], an[i1], bn[c])
-			_tri(mb, a[i1], b[c1], b[c], an[i1], bn[c1], bn[c])
-			_tri(mb, a[i1], a[i2], b[c1], an[i1], an[i2], bn[c1])
+			_tri(mb, a[i0], a[i1], b[c], an[i0], an[i1], bn[c], ac[i0], ac[i1], bc[c])
+			_tri(mb, a[i1], b[c1], b[c], an[i1], bn[c1], bn[c], ac[i1], bc[c1], bc[c])
+			_tri(mb, a[i1], a[i2], b[c1], an[i1], an[i2], bn[c1], ac[i1], ac[i2], bc[c1])
 
 
-func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3) -> void:
+func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, ca: Color, cb: Color, cc: Color) -> void:
 	if a.y < -15.6 and b.y < -15.6 and c.y < -15.6:
 		return
 	var nrm := (b - a).cross(c - a)
@@ -237,7 +258,10 @@ func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: 
 	na = nrm.lerp(na, sm).normalized()
 	nb = nrm.lerp(nb, sm).normalized()
 	nc = nrm.lerp(nc, sm).normalized()
-	if sm > 0.0:
+	if sm > 0.0 and ca.a >= 0.0 and cb.a >= 0.0 and cc.a >= 0.0:
+		# Out on the smooth slopes each corner has its colour already (_ring_colors).
+		mb.tri_n(a, b, c, na, nb, nc, ca, cb, cc)
+	elif sm > 0.0:
 		# Smooth slopes get smooth colour too: each corner by its own normal.
 		mb.tri_n(a, b, c, na, nb, nc, _ground(a, na.y, blend, sm), _ground(b, nb.y, blend, sm), _ground(c, nc.y, blend, sm))
 	else:

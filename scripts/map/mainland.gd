@@ -122,8 +122,9 @@ func _init(map_seed: int, half_size: float) -> void:
 	for k in rng.randi_range(2, 3):
 		# Pushed off the channel's line so the water runs out between them.
 		var across := rng.randf_range(-1.0, 1.0)
-		var xz := _from_uv((1.0 if shut == 0 else -1.0) * rng.randf_range(18000.0, 22200.0), signf(across) * (4500.0 + absf(across) * 6000.0))
-		_peaks.append(Vector4(xz.x, xz.y, rng.randf_range(3900.0, 6900.0), rng.randf_range(1950.0, 3000.0)))
+		var xz := _from_uv((1.0 if shut == 0 else -1.0) * rng.randf_range(18000.0, 22200.0), signf(across) * (7500.0 + absf(across) * 5000.0))
+		# A little lower than the ranges along the sides, so the gap stays the view.
+		_peaks.append(Vector4(xz.x, xz.y, rng.randf_range(3900.0, 6900.0), rng.randf_range(1700.0, 2500.0)))
 	var vs := 1.0 if rng.randf() < 0.5 else -1.0
 	var vxz := _from_uv(rng.randf_range(-10500.0, 10500.0), vs * rng.randf_range(18000.0, 21000.0))
 	_volcano = Vector4(vxz.x, vxz.y, rng.randf_range(9000.0, 10500.0), rng.randf_range(3750.0, 4350.0))
