@@ -30,7 +30,10 @@ static func ensure() -> void:
 
 static func volume(bus: String) -> float:
 	ensure()
-	return _cfg.get_value("audio", bus.to_lower(), VOLUMES[bus])
+	var stored: Variant = _cfg.get_value("audio", bus.to_lower(), VOLUMES[bus])
+	if (stored is float or stored is int) and is_finite(float(stored)):
+		return clampf(float(stored), 0.0, 1.0)
+	return VOLUMES[bus]
 
 
 static func set_volume(bus: String, v: float) -> void:

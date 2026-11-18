@@ -67,10 +67,19 @@ func _ready() -> void:
 		map = _generate(gen)
 		terrain = gen.terrain)
 	_setup_environment()
+	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
+	# on the rendering thread before the worker starts placing instances.
+	if async_build:
+		Models.tree_variants(false)
+		Models.tree_variants(true)
 	builder = WorldBuilder.new(map, terrain)
 	var world := []  # lambdas capture locals by value; the array carries the result out
 	await _stage(0.71, true, func(): world.append(builder.build()))
+	# Finish the backdrop while its tree meshes are still off the live render tree.
+	var backdrop := Backdrop.new()
+	await _stage(0.855, true, func(): backdrop.setup(terrain, builder))
 	add_child(world[0])
+	add_child(backdrop)
 	route_overlay = builder.route_overlay
 	tree_shadows = builder.tree_shadows
 	var fixed_lights := builder.night_lights
@@ -88,12 +97,12 @@ func _ready() -> void:
 	sim.map = map
 	sim.terrain = terrain
 	sim.marine = MarineTraffic.new()
-	await _stage(0.8, true, func(): sim.marine.prepare(sim))
+	await _stage(0.95, true, func(): sim.marine.prepare(sim))
 	sim.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
-	await _stage(0.845, false, func(): sim.setup(map, terrain))
+	await _stage(0.99, false, func(): sim.setup(map, terrain))
 	for terminal: Terminal in sim.terminals.values():
 		if terminal.island.lane_extension_price > 0:
 			var extension := HoldingLaneView.new()
@@ -102,10 +111,6 @@ func _ready() -> void:
 	clouds = CloudLayer.new()
 	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
-	var backdrop := Backdrop.new()
-	# Built before it joins the tree, so it can go to the worker thread.
-	await _stage(0.99, true, func(): backdrop.setup(terrain, builder))
-	add_child(backdrop)
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
 	day_cycle.sim = sim
