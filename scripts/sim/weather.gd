@@ -53,6 +53,9 @@ var _hold := 0.0     # game minutes until the next roll
 
 
 func setup(seed: int) -> void:
+	pinned = false
+	_ease = 0.0
+	_eased = 0.0
 	_rng.seed = seed
 	kind = _roll()
 	coverage = KINDS[kind].coverage
