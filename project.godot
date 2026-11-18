@@ -71,6 +71,18 @@ fog_range={
 "type": "vec2",
 "value": Vector2(600, 1600)
 }
+horizon_clouds={
+"type": "vec4",
+"value": Vector4(0.6, 0.14, 0.95, 0.35)
+}
+cloud_storm={
+"type": "float",
+"value": 0.0
+}
+cloud_time={
+"type": "float",
+"value": 0.0
+}
 focus_distance={
 "type": "float",
 "value": 380.0

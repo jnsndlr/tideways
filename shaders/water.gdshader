@@ -784,7 +784,7 @@ void fragment() {
 	}
 	foam = max(foam, wake_foam);
 
-	float cloud = cloud_shadow(world_pos, TIME);
+	float cloud = cloud_shadow(world_pos, cloud_time);
 	float nv = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
 	float fresnel = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
 

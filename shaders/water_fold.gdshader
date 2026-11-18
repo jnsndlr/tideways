@@ -260,7 +260,7 @@ void fragment() {
 	}
 	vec3 floor_col = textureLod(screen_texture, uv, 0.0).rgb;
 
-	float cloud = cloud_shadow(world_pos, TIME);
+	float cloud = cloud_shadow(world_pos, cloud_time);
 	float cloud_lit = clamp(1.0 - cloud * 1.6, 0.0, 1.0);
 	float sun_up = smoothstep(0.0, 0.2, sun_direction.y);
 	float floor_depth = max(world_pos.y - seen.y, 0.0);

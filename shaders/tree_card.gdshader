@@ -47,6 +47,8 @@ varying vec3 world_pos;
 varying vec3 tint;
 varying vec3 card_right;
 varying vec3 card_fwd;
+// Cloud shadow, sampled once per corner: a card is far smaller than a cloud's shadow.
+varying float cloud_shade;
 
 void vertex() {
 	vec3 origin = MODEL_MATRIX[3].xyz;
@@ -68,6 +70,9 @@ void vertex() {
 	}
 	card_right = right;
 	card_fwd = fwd;
+	// The cloud deck thins out past 10500-13500 m (as in backdrop.gdshader).
+	float r = length(world_pos.xz);
+	cloud_shade = r < 13500.0 ? 1.0 - cloud_shadow(world_pos, cloud_time) * (1.0 - smoothstep(10500.0, 13500.0, r)) : 1.0;
 }
 
 // The share of the sky's light the card keeps with the sun this high.
@@ -100,13 +105,8 @@ void fragment() {
 
 void light() {
 	float shade = 1.0;
-	// The cloud deck thins out past 2700-4800 m (as in backdrop.gdshader).
-	float r = length(world_pos.xz);
-	if (LIGHT_IS_DIRECTIONAL && r < 4800.0) {
-		shade = 1.0 - cloud_shadow(world_pos, TIME) * (1.0 - smoothstep(2700.0, 4800.0, r));
-	}
 	if (LIGHT_IS_DIRECTIONAL) {
-		shade *= self_shade;
+		shade = cloud_shade * self_shade;
 		// The albedo was dimmed for the sky (sky_keep); the sun has its own share.
 		shade *= mix(low_sun_direct, 1.0, smoothstep(0.15, 0.95, normalize(sun_direction).y)) / sky_keep();
 	}
