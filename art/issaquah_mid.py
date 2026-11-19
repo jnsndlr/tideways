@@ -716,22 +716,21 @@ def vestibules(hw):
             f0, f1 = P(PORCH_X - 0.05, zf), P(xo - c, zf)       # the front
             c1 = P(xo, zf - c)                                   # the chamfer's far end
             b1 = P(xo, zb)                                       # the side's back end
-            vest_wall(f0, f1 + (f1 - f0).normalized() * 0.08, PAX_TOP, ROOF)
-            vest_wall(c1, b1, PAX_TOP, ROOF)
-            # The chamfer: a jamb, the open doorway (a lintel over it), the rest with a window.
-            d0, d1 = lerp(f1, c1, 0.1), lerp(f1, c1, 0.48)
-            vest_wall(f1, d0, PAX_TOP, ROOF)
+            # The front: a window inboard, then the open doorway (a lintel over it) toward
+            # the chamfer, which is solid with a window of its own.
+            d0, d1 = P(PORCH_X + 2.15, zf), P(PORCH_X + 3.35, zf)
+            vest_wall(f0, d0, PAX_TOP, ROOF)
             vest_wall(d0, d1, PAX_TOP + 2.2, ROOF)
-            vest_wall(d1, c1, PAX_TOP, ROOF)
-            box(V(0, 0, 0) + lerp(d0, d1, 0.5) + UP * (PAX_TOP + 0.01), (0.1, 0.02, 0.1), "deckp")
-            # Windows: on the front, the chamfer and the side (their outer faces).
+            vest_wall(d1, f1 + (f1 - f0).normalized() * 0.08, PAX_TOP, ROOF)
+            vest_wall(f1, c1, PAX_TOP, ROOF)
+            vest_wall(c1, b1, PAX_TOP, ROOF)
+            # Windows: on the front, the chamfer and the side (their outer faces), lit like the cabin's.
             nf, ns = V(0, 0, e), V(s, 0, 0)
             nc = V(s, 0, e).normalized()
-            for x in (PORCH_X + 1.2, PORCH_X + 2.8):
-                panel(V(s * x, wy, e * (zf + 0.08)), nf, 1.0, 1.25, 0.03, "window")
-            panel(lerp(d1, c1, 0.5) + UP * wy + nc * 0.08, nc, 0.9, 1.25, 0.03, "window")
+            panel(V(s * (PORCH_X + 1.0), wy, e * (zf + 0.08)), nf, 1.0, 1.25, 0.03, "glass")
+            panel(lerp(f1, c1, 0.5) + UP * wy + nc * 0.08, nc, 1.1, 1.25, 0.03, "glass")
             for z in (zb + 1.1, zb + 2.7):
-                panel(V(s * (xo + 0.08), wy, e * z), ns, 1.0, 1.25, 0.03, "window")
+                panel(V(s * (xo + 0.08), wy, e * z), ns, 1.0, 1.25, 0.03, "glass")
             # Inside: a door in the cabin's back wall, and one in the centre section's side.
             zd = cabin_hd(PAX_TOP + 1.0) - PORCH_D
             panel(V(s * (PORCH_X + 2.2), PAX_TOP + 1.05, e * zd), V(0, 0, e), 1.0, 2.1, 0.05, "steel")

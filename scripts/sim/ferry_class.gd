@@ -574,11 +574,10 @@ func _lay_out_issaquah() -> void:
 		for x: float in [-4.5, -1.5, 1.5, 4.5]:
 			windows.append([_isq(x, 9.03 + l, e * 30.6), 0.9, 2.2, Vector3(0, 0, e)])
 		for x: float in [-1.0, 1.0]:
-			for vx: float in [8.2, 9.8]:
-				windows.append([_isq(x * vx, 9.03 + l, e * 30.18), 1.0, 1.25, Vector3(0, 0, e)])
+			windows.append([_isq(x * 8.0, 9.03 + l, e * 30.27), 1.0, 1.25, Vector3(0, 0, e)])
 			for vz: float in [25.63, 27.23]:
 				windows.append([_isq(x * 13.2, 9.03 + l, e * vz), 1.0, 1.25, Vector3(x, 0, 0)])
-			windows.append([_isq(x * 12.57, 9.03 + l, e * 28.57), 0.9, 1.25, Vector3(x, 0, e).normalized()])
+			windows.append([_isq(x * 12.06, 9.03 + l, e * 29.12), 1.1, 1.25, Vector3(x, 0, e).normalized()])
 	for e: float in [-1.0, 1.0]:
 		perches.append([_isq(-4.9, 14.02 + l, e * 25.8), _isq(4.9, 14.02 + l, e * 25.8), 1.9 * k])
 		perches.append([_isq(0, 13.06 + l, e * 6.6), _isq(0, 13.06 + l, e * 22.4), 4.4 * k])
