@@ -17,7 +17,7 @@
 # openings, one onto each car-deck level.
 #
 # Numbers the game wants (game frame, metres):
-#   CAR_DECK 2.85; MEZ_TOP 5.6; tunnel lanes x = 0, +-3.5 (|x| < 5.4: trucks); wing
+#   CAR_DECK 2.85; MEZ_TOP 5.9; tunnel lanes x = 0, +-3.5 (|x| < 5.4: trucks); wing
 #   lanes +-8.4, +-11.6 on both decks (cars), over |z| < MEZ_Z 27; ramps on the outer
 #   lane from MEZ_Z (centre x 11.65) down to RAMP_Z 42 (centre 8.9). Masthead
 #   lanterns MAST_TOP + LIFT at z = +-MAST_Z.
@@ -293,7 +293,7 @@ FUNNEL_TOP = 14.8
 # The tween decks (as WSF lays them out): each wing's two lanes on the main deck run
 # under a tween deck of two lanes, flat over |z| < MEZ_Z; its outer lane runs on as a
 # ramp down into the hull's rounded corner, its foot at RAMP_Z near the end.
-MEZ_BOT, MEZ_TOP = 5.35, 5.6   # its plating (2.5 m clear under it, 2.8 over it)
+MEZ_BOT, MEZ_TOP = 5.65, 5.9   # its plating (2.8 m clear under it, 2.5 over it)
 MEZ_Z = 27.0       # its flat, |z| < MEZ_Z
 RAMP_X = 10.0      # the ramp's inner edge at its top (between the wing's two lanes)
 RAMP_Z, RAMP_FX = 42.0, 7.4   # the ramp's foot on the main deck, its inner edge there
@@ -376,7 +376,7 @@ def hull():
 
 # The side openings: a low row onto the main deck's wings, a tall row onto the tween
 # decks (with a cross of bars), the same pitch and in step. (y0, y1, half width, bars)
-TIERS = [(4.35, 5.65, 1.3, False), (6.1, 7.4, 1.25, True)]
+TIERS = [(4.2, 5.05, 1.3, False), (6.35, 8.0, 1.25, True)]
 OPEN_Z = [-40.19 + k * 4.23 for k in range(3, 17)]  # their centres, 14 down each side (the end three solid)
 
 
