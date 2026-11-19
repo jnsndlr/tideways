@@ -629,10 +629,13 @@ def cabin_dims():
     return hw, ch
 
 
-# The porches: at each end the cabin's outer parts stand back PORCH_D from its centre
-# section (over the tunnel and casings, |x| < PORCH_X), leaving a covered porch either
-# side of the fork, roofed by the sun deck, which runs on to the cabin's full length.
-PORCH_X, PORCH_D = 7.0, 4.3
+# The vestibules: at each end the cabin's outer parts stand back PORCH_D from its centre
+# section (over the tunnel and casings, |x| < PORCH_X); either side of the fork the
+# space in front of them is closed in by a vestibule, walled on its outboard side and
+# its front (VEST_Z, upright) with a big chamfer across the corner (VEST_CH) holding an
+# open doorway, roofed by the sun deck and a raised, bevelled cap of skylights.
+PORCH_X, PORCH_D = 7.0, 5.5
+VEST_CH = 2.2
 
 
 def cabin_ring(y, hw, ch, grow=0.0):
@@ -679,35 +682,111 @@ def cabin():
     loft([lo, hi], "white", caps=False)
     hface(hi, "deckp")
     hface(lo, "ceiling", up=False)
-    porches(hw)
+    vestibules(hw)
 
 
-def porches(hw):
-    """Each porch: posts at its open corners carrying the roof, a door and a bench on
-    its back wall, lights in its ceiling, a strip of skylights over it on the sun deck."""
+def vest_wall(a, b, y0, y1, t=0.16, key="white"):
+    """An upright wall slab along a -> b (on deck), t thick, centred on the line."""
+    d = (b - a); d.y = 0; d.normalize()
+    n = V(d.z, 0, -d.x)
+    ring = lambda p: [p + n * (u * t / 2) + UP * y for u, y in ((-1, y0), (1, y0), (1, y1), (-1, y1))]
+    loft([ring(a), ring(b)], key)
+
+
+def vest_plan(hw):
+    """The vestibule's walls in plan (starboard, +Z end): front, chamfer, side, inside
+    faces; and its front's z."""
+    zf = cabin_hd(ROOF) - 0.05
+    zb = cabin_hd(ROOF) - PORCH_D - 0.1
+    xo = hw - 0.08
+    return zf, zb, xo
+
+
+def vestibules(hw):
+    """Each vestibule: its front, chamfer (an open doorway and a window) and outboard
+    side (two windows) under the sun deck; inside, the cabin's back wall with its door
+    and a bench, lights in the ceiling; over it a raised cap, bevelled down to the side
+    and the front, set with dark skylights."""
+    zf, zb, xo = vest_plan(hw)
+    c = VEST_CH
+    wy = (SILL + HEAD) / 2
     for e in (1, -1):
         for s in (1, -1):
-            zb, zf = cabin_hd(PAX_TOP) - PORCH_D, cabin_hd(ROOF) + 0.05
-            xo = hw - 0.25
-            for z in (zf - 0.25, (zb + zf) / 2 + 0.6):
-                cyl(V(s * xo, PAX_TOP, e * z), V(s * xo, ROOF, e * z), 0.14, 0.14, 8, "white")
-            # A door in the back wall, and one in the centre section's side.
+            P = lambda x, z: V(s * x, 0, e * z)
+            f0, f1 = P(PORCH_X - 0.05, zf), P(xo - c, zf)       # the front
+            c1 = P(xo, zf - c)                                   # the chamfer's far end
+            b1 = P(xo, zb)                                       # the side's back end
+            vest_wall(f0, f1 + (f1 - f0).normalized() * 0.08, PAX_TOP, ROOF)
+            vest_wall(c1, b1, PAX_TOP, ROOF)
+            # The chamfer: a jamb, the open doorway (a lintel over it), the rest with a window.
+            d0, d1 = lerp(f1, c1, 0.1), lerp(f1, c1, 0.48)
+            vest_wall(f1, d0, PAX_TOP, ROOF)
+            vest_wall(d0, d1, PAX_TOP + 2.2, ROOF)
+            vest_wall(d1, c1, PAX_TOP, ROOF)
+            box(V(0, 0, 0) + lerp(d0, d1, 0.5) + UP * (PAX_TOP + 0.01), (0.1, 0.02, 0.1), "deckp")
+            # Windows: on the front, the chamfer and the side (their outer faces).
+            nf, ns = V(0, 0, e), V(s, 0, 0)
+            nc = V(s, 0, e).normalized()
+            for x in (PORCH_X + 1.2, PORCH_X + 2.8):
+                panel(V(s * x, wy, e * (zf + 0.08)), nf, 1.0, 1.25, 0.03, "window")
+            panel(lerp(d1, c1, 0.5) + UP * wy + nc * 0.08, nc, 0.9, 1.25, 0.03, "window")
+            for z in (zb + 1.1, zb + 2.7):
+                panel(V(s * (xo + 0.08), wy, e * z), ns, 1.0, 1.25, 0.03, "window")
+            # Inside: a door in the cabin's back wall, and one in the centre section's side.
             zd = cabin_hd(PAX_TOP + 1.0) - PORCH_D
             panel(V(s * (PORCH_X + 2.2), PAX_TOP + 1.05, e * zd), V(0, 0, e), 1.0, 2.1, 0.05, "steel")
             panel(V(s * PORCH_X, PAX_TOP + 1.05, e * (zd + 1.6)), V(s, 0, 0), 0.9, 2.1, 0.05, "steel")
-            # A bench along the back wall, outboard of the door.
             box(V(s * (hw - 1.6), PAX_TOP + 0.45, e * (zd + 0.35)), (2.4, 0.08, 0.5), "bronze")
             for dx in (-1.0, 1.0):
                 box(V(s * (hw - 1.6 + dx), PAX_TOP + 0.22, e * (zd + 0.35)), (0.08, 0.44, 0.4), "dark")
-            # Ceiling lights.
+            zc = (zb + zf) / 2
             for x in (PORCH_X + 1.6, hw - 1.6):
-                zc = (zb + zf) / 2
                 box(V(s * x, ROOF - 0.03, e * zc), (0.9, 0.06, 0.6), "steel")
                 box(V(s * x, ROOF - 0.065, e * zc), (0.75, 0.03, 0.45), "lamp")
-            # Skylights on the sun deck over it.
-            for k in range(3):
-                x = PORCH_X + 1.3 + k * 1.9
-                box(V(s * x, SUN + 0.04, e * (zb + zf) / 2), (1.5, 0.08, 2.4), "dark")
+            # The cap: from the sun deck's edge up to a flat, bevelled in from the side
+            # and the front (the corner's chamfer carried up), upright inboard and aft.
+            ins, top = 1.0, SUN + 0.75
+            xi, xe, ze, zk = PORCH_X - 0.1, hw + 0.15, zf + 0.2, zb - 0.1
+            lo = [(xi, zk), (xi, ze), (xe - c, ze), (xe, ze - c), (xe, zk)]
+            hi = [(xi, zk), (xi, ze - ins), (xe - ins - c + 0.4, ze - ins), (xe - ins, ze - ins - c + 0.4), (xe - ins, zk)]
+            rl = [V(s * x, SUN, e * z) for x, z in lo]
+            rh = [V(s * x, top, e * z) for x, z in hi]
+            loft([rl, rh], "white", cap_key="white")
+            # Skylights: a grid on the flat, a row down each bevel.
+            for i in range(3):
+                for j in range(2):
+                    x = lerp(xi + 0.5, xe - ins - 0.4, (i + 0.5) / 3)
+                    z = lerp(zk + 0.4, ze - ins - 0.3, (j + 0.5) / 2)
+                    box(V(s * x, top + 0.02, e * z), (1.3, 0.04, 1.2), "dark")
+            for k in (1, 2, 3):
+                a0, a1 = rl[k], rl[(k + 1) % 5] if k < 4 else rl[0]
+                b0, b1 = rh[k], rh[(k + 1) % 5] if k < 4 else rh[0]
+                if k == 3:
+                    a1, b1 = rl[4], rh[4]
+                nb = normal([a0, a1, b1, b0])
+                mid = centre([a0, a1, b1, b0])
+                if nb.dot(mid - V(s * (xi + xe) / 2, mid.y, e * (zk + ze) / 2)) < 0: nb = -nb
+                nb.normalize()
+                m = 3 if k != 2 else 2
+                for i in range(m):
+                    t0, t1 = (i + 0.12) / m, (i + 0.88) / m
+                    q = [lerp(lerp(a0, a1, t), lerp(b0, b1, t), u) + nb * 0.02 for t, u in ((t0, 0.2), (t1, 0.2), (t1, 0.8), (t0, 0.8))]
+                    face(q if normal(q).dot(nb) > 0 else q[::-1], "dark")
+
+
+def sun_rail(hw, ch):
+    """The sun deck's rail: round its edge, stepping in around each vestibule's cap."""
+    zf, zb, xo = vest_plan(hw)
+    zk, xi = zb - 0.25, PORCH_X - 0.25
+    hd = cabin_hd(ROOF) + 0.05
+    w = hw + 0.05
+    q = [(w, 0.0), (w, zk), (xi, zk), (xi, hd), (-xi, hd), (-xi, zk), (-w, zk), (-w, 0.0)]
+    q = q + [(-x, -z) for x, z in q]
+    pts = []
+    for x, z in q:
+        if not pts or (pts[-1] - V(x, SUN, z)).length > 1e-4: pts.append(V(x, SUN, z))
+    if (pts[-1] - pts[0]).length < 1e-4: pts.pop()
+    rail_loop(pts, 1.05, "green")
 
 
 def rail_loop(pts, h, key, step=2.4, closed=True, posts=True):
@@ -770,7 +849,7 @@ def end_decks():
     prof = [(0.0, 0.0), (0.0, 0.95), (-0.06, 0.95), (-0.06, 0.0)]
     for e in (1, -1):
         def pt(x, z): return V(x, PAX_TOP, e * z)
-        outer = zs_between(cabin_hd(PAX_TOP) - PORCH_D, FORK_Z - 0.1, 1.0)
+        outer = zs_between(cabin_hd(ROOF) - VEST_CH - 0.2, FORK_Z - 0.1, 1.0)
         path = [pt(-(half_beam(z) + 0.05), z) for z in outer]
         xt = half_beam(FORK_Z - 0.1)
         path += [pt(-x, FORK_Z - 0.1) for x in (lerp(xt, FORK_X, 0.5), FORK_X + 0.05)]
@@ -798,7 +877,7 @@ def end_decks():
 
 def sun_deck():
     hw, ch = cabin_dims()
-    rail_loop(rect(0, SUN, 0, hw + 0.05, cabin_hd(ROOF) + 0.05, ch), 1.05, "green")
+    sun_rail(hw, ch)
     # The crew houses: one toward each end, enclosed, running inboard from the pilothouse
     # nearly to the funnels; small square windows and doors down their sides, a name
     # board, and on the roof vents, an air-conditioning unit and a ladder up at the
@@ -834,12 +913,12 @@ def sun_deck():
     # Liferaft canisters on racks outboard of each pilothouse, life rings on the rail.
     for e in (1, -1):
         for s in (1, -1):
-            for zr in (24.2, 26.3):
+            for zr in (19.6, 21.7):
                 box(V(s * 7.6, SUN + 0.2, e * zr), (3.2, 0.4, 1.6), "steel")
                 for dz in (-0.42, 0.42):
                     a = V(s * 6.2, SUN + 0.75, e * (zr + dz))
                     cyl(a, a + V(s * 2.8, 0, 0), 0.36, 0.36, 8, "white")
-            torus(V(s * (hw - 1.4), SUN + 0.75, e * (cabin_hd(ROOF) + 0.12)), V(0, 0, 1), 0.38, 0.09, 10, 4, "orange")
+            torus(V(s * (PORCH_X - 1.6), SUN + 0.75, e * (cabin_hd(ROOF) + 0.12)), V(0, 0, 1), 0.38, 0.09, 10, 4, "orange")
 
 
 FUNNEL_X = 5.0      # the two funnels, side by side either side of the centreline

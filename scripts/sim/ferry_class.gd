@@ -563,9 +563,8 @@ func _lay_out_issaquah() -> void:
 		for x: float in [-10.0, 10.0]:
 			deck_lights.append(_isq(x, 6.4 + l, z))
 			deck_lights.append(_isq(x, ISQ_MEZ_TOP - 0.7, z))
-	# The cabin's sides stop at the porches (issaquah_mid.py PORCH_X, PORCH_D): their
-	# back walls stand 4.3 m in from the centre section's end.
-	var porch := 30.6 - 4.3
+	# The cabin's sides stop at the vestibules (issaquah_mid.py vestibules): walled on
+	# their outboard side, a chamfer across the corner and their front, windows in each.
 	for x: float in [-1.0, 1.0]:
 		var z := -24.34
 		while z <= 24.35:
@@ -575,8 +574,11 @@ func _lay_out_issaquah() -> void:
 		for x: float in [-4.5, -1.5, 1.5, 4.5]:
 			windows.append([_isq(x, 9.03 + l, e * 30.6), 0.9, 2.2, Vector3(0, 0, e)])
 		for x: float in [-1.0, 1.0]:
-			windows.append([_isq(x * 11.6, 9.03 + l, e * (porch + 0.05)), 0.9, 2.2, Vector3(0, 0, e)])
-			windows.append([_isq(x * 7.05, 9.03 + l, e * 29.6), 0.9, 2.2, Vector3(x, 0, 0)])
+			for vx: float in [8.2, 9.8]:
+				windows.append([_isq(x * vx, 9.03 + l, e * 30.18), 1.0, 1.25, Vector3(0, 0, e)])
+			for vz: float in [25.63, 27.23]:
+				windows.append([_isq(x * 13.2, 9.03 + l, e * vz), 1.0, 1.25, Vector3(x, 0, 0)])
+			windows.append([_isq(x * 12.57, 9.03 + l, e * 28.57), 0.9, 1.25, Vector3(x, 0, e).normalized()])
 	for e: float in [-1.0, 1.0]:
 		perches.append([_isq(-4.9, 14.02 + l, e * 25.8), _isq(4.9, 14.02 + l, e * 25.8), 1.9 * k])
 		perches.append([_isq(0, 13.06 + l, e * 6.6), _isq(0, 13.06 + l, e * 22.4), 4.4 * k])
