@@ -8,7 +8,7 @@
 # The car deck at CAR_DECK (laid out after WSF's two-level boats): a full-height centre
 # tunnel of three lanes for trucks and vans between the casings, and outboard of each
 # casing a wing of two lanes under a "tween deck" (the mezzanine, two lanes wide, top
-# at MEZ_TOP, open below on pillars) running |z| < MEZ_Z. Its outer lane carries on
+# at MEZ_TOP, open below with no posts) running |z| < MEZ_Z. Its outer lane carries on
 # toward each end as a single-lane ramp down into the hull's rounded corner, its foot
 # at RAMP_Z; its inner half stops at MEZ_Z, a railed edge. Cars in the main deck's
 # wing lanes park inside |z| ~ MEZ_Z and turn in past the ramp to leave.
@@ -289,7 +289,7 @@ RAMP_X = 10.0      # the ramp's inner edge at its top (between the wing's two la
 RAMP_Z, RAMP_FX = 42.0, 7.4   # the ramp's foot on the main deck, its inner edge there
 LANES = (-3.5, 0.0, 3.5)      # tunnel: trucks and vans
 WING = (8.4, 11.6)            # each wing's two lanes, on the main deck and the tween deck
-POST_X = 10.0                 # the tween deck's pillars, between its lanes
+POST_X = 10.0                 # the line between each wing's two lanes
 
 
 def half_beam(z):
@@ -506,7 +506,7 @@ def ramp_y(z):
 
 def tween_decks():
     """Each wing's mezzanine: a steel deck from the casing out to the hull side over
-    |z| < MEZ_Z on pillars between the two lanes under it, its outer lane running on
+    |z| < MEZ_Z, clear span (no posts on the lanes under it), its outer lane running on
     toward each end as a ramp down into the hull's corner; railed along its inner end
     and up the ramps."""
     for s in (1, -1):
@@ -542,11 +542,6 @@ def tween_decks():
                 box(V(xm, ramp_y(zz) + 0.02, e * zz), (1.2, 0.02, 0.18), "yellow")
             box(V(s * (RAMP_FX + inner(RAMP_Z)) / 2, CAR_DECK + 0.01, e * (RAMP_Z - 0.1)),
                 (inner(RAMP_Z) - RAMP_FX, 0.02, 0.25), "yellow")
-            # Pillars under its inner edge, while it's high enough to stand on them.
-            for zz in zs_between(MEZ_Z + 3.0, RAMP_Z - 6.0, 4.0):
-                bot = ramp_y(zz) - (MEZ_TOP - MEZ_BOT)
-                p = V(s * (ramp_edge(zz) + 0.2), CAR_DECK, e * zz)
-                box(p + UP * (bot - CAR_DECK) / 2, (0.28, bot - CAR_DECK, 0.28), "white")
             # The ramp's rail along its inner edge, from the flat's end to its foot.
             path = [V(s * (ramp_edge(zz) + 0.1), ramp_y(zz), e * zz) for zz in zs_between(MEZ_Z - 0.2, RAMP_Z - 1.0, 2.0)]
             tube([p + UP * 1.0 for p in path], 0.04, 4, "yellow")
@@ -556,11 +551,6 @@ def tween_decks():
             # The rail across the flat's inner end.
             rail_loop([V(s * (CASING_X1 + 0.1), MEZ_TOP, e * (MEZ_Z - 0.1)), V(s * (RAMP_X + 0.1), MEZ_TOP, e * (MEZ_Z - 0.1))],
                       1.0, "yellow", step=1.6, closed=False)
-        # Pillars under it between the wing's two lanes, kerbed in yellow at the foot.
-        for z in zs_between(-MEZ_Z + 1.0, MEZ_Z - 1.0, 8.0):
-            box(V(s * POST_X, (CAR_DECK + MEZ_BOT) / 2, z), (0.3, MEZ_BOT - CAR_DECK, 0.3), "white")
-            box(V(s * POST_X, CAR_DECK + 0.15, z), (0.5, 0.3, 0.5), "yellow")
-
 
 def stair(s, e, cz):
     """The open stair in casing s's end at end e: a flight climbing inboard from the car
