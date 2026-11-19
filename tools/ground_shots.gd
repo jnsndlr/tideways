@@ -8,17 +8,23 @@ var frames := 0
 var out := "user://"
 var hour := 11.0
 var shots := 0
+## --only=beach,town: just those spots' views.
+var only := ""
 var ready_at := -1
 var spots := {}
 ## Downhill from the inland rock, to look at it from below.
 var crag_out := Vector3(1, 0, 0)
+## Out to sea from each beach spot, to look at it from the water.
+var beach_out := {}
 # [spot, distance, pitch, yaw]
 const VIEWS := [
 	["meadow", 45.0, 0.22, 0.4], ["meadow", 90.0, 0.4, 0.4], ["meadow", 260.0, 0.6, 1.4], ["meadow", 900.0, 0.8, 1.4],
 	["cliff", 70.0, 0.15, 0.0], ["cliff", 160.0, 0.3, 0.0], ["cliff", 420.0, 0.6, 0.0],
-	["town", 70.0, 0.35, 0.8], ["town", 140.0, 0.5, 2.4],
+	["town", 70.0, 0.35, 0.8], ["town", 140.0, 0.5, 2.4], ["town", 320.0, 0.6, 1.6],
 	["boulders", 25.0, 0.35, 0.5], ["boulders", 60.0, 0.5, 0.5], ["boulders", 140.0, 0.65, 0.5],
 	["crag", 60.0, 0.45, 0.3], ["crag", 140.0, 0.6, 0.3], ["crag", 300.0, 0.7, 0.3],
+	["beach", 50.0, 0.3, 0.4], ["beach", 140.0, 0.5, 0.4], ["shore_beach", 140.0, 0.5, 0.4],
+	["town_beach", 260.0, 0.55, 0.0],
 ]
 
 
@@ -26,6 +32,8 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="):
 			out = a.substr(6)
+		elif a.begins_with("--only="):
+			only = a.substr(7)
 		elif a.begins_with("--time="):
 			hour = float(a.substr(7))
 	main = load("res://scenes/sandbox.tscn").instantiate()
@@ -95,9 +103,22 @@ func _find_spots() -> void:
 			if near > best_b:
 				best_b = near
 				spots["boulders"] = at
+	# A beach beside a ferry lot, and one out on an island's own shore.
+	# (The one beside the first terminal, with the lot in view too.)
+	var near_t := INF
+	for bch: MapData.Beach in main.map.beaches:
+		var key := "beach" if bch.beside else "shore_beach"
+		var d := bch.shore.distance_to(spots["town"]) if bch.beside else 0.0
+		if not spots.has(key) or d < near_t:
+			spots[key] = bch.shore
+			beach_out[key] = bch.dir
+			if bch.beside:
+				near_t = d
+				spots["town_beach"] = (bch.shore + spots["town"]) * 0.5
+				beach_out["town_beach"] = bch.dir
 	if not spots.has("crag"):
 		spots["crag"] = spots["cliff"]
-	print("spots ", spots)
+	print("spots ", spots, " beaches ", main.map.beaches.size(), " beside ", main.map.beaches.filter(func(x): return x.beside).size())
 
 
 func _process(_delta: float) -> bool:
@@ -125,6 +146,11 @@ func _process(_delta: float) -> bool:
 	var yaw: float = v[3]
 	if v[0] == "crag":
 		yaw = atan2(crag_out.x, crag_out.z) + v[3]
+	if beach_out.has(v[0]):
+		yaw = atan2(beach_out[v[0]].x, beach_out[v[0]].z) + v[3]
+	if not spots.has(v[0]) or (only != "" and not v[0] in only.split(",")):
+		shots += 1
+		return false
 	main.rig.target_yaw = yaw
 	main.rig.yaw = yaw
 	if not has_meta("wait"):
