@@ -632,10 +632,12 @@ def cabin_dims():
 # The vestibules: at each end the cabin's outer parts stand back PORCH_D from its centre
 # section (over the tunnel and casings, |x| < PORCH_X); either side of the fork the
 # space in front of them is closed in by a vestibule, walled on its outboard side and
-# its front (VEST_Z, upright) with a big chamfer across the corner (VEST_CH) holding an
-# open doorway, roofed by the sun deck and a raised, bevelled cap of skylights.
+# across its front: one upright face from the centre section's end out to the side,
+# angled back VEST_RAKE in plan, with a double doorway (VEST_DOOR wide) in it; roofed
+# by the sun deck (flush with the walls) and a raised, bevelled cap of skylights.
 PORCH_X, PORCH_D = 7.0, 5.5
-VEST_CH = 2.2
+VEST_RAKE = math.tan(math.radians(15.0))
+VEST_DOOR = 2.4
 
 
 def cabin_ring(y, hw, ch, grow=0.0):
@@ -647,6 +649,13 @@ def cabin_ring(y, hw, ch, grow=0.0):
     q = q + [(-x, z) for x, z in reversed(q)]
     q = q + [(-x, -z) for x, z in q]
     return [V(x, y, z) for x, z in q]
+
+
+def vest_z(x, out=0.0):
+    """Where the vestibule's front runs at |x| (on the wall's centre line; `out` past it,
+    measured square to the face): flush with the centre section's roof edge at
+    PORCH_X, angled back VEST_RAKE toward the side."""
+    return cabin_hd(ROOF) + 0.07 - (x - PORCH_X) * VEST_RAKE + out * math.sqrt(1 + VEST_RAKE ** 2)
 
 
 def cabin():
@@ -675,10 +684,12 @@ def cabin():
             q = [lerp(a0, a1, t0), lerp(a0, a1, t1), lerp(b0, b1, t1), lerp(b0, b1, t0)]
             q = [p + out * 0.02 for p in q]
             face(q if normal(q).dot(out) > 0 else q[::-1], "white")
-    # Its roof: the sun deck, overhanging a little, on over the porches to the cabin's
-    # full length; its underside the porches' ceiling.
-    lo = rect(0, ROOF, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, cabin_dims()[1])
-    hi = rect(0, SUN, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, cabin_dims()[1])
+    # Its roof: the sun deck, overhanging the centre section and the sides a little, on
+    # over the vestibules flush with their fronts; its underside their ceiling.
+    W, H = hw + 0.15, cabin_hd(ROOF) + 0.15
+    zc = vest_z(W, 0.08)
+    q = [(W, -zc), (W, zc), (PORCH_X, H), (-PORCH_X, H), (-W, zc), (-W, -zc), (-PORCH_X, -H), (PORCH_X, -H)]
+    lo, hi = ([V(x, y, z) for x, z in q] for y in (ROOF, SUN))
     loft([lo, hi], "white", caps=False)
     hface(hi, "deckp")
     hface(lo, "ceiling", up=False)
@@ -694,41 +705,36 @@ def vest_wall(a, b, y0, y1, t=0.16, key="white"):
 
 
 def vest_plan(hw):
-    """The vestibule's walls in plan (starboard, +Z end): front, chamfer, side, inside
-    faces; and its front's z."""
-    zf = cabin_hd(ROOF) - 0.05
+    """The vestibule's back (z, the outer parts' wall) and outboard side (x)."""
     zb = cabin_hd(ROOF) - PORCH_D - 0.1
     xo = hw - 0.08
-    return zf, zb, xo
+    return zb, xo
 
 
 def vestibules(hw):
-    """Each vestibule: its front, chamfer (an open doorway and a window) and outboard
-    side (two windows) under the sun deck; inside, the cabin's back wall with its door
-    and a bench, lights in the ceiling; over it a raised cap, bevelled down to the side
-    and the front, set with dark skylights."""
-    zf, zb, xo = vest_plan(hw)
-    c = VEST_CH
+    """Each vestibule: its front (a window either side of the double doorway) and
+    outboard side (two windows) under the sun deck; inside, the cabin's back wall with
+    its door and a bench, lights in the ceiling; over it a raised cap, bevelled down to
+    the side and the front, set with dark skylights."""
+    zb, xo = vest_plan(hw)
     wy = (SILL + HEAD) / 2
     for e in (1, -1):
         for s in (1, -1):
             P = lambda x, z: V(s * x, 0, e * z)
-            f0, f1 = P(PORCH_X - 0.05, zf), P(xo - c, zf)       # the front
-            c1 = P(xo, zf - c)                                   # the chamfer's far end
-            b1 = P(xo, zb)                                       # the side's back end
-            # The front: a window inboard, then the open doorway (a lintel over it) toward
-            # the chamfer, which is solid with a window of its own.
-            d0, d1 = P(PORCH_X + 2.15, zf), P(PORCH_X + 3.35, zf)
+            F = lambda x: P(x, vest_z(x))                        # on the front's centre line
+            f0, f1 = F(PORCH_X - 0.05), F(xo + 0.08)
+            b0, b1 = P(xo, vest_z(xo)), P(xo, zb)                # the side
+            # The front: the double doorway (a lintel over it) in the middle of it.
+            xd = (PORCH_X + xo) / 2
+            d0, d1 = F(xd - VEST_DOOR / 2), F(xd + VEST_DOOR / 2)
             vest_wall(f0, d0, PAX_TOP, ROOF)
-            vest_wall(d0, d1, PAX_TOP + 2.2, ROOF)
-            vest_wall(d1, f1 + (f1 - f0).normalized() * 0.08, PAX_TOP, ROOF)
-            vest_wall(f1, c1, PAX_TOP, ROOF)
-            vest_wall(c1, b1, PAX_TOP, ROOF)
-            # Windows: on the front, the chamfer and the side (their outer faces), lit like the cabin's.
-            nf, ns = V(0, 0, e), V(s, 0, 0)
-            nc = V(s, 0, e).normalized()
-            panel(V(s * (PORCH_X + 1.0), wy, e * (zf + 0.08)), nf, 1.0, 1.25, 0.03, "glass")
-            panel(lerp(f1, c1, 0.5) + UP * wy + nc * 0.08, nc, 1.1, 1.25, 0.03, "glass")
+            vest_wall(d0, d1, PAX_TOP + 2.3, ROOF)
+            vest_wall(d1, f1, PAX_TOP, ROOF)
+            vest_wall(b0, b1, PAX_TOP, ROOF)
+            # Windows: either side of the doorway and on the side (their outer faces), lit like the cabin's.
+            nf, ns = V(s * VEST_RAKE, 0, e).normalized(), V(s, 0, 0)
+            for x in ((PORCH_X + xd - VEST_DOOR / 2) / 2, (xd + VEST_DOOR / 2 + xo) / 2):
+                panel(F(x) + UP * wy + nf * 0.08, nf, 1.0, 1.25, 0.03, "glass")
             for z in (zb + 1.1, zb + 2.7):
                 panel(V(s * (xo + 0.08), wy, e * z), ns, 1.0, 1.25, 0.03, "glass")
             # Inside: a door in the cabin's back wall, and one in the centre section's side.
@@ -738,44 +744,41 @@ def vestibules(hw):
             box(V(s * (hw - 1.6), PAX_TOP + 0.45, e * (zd + 0.35)), (2.4, 0.08, 0.5), "bronze")
             for dx in (-1.0, 1.0):
                 box(V(s * (hw - 1.6 + dx), PAX_TOP + 0.22, e * (zd + 0.35)), (0.08, 0.44, 0.4), "dark")
-            zc = (zb + zf) / 2
+            zc = (zb + vest_z(xo)) / 2
             for x in (PORCH_X + 1.6, hw - 1.6):
                 box(V(s * x, ROOF - 0.03, e * zc), (0.9, 0.06, 0.6), "steel")
                 box(V(s * x, ROOF - 0.065, e * zc), (0.75, 0.03, 0.45), "lamp")
-            # The cap: from the sun deck's edge up to a flat, bevelled in from the side
-            # and the front (the corner's chamfer carried up), upright inboard and aft.
+            # The cap: from the sun deck's edge (flush with the front) up to a flat,
+            # bevelled in from the side and the front, upright inboard and aft.
             ins, top = 1.0, SUN + 0.75
-            xi, xe, ze, zk = PORCH_X - 0.1, hw + 0.15, zf + 0.2, zb - 0.1
-            lo = [(xi, zk), (xi, ze), (xe - c, ze), (xe, ze - c), (xe, zk)]
-            hi = [(xi, zk), (xi, ze - ins), (xe - ins - c + 0.4, ze - ins), (xe - ins, ze - ins - c + 0.4), (xe - ins, zk)]
+            xi, xe, zk = PORCH_X - 0.1, hw + 0.15, zb - 0.1
+            lo = [(xi, zk), (xi, vest_z(xi, 0.08)), (xe, vest_z(xe, 0.08)), (xe, zk)]
+            hi = [(xi, zk), (xi, vest_z(xi, 0.08 - ins)), (xe - ins, vest_z(xe - ins, 0.08 - ins)), (xe - ins, zk)]
             rl = [V(s * x, SUN, e * z) for x, z in lo]
             rh = [V(s * x, top, e * z) for x, z in hi]
             loft([rl, rh], "white", cap_key="white")
             # Skylights: a grid on the flat, a row down each bevel.
             for i in range(3):
+                x = lerp(xi + 0.5, xe - ins - 0.4, (i + 0.5) / 3)
+                zt = vest_z(x + 0.65, 0.08 - ins) - 0.3
                 for j in range(2):
-                    x = lerp(xi + 0.5, xe - ins - 0.4, (i + 0.5) / 3)
-                    z = lerp(zk + 0.4, ze - ins - 0.3, (j + 0.5) / 2)
+                    z = lerp(zk + 0.4, zt, (j + 0.5) / 2)
                     box(V(s * x, top + 0.02, e * z), (1.3, 0.04, 1.2), "dark")
-            for k in (1, 2, 3):
-                a0, a1 = rl[k], rl[(k + 1) % 5] if k < 4 else rl[0]
-                b0, b1 = rh[k], rh[(k + 1) % 5] if k < 4 else rh[0]
-                if k == 3:
-                    a1, b1 = rl[4], rh[4]
+            for k in (1, 2):
+                a0, a1, b0, b1 = rl[k], rl[k + 1], rh[k], rh[k + 1]
                 nb = normal([a0, a1, b1, b0])
                 mid = centre([a0, a1, b1, b0])
-                if nb.dot(mid - V(s * (xi + xe) / 2, mid.y, e * (zk + ze) / 2)) < 0: nb = -nb
+                if nb.dot(mid - V(s * (xi + xe) / 2, mid.y, e * zk)) < 0: nb = -nb
                 nb.normalize()
-                m = 3 if k != 2 else 2
-                for i in range(m):
-                    t0, t1 = (i + 0.12) / m, (i + 0.88) / m
+                for i in range(3):
+                    t0, t1 = (i + 0.12) / 3, (i + 0.88) / 3
                     q = [lerp(lerp(a0, a1, t), lerp(b0, b1, t), u) + nb * 0.02 for t, u in ((t0, 0.2), (t1, 0.2), (t1, 0.8), (t0, 0.8))]
                     face(q if normal(q).dot(nb) > 0 else q[::-1], "dark")
 
 
 def sun_rail(hw, ch):
     """The sun deck's rail: round its edge, stepping in around each vestibule's cap."""
-    zf, zb, xo = vest_plan(hw)
+    zb, xo = vest_plan(hw)
     zk, xi = zb - 0.25, PORCH_X - 0.25
     hd = cabin_hd(ROOF) + 0.05
     w = hw + 0.05
@@ -848,7 +851,7 @@ def end_decks():
     prof = [(0.0, 0.0), (0.0, 0.95), (-0.06, 0.95), (-0.06, 0.0)]
     for e in (1, -1):
         def pt(x, z): return V(x, PAX_TOP, e * z)
-        outer = zs_between(cabin_hd(ROOF) - VEST_CH - 0.2, FORK_Z - 0.1, 1.0)
+        outer = zs_between(vest_z(cabin_dims()[0]) - 0.2, FORK_Z - 0.1, 1.0)
         path = [pt(-(half_beam(z) + 0.05), z) for z in outer]
         xt = half_beam(FORK_Z - 0.1)
         path += [pt(-x, FORK_Z - 0.1) for x in (lerp(xt, FORK_X, 0.5), FORK_X + 0.05)]
