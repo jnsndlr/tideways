@@ -367,7 +367,7 @@ def hull():
 # The side openings: a low row onto the main deck's wings, a tall row onto the tween
 # decks (with a cross of bars), the same pitch and in step. (y0, y1, half width, bars)
 TIERS = [(4.2, 5.05, 1.3, False), (6.05, 7.7, 1.25, True)]
-OPEN_Z = [-40.19 + k * 4.23 for k in range(20)]  # their centres, 20 down each side
+OPEN_Z = [-40.19 + k * 4.23 for k in range(3, 17)]  # their centres, 14 down each side (the end three solid)
 
 
 def bulwarks():
@@ -673,6 +673,13 @@ def cabin():
         if L < 0.5:
             continue
         n = max(1, round(L / 2.13))
+        # Upright: each pier's head straight above its foot (along the side, the same z;
+        # on the raked ends, the same x, set back with the rake), so the panes are
+        # true rectangles.
+        ax = 0 if abs(a1.x - a0.x) > abs(a1.z - a0.z) else 2
+        def up_to(p, b0=b0, b1=b1, ax=ax):
+            t = (p[ax] - b0[ax]) / (b1[ax] - b0[ax])
+            return lerp(b0, b1, min(1.0, max(0.0, t)))
         mid = (a0 + a1) * 0.5
         out = V(a1.z - a0.z, 0, -(a1.x - a0.x)).normalized()
         # Outward: away from the cabin's inside (a point just in from the edge).
@@ -681,7 +688,8 @@ def cabin():
         if inside: out = -out
         for i in range(n + 1):
             t0, t1 = max(0.0, i / n - pw / 2 / L), min(1.0, i / n + pw / 2 / L)
-            q = [lerp(a0, a1, t0), lerp(a0, a1, t1), lerp(b0, b1, t1), lerp(b0, b1, t0)]
+            q = [lerp(a0, a1, t0), lerp(a0, a1, t1)]
+            q = q + [up_to(q[1]), up_to(q[0])]
             q = [p + out * 0.02 for p in q]
             face(q if normal(q).dot(out) > 0 else q[::-1], "white")
     # Its roof: the sun deck, overhanging the centre section and the sides a little, on
