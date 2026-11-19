@@ -376,7 +376,7 @@ def hull():
 
 # The side openings: a low row onto the main deck's wings, a tall row onto the tween
 # decks (with a cross of bars), the same pitch and in step. (y0, y1, half width, bars)
-TIERS = [(4.2, 5.05, 1.3, False), (6.35, 8.0, 1.25, True)]
+TIERS = [(4.2, 5.6, 1.3, False), (6.3, 7.7, 1.25, True)]
 OPEN_Z = [-40.19 + k * 4.23 for k in range(3, 17)]  # their centres, 14 down each side (the end three solid)
 
 
