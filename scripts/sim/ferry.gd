@@ -199,7 +199,7 @@ func route_point(s: float) -> Vector3:
 func _slot_local(i: int) -> Vector3:
 	var lane := i % fc.lanes
 	var shift := fc.lane_shift[lane] if fc.lane_shift.size() > 0 else 0.0
-	return Vector3(fc.cols[lane], Layout.DECK_Y, fc.row_z[floori(i / float(fc.lanes))] + shift)
+	return Vector3(fc.cols[lane], fc.deck_y(lane), fc.row_z[floori(i / float(fc.lanes))] + shift)
 
 
 ## Where `car` parks with its slots starting at `slot` (the far end of its run of
@@ -241,6 +241,41 @@ func _arc_path(x: float, z0: float, z1: float) -> PackedVector3Array:
 	for i in range(1, n + 1):
 		out.append(to_global(_arc_point(x, lerpf(z0, z1, float(i) / n))))
 	return out
+
+
+## Waypoints (global) between a tween deck's lane at `x` and the main deck at the
+## end `e` (+1 or -1): from just inside the ramp's top along the lane, the top, the
+## foot, a little on toward the end; reversed coming aboard (`down` false).
+func _ramp_path(x: float, e: float, down: bool) -> PackedVector3Array:
+	var sx := signf(x)
+	var pts := [
+		Vector3(x, fc.upper_y, e * (fc.ramp_top.y - 5.0)),
+		Vector3(sx * fc.ramp_top.x, fc.upper_y, e * fc.ramp_top.y),
+		Vector3(sx * fc.ramp_foot.x, Layout.DECK_Y, e * fc.ramp_foot.y),
+		Vector3(sx * fc.ramp_foot.x, Layout.DECK_Y, e * (fc.ramp_foot.y + 2.5)),
+	]
+	if not down:
+		pts.reverse()
+	var out := PackedVector3Array()
+	for p: Vector3 in pts:
+		out.append(to_global(p))
+	return out
+
+
+## Waypoints (global) between the main deck's wing lane at `x` under a tween deck and
+## the end `e`: the lane's end under the deck's edge, then in past the ramp's foot;
+## reversed coming aboard (`out` false).
+func _wing_path(x: float, e: float, out: bool) -> PackedVector3Array:
+	var pts := [
+		Vector3(x, Layout.DECK_Y, e * fc.wing_out_z),
+		Vector3(signf(x) * fc.wing_in.x, Layout.DECK_Y, e * fc.wing_in.y),
+	]
+	if not out:
+		pts.reverse()
+	var res := PackedVector3Array()
+	for p: Vector3 in pts:
+		res.append(to_global(p))
+	return res
 
 
 ## The slots of `car`'s run from `slot`, going back toward the end it boards from.
@@ -320,7 +355,15 @@ func _drive_off(car: Vehicle) -> void:
 	var exit_z := -fc.end_z if at_a else fc.end_z
 	var path := PackedVector3Array()
 	var x := car.position.x
-	if fc.arcs(x):
+	if fc.is_upper(car.position.y):
+		# Off a tween deck: along its lane to the ramp's top, down it, and in to the end.
+		path.append_array(_ramp_path(x, signf(exit_z), true))
+		x = clampf(x, -fc.throat_x, fc.throat_x)
+	elif fc.wing_out_z > 0.0 and absf(x) > fc.throat_x:
+		# Out of a wing under a tween deck: along it, then in past the ramp's foot.
+		path.append_array(_wing_path(x, signf(exit_z), true))
+		x = clampf(x, -fc.throat_x, fc.throat_x)
+	elif fc.arcs(x):
 		# Out of a wing: ahead to the car's nose, then round the hull's curve to the end.
 		var lane: float = fc.cols[0]
 		for c in fc.cols:
@@ -389,7 +432,15 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 	var entry_z := -fc.end_z if at_a else fc.end_z
 	var path := term.boarding_path(car, route.id)
 	var lane := fc.cols[slot % fc.lanes]
-	if fc.arcs(lane):
+	if fc.upper.has(slot % fc.lanes):
+		# Up to a tween deck: in over the end, up the ramp on its side, along to the slot.
+		path.append(_over_apron(Vector3(clampf(local.x, -fc.throat_x, fc.throat_x), Layout.DECK_Y, entry_z)))
+		path.append_array(_ramp_path(local.x, signf(entry_z), false))
+	elif fc.wing_out_z > 0.0 and absf(local.x) > fc.throat_x:
+		# Into a wing under a tween deck: in past the ramp's foot, then along it.
+		path.append(_over_apron(Vector3(clampf(local.x, -fc.throat_x, fc.throat_x), Layout.DECK_Y, entry_z)))
+		path.append_array(_wing_path(local.x, signf(entry_z), false))
+	elif fc.arcs(lane):
 		# Into a wing: in over the end and round the hull's curve to the car's tail,
 		# then on along its heading into place.
 		var tail := local - park.basis.z * (car.length * 0.5 - car.center_offset)
