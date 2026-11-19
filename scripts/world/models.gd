@@ -54,8 +54,27 @@ const BUOY_LAMP_Y := 4.95
 const BUOY_LANTERN := 3.3
 
 static var _vc_mat: ShaderMaterial
+static var _rock_mat: ShaderMaterial
 static var _hull_mat: ShaderMaterial
 static var _cache := {}
+
+
+static func rock_material() -> ShaderMaterial:
+	if _rock_mat == null:
+		_rock_mat = ShaderMaterial.new()
+		_rock_mat.shader = load("res://shaders/rock.gdshader")
+	return _rock_mat
+
+
+static var _boulder_mat: ShaderMaterial
+
+
+## The land boulders' (rock()): painted stone with a lit top edge.
+static func boulder_material() -> ShaderMaterial:
+	if _boulder_mat == null:
+		_boulder_mat = ShaderMaterial.new()
+		_boulder_mat.shader = load("res://shaders/boulder.gdshader")
+	return _boulder_mat
 
 
 static func vc_material() -> ShaderMaterial:
@@ -419,9 +438,112 @@ static func _tree_part(n: String) -> ArrayMesh:
 static func rock() -> ArrayMesh:
 	return _cached("rock", func():
 		var mb := MeshBuilder.new()
+		# [centre of the top, its radius] per piece.
+		var tops := [[Vector3(0, 0.8, 0), 0.55], [Vector3(0.6, 0.4, 0.3), 0.25]]
 		mb.cylinder(Vector3(0, -0.6, 0), 1.0, 0.55, 1.4, 5, Color(0.56, 0.47, 0.46), Color(0.68, 0.58, 0.52), 0.4)
+		var first := mb.verts.size()
 		mb.cylinder(Vector3(0.6, -0.5, 0.3), 0.6, 0.25, 0.9, 5, Color(0.5, 0.42, 0.42), Color(-1, 0, 0), 1.1)
-		return mb.commit())
+		# UV.y: how far in from the top's outline, down the sides or across the top,
+		# for the lit edge the boulder shader draws there (lit_vc.gdshaderinc, BOULDER).
+		for k in mb.verts.size():
+			var t: Array = tops[0 if k < first else 1]
+			var c: Vector3 = t[0]
+			var p := mb.verts[k]
+			var d := 0.0
+			if mb.normals[k].y > 0.9:
+				d = float(t[1]) * cos(PI / 5.0) if Vector2(p.x - c.x, p.z - c.z).length() < 0.01 else 0.0
+			else:
+				d = maxf(c.y - p.y, 0.0)
+			mb.uvs.append(Vector2(0.0, d))
+		return mb.commit(boulder_material()))
+
+
+const ROCK_STONE := Color(0.64, 0.53, 0.43)
+const ROCK_STONE_LIGHT := Color(0.8, 0.68, 0.55)
+const ROCK_MOSS := Color(0.5, 0.58, 0.24)
+
+## Shoreline rock kit: chunky, faceted pieces about 1 m across (scale them up) with
+## the origin at the ground line. "cliff" pieces are blocky with a grassy cap, for
+## stacking along steep shores; "boulder" pieces are bare and rounder, for the
+## shallows at a cliff's foot.
+static func rock_kit(kind: String) -> Array[ArrayMesh]:
+	var out: Array[ArrayMesh] = []
+	for v in 4:
+		out.append(_cached("rock_%s_%d" % [kind, v], func(): return _rock_piece(kind, v)))
+	return out
+
+
+## A sphere cut down by a handful of random planes: every vertex that lands on the
+## same plane shares one flat facet, which reads as split stone.
+static func _rock_piece(kind: String, v: int) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = hash(kind) + v * 977
+	var cliff := kind == "cliff"
+	var planes: Array[Vector4] = []
+	var cuts := 7 if cliff else 9
+	for i in cuts:
+		var n := Vector3(r.randf_range(-1, 1), r.randf_range(-0.55, 0.75), r.randf_range(-1, 1)).normalized()
+		planes.append(Vector4(n.x, n.y, n.z, r.randf_range(0.72, 0.95)))
+	# A flat-ish top, tipped a little.
+	var top := Vector3(r.randf_range(-0.15, 0.15), 1.0, r.randf_range(-0.15, 0.15)).normalized()
+	planes.append(Vector4(top.x, top.y, top.z, r.randf_range(0.55, 0.7) if cliff else r.randf_range(0.7, 0.85)))
+	var stretch := Vector3(r.randf_range(1.1, 1.5), r.randf_range(0.8, 1.1), r.randf_range(0.8, 1.0)) if cliff \
+		else Vector3(r.randf_range(1.0, 1.3), r.randf_range(0.6, 0.85), r.randf_range(0.85, 1.05))
+	var seg := 10
+	var rings := 7
+	var grid: Array[Vector3] = []
+	for j in rings + 1:
+		var lat := lerpf(-PI * 0.5, PI * 0.5, float(j) / rings)
+		for i in seg:
+			var lon := TAU * (i + 0.5 * (j % 2)) / seg
+			var d := Vector3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon))
+			var rad := 1.25
+			for p in planes:
+				var dn := d.dot(Vector3(p.x, p.y, p.z))
+				if dn > 1e-3:
+					rad = minf(rad, p.w / dn)
+			# Origin at the ground line: the bottom half is buried, so it only needs to exist.
+			grid.append(d * rad * stretch + Vector3(0, 0.25, 0))
+	var mb := MeshBuilder.new()
+	# The grassy cap's triangles (local), for the grass blades to grow on.
+	var caps: Array = []
+	var add := func(a: Vector3, b: Vector3, c: Vector3) -> void:
+		var n := (b - a).cross(c - a)
+		if n.length_squared() < 1e-8:
+			return
+		n = n.normalized()
+		var mid := (a + b + c) / 3.0
+		if n.dot(mid) < 0.0:
+			n = -n
+		# One shade per facet: the plane this face lies on, not the triangle.
+		var best := -1
+		var best_d := 0.9
+		for pi in planes.size():
+			var pd := n.dot(Vector3(planes[pi].x, planes[pi].y, planes[pi].z))
+			if pd > best_d:
+				best_d = pd
+				best = pi
+		var shade := fposmod(sin(float(best) * 12.9898 + v * 78.233) * 43758.5453, 1.0) if best >= 0 else 0.35
+		var col := ROCK_STONE.lerp(ROCK_STONE_LIGHT, shade)
+		# Undersides and overhangs go dark; the cap goes green on the cliff pieces.
+		col = col.darkened(clampf(-n.y, 0.0, 1.0) * 0.3)
+		if cliff and n.y > 0.86:
+			col = ROCK_MOSS.lerp(ROCK_MOSS.lightened(0.12), shade)
+			caps.append_array([a, b, c])
+		elif n.y > 0.55:
+			col = col.lerp(ROCK_MOSS, 0.25 * (n.y - 0.55) / 0.45)
+		mb.tri(a, b, c, col, mid)
+	for j in rings:
+		for i in seg:
+			var a := grid[j * seg + i]
+			var b := grid[j * seg + (i + 1) % seg]
+			var c := grid[(j + 1) * seg + i]
+			var d := grid[(j + 1) * seg + (i + 1) % seg]
+			add.call(a, b, d)
+			add.call(a, d, c)
+	var mesh := mb.commit(rock_material())
+	mesh.set_meta("caps", PackedVector3Array(caps))
+	return mesh
 
 
 static func house(wall: Color, roof: Color, stories: int) -> ArrayMesh:

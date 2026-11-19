@@ -7,6 +7,8 @@ var xform := Transform3D.IDENTITY
 var verts := PackedVector3Array()
 var normals := PackedVector3Array()
 var colors := PackedColorArray()
+## Optional, one per vertex (left empty by most meshes).
+var uvs := PackedVector2Array()
 ## Vertex ranges [from, to) left out of the shadow mesh: parts thinner than a shadow
 ## map texel (rails, stays) only cast broken, crawling dashes.
 var no_shadow: Array[Vector2i] = []
@@ -180,6 +182,8 @@ func commit(material: Material = null) -> ArrayMesh:
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = normals
 	arr[Mesh.ARRAY_COLOR] = colors
+	if uvs.size() == verts.size():
+		arr[Mesh.ARRAY_TEX_UV] = uvs
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	mesh.surface_set_material(0, material if material else Models.vc_material())
 	mesh.shadow_mesh = _shadow_mesh()
