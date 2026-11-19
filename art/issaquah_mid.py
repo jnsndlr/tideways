@@ -629,27 +629,85 @@ def cabin_dims():
     return hw, ch
 
 
+# The porches: at each end the cabin's outer parts stand back PORCH_D from its centre
+# section (over the tunnel and casings, |x| < PORCH_X), leaving a covered porch either
+# side of the fork, roofed by the sun deck, which runs on to the cabin's full length.
+PORCH_X, PORCH_D = 7.0, 4.3
+
+
+def cabin_ring(y, hw, ch, grow=0.0):
+    """The cabin's plan at height y: the centre section out to the raked end, the outer
+    parts stood back PORCH_D (their walls raked alike), `grow` out all round."""
+    hd, cx, c = cabin_hd(y) + grow, PORCH_X - grow, 0.3
+    rd, w = hd - PORCH_D - 2 * grow, hw + grow
+    q = [(w, rd - c), (w - c, rd), (cx, rd), (cx, hd - ch), (cx - ch, hd)]
+    q = q + [(-x, z) for x, z in reversed(q)]
+    q = q + [(-x, -z) for x, z in q]
+    return [V(x, y, z) for x, z in q]
+
+
 def cabin():
     hw, ch = cabin_dims()
-    base, sill, head, top = (rect(0, y, 0, hw, cabin_hd(y), ch) for y in (PAX_TOP, SILL, HEAD, ROOF))
+    ch = 0.6
+    base, sill, head, top = (cabin_ring(y, hw, ch) for y in (PAX_TOP, SILL, HEAD, ROOF))
     loft([base, sill, head, top], lambda i, j, c: "glass" if i == 1 else "white", caps=False)
     # Piers between the windows, about 2.1 m apart (following the raked ends).
     pw = 0.5
-    for k in range(8):
-        a0, a1 = sill[k], sill[(k + 1) % 8]
-        b0, b1 = head[k], head[(k + 1) % 8]
+    n_e = len(sill)
+    for k in range(n_e):
+        a0, a1 = sill[k], sill[(k + 1) % n_e]
+        b0, b1 = head[k], head[(k + 1) % n_e]
         L = (a1 - a0).length
+        if L < 0.5:
+            continue
         n = max(1, round(L / 2.13))
+        mid = (a0 + a1) * 0.5
         out = V(a1.z - a0.z, 0, -(a1.x - a0.x)).normalized()
-        if out.dot(V(a0.x + a1.x, 0, a0.z + a1.z)) < 0: out = -out
+        # Outward: away from the cabin's inside (a point just in from the edge).
+        probe = mid + out * 0.05
+        inside = abs(probe.x) < hw and abs(probe.z) < (cabin_hd(SILL) if abs(probe.x) < PORCH_X else cabin_hd(SILL) - PORCH_D)
+        if inside: out = -out
         for i in range(n + 1):
             t0, t1 = max(0.0, i / n - pw / 2 / L), min(1.0, i / n + pw / 2 / L)
             q = [lerp(a0, a1, t0), lerp(a0, a1, t1), lerp(b0, b1, t1), lerp(b0, b1, t0)]
             q = [p + out * 0.02 for p in q]
             face(q if normal(q).dot(out) > 0 else q[::-1], "white")
-    # Its roof: the sun deck, overhanging a little.
-    loft([rect(0, ROOF, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, ch), rect(0, SUN, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, ch)],
-         "white", cap_key="deckp")
+    # Its roof: the sun deck, overhanging a little, on over the porches to the cabin's
+    # full length; its underside the porches' ceiling.
+    lo = rect(0, ROOF, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, cabin_dims()[1])
+    hi = rect(0, SUN, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, cabin_dims()[1])
+    loft([lo, hi], "white", caps=False)
+    hface(hi, "deckp")
+    hface(lo, "ceiling", up=False)
+    porches(hw)
+
+
+def porches(hw):
+    """Each porch: posts at its open corners carrying the roof, a door and a bench on
+    its back wall, lights in its ceiling, a strip of skylights over it on the sun deck."""
+    for e in (1, -1):
+        for s in (1, -1):
+            zb, zf = cabin_hd(PAX_TOP) - PORCH_D, cabin_hd(ROOF) + 0.05
+            xo = hw - 0.25
+            for z in (zf - 0.25, (zb + zf) / 2 + 0.6):
+                cyl(V(s * xo, PAX_TOP, e * z), V(s * xo, ROOF, e * z), 0.14, 0.14, 8, "white")
+            # A door in the back wall, and one in the centre section's side.
+            zd = cabin_hd(PAX_TOP + 1.0) - PORCH_D
+            panel(V(s * (PORCH_X + 2.2), PAX_TOP + 1.05, e * zd), V(0, 0, e), 1.0, 2.1, 0.05, "steel")
+            panel(V(s * PORCH_X, PAX_TOP + 1.05, e * (zd + 1.6)), V(s, 0, 0), 0.9, 2.1, 0.05, "steel")
+            # A bench along the back wall, outboard of the door.
+            box(V(s * (hw - 1.6), PAX_TOP + 0.45, e * (zd + 0.35)), (2.4, 0.08, 0.5), "bronze")
+            for dx in (-1.0, 1.0):
+                box(V(s * (hw - 1.6 + dx), PAX_TOP + 0.22, e * (zd + 0.35)), (0.08, 0.44, 0.4), "dark")
+            # Ceiling lights.
+            for x in (PORCH_X + 1.6, hw - 1.6):
+                zc = (zb + zf) / 2
+                box(V(s * x, ROOF - 0.03, e * zc), (0.9, 0.06, 0.6), "steel")
+                box(V(s * x, ROOF - 0.065, e * zc), (0.75, 0.03, 0.45), "lamp")
+            # Skylights on the sun deck over it.
+            for k in range(3):
+                x = PORCH_X + 1.3 + k * 1.9
+                box(V(s * x, SUN + 0.04, e * (zb + zf) / 2), (1.5, 0.08, 2.4), "dark")
 
 
 def rail_loop(pts, h, key, step=2.4, closed=True, posts=True):
@@ -712,7 +770,7 @@ def end_decks():
     prof = [(0.0, 0.0), (0.0, 0.95), (-0.06, 0.95), (-0.06, 0.0)]
     for e in (1, -1):
         def pt(x, z): return V(x, PAX_TOP, e * z)
-        outer = zs_between(CABIN_Z - 0.3, FORK_Z - 0.1, 1.0)
+        outer = zs_between(cabin_hd(PAX_TOP) - PORCH_D, FORK_Z - 0.1, 1.0)
         path = [pt(-(half_beam(z) + 0.05), z) for z in outer]
         xt = half_beam(FORK_Z - 0.1)
         path += [pt(-x, FORK_Z - 0.1) for x in (lerp(xt, FORK_X, 0.5), FORK_X + 0.05)]
