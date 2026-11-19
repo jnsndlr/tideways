@@ -211,11 +211,21 @@ def torus(c, ax, R, r, n1, n2, key):
             face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
 
 
-def panel(c, n, w, h, d, key):
+def panel(c, n, w, h, d, key, r=0.0):
     """A flat box standing on a wall: centre `c` on its face, `n` the wall's outward
-    (horizontal) normal, `w` along the wall, `h` tall, `d` proud of it."""
+    (horizontal) normal, `w` along the wall, `h` tall, `d` proud of it; its corners
+    rounded `r`."""
     t = V(n.z, 0, -n.x)
-    ring = lambda o: [c + n * o + t * (sw * w / 2) + UP * (sh * h / 2) for sw, sh in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    if r > 0:
+        pts = []
+        for (sw, sh), a0 in zip(((1, -1), (1, 1), (-1, 1), (-1, -1)), (-90, 0, 90, 180)):
+            o = (sw * (w / 2 - r), sh * (h / 2 - r))
+            for j in range(4):
+                a = math.radians(a0 + j * 30)
+                pts.append((o[0] + r * math.cos(a), o[1] + r * math.sin(a)))
+    else:
+        pts = [(sw * w / 2, sh * h / 2) for sw, sh in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    ring = lambda o: [c + n * o + t * x + UP * y for x, y in pts]
     loft([ring(-0.01), ring(d)], key)
 
 
@@ -640,6 +650,19 @@ VEST_RAKE = math.tan(math.radians(15.0))
 VEST_DOOR = 2.4
 
 
+WIN_R = 0.16   # the passenger windows' corner radius
+
+
+def fillet(c, u, v, r, n, key="white", steps=4):
+    """The wall's corner of a rounded pane: at corner c of the opening (u along its sill
+    or head into the pane, v up or down its side into it), the part outside a radius r
+    quarter round; facing n."""
+    o = c + u * r + v * r
+    q = [c] + [o - v * (r * math.cos(a)) - u * (r * math.sin(a))
+               for a in (j * math.pi / 2 / steps for j in range(steps + 1))]
+    face(q if normal(q).dot(n) > 0 else q[::-1], key)
+
+
 def cabin_ring(y, hw, ch, grow=0.0):
     """The cabin's plan at height y: the centre section out to the raked end, the outer
     parts stood back PORCH_D (their walls raked alike), `grow` out all round."""
@@ -663,35 +686,46 @@ def cabin():
     ch = 0.6
     base, sill, head, top = (cabin_ring(y, hw, ch) for y in (PAX_TOP, SILL, HEAD, ROOF))
     loft([base, sill, head, top], lambda i, j, c: "glass" if i == 1 else "white", caps=False)
-    # Piers between the windows, about 2.1 m apart (following the raked ends).
+    # Piers between the windows, about 2.1 m apart, standing upright (each head straight
+    # above its foot: along the sides the same z, on the raked ends the same x), the end
+    # ones filling the raked corners, so every pane is a true rectangle; its corners
+    # rounded WIN_R.
     pw = 0.5
     n_e = len(sill)
     for k in range(n_e):
         a0, a1 = sill[k], sill[(k + 1) % n_e]
         b0, b1 = head[k], head[(k + 1) % n_e]
-        L = (a1 - a0).length
-        if L < 0.5:
+        if (a1 - a0).length < 0.5:
             continue
-        n = max(1, round(L / 2.13))
-        # Upright: each pier's head straight above its foot (along the side, the same z;
-        # on the raked ends, the same x, set back with the rake), so the panes are
-        # true rectangles.
         ax = 0 if abs(a1.x - a0.x) > abs(a1.z - a0.z) else 2
-        def up_to(p, b0=b0, b1=b1, ax=ax):
-            t = (p[ax] - b0[ax]) / (b1[ax] - b0[ax])
-            return lerp(b0, b1, min(1.0, max(0.0, t)))
+        d = 1.0 if a1[ax] > a0[ax] else -1.0
+        S = lambda c, a0=a0, a1=a1, ax=ax: lerp(a0, a1, (c - a0[ax]) / (a1[ax] - a0[ax]))
+        H = lambda c, b0=b0, b1=b1, ax=ax: lerp(b0, b1, (c - b0[ax]) / (b1[ax] - b0[ax]))
+        # The span both rings share: from the inner of the two starts to the inner of the ends.
+        cs = max(a0[ax], b0[ax]) if d > 0 else min(a0[ax], b0[ax])
+        ce = min(a1[ax], b1[ax]) if d > 0 else max(a1[ax], b1[ax])
+        n = max(1, round(abs(ce - cs) / 2.13))
         mid = (a0 + a1) * 0.5
         out = V(a1.z - a0.z, 0, -(a1.x - a0.x)).normalized()
         # Outward: away from the cabin's inside (a point just in from the edge).
         probe = mid + out * 0.05
         inside = abs(probe.x) < hw and abs(probe.z) < (cabin_hd(SILL) if abs(probe.x) < PORCH_X else cabin_hd(SILL) - PORCH_D)
         if inside: out = -out
+        u = (a1 - a0).normalized()
+        edges = []
         for i in range(n + 1):
-            t0, t1 = max(0.0, i / n - pw / 2 / L), min(1.0, i / n + pw / 2 / L)
-            q = [lerp(a0, a1, t0), lerp(a0, a1, t1)]
-            q = q + [up_to(q[1]), up_to(q[0])]
+            cm = lerp(cs, ce, i / n)
+            c0, c1 = cm - d * pw / 2, cm + d * pw / 2
+            q = [a0 if i == 0 else S(c0), S(c1) if i < n else a1, H(c1) if i < n else b1, b0 if i == 0 else H(c0)]
             q = [p + out * 0.02 for p in q]
             face(q if normal(q).dot(out) > 0 else q[::-1], "white")
+            edges.append((c0, c1))
+        for i in range(n):
+            for c, su in ((edges[i][1], 1.0), (edges[i + 1][0], -1.0)):
+                lo, hi = S(c), H(c)
+                v = (hi - lo).normalized()
+                for corner, sv in ((lo, 1.0), (hi, -1.0)):
+                    fillet(corner + out * 0.02, u * su, v * sv, WIN_R, out)
     # Its roof: the sun deck, overhanging the centre section and the sides a little, on
     # over the vestibules flush with their fronts; its underside their ceiling.
     W, H = hw + 0.15, cabin_hd(ROOF) + 0.15
@@ -723,7 +757,7 @@ def vestibules(hw):
     """Each vestibule: its front (a window either side of the double doorway) and
     outboard side (two windows) under the sun deck; inside, the cabin's back wall with
     its door and a bench, lights in the ceiling; over it a raised cap, bevelled down to
-    the side and the front, set with dark skylights."""
+    the side and the front, set with skylights, lit at night."""
     zb, xo = vest_plan(hw)
     wy = (SILL + HEAD) / 2
     for e in (1, -1):
@@ -742,9 +776,9 @@ def vestibules(hw):
             # Windows: either side of the doorway and on the side (their outer faces), lit like the cabin's.
             nf, ns = V(s * VEST_RAKE, 0, e).normalized(), V(s, 0, 0)
             for x in ((PORCH_X + xd - VEST_DOOR / 2) / 2, (xd + VEST_DOOR / 2 + xo) / 2):
-                panel(F(x) + UP * wy + nf * 0.08, nf, 1.0, 1.25, 0.03, "glass")
+                panel(F(x) + UP * wy + nf * 0.08, nf, 1.0, 1.25, 0.03, "glass", WIN_R)
             for z in (zb + 1.1, zb + 2.7):
-                panel(V(s * (xo + 0.08), wy, e * z), ns, 1.0, 1.25, 0.03, "glass")
+                panel(V(s * (xo + 0.08), wy, e * z), ns, 1.0, 1.25, 0.03, "glass", WIN_R)
             # Inside: a door in the cabin's back wall, and one in the centre section's side.
             zd = cabin_hd(PAX_TOP + 1.0) - PORCH_D
             panel(V(s * (PORCH_X + 2.2), PAX_TOP + 1.05, e * zd), V(0, 0, e), 1.0, 2.1, 0.05, "steel")
@@ -765,13 +799,13 @@ def vestibules(hw):
             rl = [V(s * x, SUN, e * z) for x, z in lo]
             rh = [V(s * x, top, e * z) for x, z in hi]
             loft([rl, rh], "white", cap_key="white")
-            # Skylights: a grid on the flat, a row down each bevel.
+            # Skylights (lit at night, as the cabin's glass): a grid on the flat, a row down each bevel.
             for i in range(3):
                 x = lerp(xi + 0.5, xe - ins - 0.4, (i + 0.5) / 3)
                 zt = vest_z(x + 0.65, 0.08 - ins) - 0.3
                 for j in range(2):
                     z = lerp(zk + 0.4, zt, (j + 0.5) / 2)
-                    box(V(s * x, top + 0.02, e * z), (1.3, 0.04, 1.2), "dark")
+                    box(V(s * x, top + 0.02, e * z), (1.3, 0.04, 1.2), "glass")
             for k in (1, 2):
                 a0, a1, b0, b1 = rl[k], rl[k + 1], rh[k], rh[k + 1]
                 nb = normal([a0, a1, b1, b0])
@@ -781,7 +815,7 @@ def vestibules(hw):
                 for i in range(3):
                     t0, t1 = (i + 0.12) / 3, (i + 0.88) / 3
                     q = [lerp(lerp(a0, a1, t), lerp(b0, b1, t), u) + nb * 0.02 for t, u in ((t0, 0.2), (t1, 0.2), (t1, 0.8), (t0, 0.8))]
-                    face(q if normal(q).dot(nb) > 0 else q[::-1], "dark")
+                    face(q if normal(q).dot(nb) > 0 else q[::-1], "glass")
 
 
 def sun_rail(hw, ch):
