@@ -263,13 +263,12 @@ func _ramp_path(x: float, e: float, down: bool) -> PackedVector3Array:
 
 
 ## Waypoints (global) between the main deck's wing lane at `x` under a tween deck and
-## the end `e`: the lane's end under the deck's edge, then in past the ramp's foot;
-## reversed coming aboard (`out` false).
+## the end `e`: the lane's end under the deck's edge, then down the middle of the
+## opening under the ramp and in past its foot; reversed coming aboard (`out` false).
 func _wing_path(x: float, e: float, out: bool) -> PackedVector3Array:
-	var pts := [
-		Vector3(x, Layout.DECK_Y, e * fc.wing_out_z),
-		Vector3(signf(x) * fc.wing_in.x, Layout.DECK_Y, e * fc.wing_in.y),
-	]
+	var pts := [Vector3(x, Layout.DECK_Y, e * fc.wing_out_z)]
+	for v in fc.wing_via:
+		pts.append(Vector3(signf(x) * v.x, Layout.DECK_Y, e * v.y))
 	if not out:
 		pts.reverse()
 	var res := PackedVector3Array()

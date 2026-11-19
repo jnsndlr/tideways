@@ -64,8 +64,8 @@ static var hiyu_model := not "--classic-ferry" in OS.get_cmdline_user_args() and
 const ISQ_GLB := "res://assets/models/issaquah_mid.glb"
 const ISQ_CAR_DECK := 2.85     # art/issaquah_mid.py CAR_DECK
 const ISQ_DROP := ISQ_CAR_DECK * MID_SCALE - Layout.DECK_Y
-const ISQ_LIFT := 0.9          # her upper works over the Evergreen's (issaquah_mid.py LIFT)
-const ISQ_MEZ_TOP := 5.3
+const ISQ_LIFT := 1.4          # her upper works over the Evergreen's (issaquah_mid.py LIFT)
+const ISQ_MEZ_TOP := 5.6
 const ISQ_MEZ_Z := 27.0
 const ISQ_RAMP_Z := 42.0
 const ISQ_RAMP_TOP_X := 11.65  # the ramp lane's centre at its top, and at its foot
@@ -81,7 +81,7 @@ static var issaquah_model := not "--classic-ferry" in OS.get_cmdline_user_args()
 const RIB_GLB := "res://assets/models/rib_mid.glb"
 const MID_RIBS := [[Vector3(7.2, 7.3 + 0.78, -34.6), 0.0]]
 const HIYU_RIBS := [[Vector3(6.6, 8.1 + 0.78, -4.0), PI]]
-const ISQ_RIBS := [[Vector3(7.6, 7.3 + 0.9 + 0.78, -37.0), 0.0]]
+const ISQ_RIBS := [[Vector3(7.6, 7.3 + 1.4 + 0.78, -37.0), 0.0]]
 
 # size: [lanes, rows, half length, half beam, cruise, label]
 const TABLE := {
@@ -124,10 +124,11 @@ var upper := PackedInt32Array()
 var upper_y := 0.0
 var ramp_top := Vector2.ZERO
 var ramp_foot := Vector2.ZERO
-# The Issaquah's main-deck wing lanes: parked inside |z| < wing_out_z, they turn in
-# past the ramp by wing_in (x, |z|) on their way to and from the end.
+# The Issaquah's main-deck wing lanes: parked inside |z| < wing_out_z, they keep to
+# the middle of the opening between the casing and the ramp's underside, by wing_via
+# (|x|, |z|, outward), on their way to and from the end.
 var wing_out_z := 0.0
-var wing_in := Vector2.ZERO
+var wing_via := PackedVector2Array()
 var cols := PackedFloat32Array()   # lane centres (x), port to starboard
 var row_z := PackedFloat32Array()  # row centres (z), +Z end first
 var lane_shift := PackedFloat32Array()  # per lane, added to row_z (none listed: 0)
@@ -534,7 +535,11 @@ func _lay_out_issaquah() -> void:
 	ramp_top = Vector2(ISQ_RAMP_TOP_X * k, ISQ_MEZ_Z * k)
 	ramp_foot = Vector2(ISQ_RAMP_FOOT_X * k, ISQ_RAMP_Z * k)
 	wing_out_z = ISQ_MEZ_Z * k
-	wing_in = Vector2(7.0 * k, 33.0 * k)
+	# The opening: between the casing's outer face (6.8) and the ramp's inner edge,
+	# its middle, until clear of the casing's end; then in toward the throat.
+	for z: float in [30.0, 32.5]:
+		wing_via.append(Vector2((6.8 + _isq_ramp_edge(z)) * 0.5 * k, z * k))
+	wing_via.append(Vector2(6.6 * k, 35.5 * k))
 	# The wings' rows, both decks: those under the tween deck's flat (past it the
 	# ramps come down).
 	for r in rows:
@@ -553,11 +558,11 @@ func _lay_out_issaquah() -> void:
 	# Lights filling the car deck: down the tunnel, over the tween decks, and under
 	# them over the main deck's wing lanes.
 	for z: float in [-38.0, -27.0, -16.0, -5.0, 5.0, 16.0, 27.0, 38.0]:
-		deck_lights.append(_isq(0, 7.2, z))
+		deck_lights.append(_isq(0, 6.3 + l, z))
 	for z: float in [-24.0, -12.0, 0.0, 12.0, 24.0]:
 		for x: float in [-10.0, 10.0]:
-			deck_lights.append(_isq(x, 7.3, z))
-			deck_lights.append(_isq(x, 4.6, z))
+			deck_lights.append(_isq(x, 6.4 + l, z))
+			deck_lights.append(_isq(x, ISQ_MEZ_TOP - 0.7, z))
 	for x: float in [-1.0, 1.0]:
 		var z := -28.6
 		while z <= 28.61:
