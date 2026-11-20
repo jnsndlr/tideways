@@ -144,7 +144,7 @@ func close() -> void:
 
 ## No clouds, cloud shadows or haze while editing, so the islands are easy to see.
 func _clear_sky(on: bool) -> void:
-	main.clouds.set_shown(not on)
+	main.clouds.set_shown(not on and main.hud.map_controls.weather_shown)
 	main.env.volumetric_fog_enabled = not on
 
 

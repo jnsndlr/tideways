@@ -36,13 +36,8 @@ func arrive() -> void:
 
 
 func sailing_speed(delta: float, run_length: float, current_speed: float,
-		cruise: float, traffic_limit: float, corridor_wait: float) -> float:
-	var rem := maxf(run_length - traveled, 0.0)
-	var brake_v: float
-	if rem > DOCKING_ZONE:
-		brake_v = APPROACH_SPEED + sqrt(2.0 * DECEL * (rem - DOCKING_ZONE))
-	else:
-		brake_v = 0.9 + (APPROACH_SPEED - 0.9) * sqrt(rem / DOCKING_ZONE)
+		cruise: float, traffic_limit: float, corridor_wait: float, harbour := 1.0) -> float:
+	var brake_v := speed_limit(run_length - traveled, cruise, harbour)
 	# Picks up from wherever it is (it may have stopped for traffic mid-crossing).
 	var target := minf(cruise, minf(brake_v, traffic_limit))
 	target = minf(target, sqrt(2.0 * YIELD_DECEL * maxf(corridor_wait - 1.5, 0.0)))
@@ -55,3 +50,16 @@ func advance(delta: float, speed: float, run_length: float) -> void:
 
 func has_arrived(run_length: float) -> bool:
 	return traveled >= run_length - 0.03
+
+
+## Shared handling limit for sailing and captain forecasts. Harbour scales approach
+## speed and braking; the caller supplies the captain-adjusted cruise speed.
+static func speed_limit(remaining: float, cruise: float, harbour := 1.0) -> float:
+	var rem := maxf(remaining, 0.0)
+	var approach := APPROACH_SPEED * harbour
+	var brake_v: float
+	if rem > DOCKING_ZONE:
+		brake_v = approach + sqrt(2.0 * DECEL * harbour * (rem - DOCKING_ZONE))
+	else:
+		brake_v = 0.9 + (approach - 0.9) * sqrt(rem / DOCKING_ZONE)
+	return minf(cruise, brake_v)
