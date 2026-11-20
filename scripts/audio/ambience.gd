@@ -1,7 +1,7 @@
 class_name Ambience
 extends Node
 ## Environment sounds, on the Ambience bus (Settings: Environment sounds):
-## - the sea lapping, fading in as the camera comes down close to the water;
+## - the sea lapping, louder the lower the camera is over the water;
 ## - a loop of gulls, fading in as the camera nears where gulls are;
 ## - now and then, a soft call of distant gulls, riding on the sea's level, so it
 ##   is only ever as loud as the water under it.
@@ -12,11 +12,11 @@ const SEA := "res://assets/audio/ambient/sea_gentle.mp3"
 const GULLS_NEAR := "res://assets/audio/ambient/gulls_near_loop.mp3"
 const GULL_CALLS := "res://assets/audio/ambient/gull_calls_distant.mp3"
 
-# Camera distance (CameraRig.distance) at which the sea is full, and where it has
-# faded out; a long, gentle fade between.
-const SEA_FULL := 140.0
-const SEA_GONE := 1400.0
-const SEA_CURVE := 2.0
+# Camera height above the water at which the sea is full, and where it has faded
+# out; linear between.
+const SEA_FULL := 50.0
+const SEA_GONE := 4000.0
+const SEA_CURVE := 1.0
 # Camera-to-nearest-gull distance at which the gull loop is full, and where it has
 # faded out; a short, steep fade, so it belongs to the gulls you're over.
 const GULLS_FULL := 40.0
@@ -88,7 +88,7 @@ func _process(delta: float) -> void:
 		return
 	var night := day_cycle.night if day_cycle else 0.0
 	var gull_level := lerpf(1.0, NIGHT_GULLS, night)
-	var sea_want := _ramp(rig.distance, SEA_GONE, SEA_FULL, SEA_CURVE)
+	var sea_want := _ramp(rig.camera.global_position.y, SEA_GONE, SEA_FULL, SEA_CURVE)
 	_gull_check -= dt
 	if _gull_check <= 0.0 and gulls:
 		_gull_check = 0.25
