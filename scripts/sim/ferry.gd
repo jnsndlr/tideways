@@ -6,17 +6,9 @@ extends Vessel
 ## (FerryClass) sets how many cars it takes and how fast it goes; whatever its
 ## length, it docks with its end at the ramp.
 
-enum State { UNLOADING, LOADING, SAILING }
+const State = FerryVoyage.State
 
-const ACCEL := 4.2
-# Arrival: ferries ease off to APPROACH_SPEED along the run-in, then from the
-# moment the bow passes the outer dolphins the forward prop reverse-thrusts them
-# to a stop at the dock (the stern props backing off).
-const DECEL := 1.5
-# Braking to give way to other traffic.
-const YIELD_DECEL := 2.7
-const APPROACH_SPEED := 9.6
-const OUTER_DOLPHIN_U := Layout.DOLPHIN_OUTER.x
+const YIELD_DECEL := FerryVoyage.YIELD_DECEL
 const MIN_DWELL := 10.0
 const MAX_DWELL := 24.0
 const DISPATCH_GAP := 0.5
@@ -30,24 +22,37 @@ const RAMP_LOWER_AT := 40.0
 var sim: Simulation
 var fc: FerryClass
 var route: MapData.Route
+var fleet_key := ""                 # follows the hull through renames and route changes
 var ferry_name := ""
 var term_a: Terminal
 var term_b: Terminal
-var state := State.LOADING
-var at_a := true        # docked at A, or departed from A while sailing
+# Compatibility properties expose one owner to traffic, UI and setup callers.
+var voyage := FerryVoyage.new()
+var state: FerryVoyage.State:
+	get: return voyage.state
+	set(value): voyage.state = value
+var at_a: bool:        # docked at A, or departed from A while sailing
+	get: return voyage.at_a
+	set(value): voyage.at_a = value
 var hull: MeshInstance3D
 # The car deck nets at -Z and +Z (FerryClass.net_z).
 var _nets: Array[MeshInstance3D] = []
 var _net_wind := Vector2.ZERO
-var traveled := 0.0      # how far the hull's centre has come, dock to dock
-var trips := 0
+var traveled: float:      # how far the hull's centre has come, dock to dock
+	get: return voyage.traveled
+	set(value): voyage.traveled = value
+var trips: int:
+	get: return voyage.trips
+	set(value): voyage.trips = value
 var aboard: Array[Vehicle] = []
-var _slots: Array[Vehicle] = []
+var deck: FerryDeck
 var _boarding := 0
 var _unload_queue: Array[Vehicle] = []
 var _dispatch_timer := 0.0
 var _last_sent: Vehicle  # the last car sent on or off, which the next one follows
-var _state_time := 0.0
+var _state_time: float:
+	get: return voyage.state_time
+	set(value): voyage.state_time = value
 var _bob_time := 0.0
 var _thrust := 0.0   # forward prop reverse thrust while braking, 0..1
 var _last_pos := Vector3.ZERO
@@ -90,9 +95,7 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	wake = WakeTrail.new(fc.half_length, 8.0 * fc.half_length / 15.0, 24.0, 46)
 	term_a = sim.terminals[r.a]
 	term_b = sim.terminals[r.b]
-	term_a.ferry_for[r.id] = self
-	term_b.ferry_for[r.id] = self
-	_slots.resize(fc.lanes * fc.rows)
+	deck = FerryDeck.new(fc)
 	hull = MeshInstance3D.new()
 	hull.mesh = Models.ferry(fc)
 	# Fixes which of its rooms are lit (lit_vc.gdshader); the origin would change every frame.
@@ -200,7 +203,7 @@ func route_point(s: float) -> Vector3:
 func _slot_local(i: int) -> Vector3:
 	var lane := i % fc.lanes
 	var shift := fc.lane_shift[lane] if fc.lane_shift.size() > 0 else 0.0
-	return Vector3(fc.cols[lane], Layout.DECK_Y, fc.row_z[floori(i / float(fc.lanes))] + shift)
+	return Vector3(fc.cols[lane], fc.deck_y(lane), fc.row_z[floori(i / float(fc.lanes))] + shift)
 
 
 ## Where `car` parks with its slots starting at `slot` (the far end of its run of
@@ -244,41 +247,47 @@ func _arc_path(x: float, z0: float, z1: float) -> PackedVector3Array:
 	return out
 
 
-## The slots of `car`'s run from `slot`, going back toward the end it boards from.
-func _run(slot: int, car: Vehicle) -> PackedInt32Array:
-	var out := PackedInt32Array()
-	var step := fc.lanes if at_a else -fc.lanes
-	for k in car.slots:
-		out.append(slot + k * step)
+## Waypoints (global) between a tween deck's lane at `x` and the main deck at the
+## end `e` (+1 or -1): from just inside the ramp's top along the lane, the top, the
+## foot, a little on toward the end; reversed coming aboard (`down` false).
+func _ramp_path(x: float, e: float, down: bool) -> PackedVector3Array:
+	var sx := signf(x)
+	var pts := [
+		Vector3(x, fc.upper_y, e * (fc.ramp_top.y - 5.0)),
+		Vector3(sx * fc.ramp_top.x, fc.upper_y, e * fc.ramp_top.y),
+		Vector3(sx * fc.ramp_foot.x, Layout.DECK_Y, e * fc.ramp_foot.y),
+		Vector3(sx * fc.ramp_foot.x, Layout.DECK_Y, e * (fc.ramp_foot.y + 2.5)),
+	]
+	if not down:
+		pts.reverse()
+	var out := PackedVector3Array()
+	for p: Vector3 in pts:
+		out.append(to_global(p))
 	return out
 
 
+## Waypoints (global) between the main deck's wing lane at `x` under a tween deck and
+## the end `e`: the lane's end under the deck's edge, then down the middle of the
+## opening under the ramp and in past its foot; reversed coming aboard (`out` false).
+func _wing_path(x: float, e: float, out: bool) -> PackedVector3Array:
+	var pts := [Vector3(x, Layout.DECK_Y, e * fc.wing_out_z)]
+	for v in fc.wing_via:
+		pts.append(Vector3(signf(x) * v.x, Layout.DECK_Y, e * v.y))
+	if not out:
+		pts.reverse()
+	var res := PackedVector3Array()
+	for p: Vector3 in pts:
+		res.append(to_global(p))
+	return res
+
+
+## The slots of `car`'s run from `slot`, going back toward the end it boards from.
 func _take_slots(slot: int, car: Vehicle) -> void:
-	for i in _run(slot, car):
-		_slots[i] = car
+	deck.reserve(slot, car.slots, at_a, car.get_instance_id())
 
 
-## Fills from the far end first so cars drive in past the ones already parked, and
-## sends trucks and high-roofed vans to the lanes with the headroom (cars to the
-## others) while there's room there. A long vehicle needs a run of free rows in one
-## lane. -1 if there's no room for `car`.
 func _free_slot(car: Vehicle) -> int:
-	var fallback := -1
-	for r in fc.rows - car.slots + 1:
-		var row := r if at_a else fc.rows - 1 - r
-		for c in fc.lanes:
-			var idx := row * fc.lanes + c
-			var free := true
-			for i in _run(idx, car):
-				if _slots[i] != null or fc.blocked.has(i):
-					free = false
-					break
-			if free:
-				if fc.lane_suits(c, car.is_tall):
-					return idx
-				if fallback < 0:
-					fallback = idx
-	return fallback
+	return deck.find_space(car.slots, car.is_tall, at_a)
 
 
 func _process(delta: float) -> void:
@@ -317,7 +326,7 @@ func _begin_unloading() -> void:
 	var exit_sign := -1.0 if at_a else 1.0
 	_unload_queue.sort_custom(func(a: Vehicle, b: Vehicle): return a.position.z * exit_sign > b.position.z * exit_sign)
 	aboard.clear()
-	_slots.fill(null)
+	deck.clear()
 
 
 func _tick_unloading(delta: float) -> void:
@@ -349,7 +358,15 @@ func _drive_off(car: Vehicle) -> void:
 	var exit_z := -fc.end_z if at_a else fc.end_z
 	var path := PackedVector3Array()
 	var x := car.position.x
-	if fc.arcs(x):
+	if fc.is_upper(car.position.y):
+		# Off a tween deck: along its lane to the ramp's top, down it, and in to the end.
+		path.append_array(_ramp_path(x, signf(exit_z), true))
+		x = clampf(x, -fc.throat_x, fc.throat_x)
+	elif fc.wing_out_z > 0.0 and absf(x) > fc.throat_x:
+		# Out of a wing under a tween deck: along it, then in past the ramp's foot.
+		path.append_array(_wing_path(x, signf(exit_z), true))
+		x = clampf(x, -fc.throat_x, fc.throat_x)
+	elif fc.arcs(x):
 		# Out of a wing: ahead to the car's nose, then round the hull's curve to the end.
 		var lane: float = fc.cols[0]
 		for c in fc.cols:
@@ -401,9 +418,7 @@ func _tick_loading(delta: float) -> void:
 			if not ramp.is_clear():
 				return
 		_casting_off = false
-		state = State.SAILING
-		traveled = 0.0
-		_state_time = 0.0
+		voyage.depart()
 		# The last crossing's wake has long faded by now, and it lies along the same
 		# water, so start a fresh trail.
 		wake.clear()
@@ -418,7 +433,15 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 	var entry_z := -fc.end_z if at_a else fc.end_z
 	var path := term.boarding_path(car, route.id)
 	var lane := fc.cols[slot % fc.lanes]
-	if fc.arcs(lane):
+	if fc.upper.has(slot % fc.lanes):
+		# Up to a tween deck: in over the end, up the ramp on its side, along to the slot.
+		path.append(_over_apron(Vector3(clampf(local.x, -fc.throat_x, fc.throat_x), Layout.DECK_Y, entry_z)))
+		path.append_array(_ramp_path(local.x, signf(entry_z), false))
+	elif fc.wing_out_z > 0.0 and absf(local.x) > fc.throat_x:
+		# Into a wing under a tween deck: in past the ramp's foot, then along it.
+		path.append(_over_apron(Vector3(clampf(local.x, -fc.throat_x, fc.throat_x), Layout.DECK_Y, entry_z)))
+		path.append_array(_wing_path(local.x, signf(entry_z), false))
+	elif fc.arcs(lane):
 		# Into a wing: in over the end and round the hull's curve to the car's tail,
 		# then on along its heading into place.
 		var tail := local - park.basis.z * (car.length * 0.5 - car.center_offset)
@@ -431,12 +454,13 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 			# Into a wing lane: in through the apron's opening, then out round the fork's end.
 			path.append(to_global(Vector3(local.x, Layout.DECK_Y, signf(entry_z) * fc.turn_z)))
 	path.append(to_global(local))
-	_send(car, path, _on_boarded.bind(park))
+	_send(car, path, _on_boarded.bind(park, term))
 	sim.collect_fare(car)
 
 
-func _on_boarded(car: Vehicle, park: Transform3D) -> void:
+func _on_boarded(car: Vehicle, park: Transform3D, term: Terminal) -> void:
 	car.reparent(self)
+	term.finish_boarding(car)
 	_set_parked(car, park)
 	aboard.append(car)
 	_boarding -= 1
@@ -450,34 +474,25 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 func _tick_sailing(delta: float) -> void:
 	var remaining := run_length() - traveled
-	# Distance from the bow reaching the outer dolphins to being docked.
-	var zone := OUTER_DOLPHIN_U - Layout.PIER_END - 1.2
+	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
-	var brake_v: float
-	if rem > zone:
-		brake_v = APPROACH_SPEED + sqrt(2.0 * DECEL * (rem - zone))
-	else:
-		brake_v = 0.9 + (APPROACH_SPEED - 0.9) * sqrt(rem / zone)
-	# Picks up from wherever it is (it may have stopped for traffic mid-crossing).
-	var target := minf(fc.cruise, minf(brake_v, yield_speed()))
+	var traffic_limit := yield_speed()
 	var wait := _corridor_wait()
 	hold = wait
-	target = minf(target, sqrt(2.0 * YIELD_DECEL * maxf(wait - 1.5, 0.0)))
-	speed = minf(target, speed + ACCEL * delta)
+	speed = voyage.sailing_speed(delta, run_length(), speed, fc.cruise, traffic_limit, wait)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
-	traveled = minf(traveled + speed * delta, run_length())
+	voyage.advance(delta, speed, run_length())
 	_place(_route_s(traveled))
 	_bob_time += delta
 	position.y = sin(_bob_time * 1.3) * 0.21
-	if traveled >= run_length() - 0.03:
+	if voyage.has_arrived(run_length()):
 		_dock_corridors()
 		hold = INF
 		speed = 0.0
 		position.y = 0.0
-		at_a = not at_a
-		trips += 1
+		voyage.arrive()
 		_begin_unloading()
 
 

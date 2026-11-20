@@ -15,19 +15,23 @@ static var map_seed := 0
 
 var map: MapData
 var terrain: Terrain
+var builder: WorldBuilder
 var sim: Simulation
 var rig: CameraRig
 var hud: Hud
 var sun: DirectionalLight3D
 var env: Environment
-var sky_mat: ProceduralSkyMaterial
+var sky_mat: ShaderMaterial
 var day_cycle: DayCycle
+var clouds: CloudLayer
 var water_mat: ShaderMaterial
 var route_overlay: MeshInstance3D
 var cetaceans: Cetaceans
 var pinnipeds: Pinnipeds
 var eagles: Eagles
 var cam_attr: CameraAttributesPractical
+var tree_shadows: Array[MultiMeshInstance3D] = []
+var _tree_shadow_reach := -1.0
 var _args := {}
 
 ## Frame caps: the sim is slow-paced, so 60 fps is plenty, and nobody is watching
@@ -37,24 +41,50 @@ const BACKGROUND_FPS := 15
 ## Benchmarks render flat out regardless of focus.
 var uncapped := false
 
+## Set by LoadingScreen before the scene enters the tree: build the world over
+## several frames, the heavy parts on a worker thread, so the loading screen keeps
+## animating. Left off, _ready builds everything at once (tools rely on that).
+var async_build := false
+## The stage being built runs from build_from to build_to (0..1 of the whole
+## build); the loading screen sails the ferry between them.
+var build_from := 0.0
+var build_to := 0.0
+## The world is fully built.
+var built := false
+signal world_ready
+
 
 func _ready() -> void:
 	_parse_args()
 	if not uncapped and DisplayServer.get_name() != "headless":
 		Engine.max_fps = MAX_FPS
-	if map_seed == 0:
-		map_seed = int(_args["seed"]) if _args.has("seed") else randi_range(1, 99999)
+	set_process(false)
 	var t0 := Time.get_ticks_msec()
 	var gen := MapGenerator.new()
-	map = gen.generate(map_seed)
-	terrain = gen.terrain
+	# Stage ends are measured shares of the build (main map, threaded: ~4.1 s generate,
+	# ~5.6 s world, ~1.3 s sea charts, ~0.6 s simulation, ~2.1 s backdrop).
+	await _stage(0.3, true, func():
+		map = _generate(gen)
+		terrain = gen.terrain)
 	_setup_environment()
-	var builder := WorldBuilder.new(map, terrain)
-	add_child(builder.build())
+	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
+	# on the rendering thread before the worker starts placing instances.
+	if async_build:
+		Models.tree_variants(false)
+		Models.tree_variants(true)
+	builder = WorldBuilder.new(map, terrain)
+	var world := []  # lambdas capture locals by value; the array carries the result out
+	await _stage(0.71, true, func(): world.append(builder.build()))
+	# Finish the backdrop while its tree meshes are still off the live render tree.
+	var backdrop := Backdrop.new()
+	await _stage(0.855, true, func(): backdrop.setup(terrain, builder))
+	add_child(world[0])
+	add_child(backdrop)
 	route_overlay = builder.route_overlay
+	tree_shadows = builder.tree_shadows
 	var fixed_lights := builder.night_lights
 	water_mat = builder.water_material
-	print("Map %d built in %d ms: %d islands, %d routes" % [map_seed, Time.get_ticks_msec() - t0, map.islands.size(), map.routes.size()])
+	print("Map %d built in %d ms: %d islands, %d routes" % [map.map_seed, Time.get_ticks_msec() - t0, map.islands.size(), map.routes.size()])
 
 	rig = CameraRig.new()
 	rig.terrain = terrain
@@ -63,14 +93,27 @@ func _ready() -> void:
 	_setup_dof()
 	sim = Simulation.new()
 	sim.name = "Simulation"
+	# Marine traffic's charts (nav grid, fishing grounds, anchorages) are pure data.
+	sim.map = map
+	sim.terrain = terrain
+	sim.marine = MarineTraffic.new()
+	await _stage(0.95, true, func(): sim.marine.prepare(sim))
+	sim.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(sim)
-	sim.setup(map, terrain)
-	var clouds := CloudLayer.new()
-	clouds.setup(sim.weather, sim.wind_dir, sim.wind_speed)
+	# The rest of the simulation spawns nodes into the live tree, so it stays on the
+	# main thread.
+	await _stage(0.99, false, func(): sim.setup(map, terrain))
+	for terminal: Terminal in sim.terminals.values():
+		if terminal.island.lane_extension_price > 0:
+			var extension := HoldingLaneView.new()
+			terminal.add_child(extension)
+			extension.setup(terminal)
+	clouds = CloudLayer.new()
+	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
-	var backdrop := Backdrop.new()
-	add_child(backdrop)
-	backdrop.setup(terrain, sim.weather)
+	var grass := Grass.new()
+	grass.setup(terrain, builder, rig, sim)
+	add_child(grass)
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
 	day_cycle.sim = sim
@@ -103,7 +146,38 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
+	sim.process_mode = Node.PROCESS_MODE_INHERIT
 	_apply_debug_args()
+	set_process(true)
+	build_from = 1.0
+	build_to = 1.0
+	built = true
+	world_ready.emit()
+	Music.set_mood(get_tree(), Music.Mood.SOFT)
+	RadioChatter.on_game(get_tree())
+	UiSounds.install(get_tree())
+
+
+## Runs one stage of the world build. With async_build, `work` runs on a worker
+## thread (`threaded`) or on the main thread after a frame has been drawn, and the
+## progress window moves on to end at `to`. Without it, `work` just runs.
+func _stage(to: float, threaded: bool, work: Callable) -> void:
+	if not async_build:
+		work.call()
+		return
+	build_from = build_to
+	build_to = to
+	if not threaded:
+		await get_tree().process_frame
+		work.call()
+		return
+	var thread := Thread.new()
+	if thread.start(work) != OK:
+		work.call()
+		return
+	while thread.is_alive():
+		await get_tree().process_frame
+	thread.wait_to_finish()
 
 
 ## The wildlife group whose animal is nearest `screen` (and showing), if any.
@@ -114,6 +188,19 @@ func pick_wildlife(screen: Vector2, cam: Camera3D) -> Wildlife.Visit:
 	return v if v else eagles.pick(screen, cam)
 
 
+## The map to build: a random one from the seed (--seed=N, or a new one each time).
+func _generate(gen: MapGenerator) -> MapData:
+	if map_seed == 0:
+		map_seed = int(_args["seed"]) if _args.has("seed") else randi_range(1, 99999)
+	return gen.generate(map_seed)
+
+
+## The HUD's opening toast: [title, body].
+func intro(islands: int) -> Array:
+	return ["PROCEDURAL ARCHIPELAGO", "Map seed %d · %d islands · %d routes.\nPress G for a new map." % [
+		map.map_seed, islands, map.routes.size()]]
+
+
 func regenerate() -> void:
 	Engine.time_scale = 1.0
 	map_seed = randi_range(1, 99999)
@@ -122,13 +209,13 @@ func regenerate() -> void:
 
 func _setup_environment() -> void:
 	# Colours, ambient, fog and sun direction are driven per frame by DayCycle.
-	sky_mat = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.36, 0.56, 0.8)
-	sky_mat.sky_horizon_color = Color(0.74, 0.83, 0.9)
-	sky_mat.ground_horizon_color = Color(0.74, 0.83, 0.9)
-	sky_mat.ground_bottom_color = Color(0.12, 0.28, 0.36)
+	sky_mat = ShaderMaterial.new()
+	sky_mat.shader = load("res://shaders/sky.gdshader")
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
+	# DayCycle changes the sky every game minute or so; spread each radiance
+	# re-render over several frames instead of doing it all at once.
+	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
@@ -147,6 +234,9 @@ func _setup_environment() -> void:
 	env.fog_density = 0.85
 	env.fog_depth_begin = 1800.0
 	env.fog_depth_end = 4800.0
+	# The sky draws its own haze (sky.gdshader); fogging it over washed out the
+	# horizon clouds and flattened the gradient.
+	env.fog_sky_affect = 0.15
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	# Thin volumetric haze so sunlight scatters and cloud shadows read as shafts.
@@ -168,6 +258,8 @@ func _setup_environment() -> void:
 	sun.shadow_blur = 1.5
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_max_distance = 1200.0
+	# Shadows thin out over the last 40% of their range rather than ending in a line.
+	sun.directional_shadow_fade_start = 0.6
 	add_child(sun)
 
 
@@ -193,8 +285,22 @@ func _process(_delta: float) -> void:
 	sun.directional_shadow_split_1 = near
 	sun.directional_shadow_split_2 = lerpf(0.2, near * 2.0, close)
 	sun.directional_shadow_split_3 = lerpf(0.5, maxf(0.5, near * 3.5), close)
-	env.fog_depth_begin = rig.distance * 1.6 + 600.0
-	env.fog_depth_end = rig.distance * 4.0 + 2100.0
+	# Tree shadows reach as far as the cascades do, so they fade out with the sun's
+	# shadow (directional_shadow_fade_start) instead of popping tile by tile as the
+	# camera pans.
+	var reach := shadow_far * 1.05
+	if absf(reach - _tree_shadow_reach) > _tree_shadow_reach * 0.03:
+		_tree_shadow_reach = reach
+		for t in tree_shadows:
+			t.visibility_range_end = reach
+	# Fog by distance past the point looked at, not a multiple of the zoom: the
+	# camera's depth to anything out there grows ~1:1 with zoom, so a fixed offset
+	# keeps the far shores equally hazy at every zoom instead of fogging them out
+	# as the camera comes in. It starts past the far bank, so the shores across the
+	# water stay crisp; the Backdrop's blue haze (haze.gdshaderinc) handles the
+	# ranges behind.
+	env.fog_depth_begin = rig.distance + 4000.0
+	env.fog_depth_end = rig.distance + 18000.0
 	RenderingServer.global_shader_parameter_set("fog_range", Vector2(env.fog_depth_begin, env.fog_depth_end))
 	env.volumetric_fog_length = clampf(rig.distance * 2.4, 750.0, 4800.0)
 	_update_dof()

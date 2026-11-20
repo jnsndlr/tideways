@@ -270,7 +270,7 @@ void fragment() {
 	float bands = step(0.7, fract(depth * 0.9 - t * 0.7 + breakup * 0.6)) * band_fade * step(0.55, breakup);
 	float foam = max(lip, bands * 0.85) * persp;
 
-	float cloud = cloud_shadow(world_pos, TIME);
+	float cloud = cloud_shadow(world_pos, cloud_time);
 	// What the surface reflects (sky, by Fresnel) is added by the engine on top of
 	// emission, so the transmitted light gives up that share.
 	float nv = clamp(dot(NORMAL, VIEW), 0.0, 1.0);

@@ -112,7 +112,7 @@ void fragment() {
     float broken = smoothstep(0.3, 0.58, fine.x);
     float sun = pow(max(dot(n, normalize(normalize(sun_direction) + v)), 0.0), 160.0);
     float glint = clamp(ribbon * catching_sky * broken * detail * 0.95 + sun * ribbon, 0.0, 1.0);
-    float cloud = cloud_shadow(world_pos, TIME);
+    float cloud = cloud_shadow(world_pos, cloud_time);
     col = mix(col, glint_color.rgb, glint * highlight_strength * (1.0 - cloud));
     col *= (1.0 - cloud * 0.45) * mix(0.12, 1.0, daylight);
     ALBEDO = col;

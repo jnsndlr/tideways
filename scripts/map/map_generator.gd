@@ -23,15 +23,29 @@ const MAX_DETOUR := 1.6       # route length over the dock-to-dock distance
 const MAX_TURN := deg_to_rad(200.0)    # total heading change along a route
 
 
+## A random map: rolls a layout from `map_seed`, then builds it.
 func generate(map_seed: int) -> MapData:
+	return generate_from(roll_layout(map_seed, NAMES))
+
+
+## Builds the map an authored layout describes: its islands as given, and the
+## mainland, islets, routes, towns and the rest from its world seed.
+func generate_from(layout: MapLayout) -> MapData:
+	var map_seed := layout.world_seed
 	rng.seed = map_seed
 	map = MapData.new()
 	map.map_seed = map_seed
 	terrain = Terrain.new(map_seed, map.half_size)
+	var ports: Array[Vector2] = []
+	for spec in layout.islands:
+		if spec.mainland:
+			ports.append(Vector2(spec.x, spec.z))
+	terrain.set_mainland_ports(ports)
 	_place_mainland()
-	_place_islands()
+	for spec in layout.islands:
+		_island_from_spec(spec)
 	for isl in map.islands:
-		terrain.stamp_island(isl.center, isl.radius, isl.strength)
+		terrain.stamp(stamp_of(isl))
 	terrain.finalize()
 	_plan_routes()
 	_place_islets()
@@ -40,6 +54,7 @@ func generate(map_seed: int) -> MapData:
 	_place_quays(map_seed)
 	_place_station(map_seed)
 	_flatten_terminals()
+	_place_beaches(map_seed)
 	_name_islands()
 	_layout_towns()
 	_roll_wildlife_appeal(map_seed)
@@ -50,6 +65,7 @@ func generate(map_seed: int) -> MapData:
 func _new_island(center: Vector2, radius: float, strength: float, inhabited: bool) -> MapData.Island:
 	var isl := MapData.Island.new()
 	isl.id = map.islands.size()
+	isl.key = "island-%d" % isl.id
 	isl.center = center
 	isl.radius = radius
 	isl.strength = strength
@@ -58,34 +74,185 @@ func _new_island(center: Vector2, radius: float, strength: float, inhabited: boo
 	return isl
 
 
-func _place_mainland() -> void:
-	var count := rng.randi_range(4, 6)
-	var start := rng.randf() * TAU
+func _island_from_spec(spec: MapLayout.IslandSpec) -> MapData.Island:
+	var isl := _new_island(Vector2.ZERO, 0.0, 0.0, true)
+	apply_spec(isl, spec)
+	return isl
+
+
+## Copies a layout entry onto its island. An island's `radius` is how far it can
+## reach (its long axis); its stamp's own radius is that over the stretch.
+static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
+	var st := maxf(spec.stretch, 1.0)
+	isl.name = spec.name
+	isl.center = Vector2(spec.x, spec.z)
+	isl.radius = spec.radius * st
+	isl.strength = spec.height * spec.radius / RELIEF_RADIUS
+	isl.shape_seed = spec.shape_seed
+	isl.stretch = st
+	isl.angle = deg_to_rad(spec.angle)
+	isl.roughness = spec.roughness
+	isl.hills = spec.hills
+	isl.peak = spec.peak
+	isl.lakes = spec.lakes
+	isl.forest = spec.forest
+	isl.fields = spec.fields
+	isl.mainland_port = spec.mainland
+	isl.ferry = spec.ferry
+	isl.manual_dock = spec.dock
+	isl.manual_at = Vector2(spec.dock_x, spec.dock_z)
+	isl.manual_dir = Vector2.from_angle(deg_to_rad(spec.dock_angle))
+
+
+static func stamp_of(isl: MapData.Island) -> Terrain.Stamp:
+	var s := Terrain.Stamp.new()
+	s.island_id = isl.id
+	s.center = isl.center
+	s.radius = isl.radius / isl.stretch
+	s.strength = isl.strength
+	s.stretch = isl.stretch
+	s.angle = isl.angle
+	s.roughness = isl.roughness
+	s.hills = isl.hills
+	s.peak = isl.peak
+	s.lakes = isl.lakes
+	s.offset = Terrain.shape_offset(isl.shape_seed) if isl.shape_seed != 0 else isl.center
+	return s
+
+
+## The mainland's masses round the map's edge (x, z, radius), from the world seed
+## alone, so they stay put whatever the islands do.
+static func mainland_masses(world_seed: int, half_size: float) -> Array[Vector3]:
+	var r := RandomNumberGenerator.new()
+	r.seed = world_seed * 7 + 3
+	var out: Array[Vector3] = []
+	var count := r.randi_range(4, 6)
+	var start := r.randf() * TAU
+	var axis := Mainland.new(world_seed, half_size).axis
 	for k in count:
-		var ang := start + TAU * k / count + rng.randf_range(-0.25, 0.25)
-		var dist := rng.randf_range(map.half_size + 400.0, map.half_size + 890.0)
-		var isl := _new_island(Vector2(cos(ang), sin(ang)) * dist, rng.randf_range(1190.0, 1580.0), 1.3, false)
+		var ang := start + TAU * k / count + r.randf_range(-0.25, 0.25)
+		var dist := r.randf_range(half_size + 400.0, half_size + 890.0)
+		var m := Vector3(cos(ang) * dist, sin(ang) * dist, r.randf_range(1190.0, 1580.0))
+		# Only on the mainland's shores: the channel's open ends stay open water.
+		var across := absf(m.y) if axis == 0 else absf(m.x)
+		var along := absf(m.x) if axis == 0 else absf(m.y)
+		if across >= along:
+			out.append(m)
+	return out
+
+
+func _place_mainland() -> void:
+	for m in mainland_masses(map.map_seed, map.half_size):
+		# Only where the shore comes into the map: a side with no port is all Backdrop.
+		if not terrain.mainland.has_port(m.x, m.y):
+			continue
+		var isl := _new_island(Vector2(m.x, m.y), m.z, 1.3, false)
 		isl.is_mainland = true
 
 
-func _place_islands() -> void:
-	var target := rng.randi_range(8, 11)
-	var limit := map.half_size - 1090.0
-	var placed := 0
-	for attempt in 5000:
-		if placed >= target:
-			break
-		var r := rng.randf_range(450.0, 690.0)
-		var c := Vector2(rng.randf_range(-limit, limit), rng.randf_range(-limit, limit))
-		var ok := true
-		for o in map.islands:
-			var reach := o.radius * (0.72 if o.is_mainland else 1.0)
-			if c.distance_to(o.center) < r + reach + (255.0 if o.is_mainland else ISLAND_GAP):
-				ok = false
+# --- Rolling layouts --------------------------------------------------------------------
+
+## A whole random layout: 8-11 islands (-1), one per name (-2) or `count`, named
+## from `names` shuffled.
+static func roll_layout(world_seed: int, names: Array, count := -1) -> MapLayout:
+	var r := RandomNumberGenerator.new()
+	r.seed = world_seed
+	var lay := MapLayout.new()
+	lay.world_seed = world_seed
+	var pool := names.duplicate()
+	for i in range(pool.size() - 1, 0, -1):
+		var j := r.randi_range(0, i)
+		var t = pool[i]
+		pool[i] = pool[j]
+		pool[j] = t
+	if count == -1:
+		count = r.randi_range(8, 11)
+	elif count == -2:
+		count = pool.size()
+	for k in count:
+		var spec := MapLayout.IslandSpec.new()
+		spec.name = str(pool[k % pool.size()]) if not pool.is_empty() else "Island %d" % (k + 1)
+		roll_shape(spec, r)
+		# No room: try it a little smaller, and leave it out after that.
+		for shrink in 6:
+			if roll_position(lay, spec, r):
+				lay.islands.append(spec)
 				break
-		if ok:
-			_new_island(c, r, rng.randf_range(0.9, 1.15) * r / RELIEF_RADIUS, true)
-			placed += 1
+			spec.radius *= 0.88
+	return lay
+
+
+## New size, coastline, hills and cover for `spec`, leaving where it is.
+static func roll_shape(spec: MapLayout.IslandSpec, r: RandomNumberGenerator) -> void:
+	spec.radius = r.randf_range(450.0, 690.0)
+	spec.height = r.randf_range(0.9, 1.15)
+	spec.shape_seed = r.randi_range(1, 99999)
+	spec.stretch = r.randf_range(1.0, 1.45)
+	spec.angle = r.randf_range(0.0, 180.0)
+	spec.roughness = r.randf_range(0.8, 1.2)
+	spec.hills = r.randf_range(0.7, 1.3)
+	spec.forest = r.randf_range(0.7, 1.2)
+	spec.fields = r.randf_range(0.25, 0.6)
+
+
+## Somewhere for `spec` clear of the mainland and every island in `lay` but itself
+## (and any in `ignore`). False, leaving it where it was, if there's no room.
+static func roll_position(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomNumberGenerator,
+		ignore: Array = []) -> bool:
+	var half := MapData.new().half_size
+	var limit := half - 1090.0
+	var masses := mainland_masses(lay.world_seed, half)
+	var reach := spec.radius * maxf(spec.stretch, 1.0)
+	if spec.mainland:
+		return _roll_coast(lay, spec, r, ignore, masses, reach)
+	for attempt in 5000:
+		var c := Vector2(r.randf_range(-limit, limit), r.randf_range(-limit, limit))
+		if _fits(lay, spec, c, reach, masses, ignore):
+			spec.x = c.x
+			spec.z = c.y
+			return true
+	return false
+
+
+## A place against the map's edge on one of the mainland's shores, reaching past
+## the edge, where it runs into the mainland's shore, clear of
+## every island.
+static func _roll_coast(lay: MapLayout, spec: MapLayout.IslandSpec, r: RandomNumberGenerator,
+		ignore: Array, masses: Array[Vector3], reach: float) -> bool:
+	var half := MapData.new().half_size
+	var ml := Mainland.new(lay.world_seed, half)
+	var v := half - reach * 0.3
+	for attempt in 2000:
+		var u := r.randf_range(-(half - reach - 300.0), half - reach - 300.0)
+		var sgn := 1.0 if r.randf() < 0.5 else -1.0
+		var c := Vector2(u, sgn * v) if ml.axis == 0 else Vector2(sgn * v, u)
+		if _fits(lay, spec, c, reach, masses, ignore):
+			spec.x = c.x
+			spec.z = c.y
+			return true
+	return false
+
+
+## Whether `spec` sits clear of everything where it is now.
+static func fits(lay: MapLayout, spec: MapLayout.IslandSpec) -> bool:
+	var half := MapData.new().half_size
+	return _fits(lay, spec, Vector2(spec.x, spec.z), spec.radius * maxf(spec.stretch, 1.0),
+		mainland_masses(lay.world_seed, half), [])
+
+
+static func _fits(lay: MapLayout, spec: MapLayout.IslandSpec, c: Vector2, reach: float,
+		masses: Array[Vector3], ignore: Array) -> bool:
+	for m in masses:
+		if spec.mainland:
+			break
+		if c.distance_to(Vector2(m.x, m.y)) < reach + m.z * 0.72 + 255.0:
+			return false
+	for o in lay.islands:
+		if o == spec or ignore.has(o):
+			continue
+		if c.distance_to(Vector2(o.x, o.z)) < reach + o.radius * maxf(o.stretch, 1.0) + ISLAND_GAP:
+			return false
+	return true
 
 
 func _main_islands() -> Array[MapData.Island]:
@@ -108,7 +275,10 @@ static func _find(parent: Array, i: int) -> int:
 ## banned and the network planned again without it, so the docks face the links
 ## that remain.
 func _plan_routes() -> void:
-	var mains := _main_islands()
+	var mains: Array[MapData.Island] = []
+	for isl in _main_islands():
+		if isl.ferry:
+			mains.append(isl)
 	var banned := {}
 	while true:
 		var bad := _try_routes(mains, banned)
@@ -171,7 +341,13 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			desired[me.id] = v + (other.center - me.center).normalized()
 	var taken: Array[Vector3] = []
 	for isl in mains:
-		if desired.has(isl.id):
+		if desired.has(isl.id) and isl.manual_dock:
+			isl.shore = snap_shore(terrain, isl.manual_at, isl.manual_dir)
+			isl.dock_dir = Vector3(isl.manual_dir.x, 0.0, isl.manual_dir.y)
+			isl.has_terminal = true
+			taken.append(isl.dock_dir)
+	for isl in mains:
+		if desired.has(isl.id) and not isl.manual_dock:
 			var dir: Vector2 = desired[isl.id]
 			if dir.length() < 0.1:
 				dir = -isl.center if isl.center.length() > 3.0 else Vector2.RIGHT
@@ -194,6 +370,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		var r := MapData.Route.new()
 		r.id = map.routes.size()
+		r.key = "link-%s-%s" % [a.key, b.key]
 		r.a = a.id
 		r.b = b.id
 		r.curve = test
@@ -210,6 +387,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		var lat := isl.lateral()
 		isl.slips.sort_custom(func(ra, rb): return _departure_lateral(isl, ra, lat) < _departure_lateral(isl, rb, lat))
+		isl.lane_extension_price = 150
+		isl.construction_staging_lanes = 2 if isl.slips.size() > 1 else 1
 		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
 		var last := isl.slips.size() - 1
 		for i in isl.slips.size():
@@ -327,6 +506,32 @@ func _find_dock(isl: MapData.Island, desired: Vector2, taken: Array[Vector3]) ->
 			isl.dock_dir = n3
 			return true
 	return false
+
+
+## Where a pier heading `dir` out to sea meets the shore nearest `at`: walks
+## seaward from land, or back landward from the water, to the waterline.
+static func snap_shore(t: Terrain, at: Vector2, dir: Vector2) -> Vector3:
+	var step := dir.normalized() * 1.5
+	var p := at
+	if t.height_at(p.x, p.y) >= 0.9:
+		for i in 400:
+			if t.height_at(p.x, p.y) < 0.9:
+				break
+			p += step
+	else:
+		for i in 400:
+			if t.height_at(p.x - step.x, p.y - step.y) >= 0.9:
+				break
+			p -= step
+	return Vector3(p.x, 0.0, p.y)
+
+
+## The way out to sea at `at`: straight downhill, from the ground's slope.
+static func seaward(t: Terrain, at: Vector2) -> Vector2:
+	var e := 30.0
+	var g := Vector2(t.height_at(at.x + e, at.y) - t.height_at(at.x - e, at.y),
+		t.height_at(at.x, at.y + e) - t.height_at(at.x, at.y - e))
+	return -g.normalized() if g.length() > 0.001 else Vector2.RIGHT
 
 
 func _dock_fits(s3: Vector3, n3: Vector3) -> bool:
@@ -536,7 +741,7 @@ func _place_islets() -> void:
 					break
 		if ok:
 			var isl := _new_island(c, r, rng.randf_range(0.85, 1.0), false)
-			terrain.stamp_island(isl.center, isl.radius, isl.strength)
+			terrain.stamp_island(isl.center, isl.radius, isl.strength, isl.id)
 			placed += 1
 
 
@@ -741,21 +946,97 @@ func _flatten_terminals() -> void:
 			continue
 		var hw := isl.lot_half_width
 		terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - 6.0, Layout.LOT_FRONT + 3.0,
-			-hw - 4.5, hw + 33.0, Layout.LOT_Y - 0.15, 21.0)
+			-hw - Layout.LANE_WIDTH - 4.5, hw + 33.0, Layout.LOT_Y - 0.15, 21.0)
 	terrain.apply_flats()
 
 
-func _name_islands() -> void:
-	var names := NAMES.duplicate()
-	for i in range(names.size() - 1, 0, -1):
-		var j := rng.randi_range(0, i)
-		var t: String = names[i]
-		names[i] = names[j]
-		names[j] = t
-	var k := 0
+## Sandy beaches cut into the shore: one beside each town's ferry lot (two where the
+## lot has no expansion site reserved on its left), one beside some of the marinas,
+## and a few more along each island's gentler shores. Before the towns are laid out,
+## so their roads stop at the sand. Its own RNG, so the rest of the map stays the
+## same for a given seed.
+func _place_beaches(map_seed: int) -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = map_seed * 31 + 17
+	var cut: Array[Vector3] = []
 	for isl in _main_islands():
-		isl.name = names[k % names.size()]
-		k += 1
+		if not isl.has_terminal:
+			continue
+		var hw := isl.lot_half_width
+		var sides: Array[float] = [1.0]
+		if isl.lane_extension_price <= 0:
+			sides.append(-1.0)
+		for side in sides:
+			var half_w := r.randf_range(48.0, 66.0)
+			# Past the lot's flat and its blend (Layout: +33 / -11.7, 21 m blend).
+			var edge := hw + 33.0 if side > 0.0 else hw + Layout.LANE_WIDTH + 4.5
+			# Stepping further along if the shore just past the lot won't take one.
+			for step in 4:
+				var v := side * (edge + 15.0 + half_w + step * 30.0)
+				if _try_beach(isl.shore + isl.lateral() * v, isl.dock_dir, half_w, r, cut, true):
+					break
+	for m in map.marinas:
+		if r.randf() < 0.35:
+			continue
+		var side := 1.0 if r.randf() < 0.5 else -1.0
+		var half_w := r.randf_range(33.0, 45.0)
+		_try_beach(m.at(0.0, side * (Layout.MARINA_HEAD_HALF + 36.0 + half_w)), m.dir, half_w, r, cut, true)
+	for isl in _main_islands():
+		var want := r.randi_range(1, 3)
+		var a0 := r.randf() * TAU
+		for k in 16:
+			if want <= 0:
+				break
+			var a := a0 + k * TAU / 16.0 + r.randf_range(-0.15, 0.15)
+			var d := Vector3(cos(a), 0.0, sin(a))
+			var c := Vector3(isl.center.x, 0.0, isl.center.y)
+			if _try_beach(c + d * isl.radius, d, r.randf_range(36.0, 66.0), r, cut, false):
+				want -= 1
+
+
+## Cuts a beach near `at` facing about `out` if the shore there will take one: land
+## behind it that isn't a tall cliff, and clear of the harbours and the other
+## beaches. `beside`: placed on purpose next to a lot or marina, so it may be closer.
+func _try_beach(at: Vector3, out: Vector3, half_w: float, r: RandomNumberGenerator,
+		cut: Array[Vector3], beside: bool) -> bool:
+	var s3 := snap_shore(terrain, Vector2(at.x, at.z), Vector2(out.x, out.z))
+	var sw := seaward(terrain, Vector2(s3.x, s3.z))
+	var n3 := Vector3(sw.x, 0.0, sw.y)
+	# Facing out to sea, not running along a headland.
+	if n3.dot(out) < (0.2 if beside else 0.4):
+		return false
+	if _h(s3 - n3 * 30.0) < 2.5 or _h(s3 - n3 * 30.0) > 16.0 or _h(s3 + n3 * 30.0) > -1.0:
+		return false
+	var gap := half_w + 30.0
+	var bound := map.half_size - 120.0
+	if absf(s3.x) > bound or absf(s3.z) > bound:
+		return false
+	for o in map.islands:
+		if o.has_terminal and s3.distance_to(o.shore) < (o.lot_half_width + 24.0 + half_w if beside else 260.0):
+			return false
+	for m in map.marinas:
+		if s3.distance_to(m.shore) < (Layout.MARINA_HEAD_HALF + 30.0 + half_w if beside else 170.0):
+			return false
+	for q in map.wharves():
+		if s3.distance_to(q.shore) < Layout.QUAY_HALF + 40.0 + half_w:
+			return false
+	for p in cut:
+		if s3.distance_to(p) < gap + 90.0:
+			return false
+	terrain.carve_beach(s3, n3, half_w, r.randf_range(33.0, 45.0), r.randf_range(30.0, 38.0))
+	cut.append(s3)
+	var b := MapData.Beach.new()
+	b.shore = s3
+	b.dir = n3
+	b.half_width = half_w
+	b.beside = beside
+	map.beaches.append(b)
+	return true
+
+
+## Names come from the layout; population and growth are rolled.
+func _name_islands() -> void:
+	for isl in _main_islands():
 		isl.population = int(rng.randf_range(900.0, 6500.0) / 10.0) * 10
 		isl.growth = rng.randf_range(-0.5, 4.5)
 

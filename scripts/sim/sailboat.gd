@@ -243,7 +243,7 @@ func _navigate(delta: float) -> void:
 	if state == State.WAITING:
 		target = minf(target, 2.7)
 		if helm.distance_left() < HOLD_R and helm.give_way_to == null:
-			want_yaw = _wind_yaw()
+			want_yaw = traffic.sim.wind_yaw()
 			target = 0.0
 	_make_way(delta, want_yaw, target, spec.motor_turn if motoring else spec.turn)
 	position.y = sin(_bob * 1.6) * 0.15
@@ -263,7 +263,7 @@ func _sync_tack(delta: float) -> void:
 	if motoring:
 		_tack = 0
 		return
-	var off := angle_difference(_wind_yaw(), helm.want_yaw)
+	var off := angle_difference(traffic.sim.wind_yaw(), helm.want_yaw)
 	if absf(off) > CLOSE_HAULED + 0.25:
 		_tack = 0
 		return
@@ -272,11 +272,6 @@ func _sync_tack(delta: float) -> void:
 		_tack = side
 		_tack_time = 0.0
 		_leg_max = traffic.rng.randf_range(45.0, 100.0)
-
-
-func _wind_yaw() -> float:
-	var w := traffic.sim.wind_from()
-	return atan2(w.x, w.y)
 
 
 ## Breeze strength scales how fast it sails.
@@ -303,7 +298,7 @@ func _pose(delta: float) -> void:
 	var w := traffic.sim.wind_from()
 	var right := Vector2(-cos(_yaw), sin(_yaw))
 	var lee := 1.0 if w.dot(right) > 0.0 else -1.0     # +1: leeward is to port
-	var off := absf(angle_difference(_yaw, _wind_yaw()))
+	var off := absf(angle_difference(_yaw, traffic.sim.wind_yaw()))
 	var sails := not motoring and state != State.MOORED
 	var sheet := clampf((off - 0.6) * 0.55, 0.12, 1.35) * lee if sails else 0.0
 	_sheet = move_toward(_sheet, sheet, 1.4 * delta)
@@ -332,7 +327,7 @@ func _coast() -> float:
 func helm_speed(yaw: float) -> float:
 	if motoring:
 		return spec.motor_speed
-	return cruise * _breeze() * polar(angle_difference(_wind_yaw(), yaw))
+	return cruise * _breeze() * polar(angle_difference(traffic.sim.wind_yaw(), yaw))
 
 
 ## Straight for it, unless that is too close to the wind: then close-hauled on
@@ -341,7 +336,7 @@ func helm_speed(yaw: float) -> float:
 func helm_courses(bearing: float) -> Array:
 	if motoring:
 		return [[bearing, 0.0]]
-	var wy := _wind_yaw()
+	var wy := traffic.sim.wind_yaw()
 	var off := angle_difference(wy, bearing)
 	if absf(off) >= CLOSE_HAULED:
 		return [[bearing, 0.0]]
@@ -415,7 +410,7 @@ func status_text() -> String:
 		return "Motoring out of " + marina_name(_leaving)
 	if motoring:
 		return "Motoring in to " + marina_name(dest)
-	var off := absf(angle_difference(_yaw, _wind_yaw()))
+	var off := absf(angle_difference(_yaw, traffic.sim.wind_yaw()))
 	var tack := "starboard tack" if _tack_side() > 0 else "port tack"
 	if _tack != 0:
 		return "Beating to windward on " + tack

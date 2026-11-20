@@ -4,12 +4,7 @@ extends Node3D
 ## plus the other traffic afloat (MarineTraffic).
 ## One real second = one game minute at 1x speed (Engine.time_scale scales it).
 
-const FARE_CAR := 18.5
-const FARE_TRUCK := 42.0   # (the code-built truck)
-# Fares go by length, as WSF's do: a car's fare up to 22 ft (6.7 m), then this much
-# more of it for every metre over.
-const CAR_FARE_LENGTH := 6.7
-const FARE_PER_METRE := 0.3
+const WIND_DIRECTIONS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 const SEASON_DAYS := 30
 const SEASONS := ["Spring", "Summer", "Autumn", "Winter"]
 const FERRY_NAMES := ["Cedar Star", "Orca Spirit", "Madrona Belle", "Tidewater", "Salish Dawn",
@@ -22,25 +17,50 @@ var minutes := 6.0 * 60.0
 var day := 12
 var terminals := {}             # island id -> Terminal
 var ferries: Array[Ferry] = []
+var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
-var revenue_today := 0.0
-var revenue_total := 0.0
-var cars_today := 0
-var weather := "Partly Cloudy"
+var terminal_spending := 0.0
+var available_cash: float:
+	get: return revenue_total - terminal_spending
+var fares := FareLedger.new()
+var revenue_today: float:
+	get: return fares.revenue_today
+var revenue_total: float:
+	get: return fares.revenue_total
+var cars_today: int:
+	get: return fares.cars_today
+var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
 var _tide_phase := 0.0
 
 
 func setup(m: MapData, t: Terrain) -> void:
+	_start(m, t, null)
+
+
+## Restore just the fleet and route identities into a fresh simulation.
+## Voyage progress, economics and queues are outside this save slice.
+func setup_from_network(m: MapData, t: Terrain, saved_json: String) -> String:
+	if map != null:
+		return "Network restore needs a fresh simulation"
+	var network := CompanyNetwork.new()
+	var error := network.read(saved_json, m)
+	if not error.is_empty():
+		return error
+	_start(m, t, network)
+	return ""
+
+
+func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	map = m
 	terrain = t
 	rng.seed = m.map_seed + 99
-	wind_dir = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][rng.randi_range(0, 7)]
+	wind_dir = WIND_DIRECTIONS[rng.randi_range(0, WIND_DIRECTIONS.size() - 1)]
 	wind_speed = rng.randi_range(4, 24)
-	weather = ["Partly Cloudy", "Sunny", "Overcast", "Light Breeze"][rng.randi_range(0, 3)]
+	weather.setup(m.map_seed + 7)
 	_tide_phase = rng.randf() * TAU
 	traffic = Node3D.new()
 	traffic.name = "Traffic"
@@ -51,13 +71,14 @@ func setup(m: MapData, t: Terrain) -> void:
 			add_child(term)
 			term.setup(self, isl)
 			terminals[isl.id] = term
-	var sizes := _ferry_sizes()
-	for i in map.routes.size():
-		var r := map.routes[i]
-		var f := Ferry.new()
-		add_child(f)
-		f.setup(self, r, FERRY_NAMES[r.id % FERRY_NAMES.size()], sizes[i])
-		ferries.append(f)
+	if network == null:
+		var sizes := _ferry_sizes()
+		for i in map.routes.size():
+			var r := map.routes[i]
+			_spawn_ferry("hull-%d" % i, r, FERRY_NAMES[r.id % FERRY_NAMES.size()], sizes[i])
+	else:
+		for hull in network.fleet:
+			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
 	for term: Terminal in terminals.values():
 		term.prefill()
 	for i in ferries.size():
@@ -66,9 +87,18 @@ func setup(m: MapData, t: Terrain) -> void:
 	wildlife.name = "Wildlife"
 	add_child(wildlife)
 	wildlife.setup(self)
-	marine = MarineTraffic.new()
+	if marine == null:
+		marine = MarineTraffic.new()
 	add_child(marine)
 	marine.setup(self)
+
+
+func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
+	var ferry := Ferry.new()
+	ferry.fleet_key = key
+	add_child(ferry)
+	ferry.setup(self, route, display_name, size)
+	ferries.append(ferry)
 
 
 ## The size of ferry each route gets (FerryClass), by how busy it is: the mean
@@ -94,48 +124,27 @@ func _ferry_sizes() -> Array[int]:
 
 func _process(delta: float) -> void:
 	minutes += delta
+	weather.step(delta)
 	if minutes >= 24.0 * 60.0:
 		minutes -= 24.0 * 60.0
 		day += 1
-		revenue_today = 0.0
-		cars_today = 0
+		fares.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
 
 
 func make_vehicle(parent: Node3D = null) -> Vehicle:
-	var v := Vehicle.new()
-	var truck := rng.randf() < 0.12
-	if not Models.mid_cars:
-		var col := rng.randi_range(0, Models.CAR_COLORS.size() - 1)
-		v.setup(Models.truck(col) if truck else Models.car(col), truck)
-	elif truck:
-		var model := Models.pick_weighted(Models.TRUCKS, rng.randf())
-		var rig := model == "rig"
-		if rig:
-			model = Models.pick_weighted(Models.TRACTORS, rng.randf())
-		v.setup(Models.vehicle(model, Models.pick_paint(rng.randf())), true, model, Models.VEHICLE_SCALE)
-		v.speed = 20.0
-		if rig:
-			var trailer := Models.pick_weighted(Models.TRAILERS, rng.randf())
-			v.attach_trailer(trailer, Models.vehicle(trailer, Models.pick_paint(rng.randf())))
-	else:
-		var model := Models.pick_vehicle(rng.randf())
-		v.setup(Models.vehicle(model, Models.pick_paint(rng.randf())), false, model, Models.VEHICLE_SCALE)
-	(parent if parent else traffic).add_child(v)
-	return v
+	var vehicle := VehicleFactory.create(rng)
+	vehicle.moving_traffic = moving_vehicles
+	(parent if parent else traffic).add_child(vehicle)
+	return vehicle
 
 
 func collect_fare(car: Vehicle) -> void:
-	var fare := FARE_CAR
-	if car.model == "":
-		fare = FARE_TRUCK if car.is_truck else FARE_CAR
+	if car.model.is_empty():
+		fares.credit_flat(car.is_truck)
 	else:
-		var metres := car.length / Models.VEHICLE_SCALE
-		fare *= 1.0 + FARE_PER_METRE * maxf(metres - CAR_FARE_LENGTH, 0.0)
-	revenue_today += fare
-	revenue_total += fare
-	cars_today += 1
+		fares.credit_measured(car.length_metres())
 
 
 func hour() -> float:
@@ -145,34 +154,27 @@ func hour() -> float:
 ## Unit vector (x, z) pointing to where the wind blows from (it is named for that;
 ## -Z is north).
 func wind_from() -> Vector2:
-	var a := CloudLayer.DIRS.find(wind_dir) * TAU / 8.0
+	var a := WIND_DIRECTIONS.find(wind_dir) * TAU / WIND_DIRECTIONS.size()
 	return Vector2(sin(a), -cos(a))
+
+
+## Rotation about Y for animals or vessels facing into the wind (+Z forward).
+func wind_yaw() -> float:
+	var direction := wind_from()
+	return atan2(direction.x, direction.y)
 
 
 ## Commuter-shaped demand: morning and evening peaks, quiet nights.
 func demand_factor() -> float:
-	var h := hour()
-	var f := 0.18 + 1.25 * exp(-pow((h - 7.4) / 1.1, 2.0)) + 1.0 * exp(-pow((h - 17.3) / 1.3, 2.0)) \
-		+ 0.45 * exp(-pow((h - 12.5) / 2.5, 2.0))
-	if h < 5.0 or h > 22.5:
-		f *= 0.3
-	return f
+	return TrafficDemand.factor(hour())
 
 
-## Cars per game minute arriving at an island's terminal.
 func demand_rate(isl: MapData.Island) -> float:
-	return isl.population / 5200.0 * demand_factor()
+	return TrafficDemand.arrivals_per_minute(isl.population, hour())
 
 
 func demand_label(isl: MapData.Island) -> String:
-	var r := demand_rate(isl)
-	if r > 0.9:
-		return "Very High"
-	if r > 0.5:
-		return "High"
-	if r > 0.2:
-		return "Medium"
-	return "Low"
+	return TrafficDemand.label(demand_rate(isl))
 
 
 func satisfaction() -> float:

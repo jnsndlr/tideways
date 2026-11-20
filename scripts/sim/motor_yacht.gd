@@ -257,7 +257,7 @@ func _navigate(delta: float) -> void:
 		State.WAITING:
 			target = minf(target, 2.7)
 			if helm.distance_left() < HOLD_R and helm.give_way_to == null:
-				want_yaw = _wind_yaw()
+				want_yaw = traffic.sim.wind_yaw()
 				target = 0.0
 		State.ANCHORING:
 			# Up to the spot slowly, head to wind, to stop over it.
@@ -345,7 +345,7 @@ func _lie_at_anchor(delta: float) -> void:
 
 
 func _swing_yaw() -> float:
-	return _wind_yaw() + sin(_swing * 0.05) * 0.22 + sin(_swing * 0.013 + 1.3) * 0.12
+	return traffic.sim.wind_yaw() + sin(_swing * 0.05) * 0.22 + sin(_swing * 0.013 + 1.3) * 0.12
 
 
 ## Motoring up over the anchor and breaking it out, then off home.
@@ -365,11 +365,6 @@ func _weigh(delta: float) -> void:
 	free_nav = true
 	helm = Helm.new(self, traffic)
 	helm.set_goal(_goals[0])
-
-
-func _wind_yaw() -> float:
-	var w := traffic.sim.wind_from()
-	return atan2(w.x, w.y)
 
 
 # --- Speed and attitude ---------------------------------------------------------------
@@ -486,18 +481,18 @@ func status_text() -> String:
 		State.ARRIVING:
 			return "Berthing at " + marina_name(dest)
 		State.SETTING:
-			return "Dropping anchor " + spot.anchorage.place
+			return "Dropping anchor " + spot.place
 		State.ANCHORED:
-			return "At anchor %s%s" % [spot.anchorage.place, " for the night" if overnight and _leave_at - _now() > 120.0 else ""]
+			return "At anchor %s%s" % [spot.place, " for the night" if overnight and _leave_at - _now() > 120.0 else ""]
 		State.WEIGHING:
 			return "Weighing anchor"
 	if helm and helm.give_way_why != "":
 		return helm.give_way_why
 	var where := ""
 	if state == State.ANCHORING:
-		where = "Coming up to anchor " + spot.anchorage.place
+		where = "Coming up to anchor " + spot.place
 	elif _outbound:
-		where = "Heading for a cove" + spot.anchorage.place.trim_prefix("in a cove")
+		where = "Heading for a cove" + spot.place.trim_prefix("in a cove")
 	elif trip == Trip.RUN and _goals.size() > 1:
 		where = "Out for a run"
 	elif dest == marina:

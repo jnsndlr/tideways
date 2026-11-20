@@ -7,6 +7,8 @@ var xform := Transform3D.IDENTITY
 var verts := PackedVector3Array()
 var normals := PackedVector3Array()
 var colors := PackedColorArray()
+## Optional, one per vertex (left empty by most meshes).
+var uvs := PackedVector2Array()
 ## Vertex ranges [from, to) left out of the shadow mesh: parts thinner than a shadow
 ## map texel (rails, stays) only cast broken, crawling dashes.
 var no_shadow: Array[Vector2i] = []
@@ -40,6 +42,33 @@ func tri3(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, o
 	normals.append(n)
 	normals.append(n)
 	normals.append(n)
+	colors.append(ca)
+	colors.append(cc)
+	colors.append(cb)
+
+
+## An untransformed triangle with its own normal at each corner (smooth shading).
+## The face's normal still decides the winding.
+func tri_n(a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, ca: Color, cb: Color, cc: Color) -> void:
+	var n := (b - a).cross(c - a)
+	if n.length_squared() < 1e-10:
+		return
+	if n.y < 0.0:
+		var tb := b
+		b = c
+		c = tb
+		var tn := nb
+		nb = nc
+		nc = tn
+		var tcol := cb
+		cb = cc
+		cc = tcol
+	verts.append(a)
+	verts.append(c)
+	verts.append(b)
+	normals.append(na)
+	normals.append(nc)
+	normals.append(nb)
 	colors.append(ca)
 	colors.append(cc)
 	colors.append(cb)
@@ -153,6 +182,8 @@ func commit(material: Material = null) -> ArrayMesh:
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = normals
 	arr[Mesh.ARRAY_COLOR] = colors
+	if uvs.size() == verts.size():
+		arr[Mesh.ARRAY_TEX_UV] = uvs
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	mesh.surface_set_material(0, material if material else Models.vc_material())
 	mesh.shadow_mesh = _shadow_mesh()

@@ -25,7 +25,7 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--frames="):
 			max_frames = int(a.substr(9))
-	main = load("res://scenes/main.tscn").instantiate()
+	main = load("res://scenes/sandbox.tscn").instantiate()
 	root.add_child(main)
 
 
@@ -50,20 +50,26 @@ func _process(_delta: float) -> bool:
 				lasting += 1
 				print("  ", p, " x", pairs[p])
 		print("lasting (>= 4 checks) %d" % lasting)
+		if "--verify" in OS.get_cmdline_user_args():
+			if stalls > 0 or vehicles_seen == 0:
+				push_error("Expected traffic to run without stalled vehicles")
+				quit(1)
+				return false
+			print("TEST PASSED")
 		return true
 	if frames % 5 != 0:
 		return false
 	var vs: Array = []
 	_collect(main.sim, vs)
 	vehicles_seen = maxi(vehicles_seen, vs.size())
-	for v: Vehicle in Vehicle._moving:
+	for v: Vehicle in main.sim.moving_vehicles:
 		var p := v.global_position
 		if _last_pos.has(v) and p.distance_to(_last_pos[v]) < 0.01 and v.delay <= 0.0:
 			_still[v] = _still.get(v, 0) + 1
 			if _still[v] == 150:
 				stalls += 1
 				var why := ""
-				for o: Vehicle in Vehicle._moving:
+				for o: Vehicle in main.sim.moving_vehicles:
 					if o != v and v._room_to(o) < 0.5:
 						why += " %s(%s leader=%s d=%.1f fwd·=%.2f)" % [o.model, o.global_position, o == v.leader, o.global_position.distance_to(p), o._g_fwd.dot(v._g_fwd)]
 				print("STALL %s at %s path %d blocked by:%s" % [v.model, p, v.path.size(), why])

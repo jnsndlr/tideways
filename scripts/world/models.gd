@@ -54,8 +54,27 @@ const BUOY_LAMP_Y := 4.95
 const BUOY_LANTERN := 3.3
 
 static var _vc_mat: ShaderMaterial
+static var _rock_mat: ShaderMaterial
 static var _hull_mat: ShaderMaterial
 static var _cache := {}
+
+
+static func rock_material() -> ShaderMaterial:
+	if _rock_mat == null:
+		_rock_mat = ShaderMaterial.new()
+		_rock_mat.shader = load("res://shaders/rock.gdshader")
+	return _rock_mat
+
+
+static var _boulder_mat: ShaderMaterial
+
+
+## The land boulders' (rock()): painted stone with a lit top edge.
+static func boulder_material() -> ShaderMaterial:
+	if _boulder_mat == null:
+		_boulder_mat = ShaderMaterial.new()
+		_boulder_mat.shader = load("res://shaders/boulder.gdshader")
+	return _boulder_mat
 
 
 static func vc_material() -> ShaderMaterial:
@@ -117,36 +136,292 @@ static func round_tree() -> ArrayMesh:
 const TREES_GLB := "res://assets/models/trees.glb"
 static var mid_trees := not "--classic-trees" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(TREES_GLB)
-const PINE_VARIANTS := ["spruce", "spruce_open", "spruce_lean", "spruce_broad", "spruce_tall", "spruce_young"]
+const SPRUCE_VARIANTS := ["spruce", "spruce_open", "spruce_lean", "spruce_broad", "spruce_tall", "spruce_young"]
+## Jon's pine (matching the Backdrop's card sprite), baked by art/pines_meshy.py; the
+## spruces above with `--old-pines`.
+const MPINES_GLB := "res://assets/models/pines_meshy.glb"
+const MPINE_VARIANTS := ["mpine", "mpine_tall", "mpine_broad", "mpine_young"]
+static var PINE_VARIANTS: Array = MPINE_VARIANTS if ResourceLoader.exists(MPINES_GLB) \
+	and not "--old-pines" in OS.get_cmdline_user_args() else SPRUCE_VARIANTS
 const BROAD_VARIANTS := ["oak", "poplar", "spreading", "leaning", "round", "birches"]
-# Past this distance (m, to a tile's centre) a forest tile draws the stand-ins.
-const TREE_LOD_DIST := 540.0
+# Past this distance (m, to a tile's centre) a forest tile draws the broadleaves'
+# stand-ins: as far out as Jon's pines' last step, where a tree is a few pixels, so the
+# swap doesn't show as the camera pans (the full ones out to here cost ~0.5 ms).
+const TREE_LOD_DIST := 1000.0
 # Spruces (the heaviest trees) also have a middle version, drawn from TREE_NEAR_DIST to
 # TREE_MID_DIST, and their stand-ins (which keep their stepped tiers) take over sooner.
 const TREE_NEAR_DIST := 90.0
 const TREE_MID_DIST := 270.0
+# Jon's pines are the full model to MPINE_NEAR_DIST, a decimated one to MPINE_MID_DIST and
+# a coarser one past it: modelled all over the map (the card sprite, tree_card.gdshader,
+# only stands in on the Backdrop's banks). All cards with `--sprite-trees`.
+# (and past MPINE_FAR_DIST, where it's a few pixels, the stacked cones). Tune with
+# `--mpine=near,mid,far`.
+static var MPINE_NEAR_DIST := 150.0
+static var MPINE_MID_DIST := 400.0
+static var MPINE_FAR_DIST := 1000.0
+static var _mpine_args := func():
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--mpine="):
+			var d := a.substr(8).split_floats(",")
+			MPINE_NEAR_DIST = d[0]; MPINE_MID_DIST = d[1]; MPINE_FAR_DIST = d[2]
+	return true
+static var sprite_trees := "--sprite-trees" in OS.get_cmdline_user_args()
+const CARD_SHADER := "res://shaders/tree_card.gdshader"
+const CARD_SPRITE := "res://assets/textures/pine_card.png"
+const BROAD_CARD_SPRITE := "res://assets/textures/broad_card.png"
+static var _card_mat: ShaderMaterial
+static var _broad_card_mat: ShaderMaterial
+# Past this the broadleaves are drawn as the broadleaf card. `--broad-card=M`.
+static var BROAD_CARD_DIST: float = (func() -> float:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--broad-card="):
+			return a.substr(13).to_float()
+	return TREE_LOD_DIST).call()
 
 
-## The pine (or broadleaf) variants as [near mesh, far mesh or null, middle mesh or null].
+## The pine (or broadleaf) variants as [near mesh, far mesh or null, middle mesh or null,
+## card or null, farthest mesh or null]. Jon's pines' and the broadleaves' "far"
+## (stand-ins) only cast their shadows (or with `--cone-trees`, are drawn in place of the
+## card); "farthest" is what Jon's pines draw from MPINE_MID_DIST.
 static func tree_variants(broadleaf: bool) -> Array:
 	if not mid_trees:
-		return [[round_tree() if broadleaf else pine_tree(), null, null]]
+		return [[round_tree() if broadleaf else pine_tree(), null, null, null]]
 	var out := []
 	for n: String in BROAD_VARIANTS if broadleaf else PINE_VARIANTS:
-		out.append([_tree_part(n), _tree_part(n + "_lod"), _tree_part(n + "_mid") if n.begins_with("spruce") else null])
+		var near := _tree_part(n)
+		var lod := _tree_part(n + "_lod")
+		if (broadleaf or n.begins_with("mpine")) and not "--raw-stand-ins" in OS.get_cmdline_user_args():
+			lod = _fit_stand_in(n, lod, near)
+		out.append([near, lod, _tree_part(n + "_mid") if n.begins_with("spruce") or n.begins_with("mpine") else null,
+			tree_card(n, near) if n.begins_with("mpine") or broadleaf else null,
+			_tree_part(n + "_far") if n.begins_with("mpine") else null])
 	return out
 
 
-## The levels a variant is drawn at, as [mesh, from (m), to (m, 0 = no limit)].
+## How wide a stand-in is drawn against its full tree's crown: being solid, it reads
+## bigger than an airy crown of the same outline (Jon's pines', the broadleaves' clumps).
+const STAND_IN_WIDTH := {"mpine": 0.8, "broad": 0.85}
+
+
+## `lod` moved and scaled so it stands where `near` does, so zooming across the swap
+## doesn't grow or shift the trees: its foliage (green vertices) fitted to `near`'s
+## crown, STAND_IN_WIDTH as wide, the trunk below stretched to meet it.
+static func _fit_stand_in(n: String, lod: ArrayMesh, near: ArrayMesh) -> ArrayMesh:
+	return _cached("tree_fit_" + n, func():
+		var a := _foliage_box(lod)
+		var b := _foliage_box(near)
+		var k: float = STAND_IN_WIDTH["mpine" if n.begins_with("mpine") else "broad"]
+		var foot := near.get_aabb().position.y
+		var sx := b.size.x / a.size.x * k
+		var sz := b.size.z / a.size.z * k
+		var ca := a.get_center()
+		var cb := b.get_center()
+		var out := ArrayMesh.new()
+		for i in lod.get_surface_count():
+			var arr := lod.surface_get_arrays(i)
+			var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR] if arr[Mesh.ARRAY_COLOR] != null else PackedColorArray()
+			for j in vs.size():
+				var v := vs[j]
+				var y: float
+				if v.y >= a.position.y:
+					y = b.position.y + (v.y - a.position.y) * b.size.y / a.size.y
+				else:
+					y = foot + (v.y - foot) * (b.position.y - foot) / maxf(a.position.y - foot, 0.01)
+				if cs.is_empty() or _leafy(cs[j]):
+					vs[j] = Vector3(cb.x + (v.x - ca.x) * sx, y, cb.z + (v.z - ca.z) * sz)
+				else:
+					vs[j] = Vector3(v.x, y, v.z)
+			arr[Mesh.ARRAY_VERTEX] = vs
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			out.surface_set_material(i, lod.surface_get_material(i))
+		return out)
+
+
+static func _leafy(c: Color) -> bool:
+	return c.g > c.r
+
+
+## The box round a tree's green (foliage) vertices.
+static func _foliage_box(m: ArrayMesh) -> AABB:
+	var box := AABB()
+	var first := true
+	for i in m.get_surface_count():
+		var arr := m.surface_get_arrays(i)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var cs = arr[Mesh.ARRAY_COLOR]
+		for j in vs.size():
+			if cs != null and not _leafy(cs[j]):
+				continue
+			if first:
+				box = AABB(vs[j], Vector3.ZERO); first = false
+			else:
+				box = box.expand(vs[j])
+	return box if not first else m.get_aabb()
+
+
+## The material of every pine card (in the woods and the Backdrop's), or with
+## `broadleaf` every broadleaf card; map_half is set once the terrain is known.
+static func card_material(broadleaf := false) -> ShaderMaterial:
+	if broadleaf:
+		if _broad_card_mat == null:
+			_broad_card_mat = ShaderMaterial.new()
+			_broad_card_mat.shader = load(CARD_SHADER)
+			_broad_card_mat.set_shader_parameter("sprite", load(BROAD_CARD_SPRITE))
+			# Its greens are the broadleaves' own: no grading towards the pines'.
+			_broad_card_mat.set_shader_parameter("grade", Color.WHITE)
+			_broad_card_mat.set_shader_parameter("yellow_cap", 1.0)
+			_broad_card_mat.set_shader_parameter("low_sun", CARD_LOW_SUN)
+			_broad_card_mat.set_shader_parameter("low_sun_direct", CARD_LOW_SUN_DIRECT)
+		return _broad_card_mat
+	if _card_mat == null:
+		_card_mat = ShaderMaterial.new()
+		_card_mat.shader = load(CARD_SHADER)
+		_card_mat.set_shader_parameter("sprite", load(CARD_SPRITE))
+		_card_mat.set_shader_parameter("sprite_mean", _sprite_mean(CARD_SPRITE))
+		_card_mat.set_shader_parameter("contrast", CARD_CONTRAST)
+		_card_mat.set_shader_parameter("saturation", CARD_SATURATION)
+		_card_mat.set_shader_parameter("yellow_cap", CARD_YELLOW_CAP)
+		_card_mat.set_shader_parameter("low_sun", CARD_LOW_SUN)
+		_card_mat.set_shader_parameter("low_sun_direct", CARD_LOW_SUN_DIRECT)
+	return _card_mat
+
+
+## The average colour of a sprite's opaque texels, linear (as the shader samples it).
+static func _sprite_mean(path: String) -> Vector3:
+	var img: Image = (load(path) as Texture2D).get_image()
+	if img.is_compressed():
+		img.decompress()
+	var sum := Vector3.ZERO
+	var n := 0
+	for y in range(0, img.get_height(), 2):
+		for x in range(0, img.get_width(), 2):
+			var c := img.get_pixel(x, y)
+			if c.a > 0.5:
+				var l := c.srgb_to_linear()
+				sum += Vector3(l.r, l.g, l.b)
+				n += 1
+	return sum / maxi(n, 1)
+
+
+## A tree drawn as its card sprite, standing as tall as the modelled `near` one: a pine
+## in the sprite's own 250 x 353 proportions, a broadleaf as wide as its crown.
+## tree_card.gdshader turns it to the camera.
+static var _cards := {}
+
+
+static func tree_card(n: String, near: Mesh) -> Mesh:
+	if not _cards.has(n):
+		var box := near.get_aabb()
+		var q := QuadMesh.new()
+		var broadleaf := not n.begins_with("mpine")
+		q.size = Vector2(maxf(box.size.x, box.size.z) if broadleaf else box.size.y * 0.71, box.size.y)
+		q.center_offset = Vector3(0.0, box.position.y + box.size.y * 0.5, 0.0)
+		# It faces the camera whichever way the tree is turned.
+		q.custom_aabb = AABB(Vector3(-q.size.x, box.position.y, -q.size.x), Vector3(q.size.x * 2.0, box.size.y, q.size.x * 2.0))
+		q.material = card_material(broadleaf)
+		_cards[n] = q
+	return _cards[n]
+
+
+## The mesh that casts a variant's shadow (its cheapest modelled level).
+static func tree_shadow_mesh(variant: Array) -> Mesh:
+	return variant[1] if variant[1] != null else variant[0]
+
+
+## How much each of Jon's pines' levels (full, middle, far, card) is brightened to
+## read as the full model does (measured with tools/lod_shots.gd).
+const MPINE_GAIN := [Vector3.ONE, Vector3(1.16, 1.12, 1.03), Vector3(1.72, 1.5, 1.12), Vector3(3.7, 2.7, 2.1)]
+## The pine card toned to the far pines' muted olive (tree_card.gdshader). Tune with
+## `--card-tone=contrast,saturation[,yellow_cap,low_sun,low_sun_direct]`.
+static var CARD_CONTRAST := 0.6
+static var CARD_SATURATION := 0.85
+static var CARD_YELLOW_CAP := 0.65
+static var CARD_LOW_SUN := 0.7
+static var CARD_LOW_SUN_DIRECT := 0.3
+static var _card_tone: bool = (func() -> bool:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--card-tone="):
+			var d := a.substr(12).split_floats(",")
+			CARD_CONTRAST = d[0]; CARD_SATURATION = d[1]
+			if d.size() > 2:
+				CARD_YELLOW_CAP = d[2]
+			if d.size() > 3:
+				CARD_LOW_SUN = d[3]
+			if d.size() > 4:
+				CARD_LOW_SUN_DIRECT = d[4]
+	return true).call()
+## The same for the broadleaf card.
+const BROAD_CARD_GAIN := Vector3(0.62, 0.76, 1.2)
+
+
+## The levels a variant is drawn at, as [mesh, from (m), to (m, 0 = no limit), and
+## optionally the colour gain that matches it to the first].
 static func tree_lod_levels(variant: Array) -> Array:
 	var near: Mesh = variant[0]
 	var far: Mesh = variant[1]
 	var mid: Mesh = variant[2]
+	var card: Mesh = variant[3] if variant.size() > 3 else null
+	if card != null and sprite_trees:
+		return [[card, 0.0, 0.0]]
+	if card != null and variant[4] == null:
+		# A broadleaf: modelled out to the card.
+		if "--cone-trees" in OS.get_cmdline_user_args():
+			return [[near, 0.0, TREE_LOD_DIST], [far, TREE_LOD_DIST, 0.0]]
+		return [[near, 0.0, BROAD_CARD_DIST], [card, BROAD_CARD_DIST, 0.0, BROAD_CARD_GAIN]]
+	if card != null:
+		_mpine_args.call()
+		return [[near, 0.0, MPINE_NEAR_DIST], [mid, MPINE_NEAR_DIST, MPINE_MID_DIST, MPINE_GAIN[1]],
+			[variant[4], MPINE_MID_DIST, MPINE_FAR_DIST, MPINE_GAIN[2]],
+			[far, MPINE_FAR_DIST, 0.0] if "--cone-trees" in OS.get_cmdline_user_args() else [card, MPINE_FAR_DIST, 0.0, MPINE_GAIN[3]]]
 	if far == null:
 		return [[near, 0.0, 0.0]]
 	if mid == null:
 		return [[near, 0.0, TREE_LOD_DIST], [far, TREE_LOD_DIST, 0.0]]
 	return [[near, 0.0, TREE_NEAR_DIST], [mid, TREE_NEAR_DIST, TREE_MID_DIST], [far, TREE_MID_DIST, 0.0]]
+
+
+## Trees dither from one level of detail into the next over this many metres, centred
+## on each swap (lod_dither.gdshaderinc), rather than popping. `--lod-fade=M` (0 = hard swaps).
+static var LOD_FADE: float = (func() -> float:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--lod-fade="):
+			return a.substr(11).to_float()
+	return 30.0).call()
+static var _lod_mats := {}
+
+
+## Shows `mmi` (a tile of trees drawn with `mesh`, one level of tree_lod_levels) from
+## `begin` to `end` (m, 0 = no limit). Each tree is placed by its own distance in the
+## shader, while the tile's visibility range is by its middle: the range is widened by
+## `slack` (as far as a tree can stand from the middle) and the fade, and the shader
+## drops the trees outside.
+static func dither_lod(mmi: GeometryInstance3D, mesh: Mesh, begin: float, end: float, slack: float,
+		gain := Vector3.ONE) -> void:
+	if begin <= 0.0 and end <= 0.0 and gain == Vector3.ONE:
+		mmi.visibility_range_begin = begin
+		mmi.visibility_range_end = end
+		return
+	var mat: ShaderMaterial
+	if mesh is QuadMesh:
+		# A card: the last level, and the only one its material is drawn at.
+		mat = (mesh as QuadMesh).material
+	else:
+		var key := [begin, end, gain]
+		if not _lod_mats.has(key):
+			var m := ShaderMaterial.new()
+			m.shader = load("res://shaders/tree_lod.gdshader")
+			_lod_mats[key] = m
+		mat = _lod_mats[key]
+		mmi.material_override = mat
+	mat.set_shader_parameter("lod_begin", begin)
+	mat.set_shader_parameter("lod_end", end)
+	mat.set_shader_parameter("lod_fade", maxf(LOD_FADE, 0.0))
+	mat.set_shader_parameter("lod_gain", gain)
+	var pad := maxf(LOD_FADE, 0.0) * 0.5 + slack
+	mmi.visibility_range_begin = maxf(begin - pad, 0.0) if begin > 0.0 else 0.0
+	mmi.visibility_range_end = end + pad if end > 0.0 else 0.0
 
 
 ## Which variant a tree standing at `at` is: from its position, so the choice draws
@@ -156,15 +431,119 @@ static func tree_variant(at: Vector3, count: int) -> int:
 
 
 static func _tree_part(n: String) -> ArrayMesh:
-	return _cached("tree_" + n, func(): return _gltf_parts(TREES_GLB, [n.replace("_", "")]).commit())
+	var glb := MPINES_GLB if n.begins_with("mpine") else TREES_GLB
+	return _cached("tree_" + n, func(): return ModelParts.merge_named(glb, [n.replace("_", "")]).commit())
 
 
 static func rock() -> ArrayMesh:
 	return _cached("rock", func():
 		var mb := MeshBuilder.new()
+		# [centre of the top, its radius] per piece.
+		var tops := [[Vector3(0, 0.8, 0), 0.55], [Vector3(0.6, 0.4, 0.3), 0.25]]
 		mb.cylinder(Vector3(0, -0.6, 0), 1.0, 0.55, 1.4, 5, Color(0.56, 0.47, 0.46), Color(0.68, 0.58, 0.52), 0.4)
+		var first := mb.verts.size()
 		mb.cylinder(Vector3(0.6, -0.5, 0.3), 0.6, 0.25, 0.9, 5, Color(0.5, 0.42, 0.42), Color(-1, 0, 0), 1.1)
-		return mb.commit())
+		# UV.y: how far in from the top's outline, down the sides or across the top,
+		# for the lit edge the boulder shader draws there (lit_vc.gdshaderinc, BOULDER).
+		for k in mb.verts.size():
+			var t: Array = tops[0 if k < first else 1]
+			var c: Vector3 = t[0]
+			var p := mb.verts[k]
+			var d := 0.0
+			if mb.normals[k].y > 0.9:
+				d = float(t[1]) * cos(PI / 5.0) if Vector2(p.x - c.x, p.z - c.z).length() < 0.01 else 0.0
+			else:
+				d = maxf(c.y - p.y, 0.0)
+			mb.uvs.append(Vector2(0.0, d))
+		return mb.commit(boulder_material()))
+
+
+const ROCK_STONE := Color(0.64, 0.53, 0.43)
+const ROCK_STONE_LIGHT := Color(0.8, 0.68, 0.55)
+const ROCK_MOSS := Color(0.5, 0.58, 0.24)
+
+## Shoreline rock kit: chunky, faceted pieces about 1 m across (scale them up) with
+## the origin at the ground line. "cliff" pieces are blocky with a grassy cap, for
+## stacking along steep shores; "boulder" pieces are bare and rounder, for the
+## shallows at a cliff's foot.
+static func rock_kit(kind: String) -> Array[ArrayMesh]:
+	var out: Array[ArrayMesh] = []
+	for v in 4:
+		out.append(_cached("rock_%s_%d" % [kind, v], func(): return _rock_piece(kind, v)))
+	return out
+
+
+## A sphere cut down by a handful of random planes: every vertex that lands on the
+## same plane shares one flat facet, which reads as split stone.
+static func _rock_piece(kind: String, v: int) -> ArrayMesh:
+	var r := RandomNumberGenerator.new()
+	r.seed = hash(kind) + v * 977
+	var cliff := kind == "cliff"
+	var planes: Array[Vector4] = []
+	var cuts := 7 if cliff else 9
+	for i in cuts:
+		var n := Vector3(r.randf_range(-1, 1), r.randf_range(-0.55, 0.75), r.randf_range(-1, 1)).normalized()
+		planes.append(Vector4(n.x, n.y, n.z, r.randf_range(0.72, 0.95)))
+	# A flat-ish top, tipped a little.
+	var top := Vector3(r.randf_range(-0.15, 0.15), 1.0, r.randf_range(-0.15, 0.15)).normalized()
+	planes.append(Vector4(top.x, top.y, top.z, r.randf_range(0.55, 0.7) if cliff else r.randf_range(0.7, 0.85)))
+	var stretch := Vector3(r.randf_range(1.1, 1.5), r.randf_range(0.8, 1.1), r.randf_range(0.8, 1.0)) if cliff \
+		else Vector3(r.randf_range(1.0, 1.3), r.randf_range(0.6, 0.85), r.randf_range(0.85, 1.05))
+	var seg := 10
+	var rings := 7
+	var grid: Array[Vector3] = []
+	for j in rings + 1:
+		var lat := lerpf(-PI * 0.5, PI * 0.5, float(j) / rings)
+		for i in seg:
+			var lon := TAU * (i + 0.5 * (j % 2)) / seg
+			var d := Vector3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon))
+			var rad := 1.25
+			for p in planes:
+				var dn := d.dot(Vector3(p.x, p.y, p.z))
+				if dn > 1e-3:
+					rad = minf(rad, p.w / dn)
+			# Origin at the ground line: the bottom half is buried, so it only needs to exist.
+			grid.append(d * rad * stretch + Vector3(0, 0.25, 0))
+	var mb := MeshBuilder.new()
+	# The grassy cap's triangles (local), for the grass blades to grow on.
+	var caps: Array = []
+	var add := func(a: Vector3, b: Vector3, c: Vector3) -> void:
+		var n := (b - a).cross(c - a)
+		if n.length_squared() < 1e-8:
+			return
+		n = n.normalized()
+		var mid := (a + b + c) / 3.0
+		if n.dot(mid) < 0.0:
+			n = -n
+		# One shade per facet: the plane this face lies on, not the triangle.
+		var best := -1
+		var best_d := 0.9
+		for pi in planes.size():
+			var pd := n.dot(Vector3(planes[pi].x, planes[pi].y, planes[pi].z))
+			if pd > best_d:
+				best_d = pd
+				best = pi
+		var shade := fposmod(sin(float(best) * 12.9898 + v * 78.233) * 43758.5453, 1.0) if best >= 0 else 0.35
+		var col := ROCK_STONE.lerp(ROCK_STONE_LIGHT, shade)
+		# Undersides and overhangs go dark; the cap goes green on the cliff pieces.
+		col = col.darkened(clampf(-n.y, 0.0, 1.0) * 0.3)
+		if cliff and n.y > 0.86:
+			col = ROCK_MOSS.lerp(ROCK_MOSS.lightened(0.12), shade)
+			caps.append_array([a, b, c])
+		elif n.y > 0.55:
+			col = col.lerp(ROCK_MOSS, 0.25 * (n.y - 0.55) / 0.45)
+		mb.tri(a, b, c, col, mid)
+	for j in rings:
+		for i in seg:
+			var a := grid[j * seg + i]
+			var b := grid[j * seg + (i + 1) % seg]
+			var c := grid[(j + 1) * seg + i]
+			var d := grid[(j + 1) * seg + (i + 1) % seg]
+			add.call(a, b, d)
+			add.call(a, d, c)
+	var mesh := mb.commit(rock_material())
+	mesh.set_meta("caps", PackedVector3Array(caps))
+	return mesh
 
 
 static func house(wall: Color, roof: Color, stories: int) -> ArrayMesh:
@@ -320,7 +699,7 @@ static func pick_paint(u: float) -> int:
 ## Vehicle `model` (a VehicleData key) in paint `paint`, at its modelled (real) size.
 static func vehicle(model: String, paint: int) -> ArrayMesh:
 	return _cached("%s_%d" % [model, paint], func():
-		var lib := _gltf_library(VEHICLES_GLB)
+		var lib := ModelParts.library(VEHICLES_GLB)
 		var key := model.replace("_", "")
 		var mb := MeshBuilder.new()
 		_append_part(mb, lib[key + "fixed"], Transform3D.IDENTITY)
@@ -355,6 +734,9 @@ static func ferry(fc: FerryClass) -> ArrayMesh:
 	if fc.evergreen:
 		return _cached("ferry_%d" % fc.size, func():
 			return _mid_ferry(fc, FerryClass.MID_GLB, FerryClass.MID_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
+	if fc.issaquah:
+		return _cached("ferry_%d" % fc.size, func():
+			return _mid_ferry(fc, FerryClass.ISQ_GLB, FerryClass.ISQ_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
 	if fc.guemes:
 		return _cached("ferry_%d" % fc.size, func():
 			return _mid_ferry(fc, FerryClass.SMALL_GLB, FerryClass.SMALL_DROP, ["fixed", "thin", "glass", "window"]).commit())
@@ -421,7 +803,7 @@ static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
 
 ## One part of the mid-poly slip, about its own pivot (see SlipRamp).
 static func slip_part(part: String) -> MeshBuilder:
-	return _gltf_library(MID_SLIP_GLB)[part]
+	return ModelParts.library(MID_SLIP_GLB)[part]
 
 
 static func slip_mesh(part: String) -> ArrayMesh:
@@ -456,7 +838,7 @@ static func ferry_net(fc: FerryClass) -> ArrayMesh:
 ## net.gdshader scales by the wind. Posts and brackets keep alpha 1.
 static func _mid_ferry_net(fc: FerryClass) -> ArrayMesh:
 	return _cached("ferry_net_mid_%d" % fc.size, func():
-		var lib := _gltf_library(MID_NET_GLB)
+		var lib := ModelParts.library(MID_NET_GLB)
 		var k := FerryClass.MID_SCALE
 		var w := fc.net_half_w
 		var span := 2.0 * w / 3.0
@@ -515,11 +897,12 @@ const CAR_DECK_POOL_ENERGY := 0.2
 static func ferry_thin_shadow(fc: FerryClass) -> ArrayMesh:
 	var src: Array = [FerryClass.MID_GLB, FerryClass.MID_DROP] if fc.evergreen \
 		else [FerryClass.SMALL_GLB, FerryClass.SMALL_DROP] if fc.guemes \
-		else [FerryClass.HIYU_GLB, FerryClass.HIYU_DROP] if fc.hiyu else []
+		else [FerryClass.HIYU_GLB, FerryClass.HIYU_DROP] if fc.hiyu \
+		else [FerryClass.ISQ_GLB, FerryClass.ISQ_DROP] if fc.issaquah else []
 	if src.is_empty():
 		return null
 	return _cached("ferry_thin_shadow_%d" % fc.size, func():
-		var p := _gltf_parts(src[0], ["thinshadow"])
+		var p := ModelParts.merge_named(src[0], ["thinshadow"])
 		var mb := MeshBuilder.new()
 		for i in p.verts.size():
 			mb.verts.append(p.verts[i] * FerryClass.MID_SCALE - Vector3(0, src[1], 0))
@@ -534,7 +917,7 @@ static func _mid_ferry(fc: FerryClass, glb: String, drop_y: float, parts: Array)
 	var drop := Vector3(0, drop_y, 0)
 	var lens := lamp_glass(CAR_DECK_LIGHT)
 	for part: String in parts:
-		var p := _gltf_parts(glb, [part])
+		var p := ModelParts.merge_named(glb, [part])
 		if part == "thin":
 			mb.no_shadow.append(Vector2i(mb.verts.size(), mb.verts.size() + p.verts.size()))
 		for i in p.verts.size():
@@ -547,7 +930,7 @@ static func _mid_ferry(fc: FerryClass, glb: String, drop_y: float, parts: Array)
 			for i in p.verts.size():
 				mb.colors.append(c)
 	if not fc.ribs.is_empty() and ResourceLoader.exists(FerryClass.RIB_GLB):
-		var rib := _gltf_parts(FerryClass.RIB_GLB, ["fixed", "sling"])
+		var rib := ModelParts.merge_named(FerryClass.RIB_GLB, ["fixed", "sling"])
 		for r: Array in fc.ribs:
 			var b := Basis(Vector3.UP, r[1])
 			var at: Vector3 = r[0]
@@ -803,7 +1186,7 @@ static var mid_seagull := not "--classic-gull" in OS.get_cmdline_user_args() \
 
 static func seagull() -> ArrayMesh:
 	if mid_seagull:
-		return _cached("seagull_mid", func(): return _gltf_mesh(MID_SEAGULL_GLB, "seagull"))
+		return _cached("seagull_mid", func(): return ModelParts.shader_mesh(MID_SEAGULL_GLB, "seagull", vc_material()))
 	return _cached("seagull", func():
 		var mb := MeshBuilder.new()
 		var white := Color(0.95, 0.95, 0.93)
@@ -846,7 +1229,7 @@ const EAGLE_GLB := "res://assets/models/eagle_mid.glb"
 static func eagle() -> ArrayMesh:
 	if not ResourceLoader.exists(EAGLE_GLB):
 		return null
-	return _cached("eagle_mid", func(): return _gltf_mesh(EAGLE_GLB, "eagle"))
+	return _cached("eagle_mid", func(): return ModelParts.shader_mesh(EAGLE_GLB, "eagle", vc_material()))
 
 
 ## Orcas use the mid-poly orca modelled in Blender (MID_ORCA_GLB, built by
@@ -868,7 +1251,7 @@ static var mid_orca := not "--classic-orca" in OS.get_cmdline_user_args() \
 ## the tail. Belly, chin, eye patch and flank are white, the saddle grey.
 static func orca() -> ArrayMesh:
 	if mid_orca:
-		return _cached("orca_mid", func(): return _gltf_mesh(MID_ORCA_GLB, "orca"))
+		return _cached("orca_mid", func(): return ModelParts.shader_mesh(MID_ORCA_GLB, "orca", vc_material()))
 	return _cached("orca", func():
 		var mb := MeshBuilder.new()
 		var black := Color(0.05, 0.055, 0.065)
@@ -1044,7 +1427,7 @@ static var mid_whales := not "--classic-whales" in OS.get_cmdline_user_args() \
 ## pale flippers and broad flukes whose undersides are mostly white.
 static func humpback() -> ArrayMesh:
 	if mid_whales:
-		return _cached("humpback_mid", func(): return _gltf_mesh(MID_WHALES_GLB, "humpback"))
+		return _cached("humpback_mid", func(): return ModelParts.shader_mesh(MID_WHALES_GLB, "humpback", vc_material()))
 	return _cached("humpback", func():
 		var mb := MeshBuilder.new()
 		var dark := Color(0.09, 0.095, 0.11)
@@ -1074,7 +1457,7 @@ static func humpback() -> ArrayMesh:
 ## fin but a low hump and a row of knuckles down its tail stock.
 static func gray_whale() -> ArrayMesh:
 	if mid_whales:
-		return _cached("gray_whale_mid", func(): return _gltf_mesh(MID_WHALES_GLB, "graywhale"))
+		return _cached("gray_whale_mid", func(): return ModelParts.shader_mesh(MID_WHALES_GLB, "graywhale", vc_material()))
 	return _cached("gray_whale", func():
 		var mb := MeshBuilder.new()
 		var base := Color(0.4, 0.42, 0.43)
@@ -1202,7 +1585,7 @@ static var mid_pinnipeds := not "--classic-seals" in OS.get_cmdline_user_args() 
 ## it silver, tawny or dark).
 static func harbor_seal() -> ArrayMesh:
 	if mid_pinnipeds:
-		return _cached("harbor_seal_mid", func(): return _gltf_mesh(MID_PINNIPEDS_GLB, "harborseal"))
+		return _cached("harbor_seal_mid", func(): return ModelParts.shader_mesh(MID_PINNIPEDS_GLB, "harborseal", vc_material()))
 	return _cached("harbor_seal", func():
 		var mb := MeshBuilder.new()
 		var coat := Color(0.86, 0.85, 0.82)
@@ -1233,7 +1616,7 @@ static func harbor_seal() -> ArrayMesh:
 ## along the back (the instance colour tints bulls dark, females golden).
 static func sea_lion() -> ArrayMesh:
 	if mid_pinnipeds:
-		return _cached("sea_lion_mid", func(): return _gltf_mesh(MID_PINNIPEDS_GLB, "sealion"))
+		return _cached("sea_lion_mid", func(): return ModelParts.shader_mesh(MID_PINNIPEDS_GLB, "sealion", vc_material()))
 	return _cached("sea_lion", func():
 		var mb := MeshBuilder.new()
 		var coat := Color(0.86, 0.84, 0.8)
@@ -1339,6 +1722,21 @@ static func ferry_lights(fc: FerryClass) -> ArrayMesh:
 		var window := Color(1.0, 0.74, 0.42)
 		for w: Array in fc.windows:
 			gb.reflection(w[0], window, w[1], w[2], w[3])
+		if fc.issaquah:
+			for c in _mid_car_deck_lights(FerryClass.ISQ_GLB):
+				# Each pool on the deck under its lens: the tween deck's, a ramp's or the main deck.
+				var floor := FerryClass.ISQ_CAR_DECK
+				var ax := absf(c.x)
+				var az := absf(c.z)
+				if c.y > 6.0 and ax > 6.8:
+					if az < FerryClass.ISQ_MEZ_Z:
+						floor = FerryClass.ISQ_MEZ_TOP
+					elif ax > FerryClass._isq_ramp_edge(az) and FerryClass._isq_ramp_edge(az) > 0.0:
+						floor = lerpf(FerryClass.ISQ_MEZ_TOP, FerryClass.ISQ_CAR_DECK,
+							(az - FerryClass.ISQ_MEZ_Z) / (FerryClass.ISQ_RAMP_Z - FerryClass.ISQ_MEZ_Z))
+				var w := clampf(FerryClass._isq_beam(c.z) - 0.6 - ax, 1.0, CAR_DECK_POOL.x)
+				gb.pool(FerryClass._isq(c.x, floor + 0.03, c.z), CAR_DECK_LIGHT,
+					w * FerryClass.MID_SCALE, CAR_DECK_POOL_ENERGY, LAMP_ON_AT, CAR_DECK_POOL.y * FerryClass.MID_SCALE)
 		if fc.evergreen:
 			for c in _mid_car_deck_lights():
 				# Kept inside the hull sides, or the wings' pools spill out over the water.
@@ -1350,13 +1748,13 @@ static func ferry_lights(fc: FerryClass) -> ArrayMesh:
 
 ## Where the Evergreen State's car deck lights are (her metres, x and z): the centres
 ## of the model's `lamp` lenses, which lie well apart.
-static func _mid_car_deck_lights() -> PackedVector3Array:
-	var p := _gltf_parts(FerryClass.MID_GLB, ["lamp"])
+static func _mid_car_deck_lights(glb := FerryClass.MID_GLB) -> PackedVector3Array:
+	var p := ModelParts.merge_named(glb, ["lamp"])
 	var sums := PackedVector3Array()
 	var counts := PackedInt32Array()
 	for v in p.verts:
 		var j := 0
-		while j < sums.size() and Vector2(v.x - sums[j].x / counts[j], v.z - sums[j].z / counts[j]).length() > 1.5:
+		while j < sums.size() and (v - sums[j] / counts[j]).length() > 1.5:
 			j += 1
 		if j == sums.size():
 			sums.append(Vector3.ZERO)
@@ -1389,33 +1787,6 @@ static func jib_head() -> Vector3:
 	return MID_JIB_HEAD if mid_sailboat else SAIL_JIB_HEAD
 
 
-## The parts of an imported glTF model named in `parts` (node names lower-cased, spaces
-## and underscores dropped), merged in their own frames into one MeshBuilder so they
-## take the shared material. glTF vertex colours are linear; the shader wants sRGB.
-static func _gltf_parts(path: String, parts: Array) -> MeshBuilder:
-	var mb := MeshBuilder.new()
-	var root := (load(path) as PackedScene).instantiate()
-	for n in root.find_children("*", "MeshInstance3D", true, false):
-		var key := String(n.name).to_lower().replace(" ", "").replace("_", "")
-		if not key in parts:
-			continue
-		var mesh: Mesh = (n as MeshInstance3D).mesh
-		for s in mesh.get_surface_count():
-			var arr := mesh.surface_get_arrays(s)
-			var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-			var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-			var col: PackedColorArray = arr[Mesh.ARRAY_COLOR] if arr[Mesh.ARRAY_COLOR] != null else PackedColorArray()
-			var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-			var count := idx.size() if not idx.is_empty() else v.size()
-			for k in count:
-				var i := idx[k] if not idx.is_empty() else k
-				mb.verts.append(v[i])
-				mb.normals.append(nrm[i])
-				mb.colors.append(col[i].linear_to_srgb() if not col.is_empty() else WHITE)
-	root.free()
-	return mb
-
-
 ## The hull's outline where it meets the water, as seen from above: the glTF part
 ## `part` (waterline at y = 0, z along its length) from its waterline up to `top`,
 ## taking in any flare or guard overhanging the water. Its half length, then `n`
@@ -1428,7 +1799,7 @@ static func waterline(path: String, part: String, n: int, top: float) -> PackedF
 	var key := "%s:%s:%d:%f" % [path, part, n, top]
 	if _waterlines.has(key):
 		return _waterlines[key]
-	var mb := _gltf_parts(path, [part])
+	var mb := ModelParts.merge_named(path, [part])
 	# Fine bins over |z|, each holding the widest |x| the hull reaches there. A
 	# triangle's widest point within the slab lies on its edges clipped to it, or
 	# where the slab's faces cut it.
@@ -1479,29 +1850,10 @@ static func waterline(path: String, part: String, n: int, top: float) -> PackedF
 	return out
 
 
-## One part of an imported glTF model as it is (smooth normals, UVs, indices), its
-## vertex colours turned sRGB for the shaders. No shadow mesh.
-static func _gltf_mesh(path: String, part: String) -> ArrayMesh:
-	var root := (load(path) as PackedScene).instantiate()
-	var mesh := ArrayMesh.new()
-	for n in root.find_children("*", "MeshInstance3D", true, false):
-		if String(n.name).to_lower().replace(" ", "").replace("_", "") != part:
-			continue
-		var arr := (n as MeshInstance3D).mesh.surface_get_arrays(0)
-		var col: PackedColorArray = arr[Mesh.ARRAY_COLOR]
-		for i in col.size():
-			col[i] = col[i].linear_to_srgb()
-		arr[Mesh.ARRAY_COLOR] = col
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		mesh.surface_set_material(0, vc_material())
-	root.free()
-	return mesh
-
-
 static func sailboat() -> ArrayMesh:
 	if mid_sailboat:
 		return _cached("sailboat_mid", func():
-			var mb := _gltf_parts(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL)
+			var mb := ModelParts.merge_named(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL)
 			add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
 			return mb.commit())
 	return _cached("sailboat", func():
@@ -1522,7 +1874,7 @@ const SAIL_JIB_HEAD := Vector3(0, 3.6, 0.35)
 
 static func sailboat_main() -> ArrayMesh:
 	if mid_sailboat:
-		return _cached("sailboat_main_mid", func(): return _gltf_parts(MID_SAILBOAT_GLB, ["mainsail"]).commit())
+		return _cached("sailboat_main_mid", func(): return ModelParts.merge_named(MID_SAILBOAT_GLB, ["mainsail"]).commit())
 	return _cached("sailboat_main", func():
 		var mb := MeshBuilder.new()
 		var a := Vector3(0, 0.7, 0)
@@ -1536,7 +1888,7 @@ static func sailboat_main() -> ArrayMesh:
 
 static func sailboat_jib() -> ArrayMesh:
 	if mid_sailboat:
-		return _cached("sailboat_jib_mid", func(): return _gltf_parts(MID_SAILBOAT_GLB, ["jib"]).commit())
+		return _cached("sailboat_jib_mid", func(): return ModelParts.merge_named(MID_SAILBOAT_GLB, ["jib"]).commit())
 	return _cached("sailboat_jib", func():
 		var mb := MeshBuilder.new()
 		var head := SAIL_JIB_HEAD - SAIL_JIB_TACK
@@ -1550,7 +1902,7 @@ static func sailboat_jib() -> ArrayMesh:
 static func sailboat_furled() -> ArrayMesh:
 	if mid_sailboat:
 		return _cached("sailboat_furled_mid", func():
-			var mb := _gltf_parts(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL + ["furled"])
+			var mb := ModelParts.merge_named(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL + ["furled"])
 			add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
 			return mb.commit())
 	return _cached("sailboat_furled", func():
@@ -1778,39 +2130,6 @@ const MID_CARGO_LINE_WEIGHTS := [1.0, 1.0, 1.0, 1.0, 0.8, 0.8, 0.7, 0.7, 0.9, 0.
 const MID_CARGO_SIDELIGHT_SCALE := 1.4
 const MID_CARGO_NAME_CAP := 0.8
 const MID_CARGO_REGISTRIES := ["NASSAU", "MAJURO", "MONROVIA", "VALLETTA", "LIMASSOL"]
-static var _gltf_libs := {}
-
-
-## Every part of an imported glTF model by key (named as _gltf_parts names them), each
-## a MeshBuilder holding its triangles with sRGB colours; loaded once per file.
-static func _gltf_library(path: String) -> Dictionary:
-	if _gltf_libs.has(path):
-		return _gltf_libs[path]
-	var lib := {}
-	var root := (load(path) as PackedScene).instantiate()
-	for n in root.find_children("*", "MeshInstance3D", true, false):
-		var key := String(n.name).to_lower().replace(" ", "").replace("_", "")
-		lib[key] = _gltf_parts_of(n as MeshInstance3D)
-	root.free()
-	_gltf_libs[path] = lib
-	return lib
-
-
-static func _gltf_parts_of(n: MeshInstance3D) -> MeshBuilder:
-	var mb := MeshBuilder.new()
-	for s in n.mesh.get_surface_count():
-		var arr := n.mesh.surface_get_arrays(s)
-		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-		var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-		var col: PackedColorArray = arr[Mesh.ARRAY_COLOR] if arr[Mesh.ARRAY_COLOR] != null else PackedColorArray()
-		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-		var count := idx.size() if not idx.is_empty() else v.size()
-		for k in count:
-			var i := idx[k] if not idx.is_empty() else k
-			mb.verts.append(v[i])
-			mb.normals.append(nrm[i])
-			mb.colors.append(col[i].linear_to_srgb() if not col.is_empty() else WHITE)
-	return mb
 
 
 ## Appends `part` to `mb` moved by `xf` (rigid, or uniformly scaled), its colours multiplied by
@@ -1835,7 +2154,7 @@ static func _append_part(mb: MeshBuilder, part: MeshBuilder, xf: Transform3D, ti
 static func _mid_cargo(variant: int) -> MeshBuilder:
 	var mb := _mid_cargo_ship(MID_CARGO_GLB, {"hull": MID_CARGO_HULLS[variant % MID_CARGO_HULLS.size()],
 		"funnel": CARGO_FUNNELS[variant % CARGO_FUNNELS.size()]})
-	_stow_containers(mb, _gltf_library(MID_CARGO_GLB), variant)
+	_stow_containers(mb, ModelParts.library(MID_CARGO_GLB), variant)
 	return mb
 
 
@@ -1843,7 +2162,7 @@ static func _mid_cargo(variant: int) -> MeshBuilder:
 ## carrier, from `glb`): its fixed parts, the livery's parts each painted as `paint`
 ## has them, the glass, and the lanterns and sidelights where CargoMidData has them.
 static func _mid_cargo_ship(glb: String, paint: Dictionary) -> MeshBuilder:
-	var lib := _gltf_library(glb)
+	var lib := ModelParts.library(glb)
 	var mb := MeshBuilder.new()
 	var one := Transform3D.IDENTITY
 	_append_part(mb, lib["fixed"], one)
@@ -1939,7 +2258,7 @@ static func cargo_name_plate(ship_name: String) -> ArrayMesh:
 	if not mid_cargo:
 		return null
 	return _cached("cargo_name_" + ship_name, func():
-		var lib := _gltf_library(MID_CARGO_GLB)
+		var lib := ModelParts.library(MID_CARGO_GLB)
 		var mb := MeshBuilder.new()
 		var text := ship_name.to_upper()
 		var cap := MID_CARGO_NAME_CAP
@@ -2081,13 +2400,13 @@ const MID_TRAWLER_HOUSE_FLOOD := Vector3(0.7, 5.65, 0.35)
 
 
 static func _mid_trawler(variant: int) -> MeshBuilder:
-	var mb := _gltf_parts(MID_TRAWLER_GLB, ["fixed"])
+	var mb := ModelParts.merge_named(MID_TRAWLER_GLB, ["fixed"])
 	var paint := {"hull": TRAWLER_HULLS[variant % TRAWLER_HULLS.size()],
 		"gantry": TRAWLER_GANTRIES[variant % TRAWLER_GANTRIES.size()],
 		"net": TRAWLER_NETS[variant % TRAWLER_NETS.size()], "glass": WINDOW_LIT, "window": WINDOW,
 		"lens": lamp_glass(GlowBuilder.LED)}
 	for part: String in paint:
-		var p := _gltf_parts(MID_TRAWLER_GLB, [part])
+		var p := ModelParts.merge_named(MID_TRAWLER_GLB, [part])
 		mb.verts.append_array(p.verts)
 		mb.normals.append_array(p.normals)
 		for i in p.verts.size():
@@ -2407,12 +2726,12 @@ static func _pilot_red() -> Vector3:
 
 ## The mid-poly pilot boat in `variant`'s livery.
 static func _mid_pilot(variant: int) -> MeshBuilder:
-	var mb := _gltf_parts(MID_PILOT_GLB, ["fixed"])
+	var mb := ModelParts.merge_named(MID_PILOT_GLB, ["fixed"])
 	var paint := {"hull": MID_PILOT_HULLS[variant % MID_PILOT_HULLS.size()],
 		"trim": MID_PILOT_TRIMS[variant % MID_PILOT_TRIMS.size()], "glass": WINDOW_LIT,
 		"lens": lamp_glass(GlowBuilder.LED)}
 	for part: String in paint:
-		var p := _gltf_parts(MID_PILOT_GLB, [part])
+		var p := ModelParts.merge_named(MID_PILOT_GLB, [part])
 		mb.verts.append_array(p.verts)
 		mb.normals.append_array(p.normals)
 		for i in p.verts.size():
@@ -2582,12 +2901,12 @@ static func _tug_stern_light() -> Vector3:
 
 ## The mid-poly tug in `variant`'s livery.
 static func _mid_tug(variant: int) -> MeshBuilder:
-	var mb := _gltf_parts(MID_TUG_GLB, ["fixed"])
+	var mb := ModelParts.merge_named(MID_TUG_GLB, ["fixed"])
 	var paint := {"hull": TUG_HULLS[variant % TUG_HULLS.size()], "house": TUG_HOUSES[variant % TUG_HOUSES.size()],
 		"stack": TUG_STACKS[variant % TUG_STACKS.size()], "glass": WINDOW_LIT, "window": WINDOW,
 		"lens": lamp_glass(GlowBuilder.LED)}
 	for part: String in paint:
-		var p := _gltf_parts(MID_TUG_GLB, [part])
+		var p := ModelParts.merge_named(MID_TUG_GLB, [part])
 		mb.verts.append_array(p.verts)
 		mb.normals.append_array(p.normals)
 		for i in p.verts.size():
