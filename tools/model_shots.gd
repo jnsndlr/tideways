@@ -92,7 +92,7 @@ func _initialize() -> void:
 		"sea_lion": [Models.sea_lion(), Vector3(0, 0.08, 0), 1.2],
 	}
 	if ResourceLoader.exists("res://assets/models/ferry_mid.glb"):
-		var ferry: ArrayMesh = Models._gltf_parts("res://assets/models/ferry_mid.glb", ["fixed", "glass", "window"]).commit()
+		var ferry: ArrayMesh = ModelParts.merge_named("res://assets/models/ferry_mid.glb", ["fixed", "glass", "window"]).commit()
 		models["ferry_mid"] = [ferry, Vector3(0, 7, 0), 115.0]
 		models["ferry_end"] = [ferry, Vector3(0, 5, 40), 34.0]
 		models["ferry_top"] = [ferry, Vector3(0, 12, 18), 34.0]
@@ -107,13 +107,13 @@ func _initialize() -> void:
 		models["slip_span"] = [Models.slip_mesh("span"), Vector3(0, 0, 13), 30.0]
 		models["slip_apron"] = [Models.slip_mesh("apron"), Vector3(0, 0, 2.4), 12.0]
 	if ResourceLoader.exists("res://assets/models/guemes_mid.glb"):
-		var guemes: ArrayMesh = Models._gltf_parts("res://assets/models/guemes_mid.glb", ["fixed", "glass", "window"]).commit()
+		var guemes: ArrayMesh = ModelParts.merge_named("res://assets/models/guemes_mid.glb", ["fixed", "glass", "window"]).commit()
 		models["guemes"] = [guemes, Vector3(0, 3, 0), 48.0]
 		models["guemes_end"] = [guemes, Vector3(0, 3, 14), 18.0]
 		models["guemes_house"] = [guemes, Vector3(5.5, 6.5, 0), 14.0]
 		models["guemes_hull"] = [guemes, Vector3(0, 0.5, 8), 30.0]
 	if ResourceLoader.exists("res://assets/models/hiyu_mid.glb"):
-		var hiyu: ArrayMesh = Models._gltf_parts("res://assets/models/hiyu_mid.glb", ["fixed", "glass", "window"]).commit()
+		var hiyu: ArrayMesh = ModelParts.merge_named("res://assets/models/hiyu_mid.glb", ["fixed", "glass", "window"]).commit()
 		models["hiyu"] = [hiyu, Vector3(0, 5, 0), 62.0]
 		models["hiyu_end"] = [hiyu, Vector3(0, 5, 16), 24.0]
 		models["hiyu_tunnel"] = [hiyu, Vector3(0, 4.5, 14), 9.0]
@@ -121,7 +121,7 @@ func _initialize() -> void:
 		models["hiyu_hull"] = [hiyu, Vector3(0, 1.5, 24), 14.0]
 		models["hiyu_gusset"] = [hiyu, Vector3(8.0, 4.5, 15.5), 9.0]
 	if ResourceLoader.exists("res://assets/models/rib_mid.glb"):
-		var rib: ArrayMesh = Models._gltf_parts("res://assets/models/rib_mid.glb", ["fixed", "sling"]).commit()
+		var rib: ArrayMesh = ModelParts.merge_named("res://assets/models/rib_mid.glb", ["fixed", "sling"]).commit()
 		models["rib"] = [rib, Vector3(0, 0.6, -0.2), 7.5]
 		models["rib_helm"] = [rib, Vector3(0, 0.8, -0.6), 3.2]
 		# Each mid-poly ferry with it in her cradle (the full game mesh, at MID_SCALE).

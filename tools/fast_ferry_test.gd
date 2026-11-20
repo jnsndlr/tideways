@@ -11,6 +11,7 @@ func _initialize() -> void:
 	if not _captains_suit_different_crossings():
 		quit(1)
 		return
+	print("TEST PASSED")
 	quit(0)
 
 

@@ -204,6 +204,12 @@ func _process(delta: float) -> bool:
 		wild_visits, wild_hauled_min, wild_hauled, wild_groups_min, wild_groups_max, wild_flushed, wild_bow_rides])
 	for k in stop_why:
 		print("       stopped while: %s (%d)" % [k, stop_why[k]])
+	if "--verify" in OS.get_cmdline_user_args():
+		if ferry == 0 or not overlaps.is_empty() or not aground.is_empty():
+			push_error("Expected completed crossings without vessel overlaps or groundings")
+			quit(1)
+			return false
+		print("TEST PASSED")
 	return true
 
 

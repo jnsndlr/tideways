@@ -116,8 +116,7 @@ func setup(w: Wildlife, d: DayCycle, perches: Array[Perch], g: Seagulls) -> void
 	rng.seed = sim.map.map_seed * 29 + 3
 	_bound = sim.terrain.half_size - 60.0
 	_perches = perches
-	var a: float = CloudLayer.DIRS.find(sim.wind_dir) * TAU / 8.0
-	_wind_yaw = atan2(sin(a), -cos(a))
+	_wind_yaw = sim.wind_yaw()
 	var mesh := Models.eagle()
 	if mesh == null:
 		return

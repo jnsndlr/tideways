@@ -50,14 +50,7 @@ func cruise(class_cruise: float) -> float:
 ## cruise in open water, easing to the approach speed along the run-in, then
 ## braking to a stop from the outer dolphins.
 func speed_limit(remaining: float, class_cruise: float) -> float:
-	var approach := Ferry.APPROACH_SPEED * harbour
-	var rem := maxf(remaining, 0.0)
-	var brake_v: float
-	if rem > Ferry.BRAKE_ZONE:
-		brake_v = approach + sqrt(2.0 * Ferry.DECEL * harbour * (rem - Ferry.BRAKE_ZONE))
-	else:
-		brake_v = 0.9 + (approach - 0.9) * sqrt(rem / Ferry.BRAKE_ZONE)
-	return minf(cruise(class_cruise), brake_v)
+	return FerryVoyage.speed_limit(remaining, cruise(class_cruise), harbour)
 
 
 ## Game minutes for an unhindered crossing of `run` metres dock to dock (other
@@ -68,7 +61,7 @@ func crossing_minutes(run: float, class_cruise: float) -> float:
 	var gone := 0.0
 	var v := 0.0
 	while gone < run - 0.03 and t < 3600.0:
-		v = minf(speed_limit(run - gone, class_cruise), v + Ferry.ACCEL * STEP)
+		v = minf(speed_limit(run - gone, class_cruise), v + FerryVoyage.ACCEL * STEP)
 		gone += v * STEP
 		t += STEP
 	return t

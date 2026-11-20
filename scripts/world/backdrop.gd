@@ -1,19 +1,16 @@
 class_name Backdrop
 extends Node3D
 ## The world past the map: the mainland's shores, foothills and snowy ranges
-## (Terrain.outer_height, i.e. Mainland) out to the horizon, and banks of chunky
-## cumulus standing over them. Both are painted with their own aerial haze
-## (backdrop.gdshader, cumulus.gdshader) so distant layers fade into the sky like a
-## landscape painting instead of vanishing into the depth fog.
+## (Terrain.outer_height, i.e. Mainland) out to the horizon. They're painted with
+## their own aerial haze (backdrop.gdshader) so distant layers fade into the sky like
+## a landscape painting instead of vanishing into the depth fog. The clouds behind
+## them are in the sky shader (sky.gdshader).
 ##
 ## The land is a ring of rings around the terrain grid: the first ring is the grid's
 ## own edge vertices (so the two meet without a crack), and each ring further out is
 ## a little larger, halving its samples twice so far ranges get broad facets.
 
 const LAND_SHADER := "res://shaders/backdrop.gdshader"
-const CLOUD_SHADER := "res://shaders/cumulus.gdshader"
-const CLOUD_LAYER := 2 # CloudLayer.VISUAL_LAYER: kept off the minimap
-const CLOUD_COUNT := {"Sunny": 12, "Light Breeze": 18, "Partly Cloudy": 26, "Overcast": 34}
 
 const SAND := Color(0.8, 0.73, 0.54)
 const CLIFF := Color(0.5, 0.43, 0.42)
@@ -26,33 +23,46 @@ const ALPINE_LIGHT := Color(0.46, 0.49, 0.56)
 const SNOW := Color(0.94, 0.95, 0.98)
 
 ## Modelled trees where the mainland touches the map; flat cards (tree_card.gdshader)
-## on the far shores, thinning out with distance.
-const TREE_BAND := 360.0
+## on the far shores, thinning out with distance. The two cross-fade between
+## TREE_FADE and TREE_BAND past the edge, so there's no line where one gives way.
+const TREE_FADE := 60.0
+const TREE_BAND := 200.0  # (without a WorldBuilder; with one, WorldBuilder.card_share)
+## Over this far past the edge the ground and its woods turn from the islands' own
+## (WorldBuilder.ground_color, tree_density: fields and patchy woods) to the
+## mainland's unbroken forest, so the map's edge doesn't show as a line.
+const EDGE_BLEND := 600.0
+## The land's facets turn to smooth shading over this band past the edge.
+const SMOOTH_FROM := 600.0
+const SMOOTH_TO := 2400.0
+## Each far ring of the land is this much larger than the last.
+const RING_GROWTH := 1.011
 const TREE_TILE := 384.0
 const CARD_SHADER := "res://shaders/tree_card.gdshader"
+const CARD_SPRITE := "res://assets/textures/pine_card.png"
 const CARD_FAR := 3000.0
 const CARD_TILE := 768.0
 
 var terrain: Terrain
+var builder: WorldBuilder
 var _rng := RandomNumberGenerator.new()
 var _trees: Array[Transform3D] = []
 var _tree_cols: Array[Color] = []
 var _cards: Array[Transform3D] = []
+var _near_trees: Array[MultiMeshInstance3D] = []
 var _card_cols: Array[Color] = []
-# Cloud mesh arrays, filled by _puff.
-var _cv := PackedVector3Array()
-var _cn := PackedVector3Array()
-var _cc := PackedColorArray()
-var _ci := PackedInt32Array()
 
 
-func setup(t: Terrain, weather: String) -> void:
+func setup(t: Terrain, b: WorldBuilder = null) -> void:
 	name = "Backdrop"
 	terrain = t
+	builder = b
 	_rng.seed = int(t.mainland.snowline * 1000.0)
 	_build_land()
+	if builder:
+		# The cards WorldBuilder put inside the map, on the mainland's shores.
+		for at in builder.edge_cards:
+			_card_at(at)
 	_build_trees()
-	_build_clouds(weather)
 
 
 # --- Land ---------------------------------------------------------------------------
@@ -63,30 +73,99 @@ func _build_land() -> void:
 	var smax := Mainland.FAR / hs
 	var mb := MeshBuilder.new()
 
-	var inner := _edge_ring()
-	# 15 m rings for the near shore, then 30 m samples on rings growing ~2% each.
+	var rings: Array[PackedVector3Array] = [_edge_ring()]
+	# 15 m rings for the near shore, then samples on rings growing ~1.1% each, so
+	# the far facets are about as deep as they are wide (long thin ones turn whole
+	# mountain faces into single planes).
 	var d := 24.0
 	var level := 1
 	while true:
 		var s := 1.0 + d / hs
 		if s > smax:
 			break
-		var outer := _ring(s, n >> level)
-		_stitch(mb, inner, outer)
-		inner = outer
+		rings.append(_ring(s, n >> level))
 		if d < 420.0:
 			d += 15.0
 		else:
 			level = 2
-			d = (s * 1.022 - 1.0) * hs
+			d = (s * RING_GROWTH - 1.0) * hs
+	var norms := _ring_normals(rings)
+	var cols := _ring_colors(rings, norms)
+	for k in rings.size() - 1:
+		_stitch(mb, rings[k], rings[k + 1], norms[k], norms[k + 1], cols[k], cols[k + 1])
 	var mi := MeshInstance3D.new()
 	mi.name = "Mainland"
 	mi.mesh = mb.commit()
 	var mat := ShaderMaterial.new()
 	mat.shader = load(LAND_SHADER)
+	mat.set_shader_parameter("map_half", terrain.half_size)
+	mat.set_shader_parameter("snowline", terrain.mainland.snowline)
+	mat.set_shader_parameter("detail", _detail_texture())
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+
+
+## Smooth normals at each ring point, from its neighbours along the ring and on
+## the rings either side (the first, the terrain grid's edge, stays flat-shaded).
+func _ring_normals(rings: Array[PackedVector3Array]) -> Array[PackedVector3Array]:
+	var out: Array[PackedVector3Array] = []
+	for k in rings.size():
+		var r := rings[k]
+		var m := r.size()
+		var nr := PackedVector3Array()
+		nr.resize(m)
+		var ri := rings[maxi(k - 1, 0)]
+		var ro := rings[mini(k + 1, rings.size() - 1)]
+		for i in m:
+			var t := r[(i + 1) % m] - r[(i - 1 + m) % m]
+			var rad := ro[(i * ro.size() / m) % ro.size()] - ri[(i * ri.size() / m) % ri.size()]
+			var nn := t.cross(rad)
+			if nn.y < 0.0:
+				nn = -nn
+			nr[i] = nn.normalized() if nn.length_squared() > 1e-10 else Vector3.UP
+		out.append(nr)
+	return out
+
+
+## The colour at each ring point out on the smooth slopes, worked out once there
+## rather than once per triangle meeting at it (six of them). Points nearer the map
+## are left unset (alpha -1): their triangles colour each corner themselves.
+func _ring_colors(rings: Array[PackedVector3Array], norms: Array[PackedVector3Array]) -> Array[PackedColorArray]:
+	var hs := terrain.half_size
+	var out: Array[PackedColorArray] = []
+	for k in rings.size():
+		var r := rings[k]
+		var c := PackedColorArray()
+		c.resize(r.size())
+		c.fill(Color(0, 0, 0, -1))
+		for i in r.size():
+			var p := r[i]
+			var o := maxf(absf(p.x), absf(p.z)) - hs
+			if o > SMOOTH_FROM:
+				c[i] = _color(p, norms[k][i].y, smoothstep(SMOOTH_FROM, SMOOTH_TO, o))
+		out.append(c)
+	return out
+
+
+## A tiling normal map of ridged noise: the shader streaks it downhill into gullies
+## and ribs across the far faces, finer than the mesh can carry.
+func _detail_texture() -> NoiseTexture2D:
+	var fn := FastNoiseLite.new()
+	fn.seed = _rng.randi()
+	fn.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	fn.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	fn.fractal_octaves = 4
+	fn.frequency = 0.008
+	var nt := NoiseTexture2D.new()
+	nt.width = 512
+	nt.height = 512
+	nt.seamless = true
+	nt.as_normal_map = true
+	nt.bump_strength = 4.0
+	nt.generate_mipmaps = true
+	nt.noise = fn
+	return nt
 
 
 ## The terrain grid's boundary vertices, clockwise from the (-x, -z) corner.
@@ -137,31 +216,30 @@ func _ring(s: float, m: int) -> PackedVector3Array:
 
 
 ## Joins two rings; the inner one has the same number of samples or twice as many.
-func _stitch(mb: MeshBuilder, a: PackedVector3Array, b: PackedVector3Array) -> void:
+func _stitch(mb: MeshBuilder, a: PackedVector3Array, b: PackedVector3Array, an: PackedVector3Array, bn: PackedVector3Array, ac: PackedColorArray, bc: PackedColorArray) -> void:
 	var na := a.size()
 	var nb := b.size()
 	if na == nb:
 		for k in na:
 			var k1 := (k + 1) % na
 			if k % 2 == 0:
-				_tri(mb, a[k], a[k1], b[k1])
-				_tri(mb, a[k], b[k1], b[k])
+				_tri(mb, a[k], a[k1], b[k1], an[k], an[k1], bn[k1], ac[k], ac[k1], bc[k1])
+				_tri(mb, a[k], b[k1], b[k], an[k], bn[k1], bn[k], ac[k], bc[k1], bc[k])
 			else:
-				_tri(mb, a[k], a[k1], b[k])
-				_tri(mb, a[k1], b[k1], b[k])
+				_tri(mb, a[k], a[k1], b[k], an[k], an[k1], bn[k], ac[k], ac[k1], bc[k])
+				_tri(mb, a[k1], b[k1], b[k], an[k1], bn[k1], bn[k], ac[k1], bc[k1], bc[k])
 	else:
 		for c in nb:
-			var f0 := a[2 * c]
-			var f1 := a[2 * c + 1]
-			var f2 := a[(2 * c + 2) % na]
-			var c0 := b[c]
-			var c1 := b[(c + 1) % nb]
-			_tri(mb, f0, f1, c0)
-			_tri(mb, f1, c1, c0)
-			_tri(mb, f1, f2, c1)
+			var i0 := 2 * c
+			var i1 := 2 * c + 1
+			var i2 := (2 * c + 2) % na
+			var c1 := (c + 1) % nb
+			_tri(mb, a[i0], a[i1], b[c], an[i0], an[i1], bn[c], ac[i0], ac[i1], bc[c])
+			_tri(mb, a[i1], b[c1], b[c], an[i1], bn[c1], bn[c], ac[i1], bc[c1], bc[c])
+			_tri(mb, a[i1], a[i2], b[c1], an[i1], an[i2], bn[c1], ac[i1], ac[i2], bc[c1])
 
 
-func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
+func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, ca: Color, cb: Color, cc: Color) -> void:
 	if a.y < -15.6 and b.y < -15.6 and c.y < -15.6:
 		return
 	var nrm := (b - a).cross(c - a)
@@ -171,14 +249,48 @@ func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
 	if nrm.y < 0.0:
 		nrm = -nrm
 	var p := (a + b + c) / 3.0
-	mb.tri(a, b, c, _color(p, nrm.y), Vector3.UP)
-	# Forest on gentle ground near the map gets real trees, as on the islands.
 	var out := maxf(absf(p.x), absf(p.z)) - terrain.half_size
-	if out < CARD_FAR and p.y > 4.8 and nrm.y > 0.72 and p.y < _treeline(p) - 180.0:
+	var blend := 1.0
+	if builder and not builder.backdrop_side(p.x, p.z):
+		blend = smoothstep(0.0, EDGE_BLEND, out)
+	# Flat facets by the map, like the islands; smooth, painted slopes further out.
+	var sm := smoothstep(SMOOTH_FROM, SMOOTH_TO, out)
+	na = nrm.lerp(na, sm).normalized()
+	nb = nrm.lerp(nb, sm).normalized()
+	nc = nrm.lerp(nc, sm).normalized()
+	if sm > 0.0 and ca.a >= 0.0 and cb.a >= 0.0 and cc.a >= 0.0:
+		# Out on the smooth slopes each corner has its colour already (_ring_colors).
+		mb.tri_n(a, b, c, na, nb, nc, ca, cb, cc)
+	elif sm > 0.0:
+		# Smooth slopes get smooth colour too: each corner by its own normal.
+		mb.tri_n(a, b, c, na, nb, nc, _ground(a, na.y, blend, sm), _ground(b, nb.y, blend, sm), _ground(c, nc.y, blend, sm))
+	else:
+		mb.tri_n(a, b, c, na, nb, nc, _ground(a, nrm.y, blend), _ground(b, nrm.y, blend), _ground(c, nrm.y, blend))
+	_wood(a, b, c, p, nrm.y, out, blend)
+
+
+func _ground(p: Vector3, ny: float, blend: float, smooth := 0.0) -> Color:
+	var col := _color(p, ny, smooth)
+	if blend < 1.0:
+		col = builder.ground_color(p.y, ny, p.x, p.z).lerp(col, blend)
+	return col
+
+
+## Forest on gentle ground near the map gets real trees, as on the islands.
+func _wood(a: Vector3, b: Vector3, c: Vector3, p: Vector3, ny: float, out: float, blend: float) -> void:
+	if out < CARD_FAR and p.y > 4.8 and ny > 0.72 and p.y < _treeline(p) - 180.0:
 		var area := (b - a).cross(c - a).length() * 0.5
-		if out >= TREE_BAND - 30.0:
-			_scatter_cards(a, b, c, area / 378.0 * (1.0 - smoothstep(1050.0, CARD_FAR, out)))
-		var want := area / 81.0 * (1.0 - smoothstep(TREE_BAND - 90.0, TREE_BAND, out))
+		# Woods as thick as the islands' at the edge (one try per 8.1 m step),
+		# filling in to the mainland's unbroken forest.
+		var dense := 1.0
+		if blend < 1.0:
+			dense = lerpf(clampf(builder.tree_density(p.x, p.z, p.y) * 81.0 / 65.6, 0.0, 1.0), 1.0, blend)
+		# Modelled trees give way to cards across the band either side of the edge
+		# (WorldBuilder.card_share); a side with no port is cards all the way.
+		var cards := builder.card_share(p.x, p.z) if builder else smoothstep(TREE_FADE, TREE_BAND, out)
+		if cards > 0.0:
+			_scatter_cards(a, b, c, area / 420.0 * dense * cards * (1.0 - smoothstep(1050.0, CARD_FAR, out)))
+		var want := area / 81.0 * dense * (1.0 - cards)
 		while want > 0.0:
 			if _rng.randf() < want:
 				var u := _rng.randf()
@@ -190,26 +302,22 @@ func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3) -> void:
 				var s := _rng.randf_range(0.8, 1.45)
 				var basis := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.9, 1.25), s) * Models.LEGACY_SCALE)
 				_trees.append(Transform3D(basis, at - Vector3(0, 0.3, 0)))
-				_tree_cols.append(Color(_rng.randf_range(0.75, 0.95), _rng.randf_range(0.8, 0.95), _rng.randf_range(0.8, 0.95)))
+				_tree_cols.append(Color(_rng.randf_range(0.75, 0.95), _rng.randf_range(0.8, 0.95), _rng.randf_range(0.8, 0.95)).darkened(cards * 0.15))
 			want -= 1.0
 
 
-## Island colours on the shore, forest on the hills, bare rock above the trees and
-## snow on the tops (what faces up, at least; the shader's haze does the rest).
-func _color(p: Vector3, ny: float) -> Color:
-	var r := _hash(p.x, p.z)
+## Island colours on the shore and forest on the hills. The shader paints the bare
+## rock above the trees and the snow on the tops per pixel (backdrop.gdshader).
+func _color(p: Vector3, ny: float, smooth := 0.0) -> Color:
+	# Speckled facet by facet near the map; out on the smooth slopes, broad patches.
+	var r := lerpf(_hash(p.x, p.z), 0.5 + 0.5 * sin(p.x * 0.0019 + 0.6) * sin(p.z * 0.0023 + 2.1), smooth)
 	var h := p.y
-	var snow := _snowline(p)
 	var treeline := _treeline(p)
 	var col: Color
 	if h < -0.9:
 		col = SAND.darkened(clampf(-h * 0.023333, 0.0, 0.45))
 	elif h < 3.45 and ny >= 0.72:
 		col = SAND
-	elif h > snow and ny > 0.42:
-		col = SNOW
-	elif h > treeline:
-		col = ALPINE.lerp(ALPINE_LIGHT, r * 0.5)
 	elif ny < 0.72 and h < 75.0:
 		col = CLIFF.lerp(CLIFF_LIGHT, r)
 	elif ny < 0.72:
@@ -220,6 +328,7 @@ func _color(p: Vector3, ny: float) -> Color:
 	return col.darkened(r * 0.06)
 
 
+
 func _scatter_cards(a: Vector3, b: Vector3, c: Vector3, want: float) -> void:
 	while want > 0.0:
 		if _rng.randf() < want:
@@ -228,12 +337,17 @@ func _scatter_cards(a: Vector3, b: Vector3, c: Vector3, want: float) -> void:
 			if u + v > 1.0:
 				u = 1.0 - u
 				v = 1.0 - v
-			var h := _rng.randf_range(21.0, 33.0)
-			var basis := Basis.from_scale(Vector3(h * _rng.randf_range(0.5, 0.62), h, 1.0))
-			_cards.append(Transform3D(basis, a + (b - a) * u + (c - a) * v - Vector3(0, 0.9, 0)))
-			var k := _rng.randf_range(0.8, 1.15)
-			_card_cols.append(Color(k * _rng.randf_range(0.9, 1.05), k, k * _rng.randf_range(0.9, 1.05)))
+			_card_at(a + (b - a) * u + (c - a) * v)
 		want -= 1.0
+
+
+func _card_at(at: Vector3) -> void:
+	var h := _rng.randf_range(21.0, 33.0)
+	# The sprite's own proportions (250 x 353), give or take.
+	var basis := Basis.from_scale(Vector3(h * 0.71 * _rng.randf_range(0.88, 1.08), h, 1.0))
+	_cards.append(Transform3D(basis, at - Vector3(0, 0.9, 0)))
+	var k := _rng.randf_range(0.85, 1.1)
+	_card_cols.append(Color(k * _rng.randf_range(0.9, 1.05), k, k * _rng.randf_range(0.9, 1.05)))
 
 
 ## Snowline and treeline wander smoothly along the ranges (no per-facet speckle).
@@ -266,15 +380,14 @@ func _build_trees() -> void:
 			mm.use_colors = true
 			mm.mesh = levels[l][0]
 			mm.instance_count = idx.size()
-			for j in idx.size():
-				mm.set_instance_transform(j, _trees[idx[j]])
-				mm.set_instance_color(j, _tree_cols[idx[j]])
+			WorldBuilder.fill_multimesh(mm, _trees, _tree_cols, idx)
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = mm
 			# Dense forest hides its own floor; their shadows aren't worth the cascades.
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mmi.visibility_range_begin = levels[l][1]
-			mmi.visibility_range_end = levels[l][2]
+			var slack := WorldBuilder.tile_slack(levels[l][0], idx, _trees)
+			Models.dither_lod(mmi, levels[l][0], levels[l][1], levels[l][2], slack, levels[l][3] if levels[l].size() > 3 else Vector3.ONE)
+			_near_trees.append(mmi)
 			mmi.name = "MainlandPines_%d_%d_%d%s" % [key.x, key.y, key.z, "_lod%d" % l if l > 0 else ""]
 			add_child(mmi)
 	var quad := QuadMesh.new()
@@ -282,6 +395,8 @@ func _build_trees() -> void:
 	quad.center_offset = Vector3(0.0, 0.5, 0.0)
 	var mat := ShaderMaterial.new()
 	mat.shader = load(CARD_SHADER)
+	mat.set_shader_parameter("sprite", load(CARD_SPRITE))
+	mat.set_shader_parameter("map_half", terrain.half_size)
 	quad.material = mat
 	tiles = {}
 	for i in _cards.size():
@@ -310,111 +425,12 @@ func _build_trees() -> void:
 	print("Backdrop: %d mainland trees, %d tree cards" % [_trees.size(), _cards.size()])
 
 
+## Hides the modelled trees by the map's edge (the island editor's ground preview).
+func show_near_trees(on: bool) -> void:
+	for mmi in _near_trees:
+		mmi.visible = on
+
+
 static func _hash(x: float, z: float) -> float:
 	var v := sin(x * 12.9898 + z * 78.233) * 43758.5453
 	return v - floorf(v)
-
-
-# --- Clouds -------------------------------------------------------------------------
-
-## Banks of cumulus all round the horizon: clusters of squashed, flat-bottomed
-## icospheres, big rounded heads in the middle and smaller ones at the ends.
-func _build_clouds(weather: String) -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(terrain.mainland.snowline * 1000.0) + 1 # differs per map, independent of the sim
-	var ico := _icosphere(2)
-	var count: int = CLOUD_COUNT.get(weather, 22)
-	for c in count:
-		var ang := rng.randf() * TAU
-		var dist := rng.randf_range(16500.0, 31500.0)
-		var centre := Vector2(cos(ang), sin(ang)) * dist
-		var along := Vector2(-sin(ang), cos(ang))
-		var base := rng.randf_range(3300.0, 5400.0)
-		var width := rng.randf_range(2700.0, 7800.0)
-		var puffs := int(width / 660.0) + rng.randi_range(0, 3)
-		var tint := rng.randf()
-		for k in puffs:
-			var t := rng.randf_range(-1.0, 1.0)
-			var big := 1.0 - absf(t) * 0.55
-			var rad := rng.randf_range(600.0, 1260.0) * big * (width / 5700.0 + 0.5)
-			var p := centre + along * t * width * 0.5 + Vector2(cos(ang), sin(ang)) * rng.randf_range(-840.0, 840.0)
-			var lift := rad * rng.randf_range(0.2, 0.75) * big
-			_puff(ico, Vector3(p.x, base + lift, p.y), Vector3(rad, rad * rng.randf_range(0.7, 0.9), rad), base,
-				base + rad * 1.6, tint)
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = _cv
-	arrays[Mesh.ARRAY_NORMAL] = _cn
-	arrays[Mesh.ARRAY_COLOR] = _cc
-	arrays[Mesh.ARRAY_INDEX] = _ci
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mat := ShaderMaterial.new()
-	mat.shader = load(CLOUD_SHADER)
-	mat.set_shader_parameter("grey", 0.35 if weather == "Overcast" else 0.0)
-	var mi := MeshInstance3D.new()
-	mi.name = "Cumulus"
-	mi.mesh = mesh
-	mi.material_override = mat
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.layers = 1 << (CLOUD_LAYER - 1)
-	add_child(mi)
-
-
-## One puff, its underside flattened onto the cloud base. Colour: r = height up the
-## cloud (0 at the base), g = the cluster's tint.
-func _puff(ico: Array, at: Vector3, scale: Vector3, base: float, top: float, tint: float) -> void:
-	var first := _cv.size()
-	for u: Vector3 in ico[0]:
-		var p := at + u * scale
-		var nrm := (u / scale).normalized()
-		if p.y < base:
-			p.y = base
-			nrm = nrm.lerp(Vector3.DOWN, 0.7).normalized()
-		_cv.append(p)
-		_cn.append(nrm)
-		_cc.append(Color(clampf((p.y - base) / (top - base), 0.0, 1.0), tint, 0.0))
-	for i: int in ico[1]:
-		_ci.append(first + i)
-
-
-## [unit vertices, indices] of an icosphere subdivided `levels` times, wound for Godot.
-static func _icosphere(levels: int) -> Array:
-	var t := (1.0 + sqrt(5.0)) / 2.0
-	# An Array (not packed) so _mid can append to it.
-	var v: Array[Vector3] = [
-		Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
-		Vector3(0, -1, t), Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t),
-		Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
-	for i in v.size():
-		v[i] = v[i].normalized()
-	var f := PackedInt32Array([0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4,
-		11, 10, 2, 10, 7, 6, 7, 1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5,
-		2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1])
-	for l in levels:
-		var mid := {}
-		var nf := PackedInt32Array()
-		for k in range(0, f.size(), 3):
-			var a := f[k]
-			var b := f[k + 1]
-			var c := f[k + 2]
-			var ab := _mid(v, mid, a, b)
-			var bc := _mid(v, mid, b, c)
-			var ca := _mid(v, mid, c, a)
-			nf.append_array([a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca])
-		f = nf
-	# The table is counter-clockwise from outside; Godot's front faces are clockwise.
-	for k in range(0, f.size(), 3):
-		var tmp := f[k + 1]
-		f[k + 1] = f[k + 2]
-		f[k + 2] = tmp
-	return [v, f]
-
-
-static func _mid(v: Array[Vector3], cache: Dictionary, a: int, b: int) -> int:
-	var key := mini(a, b) * 100000 + maxi(a, b)
-	if cache.has(key):
-		return cache[key]
-	v.append(((v[a] + v[b]) * 0.5).normalized())
-	cache[key] = v.size() - 1
-	return v.size() - 1

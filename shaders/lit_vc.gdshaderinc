@@ -70,8 +70,20 @@ vec3 net_flap(vec3 v, float a, vec3 origin) {
 }
 #endif
 
+#ifdef TREE_LOD
+#include "res://shaders/lod_dither.gdshaderinc"
+#endif
+
 varying vec3 world_pos;
 varying float local_z;
+#if defined(TERRAIN) || defined(ROCK) || defined(BOULDER)
+#include "res://shaders/ground_detail.gdshaderinc"
+varying vec3 world_n;
+#endif
+#ifdef BOULDER
+// Metres in from the top's outline (UV.y, Models.rock), however big it's drawn.
+varying float edge_m;
+#endif
 // Flat: a whole face takes its first vertex's key (MeshBuilder starts both of a quad's
 // triangles there), so glass straddling a storey line doesn't hash per pixel.
 varying flat vec3 room_key;
@@ -93,8 +105,23 @@ void vertex() {
 #ifdef NET
 	VERTEX = net_flap(VERTEX, COLOR.a, MODEL_MATRIX[3].xyz);
 #endif
+#ifdef TREE_LOD
+	vec3 lw = lod_weights(MODEL_MATRIX[3].xyz, CAMERA_POSITION_WORLD);
+	lod_in = lw.x;
+	lod_out = lw.y;
+	lod_seed = lw.z;
+	if (lw.x <= 0.0 || lw.y <= 0.0) {
+		VERTEX = vec3(0.0);
+	}
+#endif
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	local_z = VERTEX.z;
+#if defined(TERRAIN) || defined(ROCK) || defined(BOULDER)
+	world_n = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+#endif
+#ifdef BOULDER
+	edge_m = UV.y * length(abs(NORMAL.y) > 0.9 ? MODEL_MATRIX[0].xyz : MODEL_MATRIX[1].xyz);
+#endif
 	// Instance origin (or room_seed), wall (normal) and storey (in metres, however big
 	// the mesh is drawn): the same for a whole window.
 	vec3 origin = room_seed != 0.0 ? vec3(room_seed, room_seed * 1.7, room_seed * 2.3) : MODEL_MATRIX[3].xyz;
@@ -102,9 +129,51 @@ void vertex() {
 	upright = step(abs(NORMAL.y), 0.5);
 }
 
+#ifdef TERRAIN
+// How faceted the ground looks: 0 smooth (its vertex normals), 1 every triangle flat.
+uniform float facet : hint_range(0.0, 1.0) = 0.4;
+// Procedural grass, forest floor and boulder detail (ground_detail.gdshaderinc).
+uniform bool detail = true;
+#endif
+
 void fragment() {
+#ifdef TREE_LOD
+	lod_dither(FRAGCOORD.xy);
+#endif
 	ALBEDO = srgb_to_linear(COLOR.rgb);
+#ifdef TREE_LOD
+	ALBEDO *= lod_gain;
+#endif
 	ROUGHNESS = 0.92;
+#ifdef TERRAIN
+	vec3 flat_n = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	if (dot(flat_n, NORMAL) < 0.0) {
+		flat_n = -flat_n;
+	}
+	NORMAL = normalize(mix(NORMAL, flat_n, facet));
+	if (detail) {
+		vec3 wn = normalize(world_n);
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		vec3 dn = ground_detail(world_pos, wn, mpp, ALBEDO) - wn;
+		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
+	}
+#endif
+#ifdef ROCK
+	{
+		vec3 wn = normalize(world_n);
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		vec3 dn = rock_detail(world_pos, wn, mpp, ALBEDO) - wn;
+		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
+	}
+#endif
+#ifdef BOULDER
+	{
+		vec3 wn = normalize(world_n);
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		vec3 dn = boulder_detail(world_pos, wn, mpp, edge_m, ALBEDO) - wn;
+		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
+	}
+#endif
 #ifndef NET
 	// (A net's alpha is its give in the wind, not glass.)
 	if (COLOR.a < 0.99 && night_lights > 0.0) {
@@ -144,7 +213,7 @@ void fragment() {
 void light() {
 	float shade = 1.0;
 	if (LIGHT_IS_DIRECTIONAL) {
-		shade = 1.0 - cloud_shadow(world_pos, TIME);
+		shade = 1.0 - cloud_shadow(world_pos, cloud_time);
 	}
 	DIFFUSE_LIGHT += clamp(dot(NORMAL, LIGHT), 0.0, 1.0) * ATTENUATION * LIGHT_COLOR / PI * shade;
 }

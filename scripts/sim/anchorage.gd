@@ -23,10 +23,12 @@ const KEEP_FROM_HARBOURS := 270.0
 const KEEP_FROM_HAUL_OUTS := 135.0   # seals' beaches and rocks: don't anchor off them
 const KEEP_FROM_SHIPS := 54.0  # from water the ships can use (their hulls, and a boat swinging at anchor)
 
+# A spot carries its cove's description, not the cove itself: the cove owns its
+# spots, and a reference back would keep both alive after the map is gone.
 class Spot:
 	var pos := Vector2.ZERO
 	var taken_by: Vessel = null
-	var anchorage: Anchorage
+	var place := ""              # its cove's (Anchorage.place)
 
 var center := Vector2.ZERO
 var shelter := 0.0
@@ -120,6 +122,8 @@ static func find_all(t: MarineTraffic) -> Array[Anchorage]:
 		if a.spots.is_empty():
 			continue
 		a.place = _place_name(map, p)
+		for sp in a.spots:
+			sp.place = a.place
 		out.append(a)
 	return out
 
@@ -140,7 +144,6 @@ func _lay_spots(cands: Array) -> void:
 		if ok:
 			var sp := Spot.new()
 			sp.pos = p
-			sp.anchorage = self
 			spots.append(sp)
 
 

@@ -1,15 +1,20 @@
-# Ferry Tycoon (preview)
+# Tideways
 
-A low-poly ferry-system management game prototype in **Godot 4.7**. It procedurally
+The shared development and release repository for Tideways, a regional development game in **Godot 4.7**. The Sandbox procedurally
 generates an archipelago with towns, terminals and routes. Cars drive from town to
 the holding lots, queue in lanes, board double-ended ferries, cross, and drive off
 at the other side.
 
 Open the folder in Godot 4.7 and press **Play** (F5). The menu offers **Play** (the main map, still empty) and
-**Sandbox** (the procedural archipelago where features are prototyped first). Everything is built in code,
-so there are no assets to import.
+**Sandbox** (the procedural archipelago where features are prototyped first). Godot imports the project assets on first open.
 
-For Paul, Jon and their AI agents, see the [development and merge workflow](docs/workflow.md).
+## Working on Tideways
+
+- For Jon and Paul, start with the [short team handoff](docs/jon-handoff.md). Agents can use the [detailed handoff](docs/claude-gameplay-handoff.md).
+- Start a gameplay change with the [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) and [game design document](docs/tideways-gdd.md). The affected Linear ticket records current decisions.
+- Use the [team workflow](docs/workflow.md) for branch handoff, verification and merge.
+- Use the [architecture guide](docs/architecture.md), [verification map](docs/verification.md), system map below and the [engineering queue](https://linear.app/tideways/project/engineering-foundations-e97de6837467) when changing shared code.
+- Follow the [CI and TestFlight guide](docs/delivery.md) to validate a PR or deliver a build.
 
 ## Controls
 
@@ -29,6 +34,9 @@ wind, tide).
 
 ## Architecture
 
+The map supplies authored or generated data. The simulation owns the clock, terminals and ferries. A ferry coordinates the loading and sailing sequence. Its deck owns space reservations, and the fare ledger owns receipts. The HUD presents those results and sends player actions to their owner. Put a new rule beside the state it governs and exercise it with a focused test. Use a seeded scene test when the outcome depends on several systems acting together.
+
+
 ```
 scripts/
   scenes.gd               scene paths: menu, main map, sandbox
@@ -44,11 +52,13 @@ scripts/
   world/glow_builder.gd   night-light quads (glows, pools, beams, reflections) for glow.gdshader
   world/night_lights.gd   dusk-to-dawn switching, car head/tail lights, ferry nav lights, bokeh focus
   world/seagulls.gd       simulated gulls perching on lamps, lifts, ferries, water
-  world/orcas.gd          orca pods: formation, breathing rolls, blows, breaches, spyhops
+  world/cetaceans.gd          orca pods: formation, breathing rolls, blows, breaches, spyhops
   sim/simulation.gd       clock (1 s = 1 game min), seasons, demand curve, fares, satisfaction
   sim/wildlife.gd         species table, daily visits, sightings, island wildlife reputation
   sim/terminal.gd         spawning, lane queues, boarding/exit paths
   sim/vessel.gd           base for anything afloat: hull capsule, path lookahead, right of way
+  sim/fare_ledger.gd      fare credits, daily receipts and lifetime revenue
+  sim/ferry_deck.gd       capacity, lane preference and reservations for a crossing
   sim/ferry.gd            load → sail → unload state machine along a Curve3D
   sim/ferry_class.gd      the five ferry sizes: lanes, rows, hull, speed, fittings
   sim/sailboat.gd         marina-to-marina sailing: back out, sail, wait for and enter a berth

@@ -246,7 +246,7 @@ void fragment() {
 			* aa_step(0.55, breakup);
 	float foam = max(lip, bands_f * 0.85);
 
-	float cloud = cloud_shadow(world_pos, TIME);
+	float cloud = cloud_shadow(world_pos, cloud_time);
 	float glint_vis = gfade * (1.0 - foam) * clamp(1.0 - cloud * 1.6, 0.0, 1.0);
 	col = mix(col, glint_halo_color.rgb, halo * glint_vis);
 	col = mix(col, glint_color.rgb, core * glint_vis);

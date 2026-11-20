@@ -65,6 +65,21 @@ var _next := 0
 var _cargo_named := 0
 
 
+## The slow, data-only part of setup: the nav grid, fishing grounds and anchorages.
+## Needs only s.map and s.terrain and touches no nodes, so the loading screen runs
+## it on a worker thread ahead of setup(); setup() runs it itself otherwise.
+func prepare(s: Simulation) -> void:
+	sim = s
+	nav = NavGrid.new(s.map, s.terrain)
+	grounds = FishingGround.find_all(self)
+	var t1 := Time.get_ticks_msec()
+	anchorages = Anchorage.find_all(self)
+	var spots := 0
+	for a in anchorages:
+		spots += a.spots.size()
+	print("Anchorages: %d coves, %d spots (%d ms)" % [anchorages.size(), spots, Time.get_ticks_msec() - t1])
+
+
 func setup(s: Simulation) -> void:
 	sim = s
 	name = "MarineTraffic"
@@ -72,7 +87,8 @@ func setup(s: Simulation) -> void:
 	process_priority = -10
 	rng.seed = s.map.map_seed * 7 + 11
 	var t0 := Time.get_ticks_msec()
-	nav = NavGrid.new(s.map, s.terrain)
+	if nav == null:
+		prepare(s)
 	_find_corridors()
 	for f in s.ferries:
 		f.claim_corridors_at_start()
@@ -82,13 +98,6 @@ func setup(s: Simulation) -> void:
 		var row := []
 		row.resize(Layout.MARINA_BERTHS)
 		berths[m.id] = row
-	grounds = FishingGround.find_all(self)
-	var t1 := Time.get_ticks_msec()
-	anchorages = Anchorage.find_all(self)
-	var spots := 0
-	for a in anchorages:
-		spots += a.spots.size()
-	print("Anchorages: %d coves, %d spots (%d ms)" % [anchorages.size(), spots, Time.get_ticks_msec() - t1])
 	_spawn_sailboats()
 	_spawn_fishing_boats()
 	pilotage = Pilotage.new(self)
@@ -310,8 +319,8 @@ func release_berth(m: MapData.Marina, b: int, boat: MarinaBoat) -> void:
 ## across each other's lanes there. Boats waiting their turn to come in (see
 ## queue_for) go in the order they got there, before any boat leaving.
 func try_lock(h: MapData.Harbour, who: Vessel) -> bool:
-	var holder: Vessel = _lock.get(h)
-	if holder != null and holder != who and is_instance_valid(holder):
+	var holder := lock_holder(h)
+	if holder != null and holder != who:
 		return false
 	var q: Array = _queue.get(h, [])
 	while not q.is_empty() and not is_instance_valid(q[0]):
@@ -338,7 +347,7 @@ func leave_queue(h: MapData.Harbour, who: Vessel) -> void:
 
 
 func lock_holder(h: MapData.Harbour) -> Vessel:
-	var who: Vessel = _lock.get(h) if h else null
+	var who: Variant = _lock.get(h)
 	return who if is_instance_valid(who) else null
 
 

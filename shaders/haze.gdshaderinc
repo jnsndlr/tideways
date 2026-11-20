@@ -10,20 +10,26 @@ global uniform vec3 sky_zenith;
 global uniform vec2 fog_range;
 
 vec4 backdrop_haze(vec3 world, float depth) {
+	// The blue of distance, by how far out from the map: the near bank stays clear
+	// and each range behind it sinks a little further into the sky's blue. No white
+	// fog lying on the water at the shore's foot.
 	float r = length(world.xz);
-	float y = world.y;
-	// A lighter take on the engine's depth fog, only on low ground near the map.
-	float a = smoothstep(fog_range.x, fog_range.y, depth) * 0.6
-		* (1.0 - smoothstep(30.0, 900.0, y)) * (1.0 - smoothstep(3600.0, 7800.0, r));
-	vec3 col = haze_fog;
-	// The blue of distance, deepening with each layer out.
-	float far = smoothstep(1800.0, 27000.0, r);
-	far = pow(far, 0.75) * 0.78;
-	col = mix(col, mix(haze_sky, sky_zenith, 0.5), far / max(far + a, 1e-4));
-	a = max(a, far);
-	// Thin haze on the water at the foot of the far shores.
-	float low = smoothstep(4500.0, 18000.0, r) * (1.0 - smoothstep(0.0, 360.0, y)) * 0.4;
-	col = mix(col, haze_sky, low / max(low + a, 1e-4));
-	a = max(a, low);
-	return vec4(col, a);
+	float far = pow(smoothstep(3400.0, 27000.0, r), 0.8) * 0.72;
+	return vec4(mix(haze_sky, sky_zenith, 0.55), far);
+}
+
+// The engine's depth fog as the Sandbox sets it up (density 0.85, linear over
+// fog_range), for blending into at the map's edge.
+const float ENGINE_FOG_DENSITY = 0.85;
+// Over this far past the map's edge (map_half: Terrain.half_size) the Backdrop
+// turns from the engine's own fog, as on the terrain beside it, to its haze.
+const float EDGE_HAZE = 1200.0;
+
+float edge_near(vec3 world, float map_half) {
+	return 1.0 - smoothstep(0.0, EDGE_HAZE, max(abs(world.x), abs(world.z)) - map_half);
+}
+
+vec4 edge_haze(vec3 world, float depth, float map_half) {
+	float engine = clamp((depth - fog_range.x) / max(fog_range.y - fog_range.x, 1.0), 0.0, 1.0) * ENGINE_FOG_DENSITY;
+	return mix(backdrop_haze(world, depth), vec4(haze_fog, engine), edge_near(world, map_half));
 }

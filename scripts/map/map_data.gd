@@ -6,6 +6,7 @@ extends RefCounted
 
 
 class Island:
+	var key := ""                   # durable within this region; shared by its terminal
 	var id := 0
 	var name := ""
 	var center := Vector2.ZERO      # x, z
@@ -13,9 +14,22 @@ class Island:
 	var strength := 1.0             # elevation multiplier
 	var inhabited := true
 	var is_mainland := false
+	var mainland_port := false      # set against the mainland's shore (the layout's `mainland`)
 	var population := 0
 	var growth := 0.0               # base % per year
 	var wildlife_appeal := 1.0      # how strongly it pulls marine wildlife visits
+
+	# Shape (see Terrain.Stamp): 0 shape_seed samples the noise where the island stands.
+	var shape_seed := 0
+	var stretch := 1.0
+	var angle := 0.0                # radians
+	var roughness := 1.0
+	var hills := 1.0
+	var peak := 0.0
+	var lakes := 1.0
+	# Cover: how thick the woods are, and how much is open fields instead.
+	var forest := 1.0
+	var fields := 0.4
 
 	# Ferry terminal (valid when has_terminal)
 	var has_terminal := false
@@ -23,6 +37,15 @@ class Island:
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
 	var slips: Array[int] = []      # route ids, ordered left → right along lateral()
 	var lot_half_width := 36.0
+	# Placed by hand in the layout: used as given instead of searching the coast.
+	var ferry := true               # may get a terminal at all
+	var manual_dock := false
+	var manual_at := Vector2.ZERO
+	var manual_dir := Vector2.RIGHT
+	## A positive quote reserves one expansion site on the left of this lot.
+	var lane_extension_price := 0
+	## Contiguous holding lanes needed alongside the extension for materials and machines.
+	var construction_staging_lanes := 1
 
 	# Town
 	var town_center := Vector3.ZERO
@@ -186,6 +209,7 @@ class HaulSpot:
 
 
 class Route:
+	var key := ""                   # independent of the runtime array position
 	var id := 0
 	var a := 0      # island id
 	var b := 0
@@ -201,6 +225,15 @@ var marinas: Array[Marina] = []
 var quays: Array[FishQuay] = []
 var stations: Array[PilotStation] = []
 var haul_outs: Array[HaulOut] = []
+## Sandy beaches cut into the shore (MapGenerator._place_beaches).
+var beaches: Array[Beach] = []
+
+
+class Beach:
+	var shore := Vector3.ZERO       # the middle of its waterline, y = 0
+	var dir := Vector3.FORWARD      # out to sea
+	var half_width := 40.0
+	var beside := false             # next to a ferry lot or marina
 
 
 ## Every wharf on the map: fish quays and pilot stations.

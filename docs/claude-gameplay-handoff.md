@@ -6,20 +6,16 @@ Develop and release from [jnsndlr/Tideways](https://github.com/jnsndlr/Tideways)
 
 Jon and Paul are equal contributors. Work with Jon on gameplay implementation, gameplay design and art. Paul and his agent are prioritizing architecture, code cleanliness, tests, CI and delivery. Either person can work in any area, make design decisions, verify a change or ship to TestFlight.
 
-## Recommended first pickup
+## Choosing gameplay work
 
-**[TID-66 · Choose a captain whose strengths suit the crossing](https://linear.app/tideways/issue/TID-66).** On November 14 it was Ready, unassigned and unblocked. Jon’s active cards covered Madrona and camera work. Check the live board and open PRs again before claiming it. If someone has started it, coordinate on the ticket before editing.
-
-Start with a working Sandbox ferry. Offer two named captains whose strengths make the choice intelligible for that crossing. Show the player what will change, allow reassignment, and let the next sailing demonstrate one real effect. A difference in voyage time is a candidate to try with Jon. The design ticket allows an operating-cost effect too. Keep the first slice small enough to compare the same ferry and route under both captains. Show what happened in play and record the chosen tradeoff in the ticket. This unlocks [crew effects on service](https://linear.app/tideways/issue/TID-67).
-
-Keep the captain rule in simulation code and have the UI display its result. Coordinate if the change touches the HUD selection or ferry-loading paths Paul is covering. Payroll, benefits, fatigue and the broader hiring system have their own tickets.
+Start with Jon’s current gameplay, design or art priority. When Jon asks you to pick something, use [Ready to pick up](https://linear.app/tideways/view/c608f2d9-0e35-4ef6-bcd5-065da3d03582) and check open PRs for overlap. The [captain assignment change](https://github.com/jnsndlr/Tideways/pull/14) is an example of a small playable slice with a rule the player can observe on the next crossing. Check the [crew effects ticket](https://linear.app/tideways/issue/TID-67) for its prerequisites before extending that system.
 
 ## Pick up, implement and hand off
 
-1. Open the [Linear workflow guide](https://linear.app/tideways/document/start-here-tideways-release-planning-5ecd09fccfe5). The shared pickup order is verification handoffs first, then Ready work by priority. For a gameplay session, check Jon’s active work and claim the chosen card in **In Progress**. Exploratory prototypes can start immediately. Link anything you keep to a ticket before handoff or merge.
+1. Open the [Linear workflow guide](https://linear.app/tideways/document/start-here-tideways-release-planning-5ecd09fccfe5). For Paul, default to verification handoffs and pending deliveries. For Jon, follow the gameplay pickup guidance above. Either can ask for a different focus. Before implementing an existing ticket, assign it to Jon Sandler when working for Jon or Paul Hise when working for Paul, move it to **In Progress**, and add your agent label. Check the human assignee and agent label for an existing claim. Exploratory prototypes can start immediately. Link anything you keep to a ticket before handoff or merge.
 2. Use quick mode. Get the change running and use the smallest check that answers the design question. Keep game rules independent of iPad input, rendering and UI. Reuse the existing owner of a rule. Clean the paths you touch. Broader cleanup with a concrete payoff belongs in [Engineering foundations](https://linear.app/tideways/project/engineering-foundations-e97de6837467).
 3. When a decision changes, update the affected Linear ticket with what changed and why. Update any Ready ticket or design-index entry that would now send someone in the wrong direction. Link overlapping work. Use Discord for a timely heads-up if another person is actively editing that system.
-4. For a handoff, put the PR links in merge order, give the steps to try it and describe the expected player experience. Move the ticket to **Ready for verification** and clear the assignee. Either person can claim it and move it to **In Review**. Claiming authorizes their agent to fix, test and merge. Pause for a design choice or an unresolved failure.
+4. For a handoff, put the PR links in merge order, give the steps to try it and describe the expected player experience. Move the ticket to **Ready for verification** and clear the assignee and your agent label. Either person can claim it and move it to **In Review**. Claiming authorizes their agent to fix, test and merge. Pause for a design choice or an unresolved failure.
 5. Follow the [team workflow](workflow.md) at merge time. Run fast CI and the checks appropriate to the change. Physical iPad verification is needed when touch, performance or device behavior determines success. A minor bug can get a follow-up ticket if the agreed feature works. Broken core behavior, crashes or save loss hold the merge. Passing parts of a stack may land independently when each delivers a useful change and keeps main playable.
 6. Mark a feature **Done** once verified and merged to shared main. Track TestFlight delivery separately through availability to the tester group. Either person can ship after the release checks pass. Keep the board current as work happens. Either contributor or agent can do the weekly pass for stale reviews, blocked handoffs, priorities and Ready prerequisites.
 
@@ -27,4 +23,16 @@ Keep the captain rule in simulation code and have the UI display its result. Coo
 
 The first public iPad release includes the authored region, playable scheduling, research, terminal expansion, captain and crew management, local save/resume and device checks. The [design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) maps ideas to issues, including later ideas and explicit cuts. The [opening-playthrough ticket](https://linear.app/tideways/issue/TID-241) tracks unsettled choices about fares and onboarding, operating costs and idle boats, the first expansion and visible town change, and minimum readability and audio.
 
-Paul’s [code and testing audit](https://linear.app/tideways/document/code-architecture-cleanliness-and-test-audit-tideways-main-5ca0b8b57074) prioritizes protecting fare and deck-allocation rules, testing a complete vehicle journey and real UI controls, and fixing Sandbox teardown. Accounting and deck refactors follow their tests. These are coordination points for gameplay work. The goal is to keep behavior testable and preserve Jon’s visuals while features move quickly.
+## Engineering sessions and handoff details
+
+Check the requested focus at the start of the session. For an engineering session, pick the failure mode or maintenance cost on the ticket. Work on isolated branches from current shared main. Inspect the diff and existing owners before moving code. Use the [architecture guide](architecture.md) for state ownership and the [verification map](verification.md) for the smallest representative scenario. Keep player-visible behavior stable during cleanup. If the work exposes a gameplay decision, write it on the ticket so its author can resolve it.
+
+For example, a fare cleanup starts at the boarding call and follows the vehicle facts through Simulation to FareLedger. Capture a measured and fallback fare, change ownership, then replay the saved cases and a complete crossing. A HUD cleanup starts at the visible control and follows its action into simulation or camera state. Exercise the control through the viewport so occlusion and wiring errors both surface.
+
+A handoff comment can be three short lines:
+
+- **Review order** — PR links from base to tip, plus any overlap with another branch.
+- **Try it** — starting scene, seed or setup, and the control or command to use.
+- **Expected result** — what the player sees or what regression should fail; include any remaining device or design question.
+
+When a stack or old branch diverges from main, compare the combined behavior, resolve conflicts on the work branch and rerun the affected checks. A passing older commit is historical evidence. Keep unrelated local edits and other people's PRs intact. Delete merged task branches when their author is finished with them. Either person can update this guide and the workflow when a simpler practice works better.
