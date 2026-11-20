@@ -46,8 +46,8 @@ var trips: int:
 	set(value): voyage.trips = value
 # Her master sets how she is handled (Captain.speed_limit). A new one takes the
 # helm when she next casts off, so a crossing is made under one captain.
-var captain: Captain
-var next_captain: Captain
+var captain: Captain = Captain.roster()[0]
+var next_captain: Captain = captain
 var last_crossing := -1.0         # game minutes dock to dock, -1 before the first timed one
 var last_crossing_captain: Captain
 var previous_crossing := -1.0     # the timed crossing before that, to compare with
