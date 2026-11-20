@@ -45,6 +45,7 @@ var _hitch := Vector3.ZERO     # the fifth wheel, in the tractor's frame (model 
 var _trailer_axle := Vector3.ZERO  # the trailer's axle centre, in the parent's space
 var _trailer_reach := 0.0          # fifth wheel to that, in the parent's space
 var _on_arrive := Callable()
+var _body: MeshInstance3D      # its mesh, tipped nose up or down a steep ramp (looks only)
 var _parking_yaw := NAN
 ## The vehicle it follows (the one sent off just before it, or the one ahead in its
 ## queue): while that is on the move it holds back behind its tail.
@@ -70,6 +71,7 @@ func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGAC
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	add_child(mi)
+	_body = mi
 	if model_key != "":
 		var size: Vector3 = VehicleData.VARIANTS[model_key].size
 		_set_length(size.z * model_scale, 0.0)
@@ -155,6 +157,15 @@ func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0
 	if trailer:
 		_reset_trailer()
 	_set_moving(not path.is_empty())
+
+
+## Tips the body to a steep `slope` (rise over run: a ferry's tween-deck ramp), level
+## on anything gentler. Only the mesh turns, so the vehicle's frame stays level.
+func _tip(slope: float, delta: float) -> void:
+	if _body == null:
+		return
+	var want := -atan(slope) if absf(slope) > 0.08 else 0.0
+	_body.rotation.x = lerp_angle(_body.rotation.x, want, minf(1.0, delta * 8.0))
 
 
 ## The final straight maneuver into a reserved holding lane. Long trailers need
@@ -334,8 +345,10 @@ func _process(delta: float) -> void:
 				parking_weight = step / dist
 			position += dir * step
 			step = 0.0
-			if dir.x * dir.x + dir.z * dir.z > 0.0001:
+			var flat := dir.x * dir.x + dir.z * dir.z
+			if flat > 0.0001:
 				rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), minf(1.0, delta * 12.0))
+				_tip(dir.y / sqrt(flat), delta)
 	if trailer:
 		_drag_trailer()
 	if parking_weight > 0.0:

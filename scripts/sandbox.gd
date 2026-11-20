@@ -111,6 +111,9 @@ func _ready() -> void:
 	clouds = CloudLayer.new()
 	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
+	var grass := Grass.new()
+	grass.setup(terrain, builder, rig, sim)
+	add_child(grass)
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
 	day_cycle.sim = sim

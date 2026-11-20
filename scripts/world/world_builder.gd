@@ -10,6 +10,9 @@ const EDGE_WOOD := 420.0
 ## flat tree cards (and its darker forest floor) across half this band, just past the
 ## map's edge, so the map itself is all modelled and neither style stops at a line.
 const EDGE_MIX := 700.0
+## The faceted shore rock meshes (_build_shore_rocks). Off for now: the painted
+## cliff reads well on its own. TIDEWAYS_SHORE_ROCKS=1 turns them back on to tweak.
+const SHORE_ROCKS := false
 const ASPHALT := Color(0.26, 0.27, 0.29)
 const CONCRETE := Color(0.62, 0.62, 0.6)
 const ROAD := Color(0.3, 0.31, 0.33)
@@ -59,6 +62,14 @@ var tree_shadows: Array[MultiMeshInstance3D] = []
 ## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
 var eagle_perches: Array[Eagles.Perch] = []
 var _blocked := {}
+## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
+## in RGB and how much grass grows there in A (Grass reads it as a texture).
+var ground_rgba := PackedByteArray()
+## The tops of the shore rocks' grassy caps, for the grass blades (Grass.gd): one byte
+## a LIFT_CELL square, 0 for none, else the cap's height as (h + 4) * 4.
+var grass_lift := PackedByteArray()
+var lift_side := 0
+const LIFT_CELL := 2.0
 
 
 func _init(m: MapData, t: Terrain) -> void:
@@ -80,7 +91,9 @@ func build() -> Node3D:
 	_build_lighthouses()
 	_build_haul_outs()
 	_build_vegetation()
+	_build_shore_rocks()
 	_build_route_overlay()
+	_clear_grass_where_blocked()
 	night_lights = _add_mesh(glows.commit(), "NightLights", false)
 	night_lights.visible = false
 	return root
@@ -235,6 +248,7 @@ func _build_terrain() -> void:
 	mat.shader = load(TERRAIN_SHADER)
 	terrain_material = mat
 	var n := terrain.n
+	ground_rgba.resize((n + 1) * (n + 1) * 4)
 	for tj in range(0, n, TERRAIN_TILE):
 		for ti in range(0, n, TERRAIN_TILE):
 			_terrain_tile_node(ti / TERRAIN_TILE, tj / TERRAIN_TILE)
@@ -313,7 +327,9 @@ func _terrain_tile(i0: int, j0: int, i1: int, j1: int) -> ArrayMesh:
 					var nrm := Vector3(h[cj * vn + maxi(ci - 1, 0)] - h[cj * vn + mini(ci + 1, n)], 2.0 * c,
 						h[maxi(cj - 1, 0) * vn + ci] - h[mini(cj + 1, n) * vn + ci]).normalized()
 					normals.append(nrm)
-					colors.append(ground_color(y, nrm.y, x, z))
+					var col := ground_color(y, nrm.y, x, z)
+					colors.append(col)
+					_record_ground(cj * vn + ci, col, y, nrm.y, x, z)
 				q[corner] = local[li]
 			if (i + j) % 2 == 0:
 				idx.append_array([q[0], q[1], q[3], q[0], q[3], q[2]])
@@ -337,6 +353,36 @@ func _terrain_tile(i0: int, j0: int, i1: int, j1: int) -> ArrayMesh:
 	shadow.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sarr)
 	mesh.shadow_mesh = shadow
 	return mesh
+
+
+func _record_ground(k: int, col: Color, h: float, ny: float, x: float, z: float) -> void:
+	var o := k * 4
+	ground_rgba[o] = col.r8
+	ground_rgba[o + 1] = col.g8
+	ground_rgba[o + 2] = col.b8
+	# Grass on gentle ground above the beach, thinning into the edge's woods.
+	var g := smoothstep(3.9, 5.2, h) * smoothstep(0.72, 0.8, ny) * (1.0 - edge_wood(x, z))
+	ground_rgba[o + 3] = roundi(g * 255.0)
+
+
+## No grass through roads, lots, houses, quays and the like.
+func _clear_grass_where_blocked() -> void:
+	var vn := terrain.n + 1
+	var hs := terrain.half_size
+	var c := Terrain.CELL
+	for key: Vector2i in _blocked:
+		var i0 := maxi(floori((key.x * 6.0 - 1.5 + hs) / c), 0)
+		var i1 := mini(ceili(((key.x + 1) * 6.0 + 1.5 + hs) / c), vn - 1)
+		var j0 := maxi(floori((key.y * 6.0 - 1.5 + hs) / c), 0)
+		var j1 := mini(ceili(((key.y + 1) * 6.0 + 1.5 + hs) / c), vn - 1)
+		for j in range(j0, j1 + 1):
+			for i in range(i0, i1 + 1):
+				ground_rgba[(j * vn + i) * 4 + 3] = 0
+
+
+func ground_image() -> Image:
+	var vn := terrain.n + 1
+	return Image.create_from_data(vn, vn, false, Image.FORMAT_RGBA8, ground_rgba)
 
 
 ## The islands' ground colour (the Backdrop blends the mainland's edge into it too).
@@ -953,6 +999,140 @@ func _build_vegetation() -> void:
 	_forest(Models.tree_variants(true), rounds, round_cols, "RoundTrees")
 	var no_colors: Array[Color] = []
 	_multimesh(Models.rock(), rocks, no_colors, "Rocks")
+
+
+## Rock along the shores: big faceted blocks stacked into the steep faces, turned
+## along the shore and half-buried, and boulders and stacks in the shallows at their
+## foot. The terrain's painted cliff stays behind them and takes over far away.
+func _build_shore_rocks() -> void:
+	if not (SHORE_ROCKS or OS.has_environment("TIDEWAYS_SHORE_ROCKS")) \
+			or OS.has_environment("TIDEWAYS_NO_SHORE_ROCKS"):
+		return
+	var t0 := Time.get_ticks_msec()
+	var r := RandomNumberGenerator.new()
+	r.seed = map.map_seed * 53 + 11
+	var cliff_kit := Models.rock_kit("cliff")
+	var boulder_kit := Models.rock_kit("boulder")
+	var cliffs: Array = []
+	var boulders: Array = []
+	for i in cliff_kit.size():
+		cliffs.append([] as Array[Transform3D])
+		boulders.append([] as Array[Transform3D])
+	var vn := terrain.n + 1
+	var cell := Terrain.CELL
+	var hs := terrain.half_size
+	lift_side = ceili(hs * 2.0 / LIFT_CELL)
+	grass_lift.resize(lift_side * lift_side)
+	for j in range(4, vn - 4):
+		for i in range(4, vn - 4):
+			var h := terrain.h_grid[j * vn + i]
+			if h < -4.0 or h > 45.0:
+				continue
+			var gx := (terrain.h_grid[j * vn + i + 1] - terrain.h_grid[j * vn + i - 1]) / (2.0 * cell)
+			var gz := (terrain.h_grid[(j + 1) * vn + i] - terrain.h_grid[(j - 1) * vn + i]) / (2.0 * cell)
+			var slope := sqrt(gx * gx + gz * gz)
+			var cliff := slope > 0.75 and h > -1.5
+			var shallows := h > -3.2 and h < 1.0
+			if not cliff and not shallows:
+				continue
+			var x := -hs + i * cell + r.randf_range(-0.5, 0.5) * cell
+			var z := -hs + j * cell + r.randf_range(-0.5, 0.5) * cell
+			if _is_blocked(x, z):
+				continue
+			# Downhill, i.e. out to sea for a shore.
+			var out := Vector3(-gx, 0.0, -gz).normalized() if slope > 0.01 else Vector3(1, 0, 0)
+			var side := Vector3(-out.z, 0, out.x)
+			var along := atan2(out.x, out.z) + PI * 0.5
+			if cliff and r.randf() < 0.5:
+				# Stand a block at the foot of the face, tall enough to reach its lip.
+				var p := Vector3(x, 0.0, z)
+				var top := maxf(terrain.height_at(p.x - out.x * 5.0, p.z - out.z * 5.0), h)
+				var foot := maxf(minf(terrain.height_at(p.x + out.x * 5.0, p.z + out.z * 5.0), h), -2.0)
+				# Only faces that come down to the water: inland slopes keep their painted
+				# crags, and a low step stays grass.
+				if foot > 2.5 or top - foot < 1.5:
+					continue
+				var tall := clampf(top - foot, 2.0, 12.0) * r.randf_range(0.95, 1.15)
+				var wide := clampf(tall * r.randf_range(0.7, 1.2), 3.0, 9.0)
+				p += out * r.randf_range(0.5, 2.0) + side * r.randf_range(-1.0, 1.0)
+				p.y = foot - tall * 0.15
+				var b := Basis(Vector3.UP, along + r.randf_range(-0.3, 0.3))
+				# Leaning back into the hill a little.
+				b = Basis(side, r.randf_range(0.0, 0.15)) * b
+				b = b.scaled(Vector3(wide, tall, maxf(wide * 0.7, 3.0)))
+				var vi := r.randi() % cliff_kit.size()
+				var xf := Transform3D(b, p)
+				cliffs[vi].append(xf)
+				_lift_cap(xf, cliff_kit[vi].get_meta("caps"))
+			if shallows and r.randf() < (0.18 if slope > 0.5 else 0.03):
+				for k in r.randi_range(1, 3):
+					var s := r.randf_range(0.8, 3.0) if r.randf() < 0.8 else r.randf_range(3.5, 6.0)
+					var p := Vector3(x, 0.0, z) + out * r.randf_range(0.0, 6.0) + side * r.randf_range(-4.0, 4.0)
+					var gh := terrain.height_at(p.x, p.z)
+					if gh < -4.0:
+						continue
+					p.y = gh - s * 0.2
+					var b := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(s, s * r.randf_range(0.7, 1.3), s * r.randf_range(0.8, 1.1)))
+					boulders[r.randi() % boulder_kit.size()].append(Transform3D(b, p))
+	var no_colors: Array[Color] = []
+	var count := 0
+	for i in cliff_kit.size():
+		var c: Array[Transform3D] = cliffs[i]
+		var bo: Array[Transform3D] = boulders[i]
+		count += c.size() + bo.size()
+		_multimesh(cliff_kit[i], c, no_colors, "ShoreCliffs%d" % i)
+		_multimesh(boulder_kit[i], bo, no_colors, "ShoreBoulders%d" % i)
+	print("Shore rocks: %d pieces (%d ms)" % [count, Time.get_ticks_msec() - t0])
+
+
+## Marks the grass lift cells whose middle lies on a rock's cap (pulled in a metre
+## from its edge, so blades don't hang over it) with the cap's height there.
+func _lift_cap(xf: Transform3D, caps: PackedVector3Array) -> void:
+	if caps.is_empty():
+		return
+	var w := PackedVector3Array()
+	w.resize(caps.size())
+	var mid := Vector3.ZERO
+	for k in caps.size():
+		w[k] = xf * caps[k]
+		mid += w[k]
+	mid /= caps.size()
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	var reach := 0.0
+	for k in w.size():
+		reach = maxf(reach, Vector2(w[k].x - mid.x, w[k].z - mid.z).length())
+	if reach < 1.6:
+		return
+	var pull := 1.0 / reach
+	for k in w.size():
+		w[k] = w[k].lerp(Vector3(mid.x, w[k].y, mid.z), pull)
+		lo = Vector2(minf(lo.x, w[k].x), minf(lo.y, w[k].z))
+		hi = Vector2(maxf(hi.x, w[k].x), maxf(hi.y, w[k].z))
+	var hs := terrain.half_size
+	for cj in range(maxi(floori((lo.y + hs) / LIFT_CELL), 0), mini(ceili((hi.y + hs) / LIFT_CELL), lift_side)):
+		for ci in range(maxi(floori((lo.x + hs) / LIFT_CELL), 0), mini(ceili((hi.x + hs) / LIFT_CELL), lift_side)):
+			var q := Vector2(-hs + (ci + 0.5) * LIFT_CELL, -hs + (cj + 0.5) * LIFT_CELL)
+			for k in range(0, w.size(), 3):
+				var a := w[k]
+				var b := w[k + 1]
+				var c := w[k + 2]
+				var d := (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z)
+				if absf(d) < 1e-6:
+					continue
+				var l1 := ((b.z - c.z) * (q.x - c.x) + (c.x - b.x) * (q.y - c.z)) / d
+				var l2 := ((c.z - a.z) * (q.x - c.x) + (a.x - c.x) * (q.y - c.z)) / d
+				if l1 < 0.0 or l2 < 0.0 or l1 + l2 > 1.0:
+					continue
+				var h := a.y * l1 + b.y * l2 + c.y * (1.0 - l1 - l2)
+				var v := clampi(roundi((h + 4.0) * 4.0), 1, 255)
+				var o := cj * lift_side + ci
+				grass_lift[o] = maxi(grass_lift[o], v)
+				break
+
+
+func lift_image() -> Image:
+	return Image.create_from_data(lift_side, lift_side, false, Image.FORMAT_R8, grass_lift)
 
 
 ## A wooden pier out to a T-head float with berths along its seaward face (the

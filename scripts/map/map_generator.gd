@@ -54,6 +54,7 @@ func generate_from(layout: MapLayout) -> MapData:
 	_place_quays(map_seed)
 	_place_station(map_seed)
 	_flatten_terminals()
+	_place_beaches(map_seed)
 	_name_islands()
 	_layout_towns()
 	_roll_wildlife_appeal(map_seed)
@@ -947,6 +948,90 @@ func _flatten_terminals() -> void:
 		terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - 6.0, Layout.LOT_FRONT + 3.0,
 			-hw - Layout.LANE_WIDTH - 4.5, hw + 33.0, Layout.LOT_Y - 0.15, 21.0)
 	terrain.apply_flats()
+
+
+## Sandy beaches cut into the shore: one beside each town's ferry lot (two where the
+## lot has no expansion site reserved on its left), one beside some of the marinas,
+## and a few more along each island's gentler shores. Before the towns are laid out,
+## so their roads stop at the sand. Its own RNG, so the rest of the map stays the
+## same for a given seed.
+func _place_beaches(map_seed: int) -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = map_seed * 31 + 17
+	var cut: Array[Vector3] = []
+	for isl in _main_islands():
+		if not isl.has_terminal:
+			continue
+		var hw := isl.lot_half_width
+		var sides: Array[float] = [1.0]
+		if isl.lane_extension_price <= 0:
+			sides.append(-1.0)
+		for side in sides:
+			var half_w := r.randf_range(48.0, 66.0)
+			# Past the lot's flat and its blend (Layout: +33 / -11.7, 21 m blend).
+			var edge := hw + 33.0 if side > 0.0 else hw + Layout.LANE_WIDTH + 4.5
+			# Stepping further along if the shore just past the lot won't take one.
+			for step in 4:
+				var v := side * (edge + 15.0 + half_w + step * 30.0)
+				if _try_beach(isl.shore + isl.lateral() * v, isl.dock_dir, half_w, r, cut, true):
+					break
+	for m in map.marinas:
+		if r.randf() < 0.35:
+			continue
+		var side := 1.0 if r.randf() < 0.5 else -1.0
+		var half_w := r.randf_range(33.0, 45.0)
+		_try_beach(m.at(0.0, side * (Layout.MARINA_HEAD_HALF + 36.0 + half_w)), m.dir, half_w, r, cut, true)
+	for isl in _main_islands():
+		var want := r.randi_range(1, 3)
+		var a0 := r.randf() * TAU
+		for k in 16:
+			if want <= 0:
+				break
+			var a := a0 + k * TAU / 16.0 + r.randf_range(-0.15, 0.15)
+			var d := Vector3(cos(a), 0.0, sin(a))
+			var c := Vector3(isl.center.x, 0.0, isl.center.y)
+			if _try_beach(c + d * isl.radius, d, r.randf_range(36.0, 66.0), r, cut, false):
+				want -= 1
+
+
+## Cuts a beach near `at` facing about `out` if the shore there will take one: land
+## behind it that isn't a tall cliff, and clear of the harbours and the other
+## beaches. `beside`: placed on purpose next to a lot or marina, so it may be closer.
+func _try_beach(at: Vector3, out: Vector3, half_w: float, r: RandomNumberGenerator,
+		cut: Array[Vector3], beside: bool) -> bool:
+	var s3 := snap_shore(terrain, Vector2(at.x, at.z), Vector2(out.x, out.z))
+	var sw := seaward(terrain, Vector2(s3.x, s3.z))
+	var n3 := Vector3(sw.x, 0.0, sw.y)
+	# Facing out to sea, not running along a headland.
+	if n3.dot(out) < (0.2 if beside else 0.4):
+		return false
+	if _h(s3 - n3 * 30.0) < 2.5 or _h(s3 - n3 * 30.0) > 16.0 or _h(s3 + n3 * 30.0) > -1.0:
+		return false
+	var gap := half_w + 30.0
+	var bound := map.half_size - 120.0
+	if absf(s3.x) > bound or absf(s3.z) > bound:
+		return false
+	for o in map.islands:
+		if o.has_terminal and s3.distance_to(o.shore) < (o.lot_half_width + 24.0 + half_w if beside else 260.0):
+			return false
+	for m in map.marinas:
+		if s3.distance_to(m.shore) < (Layout.MARINA_HEAD_HALF + 30.0 + half_w if beside else 170.0):
+			return false
+	for q in map.wharves():
+		if s3.distance_to(q.shore) < Layout.QUAY_HALF + 40.0 + half_w:
+			return false
+	for p in cut:
+		if s3.distance_to(p) < gap + 90.0:
+			return false
+	terrain.carve_beach(s3, n3, half_w, r.randf_range(33.0, 45.0), r.randf_range(30.0, 38.0))
+	cut.append(s3)
+	var b := MapData.Beach.new()
+	b.shore = s3
+	b.dir = n3
+	b.half_width = half_w
+	b.beside = beside
+	map.beaches.append(b)
+	return true
 
 
 ## Names come from the layout; population and growth are rolled.

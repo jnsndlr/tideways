@@ -3,10 +3,12 @@ extends SceneTree
 ## costs. GPU timings need Vulkan on macOS (Metal has no timestamp queries); a game
 ## running at the same time skews the numbers, so compare runs made back to back.
 ##   godot --path . --rendering-driver vulkan --resolution 3200x1920 --script tools/perf_probe.gd \
-##     -- --seed=9164 [--off=dof,ssao,vfog,glow,shadow,shadow2,aa,msaa,water,clouds,backdrop,mtrees,trees,treeshadow,scale75,census]
+##     -- --seed=9164 [--off=dof,ssao,vfog,glow,shadow,shadow2,aa,msaa,water,clouds,backdrop,mtrees,trees,treeshadow,grass,ground,scale75,census]
+##     [--zoom=120] (camera distance, low over the grassiest ground: for the grass)
 var main: Node
 var frames := 0
 var off := ""
+var zoom := 0.0
 var t0 := 0
 var n := 0
 var gpu := 0.0
@@ -15,6 +17,8 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--off="):
 			off = a.substr(6)
+		elif a.begins_with("--zoom="):
+			zoom = float(a.substr(7))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
 	main = load("res://scenes/sandbox.tscn").instantiate()
@@ -54,6 +58,31 @@ func _apply() -> void:
 			"cards": _hide(main, "TreeCards*")
 			"mland": _hide(main, "Mainland")
 			"cumulus": _hide(main, "Cumulus")
+			"grass": main.find_child("Grass", true, false).queue_free()
+			"ground": main.builder.terrain_material.set_shader_parameter("detail", false)
+
+## Low over the grassiest ground, looking across it.
+func _frame_grass() -> void:
+	var b: WorldBuilder = main.builder
+	var t: Terrain = main.terrain
+	var vn := t.n + 1
+	var best := -1.0
+	var at := Vector3.ZERO
+	for j in range(40, vn - 40, 5):
+		for i in range(40, vn - 40, 5):
+			var k := j * vn + i
+			var g := 0.0
+			for o in [-24, -12, 0, 12, 24]:
+				g += b.ground_rgba[(k + o) * 4 + 3] + b.ground_rgba[(k + o * vn) * 4 + 3]
+			if g > best:
+				best = g
+				at = Vector3(-t.half_size + i * Terrain.CELL, t.h_grid[k], -t.half_size + j * Terrain.CELL)
+	main.rig.focus_on(at, zoom)
+	main.rig.distance = zoom
+	main.rig.target_dist = zoom
+	main.rig.pitch = 0.3
+	main.rig.target_pitch = 0.3
+
 
 func _hide(n: Node, nm: String) -> void:
 	for c in n.find_children(nm, "", true, false):
@@ -62,6 +91,8 @@ func _hide(n: Node, nm: String) -> void:
 func _process(_d: float) -> bool:
 	frames += 1
 	if frames == 60:
+		if zoom > 0.0:
+			_frame_grass()
 		_apply()
 		if "census" in off:
 			_census()

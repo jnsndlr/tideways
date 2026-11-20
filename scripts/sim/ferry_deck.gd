@@ -27,7 +27,7 @@ func find_space(length_in_slots: int, tall: bool, from_a: bool) -> int:
 		var row := offset if from_a else layout.rows - 1 - offset
 		for lane in layout.lanes:
 			var slot := row * layout.lanes + lane
-			if not _fits(slot, length_in_slots, from_a):
+			if not _fits(slot, length_in_slots, from_a) or not layout.lane_allows(lane, tall):
 				continue
 			if layout.lane_suits(lane, tall):
 				return slot
