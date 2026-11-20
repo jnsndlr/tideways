@@ -7,7 +7,7 @@ class_name GameSettings
 
 const PATH := "user://settings.cfg"
 ## Bus name -> default volume.
-const VOLUMES := {"Master": 0.8, "Music": 0.7, "Radio": 0.8, "Effects": 0.7}
+const VOLUMES := {"Master": 0.8, "Music": 0.7, "Radio": 0.8, "Effects": 0.7, "Ambience": 0.7}
 
 static var _cfg: ConfigFile
 

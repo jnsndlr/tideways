@@ -1,7 +1,7 @@
 class_name SettingsPanel
 extends Control
 ## Settings overlay, opened from the title screen or the in-game sidebar.
-## Sound: Master, Music, Radio calls and Interface sounds volume. Changes apply and save as the sliders move.
+## Sound: Master, Music, Radio calls, Interface sounds and Environment sounds volume. Changes apply and save as the sliders move.
 ## Display: on/off options (GameSettings.FLAGS).
 
 const PANEL_BG := Color(0.07, 0.11, 0.13, 0.96)
@@ -12,7 +12,7 @@ const ACCENT := Color(0.47, 0.86, 0.6)
 
 ## Bus -> label shown.
 const SLIDERS := [["Master", "Master volume"], ["Music", "Music"], ["Radio", "Radio calls"],
-	["Effects", "Interface sounds"]]
+	["Effects", "Interface sounds"], ["Ambience", "Environment sounds"]]
 ## Flag -> label shown.
 const TOGGLES := [["floating_costs", "Show running costs over boats as they're paid"]]
 
