@@ -135,7 +135,7 @@ func _ready() -> void:
 	gulls.setup(sim, day_cycle, builder.gull_perches)
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"
-	ambience.setup(rig, gulls)
+	ambience.setup(rig, gulls, day_cycle)
 	add_child(ambience)
 	eagles = Eagles.new()
 	add_child(eagles)
