@@ -56,7 +56,10 @@ func _process(_delta: float) -> bool:
 	if f.state == Ferry.State.SAILING and f.speed < 0.6 and f.traveled > 2.0:
 		_held = true
 	if f.trips == _seen_trips:
-		return frames > 400000
+		if frames > 60000:
+			push_error("Captain crossing test did not complete both captains within its frame budget")
+			quit(1)
+		return false
 	_seen_trips = f.trips
 	# (Only crossings begun from the dock under the planned captain count.)
 	if _timing:
@@ -77,6 +80,7 @@ func _process(_delta: float) -> bool:
 					clean += r[0]
 					n += 1
 			print("%s: %s over %d unhindered crossings" % [c.name, "%.1f min" % (clean / n) if n else "no", n])
+		print("TEST PASSED")
 		quit(0)
 		return true
 	f.assign_captain(_plan[0])
