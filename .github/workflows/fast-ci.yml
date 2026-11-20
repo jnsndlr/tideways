@@ -30,6 +30,8 @@ jobs:
           persist-credentials: false
       - name: Verify the test runner
         run: bash tools/fast_ci_runner_test.sh
+      - name: Test the iPad frame report
+        run: python3 -B tools/test_ipad_frame_report.py
       - name: Install Godot 4.7.2
         working-directory: ${{ runner.temp }}
         run: |
