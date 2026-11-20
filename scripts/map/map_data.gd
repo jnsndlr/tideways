@@ -225,6 +225,15 @@ var marinas: Array[Marina] = []
 var quays: Array[FishQuay] = []
 var stations: Array[PilotStation] = []
 var haul_outs: Array[HaulOut] = []
+## Sandy beaches cut into the shore (MapGenerator._place_beaches).
+var beaches: Array[Beach] = []
+
+
+class Beach:
+	var shore := Vector3.ZERO       # the middle of its waterline, y = 0
+	var dir := Vector3.FORWARD      # out to sea
+	var half_width := 40.0
+	var beside := false             # next to a ferry lot or marina
 
 
 ## Every wharf on the map: fish quays and pilot stations.

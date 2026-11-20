@@ -76,6 +76,14 @@ vec3 net_flap(vec3 v, float a, vec3 origin) {
 
 varying vec3 world_pos;
 varying float local_z;
+#if defined(TERRAIN) || defined(ROCK) || defined(BOULDER)
+#include "res://shaders/ground_detail.gdshaderinc"
+varying vec3 world_n;
+#endif
+#ifdef BOULDER
+// Metres in from the top's outline (UV.y, Models.rock), however big it's drawn.
+varying float edge_m;
+#endif
 // Flat: a whole face takes its first vertex's key (MeshBuilder starts both of a quad's
 // triangles there), so glass straddling a storey line doesn't hash per pixel.
 varying flat vec3 room_key;
@@ -108,6 +116,12 @@ void vertex() {
 #endif
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	local_z = VERTEX.z;
+#if defined(TERRAIN) || defined(ROCK) || defined(BOULDER)
+	world_n = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+#endif
+#ifdef BOULDER
+	edge_m = UV.y * length(abs(NORMAL.y) > 0.9 ? MODEL_MATRIX[0].xyz : MODEL_MATRIX[1].xyz);
+#endif
 	// Instance origin (or room_seed), wall (normal) and storey (in metres, however big
 	// the mesh is drawn): the same for a whole window.
 	vec3 origin = room_seed != 0.0 ? vec3(room_seed, room_seed * 1.7, room_seed * 2.3) : MODEL_MATRIX[3].xyz;
@@ -118,6 +132,8 @@ void vertex() {
 #ifdef TERRAIN
 // How faceted the ground looks: 0 smooth (its vertex normals), 1 every triangle flat.
 uniform float facet : hint_range(0.0, 1.0) = 0.4;
+// Procedural grass, forest floor and boulder detail (ground_detail.gdshaderinc).
+uniform bool detail = true;
 #endif
 
 void fragment() {
@@ -135,6 +151,28 @@ void fragment() {
 		flat_n = -flat_n;
 	}
 	NORMAL = normalize(mix(NORMAL, flat_n, facet));
+	if (detail) {
+		vec3 wn = normalize(world_n);
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		vec3 dn = ground_detail(world_pos, wn, mpp, ALBEDO) - wn;
+		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
+	}
+#endif
+#ifdef ROCK
+	{
+		vec3 wn = normalize(world_n);
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		vec3 dn = rock_detail(world_pos, wn, mpp, ALBEDO) - wn;
+		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
+	}
+#endif
+#ifdef BOULDER
+	{
+		vec3 wn = normalize(world_n);
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		vec3 dn = boulder_detail(world_pos, wn, mpp, edge_m, ALBEDO) - wn;
+		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
+	}
 #endif
 #ifndef NET
 	// (A net's alpha is its give in the wind, not glass.)
