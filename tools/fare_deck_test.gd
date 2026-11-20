@@ -27,7 +27,21 @@ func _initialize() -> void:
 	sim.minutes = 1439.0
 	sim._process(1.0)
 	check(sim.cars_today == 0 and sim.revenue_today == 0.0 and is_equal_approx(sim.revenue_total, 127.1), "Midnight preserves lifetime receipts")
+	var ledger := sim.ledger
+	check(is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 127.1), "Fares go into cash")
+	check(is_equal_approx(CompanyLedger.net(ledger.yesterday), 127.1), "Yesterday's lines kept at midnight")
+	ledger.spend("fuel", 30.0)
+	ledger.spend("crew", 20.0)
+	check(is_equal_approx(CompanyLedger.net(ledger.today), -50.0) and is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 77.1), "Running costs leave cash")
 	sim.free()
+
+	# Easing off burns less fuel a crossing, but the crossing takes longer.
+	var paced := Ferry.new()
+	paced.fc = FerryClass.of(3)
+	var service_burn := paced.burn_at(paced.cruise_speed())
+	paced.set_pace(0)
+	check(paced.burn_at(paced.cruise_speed()) < service_burn and paced.cruise_speed() < paced.fc.cruise, "Economy pace saves fuel")
+	paced.free()
 
 	var ferry := Ferry.new()
 	ferry.fc = FerryClass.of(2)

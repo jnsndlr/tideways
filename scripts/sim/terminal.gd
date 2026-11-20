@@ -65,7 +65,7 @@ func buy_holding_lane() -> bool:
 		return false
 	if sim.available_cash < island.lane_extension_price:
 		return false
-	sim.terminal_spending += island.lane_extension_price
+	sim.ledger.spend("purchases", island.lane_extension_price)
 	for i in island.construction_staging_lanes:
 		staging_lanes.append(lanes[island.slips[0]][i])
 	build_remaining = BUILD_MINUTES

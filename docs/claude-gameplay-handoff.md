@@ -27,7 +27,7 @@ The first public iPad release includes the authored region, playable scheduling,
 
 Check the requested focus at the start of the session. For an engineering session, pick the failure mode or maintenance cost on the ticket. Work on isolated branches from current shared main. Inspect the diff and existing owners before moving code. Use the [architecture guide](architecture.md) for state ownership and the [verification map](verification.md) for the smallest representative scenario. Keep player-visible behavior stable during cleanup. If the work exposes a gameplay decision, write it on the ticket so its author can resolve it.
 
-For example, a fare cleanup starts at the boarding call and follows the vehicle facts through Simulation to FareLedger. Capture a measured and fallback fare, change ownership, then replay the saved cases and a complete crossing. A HUD cleanup starts at the visible control and follows its action into simulation or camera state. Exercise the control through the viewport so occlusion and wiring errors both surface.
+For example, a fare cleanup starts at the boarding call and follows the vehicle facts through Simulation to CompanyLedger. Capture a measured and fallback fare, change ownership, then replay the saved cases and a complete crossing. A HUD cleanup starts at the visible control and follows its action into simulation or camera state. Exercise the control through the viewport so occlusion and wiring errors both surface.
 
 A handoff comment can be three short lines:
 
