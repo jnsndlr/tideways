@@ -20,7 +20,6 @@ var route_overlay: Node3D
 ## Water zones drawn on the map, if this region has any (the sandbox has none).
 var area_overlay: Node3D
 var map_controls: MapControls
-var routes_forced := false
 var selected_island: MapData.Island
 var selected_ferry: Ferry
 var selected_vessel: Vessel   # anything afloat but a ferry
@@ -236,7 +235,7 @@ func _build_sidebar() -> void:
 	col.add_theme_constant_override("separation", 2)
 	sidebar.add_child(col)
 	for item in [["COMPANY", "company"], ["RESEARCH", "research"], ["FLEET", "fleet"],
-			["ROUTES", "routes"], ["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["MAP", "map"],
+			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["MAP", "map"],
 			["SETTINGS", "settings"]]:
 		var b := Button.new()
 		b.text = item[0]
@@ -275,9 +274,6 @@ func _on_sidebar(id: String) -> void:
 			_wild_panel.visible = not _wild_panel.visible
 			_fleet_panel.visible = false
 			_rebuild_wildlife()
-		"routes":
-			routes_forced = not routes_forced
-			show_toast("ROUTES", "Route overlay always on." if routes_forced else "Route overlay shows when zoomed out.")
 		"map":
 			rig.focus_on(Vector3.ZERO, 1680.0)
 		"settings":
@@ -1076,7 +1072,7 @@ func _process(delta: float) -> void:
 	_update_labels()
 	_minimap_overlay.queue_redraw()
 	if route_overlay:
-		route_overlay.visible = map_controls.shows("routes") and (routes_forced or rig.distance > 190.0)
+		route_overlay.visible = map_controls.shows("routes")
 	if area_overlay:
 		area_overlay.visible = map_controls.shows("areas")
 	_place_map_controls()

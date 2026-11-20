@@ -140,10 +140,6 @@ func exercise_map_controls(hud: Hud) -> bool:
 		return fail("Minimap did not center the camera on the chosen location")
 	if not await press("MAP") or not hud.rig.target_pos.is_zero_approx():
 		return fail("Map overview did not recenter the camera")
-	if not await press("ROUTES") or not hud.routes_forced:
-		return fail("Routes control did not enable the overlay")
-	if not await press("ROUTES") or hud.routes_forced:
-		return fail("Routes control did not restore automatic visibility")
 	return true
 
 func frames(count: int) -> void:
@@ -219,6 +215,13 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 	await frames(2)
 	if not hud.route_overlay.visible or any_town_label(hud):
 		return fail("Routes on with names off did not hold as a mixed state")
+	hud.rig.target_dist = 120.0
+	hud.rig.distance = 120.0
+	await frames(2)
+	if not hud.route_overlay.visible:
+		return fail("Shown routes disappeared close in")
+	hud.rig.target_dist = 2000.0
+	hud.rig.distance = 2000.0
 	if not await press("Hide all"):
 		return false
 	await frames(2)
