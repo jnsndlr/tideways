@@ -43,6 +43,22 @@ static func set_volume(bus: String, v: float) -> void:
 	_cfg.save(PATH)
 
 
+## On/off options under [display].
+const FLAGS := {"floating_costs": false}
+
+
+static func flag(key: String) -> bool:
+	ensure()
+	var stored: Variant = _cfg.get_value("display", key, FLAGS[key])
+	return stored if stored is bool else FLAGS[key]
+
+
+static func set_flag(key: String, on: bool) -> void:
+	ensure()
+	_cfg.set_value("display", key, on)
+	_cfg.save(PATH)
+
+
 static func _apply(bus: String) -> void:
 	var i := AudioServer.get_bus_index(bus)
 	var v := volume(bus)

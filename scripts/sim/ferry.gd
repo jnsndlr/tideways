@@ -20,7 +20,8 @@ const ARRIVAL_PRIORITY := 660.0
 const RAMP_LOWER_AT := 40.0
 # Running costs (CompanyLedger). Fuel burnt per mile goes as the square of speed
 # through the water, so easing off saves fuel but takes longer, and crew are paid by
-# the hour.
+# the hour. Both are metered as she goes and posted to the ledger once a trip, when
+# she docks (and at midnight, so each day's lines are whole).
 const FUEL_PRICE := 3.6        # $ per gallon
 const CREW_WAGE := 12.0        # $ per crew member per game hour (tuned, like the burn)
 const METRES_PER_NM := 1852.0
@@ -57,7 +58,8 @@ var pace := SERVICE_PACE
 var fuel_today := 0.0     # $ this hull has burnt since midnight
 var crew_today := 0.0
 var last_crossing_fuel := 0.0
-var _crossing_fuel := 0.0
+var _crossing_fuel := 0.0   # metered since she last posted
+var _crew_owed := 0.0
 var aboard: Array[Vehicle] = []
 var deck: FerryDeck
 var _boarding := 0
@@ -510,7 +512,7 @@ func _tick_sailing(delta: float) -> void:
 		position.y = 0.0
 		voyage.arrive()
 		last_crossing_fuel = _crossing_fuel
-		_crossing_fuel = 0.0
+		post_costs(true)
 		_begin_unloading()
 
 
@@ -879,10 +881,7 @@ func burn_at(v: float) -> float:
 func _burn(metres: float) -> void:
 	if metres <= 0.0:
 		return
-	var cost := FUEL_PRICE * metres / METRES_PER_NM * burn_at(speed)
-	_crossing_fuel += cost
-	fuel_today += cost
-	sim.ledger.spend("fuel", cost)
+	_crossing_fuel += FUEL_PRICE * metres / METRES_PER_NM * burn_at(speed)
 
 
 ## What a crossing's fuel comes to at her pace (cruising the whole way).
@@ -896,9 +895,19 @@ func crew_per_hour() -> float:
 
 ## Crew are on the clock all day; `minutes` of game time.
 func pay_crew(minutes: float) -> void:
-	var cost := crew_per_hour() * minutes / 60.0
-	crew_today += cost
-	sim.ledger.spend("crew", cost)
+	_crew_owed += crew_per_hour() * minutes / 60.0
+
+
+## Puts the fuel and wages metered since the last post on the ledger.
+## `trip`: at the end of a crossing (shown as it happens), rather than midnight's.
+func post_costs(trip: bool) -> void:
+	var fuel := _crossing_fuel
+	var crew := _crew_owed
+	_crossing_fuel = 0.0
+	_crew_owed = 0.0
+	fuel_today += fuel
+	crew_today += crew
+	sim.post_running_costs(self, fuel, crew, trip)
 
 
 func start_day() -> void:

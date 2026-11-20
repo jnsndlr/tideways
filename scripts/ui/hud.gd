@@ -44,6 +44,8 @@ var _fleet_panel: FleetPanel
 var _finance_panel: FinancePanel
 var _pace_row := HBoxContainer.new()
 var _pace_buttons: Array[Button] = []
+var _cost_tags: Array = []      # [label, ferry, real seconds shown]
+const COST_TAG_SECONDS := 2.6
 var _wild_panel: PanelContainer
 var _wild_list: VBoxContainer
 var _wild_islands: Label
@@ -86,6 +88,7 @@ func setup(m: Node) -> void:
 	wildlife.visit_started.connect(_on_visit_started)
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
+	sim.running_costs_posted.connect(_on_running_costs)
 	set_speed(1)
 	var intro: Array = main.intro(_labels.size())
 	show_toast(intro[0], intro[1])
@@ -780,6 +783,38 @@ func _build_fleet_panel() -> void:
 	_fleet_panel.ferry_selected.connect(select_ferry)
 
 
+# --- Floating running costs ----------------------------------------------------------
+
+## A trip's fuel and wages, floated up off the boat as she docks (a Settings option).
+func _on_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:
+	if not trip or not GameSettings.flag("floating_costs"):
+		return
+	var tag := _label("-%s fuel  ·  -%s crew" % [fmt_money(fuel), fmt_money(crew)], 16, FinancePanel.LOSS, true)
+	tag.add_theme_color_override("font_outline_color", Color(0.05, 0.07, 0.08, 0.9))
+	tag.add_theme_constant_override("outline_size", 6)
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(tag)
+	_cost_tags.append([tag, ferry, 0.0])
+
+
+func _float_cost_tags(real_dt: float) -> void:
+	var cam := rig.camera
+	for i in range(_cost_tags.size() - 1, -1, -1):
+		var entry: Array = _cost_tags[i]
+		var tag: Label = entry[0]
+		var ferry: Ferry = entry[1]
+		entry[2] += real_dt
+		var age: float = entry[2]
+		if age > COST_TAG_SECONDS or not is_instance_valid(ferry):
+			tag.queue_free()
+			_cost_tags.remove_at(i)
+			continue
+		var above := ferry.global_position + Vector3(0.0, 24.0, 0.0)
+		tag.visible = not cam.is_position_behind(above)
+		tag.position = cam.unproject_position(above) - Vector2(tag.size.x * 0.5, tag.size.y + age * 22.0)
+		tag.modulate.a = clampf((COST_TAG_SECONDS - age) / 0.8, 0.0, 1.0)
+
+
 # --- Wildlife ----------------------------------------------------------------------
 
 func _build_wildlife_panel() -> void:
@@ -1074,6 +1109,8 @@ func _process(delta: float) -> void:
 		_toast_time -= real_dt
 		if _toast_time <= 0.0:
 			_toast.visible = false
+
+	_float_cost_tags(real_dt)
 
 	var h := sim.hour()
 	if _last_hour >= 0.0:

@@ -4,6 +4,8 @@
 
 **Changed in v0.5 (Jon, 2026-11-18):** the opening state, slip sizes and tie-up slips, automatic lane sharing, the fuel model, weekly town growth, what gates expansion, and the [game loop build stages](#game-loop-build-stages). Where v0.5 text differs from older text further down, such as the Phase 1 lists, v0.5 wins.
 
+**Added 2026-11-19 (Jon):** how running costs reach the ledger, the per-boat pace setting and how routing shows it, crew staffing levels with loading inefficiencies, and per-crew experience.
+
 **Reading this design today.** This is the October design baseline. Use the [Linear design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) for current public iPad release scope and the issues that own later changes. In particular, captain and crew management are included in the public release. The earlier Phase 1 list below describes the first-playable milestone. The opening timetable modes, economy, first expansion and presentation choices are tracked together in [TID-241](https://linear.app/tideways/issue/TID-241).
 
 Built from GDD v0.3 in the Tideways prototype repo, the systems on the "Ferry game" FigJam board, and the October 2026 design review.
@@ -150,6 +152,8 @@ All three are in Phase 1. Frequency and granular control matter from the start, 
 
 Schedules show projected fuel and crew cost per day, calculated from the boat's schedule. That makes the timetable a financial tool: players see the cost before a sailing runs.
 
+Each boat's pace sets its leg times. A slower pace visibly lengthens every leg in its schedule, and a faster one shortens them. The schedule shows each boat's pace beside its legs and can change it there. It is the same per-boat setting as on the boat's own panel. Changing it updates the leg times and the projected cost at once, and flags any leg that no longer fits its departure slot instead of quietly pushing the timetable back. **Default:** pace stays per boat; a per-leg override, such as running slow at night, is possible later.
+
 **Default:** players can run separate weekday and weekend schedules, so the weekly rhythm is a real planning choice.
 
 ---
@@ -230,6 +234,9 @@ Every boat tracks capacity, fuel efficiency, speed, age, condition, staffing lev
 - At the start, fuel is automatic. The company pays one average price per gallon.
 - A sailing's fuel use comes from speed, distance and boat size. A large boat run fast burns the most.
 - Those are the player's levers: which boat, how fast and how far.
+- **Pace:** each boat has a pace setting: Economy, Service or Full ahead. Burn per mile goes as the square of speed, so big boats run slower for the savings, at the cost of longer crossings. Switching pace immediately shows what a whole trip at that pace costs.
+- **Posting:** fuel and wages are metered as the boat runs and go on the ledger once per trip, when it docks, so each trip's line shows what it actually used. Anything left at midnight is posted then, so each day's lines are whole.
+- **Floating costs:** an option in Settings floats each trip's fuel and crew cost up off the boat as it docks, for players who want to see expenses as they happen.
 - A boat with no fuel money can always move to a tie-up slip at the same terminal, if there is one.
 - Warn the player before money stops a boat.
 - **Later, through research:** the player can run fuel purchasing, buying when the market is good and holding it in storage. Tank levels and refuelling stops belong to that later layer.
@@ -259,7 +266,13 @@ Failure types include engine, hydraulics, electrical, loading ramp and navigatio
 
 ## Crew
 
-Phase 1 uses one staffing level per boat: lean, adequate or well staffed. Lean costs less, but adds fatigue and risk.
+Phase 1 uses one staffing level per boat: meager, adequate or well staffed. Meager is the Certificate of Inspection (COI) minimum crew, the legal floor. **Default:** adequate is about 1.3× the minimum and well staffed about 1.6×.
+
+Staffing works through loading inefficiencies. A thin crew boards and unloads more slowly and less smoothly, so dwell times stretch and departures slip. Better staffing smooths that out. The inefficiencies feed customer satisfaction and what riders will pay for a ticket: people don't want to sail with an unhappy crew. Meager costs less, but adds fatigue and risk.
+
+### Crew Experience
+
+Each crew carries an experience level, like veteran units in Total War. Experience builds with service. An experienced crew handles random events more gracefully, such as breakdowns, weather, medical calls and near misses, with shorter delays and fewer knock-on problems.
 
 Later phases build on the board's chain:
 
@@ -372,6 +385,8 @@ The order for building the game loop and progression systems, agreed 2026-11-18.
 | 6. Fleet | Buy and sell boats and assign them to schedules. | Boat prices, and slip size limits on where each boat can call. |
 | 7. New terminals | Develop an undeveloped site and schedule service to it. Only money gates it. | Terminal sites recorded per island in the map data, for both kinds of map. |
 | 8. Towns and research | Weekly growth from last week's service. Research unlocks the upgrades. | A service score per town per week. Research projects that cost money and time. |
+
+Decided in stage 1 (2026-11-19): fuel and wages post to the ledger once per trip, when the boat docks, with any remainder at midnight. Pace is set per boat, and switching it shows a whole trip's cost at the new pace straight away. Floating costs over boats are a Settings option, off by default.
 
 Details to work out in stage 3:
 

@@ -21,6 +21,9 @@ var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
+## A boat's running costs went on the ledger (`trip`: as she docked).
+signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
+
 var ledger := CompanyLedger.new()
 var available_cash: float:
 	get: return ledger.cash
@@ -129,11 +132,19 @@ func _process(delta: float) -> void:
 	if minutes >= 24.0 * 60.0:
 		minutes -= 24.0 * 60.0
 		day += 1
+		for ferry in ferries:
+			ferry.post_costs(false)
 		ledger.start_day()
 		for ferry in ferries:
 			ferry.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
+
+
+func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:
+	ledger.spend("fuel", fuel)
+	ledger.spend("crew", crew)
+	running_costs_posted.emit(ferry, fuel, crew, trip)
 
 
 func make_vehicle(parent: Node3D = null) -> Vehicle:
