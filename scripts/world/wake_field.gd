@@ -6,6 +6,8 @@ extends Node
 # Must match WAKE_SLOTS / WAKE_PTS in water.gdshader.
 const MAX_SLOTS := 16
 const MAX_POINTS := 48
+const SEGMENTS_PER_GROUP := 6
+const GROUPS_PER_SLOT := 8
 # Half-widths along each hull's waterline (WAKE_STATIONS in water.gdshader).
 const STATIONS := 24
 # Must match the shader's Kelvin wedge, so the bounds cover the whole wake.
@@ -21,6 +23,8 @@ var water_mat: ShaderMaterial
 var _pts := PackedVector4Array()
 var _spd := PackedFloat32Array()
 var _spd4 := PackedVector4Array()
+var _group_box := PackedVector4Array()
+var _group_radius := PackedVector4Array()
 var _box := PackedVector4Array()
 var _info := PackedVector4Array()
 var _hull := PackedVector4Array()
@@ -35,6 +39,8 @@ func _ready() -> void:
 	_spd.resize(MAX_SLOTS * MAX_POINTS)
 	_spd4.resize(MAX_SLOTS * MAX_POINTS / 4)
 	_box.resize(MAX_SLOTS)
+	_group_box.resize(MAX_SLOTS * GROUPS_PER_SLOT)
+	_group_radius.resize(MAX_SLOTS * GROUPS_PER_SLOT / 4)
 	_info.resize(MAX_SLOTS)
 	_hull.resize(MAX_SLOTS)
 	_shape.resize(MAX_SLOTS)
@@ -102,6 +108,7 @@ func _process(_delta: float) -> void:
 		for i in n:
 			var q := _pts[at + i]
 			_pts[at + i] = Vector4(q.x / UNIT, q.y / UNIT, q.z / UNIT, q.w)
+		_pack_segment_bounds(count, n)
 		count += 1
 	# Speeds go four to a vec4, which keeps the shader's uniforms compact.
 	for i in _spd4.size():
@@ -114,3 +121,35 @@ func _process(_delta: float) -> void:
 	water_mat.set_shader_parameter("wake_hull", _hull)
 	water_mat.set_shader_parameter("wake_shape", _shape)
 	water_mat.set_shader_parameter("wake_prof", _prof)
+	water_mat.set_shader_parameter("wake_group_box", _group_box)
+	water_mat.set_shader_parameter("wake_group_radius", _group_radius)
+
+
+## Bound each group of trail segments in shader units. A fragment outside a
+## group's wash radius only needs that group when it might contain a nearer
+## segment for the Kelvin waves. Keep the exact search for degenerate segments.
+func _pack_segment_bounds(slot: int, point_count: int) -> void:
+	var offset := slot * MAX_POINTS
+	var half_beam := _hull[slot].x
+	for first in range(0, point_count - 1, SEGMENTS_PER_GROUP):
+		var lo := Vector2(_pts[offset + first].x, _pts[offset + first].y)
+		var hi := lo
+		var min_distance := INF
+		var degenerate := false
+		for i in range(first, mini(first + SEGMENTS_PER_GROUP, point_count - 1)):
+			var a := _pts[offset + i]
+			var b := _pts[offset + i + 1]
+			var end := Vector2(b.x, b.y)
+			lo = lo.min(end)
+			hi = hi.max(end)
+			# trail_at extrapolates half a segment beyond either endpoint.
+			min_distance = minf(min_distance, minf(a.z, b.z) - 0.5 * absf(b.z - a.z))
+			if Vector2(a.x, a.y).distance_squared_to(end) <= 0.00011:
+				degenerate = true
+		var group := slot * GROUPS_PER_SLOT + first / SEGMENTS_PER_GROUP
+		_group_box[group] = Vector4(lo.x, lo.y, hi.x, hi.y)
+		# wash_reach limits lateral spread; end_fade allows up to 1.5 + half_beam
+		# beyond the ends. Their sum also covers the corners, with rounding slack.
+		var behind := maxf(0.0, _info[slot].x - min_distance)
+		var radius := 1.85 * half_beam * (0.75 + 0.13 * sqrt(behind)) + 1.6 + half_beam
+		_group_radius[group / 4][group % 4] = -1.0 if degenerate else radius
