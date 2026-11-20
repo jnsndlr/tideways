@@ -3,7 +3,8 @@ extends Node
 ## Environment sounds, on the Ambience bus (Settings: Environment sounds):
 ## - the sea lapping, fading in as the camera comes down close to the water;
 ## - a loop of gulls, fading in as the camera nears where gulls are;
-## - now and then, a soft call of distant gulls, at any zoom.
+## - now and then, a soft call of distant gulls, riding on the sea's level, so it
+##   is only ever as loud as the water under it.
 ## Gulls go quieter (and call less often) at night, but never silent.
 ## Lives in the map scene, so it goes when the map does.
 
@@ -24,7 +25,7 @@ const GULLS_CURVE := 3.0
 # At full night (DayCycle.night = 1), gulls are this loud, and call this much less often.
 const NIGHT_GULLS := 0.35
 const NIGHT_CALL_GAP := 2.0
-# Seconds between distant calls, and their level under the bus.
+# Seconds between distant calls, and their level under the sea's.
 const CALL_GAP := Vector2(25.0, 70.0)
 const CALL_DB := -13.0
 # How quickly the loops follow the camera (linear gain per second).
@@ -97,11 +98,12 @@ func _process(delta: float) -> void:
 	_near_gain = move_toward(_near_gain, near_want, EASE * dt)
 	_sea.volume_db = maxf(linear_to_db(_sea_gain), SILENT_DB)
 	_near.volume_db = maxf(linear_to_db(_near_gain), SILENT_DB)
+	# Follows the sea as it plays, so zooming out mid-call fades it with the water.
+	_calls.volume_db = maxf(CALL_DB + linear_to_db(_sea_gain * gull_level), SILENT_DB)
 	_next_call -= dt
 	if _next_call <= 0.0:
 		_next_call = _rng.randf_range(CALL_GAP.x, CALL_GAP.y) * lerpf(1.0, NIGHT_CALL_GAP, night)
-		if not _calls.playing:
-			_calls.volume_db = CALL_DB + linear_to_db(gull_level)
+		if not _calls.playing and _sea_gain > 0.01:
 			_calls.pitch_scale = _rng.randf_range(0.94, 1.06)
 			_calls.play()
 
