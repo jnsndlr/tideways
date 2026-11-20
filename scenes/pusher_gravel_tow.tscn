@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/pusher_mid.glb" id="1_tug"]
+[ext_resource type="PackedScene" path="res://assets/models/barge_gravel_mid.glb" id="2_scow"]
+
+[node name="GravelTow" type="Node3D"]
+
+[node name="Pusher" parent="." instance=ExtResource("1_tug")]
+
+[node name="Barge" parent="." instance=ExtResource("2_scow")]
+position = Vector3(0, 0, 20.38)
