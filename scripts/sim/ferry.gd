@@ -18,6 +18,15 @@ const DISPATCH_GAP := 0.5
 const ARRIVAL_PRIORITY := 660.0
 # Coming in, the slip's span starts down to the deck this far out (SlipRamp).
 const RAMP_LOWER_AT := 40.0
+# Running costs (CompanyLedger). Fuel burnt per mile goes as the square of speed
+# through the water, so easing off saves fuel but takes longer, and crew are paid by
+# the hour.
+const FUEL_PRICE := 3.6        # $ per gallon
+const CREW_WAGE := 12.0        # $ per crew member per game hour (tuned, like the burn)
+const METRES_PER_NM := 1852.0
+# Pace settings: [share of the class's service speed, name]
+const PACES := [[0.85, "Economy"], [1.0, "Service"], [1.1, "Full ahead"]]
+const SERVICE_PACE := 1
 
 var sim: Simulation
 var fc: FerryClass
@@ -44,6 +53,11 @@ var traveled: float:      # how far the hull's centre has come, dock to dock
 var trips: int:
 	get: return voyage.trips
 	set(value): voyage.trips = value
+var pace := SERVICE_PACE
+var fuel_today := 0.0     # $ this hull has burnt since midnight
+var crew_today := 0.0
+var last_crossing_fuel := 0.0
+var _crossing_fuel := 0.0
 var aboard: Array[Vehicle] = []
 var deck: FerryDeck
 var _boarding := 0
@@ -126,7 +140,7 @@ func start_staggered(i: int) -> void:
 		1:
 			state = State.SAILING
 			traveled = run_length() * sim.rng.randf_range(0.25, 0.6)
-			speed = fc.cruise
+			speed = cruise_speed()
 			for k in sim.rng.randi_range(fc.capacity / 3, fc.capacity - fc.capacity / 9):
 				var car := sim.make_vehicle(self)
 				var slot := _free_slot(car)
@@ -479,11 +493,13 @@ func _tick_sailing(delta: float) -> void:
 	var traffic_limit := yield_speed()
 	var wait := _corridor_wait()
 	hold = wait
-	speed = voyage.sailing_speed(delta, run_length(), speed, fc.cruise, traffic_limit, wait)
+	speed = voyage.sailing_speed(delta, run_length(), speed, cruise_speed(), traffic_limit, wait)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
+	var was := traveled
 	voyage.advance(delta, speed, run_length())
+	_burn(traveled - was)
 	_place(_route_s(traveled))
 	_bob_time += delta
 	position.y = sin(_bob_time * 1.3) * 0.21
@@ -493,6 +509,8 @@ func _tick_sailing(delta: float) -> void:
 		speed = 0.0
 		position.y = 0.0
 		voyage.arrive()
+		last_crossing_fuel = _crossing_fuel
+		_crossing_fuel = 0.0
 		_begin_unloading()
 
 
@@ -813,7 +831,7 @@ func status_text() -> String:
 
 
 func eta_minutes() -> float:
-	return (run_length() - traveled) / (fc.cruise * 0.85)
+	return (run_length() - traveled) / (cruise_speed() * 0.85)
 
 
 func minutes_until_departure_from(term: Terminal) -> float:
@@ -832,4 +850,57 @@ func minutes_until_departure_from(term: Terminal) -> float:
 
 
 func crossing_minutes() -> float:
-	return run_length() / (fc.cruise * 0.85)
+	return run_length() / (cruise_speed() * 0.85)
+
+
+# --- Running costs ------------------------------------------------------------------
+
+## Speed under way at her pace setting.
+func cruise_speed() -> float:
+	return fc.cruise * PACES[pace][0]
+
+
+func set_pace(p: int) -> void:
+	pace = clampi(p, 0, PACES.size() - 1)
+	cruise = cruise_speed()
+
+
+func pace_name() -> String:
+	return PACES[pace][1]
+
+
+## Gallons per nautical mile at speed `v` (map m/s).
+func burn_at(v: float) -> float:
+	var f := v / fc.cruise
+	return fc.burn * f * f
+
+
+## Fuel for `metres` made good at the present speed.
+func _burn(metres: float) -> void:
+	if metres <= 0.0:
+		return
+	var cost := FUEL_PRICE * metres / METRES_PER_NM * burn_at(speed)
+	_crossing_fuel += cost
+	fuel_today += cost
+	sim.ledger.spend("fuel", cost)
+
+
+## What a crossing's fuel comes to at her pace (cruising the whole way).
+func crossing_fuel_estimate() -> float:
+	return FUEL_PRICE * run_length() / METRES_PER_NM * burn_at(cruise_speed())
+
+
+func crew_per_hour() -> float:
+	return fc.crew * CREW_WAGE
+
+
+## Crew are on the clock all day; `minutes` of game time.
+func pay_crew(minutes: float) -> void:
+	var cost := crew_per_hour() * minutes / 60.0
+	crew_today += cost
+	sim.ledger.spend("crew", cost)
+
+
+func start_day() -> void:
+	fuel_today = 0.0
+	crew_today = 0.0

@@ -41,6 +41,9 @@ var _info_button: Button
 var _terminal_bar: PanelContainer
 var _tb := {}
 var _fleet_panel: FleetPanel
+var _finance_panel: FinancePanel
+var _pace_row := HBoxContainer.new()
+var _pace_buttons: Array[Button] = []
 var _wild_panel: PanelContainer
 var _wild_list: VBoxContainer
 var _wild_islands: Label
@@ -74,6 +77,7 @@ func setup(m: Node) -> void:
 	_build_info_panel()
 	_build_terminal_bar()
 	_build_fleet_panel()
+	_build_finance_panel()
 	_build_wildlife_panel()
 	_build_minimap(m.env)
 	_build_help()
@@ -161,6 +165,8 @@ static func fmt_int(n: int) -> String:
 
 
 static func fmt_money(v: float) -> String:
+	if v < 0.0:
+		return "-" + fmt_money(-v)
 	if v >= 1e6:
 		return "$%.2fM" % (v / 1e6)
 	if v >= 1e3:
@@ -177,7 +183,7 @@ func _build_top_bar() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 18)
 	panel.add_child(row)
-	for item in [["revenue", "REVENUE TODAY"], ["vessels", "VESSELS"], ["routes", "ROUTES"],
+	for item in [["cash", "CASH"], ["revenue", "FARES TODAY"], ["vessels", "VESSELS"], ["routes", "ROUTES"],
 			["sat", "SATISFACTION"], ["queue", "CARS WAITING"]]:
 		var box := VBoxContainer.new()
 		box.add_theme_constant_override("separation", -2)
@@ -262,11 +268,18 @@ func _on_sidebar(id: String) -> void:
 		"fleet":
 			_fleet_panel.visible = not _fleet_panel.visible
 			_wild_panel.visible = false
+			_finance_panel.visible = false
 			_fleet_panel.refresh(sim.ferries)
 		"wildlife":
 			_wild_panel.visible = not _wild_panel.visible
 			_fleet_panel.visible = false
+			_finance_panel.visible = false
 			_rebuild_wildlife()
+		"finances":
+			_finance_panel.visible = not _finance_panel.visible
+			_fleet_panel.visible = false
+			_wild_panel.visible = false
+			_finance_panel.refresh(sim)
 		"routes":
 			routes_forced = not routes_forced
 			show_toast("ROUTES", "Route overlay always on." if routes_forced else "Route overlay shows when zoomed out.")
@@ -506,10 +519,29 @@ func _build_info_panel() -> void:
 	_info_button.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 8, 5))
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
+	_pace_row.add_theme_constant_override("separation", 4)
+	for i in Ferry.PACES.size():
+		var b := Button.new()
+		b.text = Ferry.PACES[i][1]
+		b.toggle_mode = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, 40)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 12)
+		b.pressed.connect(_set_pace.bind(i))
+		_pace_row.add_child(b)
+		_pace_buttons.append(b)
+	v.add_child(_pace_row)
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
 	_info_panel.visible = false
+
+
+func _set_pace(i: int) -> void:
+	if selected_ferry:
+		selected_ferry.set_pace(i)
+		_refresh_panels()
 
 
 func _buy_lane() -> void:
@@ -567,9 +599,15 @@ func _refresh_panels() -> void:
 			["Class", f.fc.label],
 			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],
 			["Speed", "%.1f kn" % Units.knots(f.speed)],
+			["Pace", "%s · %.0f kn" % [f.pace_name(), Units.knots(f.cruise_speed())]],
 			["Crossing time", "~%d min" % roundi(f.crossing_minutes())],
+			["Fuel per crossing", "~" + fmt_money(f.crossing_fuel_estimate())],
+			["Crew", "%d · %s / hr" % [f.fc.crew, fmt_money(f.crew_per_hour())]],
+			["Running cost today", fmt_money(f.fuel_today + f.crew_today)],
 			["Crossings", str(f.trips)],
 		])
+		for i in _pace_buttons.size():
+			_pace_buttons[i].set_pressed_no_signal(i == f.pace)
 		_info_button.text = "Stop following" if rig.follow == f else "Follow"
 	elif selected_vessel:
 		var v := selected_vessel
@@ -659,6 +697,7 @@ func _refresh_panels() -> void:
 		if term:
 			_update_terminal_bar(term)
 	_lane_button.visible = offer_lane
+	_pace_row.visible = selected_ferry != null
 
 
 func _staging_loss(count: int, slots: int) -> String:
@@ -726,6 +765,13 @@ func _update_terminal_bar(term: Terminal) -> void:
 
 
 # --- Fleet list ---------------------------------------------------------------------
+
+func _build_finance_panel() -> void:
+	_finance_panel = FinancePanel.new()
+	root.add_child(_finance_panel)
+	_finance_panel.setup(_label)
+	_finance_panel.ferry_selected.connect(select_ferry)
+
 
 func _build_fleet_panel() -> void:
 	_fleet_panel = FleetPanel.new()
@@ -1041,6 +1087,8 @@ func _process(delta: float) -> void:
 	if _refresh > 0.0:
 		return
 	_refresh = 0.25
+	_stat["cash"].text = fmt_money(sim.available_cash)
+	_stat["cash"].add_theme_color_override("font_color", FinancePanel.LOSS if sim.available_cash < 0.0 else TEXT)
 	_stat["revenue"].text = fmt_money(sim.revenue_today)
 	_stat["vessels"].text = str(sim.ferries.size())
 	_stat["routes"].text = str(map.routes.size())
@@ -1053,3 +1101,5 @@ func _process(delta: float) -> void:
 		_fleet_panel.refresh(sim.ferries)
 	if _wild_panel.visible:
 		_rebuild_wildlife()
+	if _finance_panel.visible:
+		_finance_panel.refresh(sim)
