@@ -25,7 +25,10 @@ func _generate(gen: MapGenerator) -> MapData:
 		if layout == null:
 			layout = MapGenerator.roll_layout(randi_range(1, 99999), ISLAND_NAMES, -2)
 			unsaved = true
-	return gen.generate_from(layout)
+	# --full-network: the planned network with a boat per route, as in the sandbox.
+	if not _args.has("full-network"):
+		scenario = Scenario.load_file(Scenario.OPENING)
+	return gen.generate_from(layout, scenario)
 
 
 func _ready() -> void:

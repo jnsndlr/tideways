@@ -35,7 +35,7 @@ class Island:
 	var has_terminal := false
 	var shore := Vector3.ZERO       # where the pier meets land, y = 0
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
-	var slips: Array[int] = []      # route ids, ordered left → right along lateral()
+	var slips: Array[int] = []      # slip ids (a route id, or negative when idle), left → right along lateral()
 	var lot_half_width := 36.0
 	# Placed by hand in the layout: used as given instead of searching the coast.
 	var ferry := true               # may get a terminal at all
@@ -221,6 +221,18 @@ var map_seed := 0
 var half_size := 3300.0
 var islands: Array[Island] = []
 var routes: Array[Route] = []
+## Slips no route uses yet (stage 2's minimal split of slips from routes; stage 3
+## gives slips their own records). Their ids count down from -1.
+var idle_slips := 0
+
+
+static func is_route(slip_id: int) -> bool:
+	return slip_id >= 0
+
+
+func add_idle_slip() -> int:
+	idle_slips += 1
+	return -idle_slips
 var marinas: Array[Marina] = []
 var quays: Array[FishQuay] = []
 var stations: Array[PilotStation] = []

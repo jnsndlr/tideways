@@ -17,6 +17,8 @@ var minutes := 6.0 * 60.0
 var day := 12
 var terminals := {}             # island id -> Terminal
 var ferries: Array[Ferry] = []
+## How the company started; its schedules are the only links between terminals.
+var scenario: Scenario
 var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
@@ -39,7 +41,9 @@ var wind_speed := 12
 var _tide_phase := 0.0
 
 
-func setup(m: MapData, t: Terrain) -> void:
+## Starts from `sc`, or with no scenario puts a boat on every route of the map.
+func setup(m: MapData, t: Terrain, sc: Scenario = null) -> void:
+	scenario = sc
 	_start(m, t, null)
 
 
@@ -74,10 +78,10 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 			term.setup(self, isl)
 			terminals[isl.id] = term
 	if network == null:
-		var sizes := _ferry_sizes()
-		for i in map.routes.size():
-			var r := map.routes[i]
-			_spawn_ferry("hull-%d" % i, r, FERRY_NAMES[r.id % FERRY_NAMES.size()], sizes[i])
+		if scenario == null:
+			scenario = Scenario.from_network(map, FERRY_NAMES, _ferry_sizes())
+		ledger.cash = scenario.cash
+		_spawn_scheduled()
 	else:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
@@ -93,6 +97,26 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 		marine = MarineTraffic.new()
 	add_child(marine)
 	marine.setup(self)
+
+
+## One boat per schedule, on the route between its first two stops. A schedule
+## shuttles; multi-stop running arrives with the timetable editor.
+func _spawn_scheduled() -> void:
+	var route_by_pair := {}
+	for r in map.routes:
+		var a := map.islands[r.a].key
+		var b := map.islands[r.b].key
+		route_by_pair[a + "|" + b] = r
+		route_by_pair[b + "|" + a] = r
+	for schedule in scenario.schedules:
+		var boat := scenario.boat(schedule.boat)
+		var route: MapData.Route = route_by_pair.get(
+			"|".join(schedule.stops.slice(0, 2)) if schedule.stops.size() >= 2 else "")
+		if boat == null or route == null:
+			push_warning("Schedule for %s has no boat or no route" % schedule.boat)
+			continue
+		_spawn_ferry(boat.key, route, boat.name, boat.size)
+		ferries[-1].schedule = schedule
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:

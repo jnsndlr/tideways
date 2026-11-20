@@ -12,6 +12,8 @@ var terrain: Terrain
 var map: MapData
 var _route_samples := PackedVector3Array()
 var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route id, lateral min, lateral max]
+## When set, terminals and links come from it instead of being planned.
+var _scenario: Scenario
 
 const DOCK_MIN_ANGLE := deg_to_rad(35.0)   # no two docks face within this of each other
 const ISLAND_GAP := 360.0
@@ -29,8 +31,10 @@ func generate(map_seed: int) -> MapData:
 
 
 ## Builds the map an authored layout describes: its islands as given, and the
-## mainland, islets, routes, towns and the rest from its world seed.
-func generate_from(layout: MapLayout) -> MapData:
+## mainland, islets, routes, towns and the rest from its world seed. With a
+## `scenario`, only its terminals are built and only its scheduled stops linked.
+func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
+	_scenario = scenario
 	var map_seed := layout.world_seed
 	rng.seed = map_seed
 	map = MapData.new()
@@ -277,7 +281,7 @@ static func _find(parent: Array, i: int) -> int:
 func _plan_routes() -> void:
 	var mains: Array[MapData.Island] = []
 	for isl in _main_islands():
-		if isl.ferry:
+		if (_scenario.terminals.has(isl.key) if _scenario else isl.ferry):
 			mains.append(isl)
 	var banned := {}
 	while true:
@@ -294,6 +298,7 @@ func _plan_routes() -> void:
 ## Vector2i of indices into `mains`) whose routes turned out not to make sense.
 func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 	map.routes.clear()
+	map.idle_slips = 0
 	_slip_zones.clear()
 	for isl in mains:
 		isl.has_terminal = false
@@ -313,7 +318,9 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 	for i in mains.size():
 		bearings.append(PackedFloat32Array())
 	var chosen: Array = []
-	for e in edges:
+	if _scenario:
+		_scenario_links(mains, banned, chosen)
+	for e in (edges if _scenario == null else []):
 		var a: int = e[1]
 		var b: int = e[2]
 		if degree[a] >= 3 or degree[b] >= 3 or not _fits_terminal(mains, bearings, a, b):
@@ -323,7 +330,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		if ra != rb:
 			parent[ra] = rb
 			_link(mains, bearings, degree, chosen, e)
-	for e in edges:
+	for e in (edges if _scenario == null else []):
 		var a: int = e[1]
 		var b: int = e[2]
 		if chosen.has(e) or e[0] > 1900.0 or degree[a] >= 2 or degree[b] >= 2 or not _fits_terminal(mains, bearings, a, b):
@@ -339,6 +346,15 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			var other: MapData.Island = mains[pair[1]]
 			var v: Vector2 = desired.get(me.id, Vector2.ZERO)
 			desired[me.id] = v + (other.center - me.center).normalized()
+	# A scenario terminal with no scheduled stop faces its nearest fellow terminal.
+	if _scenario:
+		for isl in mains:
+			if not desired.has(isl.id):
+				var near: MapData.Island = null
+				for o in mains:
+					if o != isl and (near == null or o.center.distance_to(isl.center) < near.center.distance_to(isl.center)):
+						near = o
+				desired[isl.id] = (near.center - isl.center).normalized() if near else Vector2.ZERO
 	var taken: Array[Vector3] = []
 	for isl in mains:
 		if desired.has(isl.id) and isl.manual_dock:
@@ -382,12 +398,14 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		return bad
 
 	for isl in mains:
+		if isl.slips.is_empty() and isl.has_terminal and _scenario:
+			isl.slips.append(map.add_idle_slip())
 		if isl.slips.is_empty():
 			isl.has_terminal = false
 			continue
 		var lat := isl.lateral()
 		isl.slips.sort_custom(func(ra, rb): return _departure_lateral(isl, ra, lat) < _departure_lateral(isl, rb, lat))
-		isl.lane_extension_price = 150
+		isl.lane_extension_price = 150 if MapData.is_route(isl.slips[0]) else 0
 		isl.construction_staging_lanes = 2 if isl.slips.size() > 1 else 1
 		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
 		var last := isl.slips.size() - 1
@@ -410,6 +428,23 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		r.length = r.curve.get_baked_length()
 	return bad
+
+
+## The scenario's scheduled links as edges ([distance, i, j] into `mains`).
+func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: Array) -> void:
+	var index := {}
+	for i in mains.size():
+		index[mains[i].key] = i
+	for pair in _scenario.links():
+		if not (index.has(pair[0]) and index.has(pair[1])):
+			push_warning("Scenario links %s and %s, which are not both its terminals" % [pair[0], pair[1]])
+			continue
+		var i: int = mini(index[pair[0]], index[pair[1]])
+		var j: int = maxi(index[pair[0]], index[pair[1]])
+		if banned.has(Vector2i(i, j)):
+			push_warning("No sensible route between %s and %s" % [mains[i].name, mains[j].name])
+			continue
+		chosen.append([mains[i].center.distance_to(mains[j].center), i, j])
 
 
 func _link(mains: Array[MapData.Island], bearings: Array, degree: PackedInt32Array, chosen: Array, e: Array) -> void:
@@ -466,6 +501,8 @@ func _route_sensible(c: Curve3D) -> bool:
 ## Which side the route heads off to once clear of the terminal, from its planning
 ## curve, so neighbouring slips' routes peel away from each other instead of crossing.
 func _departure_lateral(isl: MapData.Island, route_id: int, lat: Vector3) -> float:
+	if not MapData.is_route(route_id):
+		return 0.0
 	var r := map.routes[route_id]
 	var length := r.curve.get_baked_length()
 	var s := minf(RUN_IN + 180.0, length * 0.5)

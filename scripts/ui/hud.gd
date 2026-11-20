@@ -742,8 +742,10 @@ func _refresh_panels() -> void:
 		var term: Terminal = sim.terminals.get(isl.id)
 		var sat := term.satisfaction() if term else 70.0
 		_info_title.text = isl.name.to_upper()
-		_info_sub.text = ("Ferry terminal · %d route%s" % [isl.slips.size(), "" if isl.slips.size() == 1 else "s"]) \
-			if term else "No ferry service yet"
+		var served := isl.slips.filter(MapData.is_route).size()
+		_info_sub.text = ("No ferry service yet" if not term else
+			"Ferry terminal · idle slip" if served == 0 else
+			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
 		var rows := [
 			["Population", fmt_int(isl.population)],
 			["Satisfaction", "%d%%" % roundi(sat)],

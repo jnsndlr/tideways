@@ -17,6 +17,8 @@ var map: MapData
 var terrain: Terrain
 var builder: WorldBuilder
 var sim: Simulation
+## How the company starts (null: a boat on every planned route).
+var scenario: Scenario
 var rig: CameraRig
 var hud: Hud
 var sun: DirectionalLight3D
@@ -102,7 +104,7 @@ func _ready() -> void:
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
-	await _stage(0.99, false, func(): sim.setup(map, terrain))
+	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario))
 	for terminal: Terminal in sim.terminals.values():
 		if terminal.island.lane_extension_price > 0:
 			var extension := HoldingLaneView.new()
