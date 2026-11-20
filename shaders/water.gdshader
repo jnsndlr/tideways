@@ -88,6 +88,9 @@ uniform float kelvin_wavelength = 5.5;
 uniform float kelvin_height = 0.2;
 uniform int wake_count = 0;
 uniform vec4 wake_box[16];
+// Eight groups of six trail segments per slot; four wash radii per vec4.
+uniform vec4 wake_group_box[128];
+uniform vec4 wake_group_radius[32];
 uniform vec4 wake_info[16];
 uniform vec4 wake_hull[16];
 uniform vec4 wake_shape[16];
@@ -530,48 +533,63 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 		float c2 = 0.0;
 		int i2 = -1;
 		float r2 = 0.0;
-		for (int i = 0; i < WAKE_PTS - 1; i++) {
-			if (i >= n - 1) {
+		for (int group = 0; group < 8; group++) {
+			int first = group * 6;
+			if (first >= n - 1) {
 				break;
 			}
-			vec2 a = wake_pts[base + i].xy;
-			vec2 ab = wake_pts[base + i + 1].xy - a;
-			vec2 ap = p - a;
-			float raw = dot(ap, ab) / max(dot(ab, ab), 1e-4);
-			float tt = clamp(raw, 0.0, 1.0);
-			vec2 d = ap - ab * tt;
-			float dd = dot(d, d);
-			if (dd < best) {
-				best = dd;
-				bi = i;
-				bt = tt;
-				braw = raw;
-			}
-			// Measured straight across the segment's line rather than to its
-			// nearest point, so neighbouring segments overlap and blend at their
-			// joints, and only reaching a little past its ends. (Measured to the
-			// nearest point, an older, wider segment's rounded end pokes out past
-			// the joint into the next one, leaving a ring of foam at every crumb.)
-			float seg = sqrt(max(dot(ab, ab), 1e-6));
-			float fade = end_fade(raw, seg, hw);
-			if (fade <= 0.0 || wash_str <= 0.0) {
+			int index = f * 8 + group;
+			vec4 bounds = wake_group_box[index];
+			vec2 outside = max(max(bounds.xy - p, p - bounds.zw), vec2(0.0));
+			float lower_sq = dot(outside, outside);
+			float radius = wake_group_radius[index / 4][index % 4];
+			if (radius >= 0.0 && lower_sq > best && lower_sq > radius * radius) {
 				continue;
 			}
-			float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
-			float ts, tage, tspd, ttail;
-			trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
-			float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
-			if (cov > c1) {
-				c2 = c1;
-				i2 = i1;
-				r2 = r1;
-				c1 = cov;
-				i1 = i;
-				r1 = raw;
-			} else if (cov > c2) {
-				c2 = cov;
-				i2 = i;
-				r2 = raw;
+			for (int segment = 0; segment < 6; segment++) {
+				int i = first + segment;
+				if (i >= n - 1) {
+					break;
+				}
+				vec2 a = wake_pts[base + i].xy;
+				vec2 ab = wake_pts[base + i + 1].xy - a;
+				vec2 ap = p - a;
+				float raw = dot(ap, ab) / max(dot(ab, ab), 1e-4);
+				float tt = clamp(raw, 0.0, 1.0);
+				vec2 d = ap - ab * tt;
+				float dd = dot(d, d);
+				if (dd < best) {
+					best = dd;
+					bi = i;
+					bt = tt;
+					braw = raw;
+				}
+				// Measured straight across the segment's line rather than to its
+				// nearest point, so neighbouring segments overlap and blend at their
+				// joints, and only reaching a little past its ends. (Measured to the
+				// nearest point, an older, wider segment's rounded end pokes out past
+				// the joint into the next one, leaving a ring of foam at every crumb.)
+				float seg = sqrt(max(dot(ab, ab), 1e-6));
+				float fade = end_fade(raw, seg, hw);
+				if (fade <= 0.0 || wash_str <= 0.0) {
+					continue;
+				}
+				float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
+				float ts, tage, tspd, ttail;
+				trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
+				float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
+				if (cov > c1) {
+					c2 = c1;
+					i2 = i1;
+					r2 = r1;
+					c1 = cov;
+					i1 = i;
+					r1 = raw;
+				} else if (cov > c2) {
+					c2 = cov;
+					i2 = i;
+					r2 = raw;
+				}
 			}
 		}
 
