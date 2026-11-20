@@ -26,6 +26,35 @@ func _initialize() -> void:
 	check(is_equal_approx(voyage.sailing_speed(1.0, 85.8, 20.0, 20.0, INF, INF), 9.6), "Reach approach speed at the dolphins")
 	check(is_equal_approx(voyage.sailing_speed(1.0, 21.45, 20.0, 20.0, INF, INF), 5.25), "Reverse thrust slows the final approach")
 
+	# Both captains retain their distinct handling through the extracted voyage owner.
+	for captain in Captain.roster():
+		for distance in [470.0, 2050.0]:
+			var trip := FerryVoyage.new()
+			trip.depart()
+			var speed := 0.0
+			var elapsed := 0.0
+			while not trip.has_arrived(distance) and elapsed < 3600.0:
+				speed = trip.sailing_speed(0.05, distance, speed, captain.cruise(20.0), INF, INF, captain.harbour)
+				trip.advance(0.05, speed, distance)
+				elapsed += 0.05
+			check(absf(elapsed - captain.crossing_minutes(distance, 20.0)) < 0.1, "Captain forecast matches voyage integration")
+		check(voyage.sailing_speed(1.0, 85.8, 25.0, captain.cruise(20.0), 0.0, INF, captain.harbour) == 0.0, "Captain cannot bypass a hull hold")
+		check(voyage.sailing_speed(1.0, 85.8, 25.0, captain.cruise(20.0), INF, 1.5, captain.harbour) == 0.0, "Captain cannot bypass a corridor hold")
+	var ferry := Ferry.new()
+	ferry.fc = FerryClass.of(3)
+	ferry.captain = Captain.roster()[0]
+	ferry.next_captain = ferry.captain
+	ferry.cruise = ferry.captain.cruise(ferry.fc.cruise)
+	ferry.state = Ferry.State.SAILING
+	var underway_cruise := ferry.cruise
+	ferry.assign_captain(Captain.roster()[1])
+	check(ferry.captain == Captain.roster()[0] and ferry.cruise == underway_cruise, "Changing captain underway preserves current handling")
+	check(ferry.next_captain == Captain.roster()[1], "Changing captain schedules the next sailing")
+	ferry.state = Ferry.State.LOADING
+	ferry.assign_captain(Captain.roster()[1])
+	check(ferry.captain == Captain.roster()[1], "Alongside assignment takes effect immediately")
+	ferry.free()
+
 	# A held crossing resumes and completes in both directions with one trip each.
 	for crossing in 2:
 		var departure_end := voyage.at_a

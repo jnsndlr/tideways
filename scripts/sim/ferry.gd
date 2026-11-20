@@ -44,6 +44,16 @@ var traveled: float:      # how far the hull's centre has come, dock to dock
 var trips: int:
 	get: return voyage.trips
 	set(value): voyage.trips = value
+# Her master sets how she is handled (Captain.speed_limit). A new one takes the
+# helm when she next casts off, so a crossing is made under one captain.
+var captain: Captain = Captain.roster()[0]
+var next_captain: Captain = captain
+var last_crossing := -1.0         # game minutes dock to dock, -1 before the first timed one
+var last_crossing_captain: Captain
+var previous_crossing := -1.0     # the timed crossing before that, to compare with
+var previous_crossing_captain: Captain
+var _sail_time := -1.0            # into this crossing; -1 if it wasn't timed from the dock
+var _forecasts := {}              # captain id -> unhindered crossing minutes on this route
 var aboard: Array[Vehicle] = []
 var deck: FerryDeck
 var _boarding := 0
@@ -81,7 +91,9 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	ferry_name = nm
 	vessel_name = nm
 	name = nm
-	cruise = fc.cruise
+	captain = Captain.roster()[r.id % Captain.roster().size()]
+	next_captain = captain
+	cruise = captain.cruise(fc.cruise)
 	yield_decel = YIELD_DECEL
 	_inset = Layout.FERRY_HALF - fc.half_length
 	if SlipRamp.available():
@@ -126,7 +138,7 @@ func start_staggered(i: int) -> void:
 		1:
 			state = State.SAILING
 			traveled = run_length() * sim.rng.randf_range(0.25, 0.6)
-			speed = fc.cruise
+			speed = cruise
 			for k in sim.rng.randi_range(fc.capacity / 3, fc.capacity - fc.capacity / 9):
 				var car := sim.make_vehicle(self)
 				var slot := _free_slot(car)
@@ -418,7 +430,10 @@ func _tick_loading(delta: float) -> void:
 			if not ramp.is_clear():
 				return
 		_casting_off = false
+		captain = next_captain
+		cruise = captain.cruise(fc.cruise)
 		voyage.depart()
+		_sail_time = 0.0
 		# The last crossing's wake has long faded by now, and it lies along the same
 		# water, so start a fresh trail.
 		wake.clear()
@@ -473,13 +488,15 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 
 func _tick_sailing(delta: float) -> void:
+	if _sail_time >= 0.0:
+		_sail_time += delta
 	var remaining := run_length() - traveled
 	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
 	var traffic_limit := yield_speed()
 	var wait := _corridor_wait()
 	hold = wait
-	speed = voyage.sailing_speed(delta, run_length(), speed, fc.cruise, traffic_limit, wait)
+	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
@@ -493,6 +510,12 @@ func _tick_sailing(delta: float) -> void:
 		speed = 0.0
 		position.y = 0.0
 		voyage.arrive()
+		if _sail_time >= 0.0:
+			previous_crossing = last_crossing
+			previous_crossing_captain = last_crossing_captain
+			last_crossing = _sail_time
+			last_crossing_captain = captain
+		_sail_time = -1.0
 		_begin_unloading()
 
 
@@ -813,7 +836,32 @@ func status_text() -> String:
 
 
 func eta_minutes() -> float:
-	return (run_length() - traveled) / (fc.cruise * 0.85)
+	return (run_length() - traveled) / (cruise * 0.85)
+
+
+## Puts `c` in command from her next sailing (at once if she is alongside; a
+## crossing under way is finished by the captain who began it).
+func assign_captain(c: Captain) -> void:
+	next_captain = c
+	if state != State.SAILING:
+		captain = c
+		cruise = c.cruise(fc.cruise)
+
+
+## Unhindered crossing time of this route under `c`, in game minutes.
+func forecast_minutes(c: Captain) -> float:
+	if not _forecasts.has(c.id):
+		_forecasts[c.id] = c.crossing_minutes(run_length(), fc.cruise)
+	return _forecasts[c.id]
+
+
+## The captain of the roster who suits this crossing: the quickest across it.
+func best_captain() -> Captain:
+	var best := Captain.roster()[0]
+	for c in Captain.roster():
+		if forecast_minutes(c) < forecast_minutes(best):
+			best = c
+	return best
 
 
 func minutes_until_departure_from(term: Terminal) -> float:
@@ -832,4 +880,4 @@ func minutes_until_departure_from(term: Terminal) -> float:
 
 
 func crossing_minutes() -> float:
-	return run_length() / (fc.cruise * 0.85)
+	return forecast_minutes(next_captain)
