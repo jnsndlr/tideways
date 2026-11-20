@@ -418,7 +418,7 @@ func _tick_loading(delta: float) -> void:
 			_drive_on(car, term)
 	# (full: nothing waiting would fit)
 	for lane in term.lanes[route.id]:
-		if lane.queue.size() > 0 and _free_slot(lane.queue[0]) >= 0:
+		if lane.queue.size() > 0 and _free_slot(instance_from_id(lane.queue[0].vehicle_id) as Vehicle) >= 0:
 			full = false
 	var queue_empty := term.queued_for(route.id) == 0
 	if _casting_off or _boarding == 0 and _state_time >= MIN_DWELL and (full or queue_empty or _state_time >= MAX_DWELL):
