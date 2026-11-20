@@ -659,6 +659,13 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 		// The hull's outline where the water meets it. fb runs back from its stem.
 		float sc = clamp(hw / 4.2, 0.2, 1.0);
 		float fb = from_bow - shape.x;
+		float fade = hull_len * 0.3 + 6.0 * sc;
+		// Behind the stern, hull foam is zero. Past the bow-wave fade, only
+		// Kelvin crest foam and the prop wash already accumulated can remain.
+		if (along >= 0.0 && fb >= fade) {
+			foam = max(foam, crest_foam);
+			continue;
+		}
 		float stem_w = shape.w;
 		float hull_w;
 		// Distance out from the hull's side (rounded round the stem ahead of it).
@@ -677,7 +684,6 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 		// that runs out and back at a steeper angle than the hull flares, so it
 		// leaves the side where the bow meets the parallel body, then spreads,
 		// breaks up into patches and fades: the bow's "moustache".
-		float fade = hull_len * 0.3 + 6.0 * sc;
 		float ridge_x = max(hull_w + 0.3 * sc, stem_w + max(fb, 0.0) * 0.7);
 		float rw = (0.6 + 0.08 * max(fb, 0.0)) * sc;
 		float rn = gnoise(c * vec2(0.8, 0.35) + vec2(3.0, -t * 0.4)) * 0.6 + gnoise(c * vec2(2.2, 1.0) + vec2(t * 0.5, 7.0)) * 0.4 * lod;
