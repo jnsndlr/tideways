@@ -13,10 +13,12 @@ const GULLS_NEAR := "res://assets/audio/ambient/gulls_near_loop.mp3"
 const GULL_CALLS := "res://assets/audio/ambient/gull_calls_distant.mp3"
 
 # Camera height above the water at which the sea is full, and where it has faded
-# out; linear between.
+# out. Between, it falls off as an inverse curve (falloff / (falloff + rise)), so
+# most of it is close in with a long soft tail; a smaller SEA_FALLOFF (metres)
+# pulls it in tighter to the water.
 const SEA_FULL := 50.0
 const SEA_GONE := 4000.0
-const SEA_CURVE := 1.0
+const SEA_FALLOFF := 800.0
 # Camera-to-nearest-gull distance at which the gull loop is full, and where it has
 # faded out; a short, steep fade, so it belongs to the gulls you're over.
 const GULLS_FULL := 40.0
@@ -88,7 +90,7 @@ func _process(delta: float) -> void:
 		return
 	var night := day_cycle.night if day_cycle else 0.0
 	var gull_level := lerpf(1.0, NIGHT_GULLS, night)
-	var sea_want := _ramp(rig.camera.global_position.y, SEA_GONE, SEA_FULL, SEA_CURVE)
+	var sea_want := _sea_level(rig.camera.global_position.y)
 	_gull_check -= dt
 	if _gull_check <= 0.0 and gulls:
 		_gull_check = 0.25
@@ -106,6 +108,13 @@ func _process(delta: float) -> void:
 		if not _calls.playing and _sea_gain > 0.01:
 			_calls.pitch_scale = _rng.randf_range(0.94, 1.06)
 			_calls.play()
+
+
+## 1 at SEA_FULL and below, 0 at SEA_GONE and above, inverse in between.
+static func _sea_level(height: float) -> float:
+	var inv := func(h: float) -> float: return SEA_FALLOFF / (SEA_FALLOFF + maxf(h - SEA_FULL, 0.0))
+	var floor_v: float = inv.call(SEA_GONE)
+	return clampf((inv.call(height) - floor_v) / (1.0 - floor_v), 0.0, 1.0)
 
 
 ## 0 at `gone`, 1 at `full`; the higher `curve`, the more it holds off until near `full`.
