@@ -734,6 +734,9 @@ static func ferry(fc: FerryClass) -> ArrayMesh:
 	if fc.evergreen:
 		return _cached("ferry_%d" % fc.size, func():
 			return _mid_ferry(fc, FerryClass.MID_GLB, FerryClass.MID_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
+	if fc.issaquah:
+		return _cached("ferry_%d" % fc.size, func():
+			return _mid_ferry(fc, FerryClass.ISQ_GLB, FerryClass.ISQ_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
 	if fc.guemes:
 		return _cached("ferry_%d" % fc.size, func():
 			return _mid_ferry(fc, FerryClass.SMALL_GLB, FerryClass.SMALL_DROP, ["fixed", "thin", "glass", "window"]).commit())
@@ -894,7 +897,8 @@ const CAR_DECK_POOL_ENERGY := 0.2
 static func ferry_thin_shadow(fc: FerryClass) -> ArrayMesh:
 	var src: Array = [FerryClass.MID_GLB, FerryClass.MID_DROP] if fc.evergreen \
 		else [FerryClass.SMALL_GLB, FerryClass.SMALL_DROP] if fc.guemes \
-		else [FerryClass.HIYU_GLB, FerryClass.HIYU_DROP] if fc.hiyu else []
+		else [FerryClass.HIYU_GLB, FerryClass.HIYU_DROP] if fc.hiyu \
+		else [FerryClass.ISQ_GLB, FerryClass.ISQ_DROP] if fc.issaquah else []
 	if src.is_empty():
 		return null
 	return _cached("ferry_thin_shadow_%d" % fc.size, func():
@@ -1718,6 +1722,21 @@ static func ferry_lights(fc: FerryClass) -> ArrayMesh:
 		var window := Color(1.0, 0.74, 0.42)
 		for w: Array in fc.windows:
 			gb.reflection(w[0], window, w[1], w[2], w[3])
+		if fc.issaquah:
+			for c in _mid_car_deck_lights(FerryClass.ISQ_GLB):
+				# Each pool on the deck under its lens: the tween deck's, a ramp's or the main deck.
+				var floor := FerryClass.ISQ_CAR_DECK
+				var ax := absf(c.x)
+				var az := absf(c.z)
+				if c.y > 6.0 and ax > 6.8:
+					if az < FerryClass.ISQ_MEZ_Z:
+						floor = FerryClass.ISQ_MEZ_TOP
+					elif ax > FerryClass._isq_ramp_edge(az) and FerryClass._isq_ramp_edge(az) > 0.0:
+						floor = lerpf(FerryClass.ISQ_MEZ_TOP, FerryClass.ISQ_CAR_DECK,
+							(az - FerryClass.ISQ_MEZ_Z) / (FerryClass.ISQ_RAMP_Z - FerryClass.ISQ_MEZ_Z))
+				var w := clampf(FerryClass._isq_beam(c.z) - 0.6 - ax, 1.0, CAR_DECK_POOL.x)
+				gb.pool(FerryClass._isq(c.x, floor + 0.03, c.z), CAR_DECK_LIGHT,
+					w * FerryClass.MID_SCALE, CAR_DECK_POOL_ENERGY, LAMP_ON_AT, CAR_DECK_POOL.y * FerryClass.MID_SCALE)
 		if fc.evergreen:
 			for c in _mid_car_deck_lights():
 				# Kept inside the hull sides, or the wings' pools spill out over the water.
@@ -1729,13 +1748,13 @@ static func ferry_lights(fc: FerryClass) -> ArrayMesh:
 
 ## Where the Evergreen State's car deck lights are (her metres, x and z): the centres
 ## of the model's `lamp` lenses, which lie well apart.
-static func _mid_car_deck_lights() -> PackedVector3Array:
-	var p := ModelParts.merge_named(FerryClass.MID_GLB, ["lamp"])
+static func _mid_car_deck_lights(glb := FerryClass.MID_GLB) -> PackedVector3Array:
+	var p := ModelParts.merge_named(glb, ["lamp"])
 	var sums := PackedVector3Array()
 	var counts := PackedInt32Array()
 	for v in p.verts:
 		var j := 0
-		while j < sums.size() and Vector2(v.x - sums[j].x / counts[j], v.z - sums[j].z / counts[j]).length() > 1.5:
+		while j < sums.size() and (v - sums[j] / counts[j]).length() > 1.5:
 			j += 1
 		if j == sums.size():
 			sums.append(Vector3.ZERO)
