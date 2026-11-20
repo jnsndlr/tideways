@@ -39,8 +39,8 @@ func _process(_delta: float) -> bool:
 		ferry = sandbox.sim.ferries[0]
 		destination = ferry.destination()
 		for lane in ferry.here().lanes[ferry.route.id]:
-			for car: Vehicle in lane.queue:
-				queued[car.get_instance_id()] = true
+			for waiting in lane.queue:
+				queued[waiting.vehicle_id] = true
 		Engine.time_scale = 4.0
 	else:
 		var bookings := 0
