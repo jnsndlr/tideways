@@ -14,6 +14,14 @@ var _route_samples := PackedVector3Array()
 var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route ids, lateral min, lateral max]
 ## When set, terminals and links come from it instead of being planned.
 var _scenario: Scenario
+## Where routes planned for this layout and scenario are kept (empty: plan every
+## time). Planning round islands is slow, and the authored map never changes
+## unless its islands are moved, so Play loads its routes from here; a stale or
+## missing file is planned afresh and rewritten on a desktop run.
+var route_cache_path := ""
+var _planner: RoutePlanner
+var _route_memo := {}        # _route_curve's inputs -> flat x, z points ([] if none)
+var _memo_dirty := false
 
 const DOCK_MIN_ANGLE := deg_to_rad(35.0)   # no two docks face within this of each other
 const ISLAND_GAP := 360.0
@@ -23,6 +31,17 @@ const MAX_SPREAD := deg_to_rad(160.0)  # widest arc of neighbours one terminal s
 const MIN_CROSSING := 270.0    # dock to dock, so a ferry has room to line up both ends
 const MAX_DETOUR := 1.6       # route length over the dock-to-dock distance
 const MAX_TURN := deg_to_rad(200.0)    # total heading change along a route
+## How far a route keeps off land in open water (0.3 mi). Near a terminal it
+## tapers in: none extra out to CLEARANCE_TAPER_FROM from the dock, then
+## CLEARANCE_SLOPE metres more per metre further out, up to this.
+const LAND_CLEARANCE := 0.3 * 1609.344
+const CLEARANCE_TAPER_FROM := 150.0
+const CLEARANCE_SLOPE := 1.0
+## Where no route keeps the full clearance, these fractions of it are tried in
+## turn before the old rule (just afloat, 18 m either side).
+const CLEARANCE_STEPS := [1.0, 0.6, 0.3]
+## Bump when the planner changes, so saved routes are planned again.
+const ROUTE_PLANNER_VERSION := 2
 
 
 ## A random map: rolls a layout from `map_seed`, then builds it.
@@ -35,6 +54,7 @@ func generate(map_seed: int) -> MapData:
 ## `scenario`, only its terminals are built and only its scheduled stops linked.
 func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
 	_scenario = scenario
+	_load_route_memo(layout)
 	var map_seed := layout.world_seed
 	rng.seed = map_seed
 	map = MapData.new()
@@ -52,6 +72,7 @@ func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
 		terrain.stamp(stamp_of(isl))
 	terrain.finalize()
 	_plan_routes()
+	_save_route_memo()
 	_place_islets()
 	terrain.finalize()
 	_place_marinas(map_seed)
@@ -306,6 +327,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 	for i in mains.size():
 		for j in range(i + 1, mains.size()):
 			var d := mains[i].center.distance_to(mains[j].center)
+			# A generated network links islands in reach of each other; a scenario's
+			# links are its own (_scenario_links), however far apart.
 			if d < 3100.0 and not banned.has(Vector2i(i, j)):
 				edges.append([d, i, j])
 	edges.sort_custom(func(a, b): return a[0] < b[0])
@@ -449,7 +472,7 @@ func _assign_slips(isl: MapData.Island, routes: Array[int]) -> void:
 
 
 ## The scenario's scheduled links as edges ([distance, i, j] into `mains`), then
-## every other pair of its terminals in reach as a candidate ([distance, i, j, true])
+## every other pair of its terminals as a candidate ([distance, i, j, true])
 ## the schedule editor can put a boat on. A candidate with no sensible route is
 ## banned like any other link.
 func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: Array) -> void:
@@ -472,9 +495,8 @@ func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: A
 		chosen.append([mains[i].center.distance_to(mains[j].center), i, j])
 	for i in mains.size():
 		for j in range(i + 1, mains.size()):
-			var d := mains[i].center.distance_to(mains[j].center)
-			if not linked.has(Vector2i(i, j)) and not banned.has(Vector2i(i, j)) and d < 3100.0:
-				chosen.append([d, i, j, true])
+			if not linked.has(Vector2i(i, j)) and not banned.has(Vector2i(i, j)):
+				chosen.append([mains[i].center.distance_to(mains[j].center), i, j, true])
 
 
 func _link(mains: Array[MapData.Island], bearings: Array, degree: PackedInt32Array, chosen: Array, e: Array) -> void:
@@ -646,11 +668,107 @@ static func long_run_in() -> float:
 	return Layout.CHANNEL_BUOY_U + fc.half_length + Ferry.YAW_EASE - Layout.DOCK_U
 
 
-## Route from dock centre `pa` (facing out along `na`) to dock centre `pb`: straight
-## out, the shortest turn–straight–turn path between the run-in ends, straight in.
-## Returns the shortest one clear of land, or null if there is none. With
-## `route_id` set it must also keep out of every slip but that route's own.
+## Route from dock centre `pa` (facing out along `na`) to dock centre `pb`, or null
+## if there is none. With `route_id` set it must also keep out of every slip but
+## that route's own. The most direct route keeping LAND_CLEARANCE off land wins:
+## a turn–straight–turn path, or failing that one round the land in the fewest
+## straight legs. Where neither can, less clearance is tried (CLEARANCE_STEPS),
+## then the old rule. Results are remembered (route_cache_path). A generated
+## network with no scenario takes only the direct route, with no clearance.
 func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id := -1) -> Curve3D:
+	var key := "%.1f,%.1f,%.3f,%.3f|%.1f,%.1f,%.3f,%.3f|%d" % [pa.x, pa.z, na.x, na.z, pb.x, pb.z, nb.x, nb.z, route_id]
+	if _route_memo.has(key):
+		return _curve_of(_route_memo[key])
+	if _scenario == null:
+		# A generated network (Sandbox) keeps to direct routes, as before.
+		return _direct_curve(pa, na, pb, nb, route_id, 0.0)
+	var c: Curve3D = null
+	for f: float in CLEARANCE_STEPS:
+		c = _direct_curve(pa, na, pb, nb, route_id, f)
+		if c == null:
+			c = _round_land_curve(pa, na, pb, nb, route_id, f)
+		if c != null:
+			break
+	if c == null:
+		c = _direct_curve(pa, na, pb, nb, route_id, 0.0)
+	var flat: Array = []
+	if c != null:
+		for p in c.get_baked_points():
+			flat.append(snappedf(p.x, 0.01))
+			flat.append(snappedf(p.z, 0.01))
+	_route_memo[key] = flat
+	_memo_dirty = true
+	return _curve_of(flat) if c != null else null
+
+
+func _curve_of(flat: Array) -> Curve3D:
+	if flat.is_empty():
+		return null
+	var c := Curve3D.new()
+	c.bake_interval = 3.0
+	for i in range(0, flat.size(), 2):
+		c.add_point(Vector3(flat[i], 0.0, flat[i + 1]))
+	return c
+
+
+## True if `c` keeps `fraction` of LAND_CLEARANCE off land (tapering in at its ends).
+func _keeps_clear(c: Curve3D, fraction: float) -> bool:
+	if fraction <= 0.0:
+		return true
+	if _planner == null:
+		_planner = RoutePlanner.new(terrain, map.half_size)
+	var pts := c.get_baked_points()
+	var a := Vector2(pts[0].x, pts[0].z)
+	var b := Vector2(pts[pts.size() - 1].x, pts[pts.size() - 1].z)
+	for i in range(0, pts.size(), 4):
+		var p := Vector2(pts[i].x, pts[i].z)
+		var need := RoutePlanner.need_at(p, a, b, LAND_CLEARANCE * fraction, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE)
+		if _planner.clearance_at(p) + RoutePlanner.CELL * 0.75 < need:
+			return false
+	return true
+
+
+## Round the land: straight out of each slip, then through the planner's fewest
+## straight legs keeping `fraction` of the clearance. Each corner is passed on the
+## heading halfway between its legs, and each leg is the shortest
+## turn–straight–turn path at TURN_RADIUS from one corner to the next.
+func _round_land_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id: int, fraction: float) -> Curve3D:
+	if _planner == null:
+		_planner = RoutePlanner.new(terrain, map.half_size)
+	var h0 := Vector2(na.x, na.z).normalized()
+	var h1 := -Vector2(nb.x, nb.z).normalized()
+	for run: float in [long_run_in(), RUN_IN]:
+		var s := Vector2(pa.x, pa.z) + h0 * run
+		var g := Vector2(pb.x, pb.z) - h1 * run
+		var corners := _planner.waypoints(s, g, LAND_CLEARANCE * fraction, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE)
+		if corners.size() < 3:
+			continue   # no land in the way: the direct route already had its chance
+		var headings: Array[Vector2] = [h0]
+		for i in range(1, corners.size() - 1):
+			var mid := (corners[i] - corners[i - 1]).normalized() + (corners[i + 1] - corners[i]).normalized()
+			headings.append(mid.normalized() if mid.length() > 0.01 else (corners[i + 1] - corners[i]).normalized())
+		headings.append(h1)
+		var pts := PackedVector2Array()
+		for i in corners.size() - 1:
+			var paths := _turn_paths(corners[i], headings[i], corners[i + 1], headings[i + 1], TURN_RADIUS)
+			if paths.is_empty():
+				pts.clear()
+				break
+			paths.sort_custom(func(x, y): return x[0] < y[0])
+			pts.append_array(paths[0][1])
+		if pts.is_empty():
+			continue
+		var c := _curve_from(pa, pts, pb, run)
+		if _route_clear(c) and _route_sensible(c) and _keeps_clear(c, fraction) and (route_id < 0 or _clear_of_slips(c, route_id)):
+			return c
+	return null
+
+
+## The shortest turn–straight–turn route (straight out of `pa`, a turn, a straight,
+## a turn, straight into `pb`) clear of land and keeping `fraction` of the
+## clearance; with none of that, longer runs and wider turns that at least keep
+## out of other slips (only when `fraction` is 0).
+func _direct_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id: int, fraction: float) -> Curve3D:
 	var h0 := Vector2(na.x, na.z).normalized()
 	var h1 := -Vector2(nb.x, nb.z).normalized()
 	# Every path for every option, scored by length plus a penalty for each
@@ -672,11 +790,11 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 		var c := _curve_from(pa, cand[1], pb, cand[2])
 		# Not one that strays too far or turns too much (a long run-in can, where
 		# the slips face away from each other): a shorter run-in will do instead.
-		if _route_clear(c) and _route_sensible(c) and (route_id < 0 or _clear_of_slips(c, route_id)):
+		if _route_clear(c) and _route_sensible(c) and _keeps_clear(c, fraction) and (route_id < 0 or _clear_of_slips(c, route_id)):
 			return c
 	# Nothing standard keeps out of every other slip: try longer straight runs out
 	# of either end and wider turns before giving up on the link.
-	if route_id >= 0:
+	if route_id >= 0 and fraction <= 0.0:
 		var more := []
 		for ra: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, long, 240.0]:
 			for rb: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, long, 240.0]:
@@ -1420,3 +1538,42 @@ func _road_line(a: Vector3, b: Vector3, lat: Vector3) -> PackedVector3Array:
 		p.y = maxf(_h(p), maxf(_h(p + lat * 5.1), _h(p - lat * 5.1))) + 0.66
 		pts.append(p)
 	return pts
+
+
+## Picks up the routes saved for this layout and scenario, if they still match.
+func _load_route_memo(layout: MapLayout) -> void:
+	_route_memo = {}
+	_memo_dirty = false
+	if route_cache_path.is_empty():
+		return
+	var saved = JSON.parse_string(FileAccess.get_file_as_string(route_cache_path)) if FileAccess.file_exists(route_cache_path) else null
+	var key := _memo_key(layout)
+	if saved is Dictionary and saved.get("key", "") == key:
+		_route_memo = saved.get("routes", {})
+	else:
+		print("Planning routes afresh: %s is %s" % [route_cache_path, "stale" if saved is Dictionary else "missing"])
+	_route_memo["__key"] = key
+
+
+## What the saved routes depend on: the islands, the scenario's terminals, slips
+## and links (which set where the docks face), and the planner itself.
+func _memo_key(layout: MapLayout) -> String:
+	var sc := [] if _scenario == null else [_scenario.terminals, _scenario.slips, _scenario.tie_ups, Array(_scenario.links()).map(func(l): return Array(l))]
+	var parts := [ROUTE_PLANNER_VERSION, LAND_CLEARANCE, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, CLEARANCE_STEPS, layout.to_json(), sc]
+	return str(hash(JSON.stringify(parts)))
+
+
+## Writes newly planned routes back, on desktop builds only (a device can't write res://).
+func _save_route_memo() -> void:
+	if route_cache_path.is_empty() or not _memo_dirty or not OS.has_feature("editor"):
+		return
+	var key: String = _route_memo.get("__key", "")
+	var routes := _route_memo.duplicate()
+	routes.erase("__key")
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(route_cache_path.get_base_dir()))
+	var f := FileAccess.open(route_cache_path, FileAccess.WRITE)
+	if f == null:
+		push_warning("Couldn't save planned routes to " + route_cache_path)
+		return
+	f.store_string(JSON.stringify({"key": key, "routes": routes}))
+	print("Saved %d planned routes to %s" % [routes.size(), route_cache_path])

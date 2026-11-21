@@ -28,9 +28,14 @@ func _generate(gen: MapGenerator) -> MapData:
 			unsaved = true
 	# --full-network: the planned network with a boat per route, as in the sandbox.
 	# --scenario=shared_slip: maps/shared_slip.json instead of the opening.
+	var plan := "full-network"
 	if not _args.has("full-network"):
 		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else Scenario.OPENING
 		scenario = Scenario.load_file(file)
+		plan = file.get_file().get_basename()
+	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
+	if not unsaved:
+		gen.route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
 	return gen.generate_from(layout, scenario)
 
 

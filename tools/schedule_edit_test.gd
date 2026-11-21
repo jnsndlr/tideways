@@ -49,6 +49,9 @@ func _process(_delta: float) -> bool:
 			return _fail("Expected only the scheduled route in service, got %d" % served)
 		if sim.route_between(madrona.island.id, gullrock.island.id) == null:
 			return _fail("No candidate route between Madrona and Gullrock")
+		# Cypress Island lies between these two: the route goes round it.
+		if sim.route_between(rosario.island.id, gullrock.island.id) == null:
+			return _fail("No route round Cypress Island between Port Rosario and Gullrock")
 		var ids: Array[int] = [rosario.island.id, madrona.island.id, gullrock.island.id, madrona.island.id]
 		var problem := sim.stops_problem(hiyu, ids)
 		if problem != "":
@@ -71,6 +74,7 @@ func _process(_delta: float) -> bool:
 			return _fail("Madrona's lanes did not divide between two destinations")
 	if _switched and hiyu.state != Ferry.State.SAILING and hiyu.here() == gullrock:
 		print("Hiyu reached Gullrock at frame %d. In service: %d routes" % [frames, sim.map.routes.filter(func(r): return r.in_service).size()])
+		print("TEST PASSED")
 		quit(0)
 		return true
 	if frames > 30 * 60 * 6:

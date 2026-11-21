@@ -14,7 +14,7 @@ var _stops := VBoxContainer.new()
 var _loop_note: Label
 var _adds := VBoxContainer.new()
 var _problem: Label
-var _apply := Button.new()
+var _apply: Button
 
 
 ## `make_label(text, size, color, bold)` builds a label in the HUD's fonts.
