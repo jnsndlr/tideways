@@ -411,13 +411,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		isl.lane_extension_price = 150 if not here.is_empty() else 0
 		isl.construction_staging_lanes = 2 if isl.working_slips() > 1 else 1
 		isl.lot_half_width = maxf(36.0, (isl.working_slips() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
-		var last := isl.slips.size() - 1
-		for i in isl.slips.size():
-			# Slips butt up against each other; the end ones reach out past their
-			# outer dolphins.
-			var lo := -(OUTER_DOLPHIN_CLEAR if i == 0 else Layout.SLIP_SPACING * 0.5)
-			var hi := OUTER_DOLPHIN_CLEAR if i == last else Layout.SLIP_SPACING * 0.5
-			_slip_zones.append([isl.shore, isl.dock_dir, lat, isl.slip_offset(i), isl.slips[i].routes, lo, hi])
+		_add_slip_zones(isl)
 
 	for r in map.routes:
 		var a := map.islands[r.a]
@@ -608,9 +602,11 @@ func _dock_fits(s3: Vector3, n3: Vector3) -> bool:
 
 
 # Ferries leave and enter each slip on a straight run along its centreline, long
-# enough that the whole hull is lined up before the bow reaches the outer dolphins, and turn no tighter than TURN_RADIUS in between. Where
-# the coast or other slips leave no room, a shorter run-in and then a tighter turn
-# are tried, and a wide sweep only as a last resort.
+# enough (long_run_in) that the longest hull is wholly out past the channel buoys
+# before she starts to turn, so her far end can't swing into the dolphins, and turn
+# no tighter than TURN_RADIUS in between. Where the coast or other slips leave no
+# room, the old run-in for a 90 m hull, then a shorter one and a tighter turn are
+# tried, and a wide sweep only as a last resort.
 const RUN_IN := 90.0
 const SHORT_RUN_IN := 66.0
 const TURN_RADIUS := 96.0
@@ -619,11 +615,20 @@ const WIDE_RADIUS := 135.0
 # Each slip's pier, guide walls and dolphins are off limits to other routes' hulls.
 const ZONE_U := Layout.DOLPHIN_OUTER.x + 4.0
 const HULL_HALF_BEAM := 13.5
-# Half the longest hull (FerryClass size 5).
+# Half the Issaquah's hull. (The Jumbo's berth, out to ~238 m, is not kept clear:
+# sizing these for her cost about a third of the links on generated maps.)
 const HULL_HALF_LENGTH := 57.0
 # Lateral reach of a terminal's outermost dolphins from its end slips, plus a
 # little sea room.
 const OUTER_DOLPHIN_CLEAR := Layout.DOLPHIN_OUTER.y + Layout.DOLPHIN_OUTER.z + 6.0
+
+
+## The straight run out of a slip before the turn: the longest hull's centre runs out
+## from the route's end (a 90 m hull's docked centre) until her far end clears the
+## channel buoys, plus the ferry's eased helm (Ferry.YAW_EASE) starting the turn early.
+static func long_run_in() -> float:
+	var fc := FerryClass.of(FerryClass.MAX_SIZE)
+	return Layout.CHANNEL_BUOY_U + fc.half_length + Ferry.YAW_EASE - Layout.DOCK_U
 
 
 ## Route from dock centre `pa` (facing out along `na`) to dock centre `pb`: straight
@@ -636,9 +641,13 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 	# Every path for every option, scored by length plus a penalty for each
 	# compromise, so a short run-in or tight turn wins over looping round.
 	var candidates := []
-	for option: Vector3 in [Vector3(RUN_IN, TURN_RADIUS, 0.0), Vector3(SHORT_RUN_IN, TURN_RADIUS, 75.0),
-			Vector3(RUN_IN, TIGHT_RADIUS, 120.0), Vector3(SHORT_RUN_IN, TIGHT_RADIUS, 210.0),
-			Vector3(RUN_IN, WIDE_RADIUS, 360.0)]:
+	# The long run-in wins unless it costs more than about a loop round (2 pi
+	# TURN_RADIUS, ~600 m) less 200: then the 90 m one is taken, as on short hops.
+	var long := long_run_in()
+	for option: Vector3 in [Vector3(long, TURN_RADIUS, 0.0), Vector3(RUN_IN, TURN_RADIUS, 400.0),
+			Vector3(SHORT_RUN_IN, TURN_RADIUS, 475.0),
+			Vector3(RUN_IN, TIGHT_RADIUS, 520.0), Vector3(SHORT_RUN_IN, TIGHT_RADIUS, 610.0),
+			Vector3(RUN_IN, WIDE_RADIUS, 760.0)]:
 		var p0 := Vector2(pa.x, pa.z) + h0 * option.x
 		var p1 := Vector2(pb.x, pb.z) - h1 * option.x
 		for path in _turn_paths(p0, h0, p1, h1, option.y):
@@ -646,14 +655,16 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 	candidates.sort_custom(func(x, y): return x[0] < y[0])
 	for cand in candidates:
 		var c := _curve_from(pa, cand[1], pb, cand[2])
-		if _route_clear(c) and (route_id < 0 or _clear_of_slips(c, route_id)):
+		# Not one that strays too far or turns too much (a long run-in can, where
+		# the slips face away from each other): a shorter run-in will do instead.
+		if _route_clear(c) and _route_sensible(c) and (route_id < 0 or _clear_of_slips(c, route_id)):
 			return c
 	# Nothing standard keeps out of every other slip: try longer straight runs out
 	# of either end and wider turns before giving up on the link.
 	if route_id >= 0:
 		var more := []
-		for ra: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, 240.0]:
-			for rb: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, 240.0]:
+		for ra: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, long, 240.0]:
+			for rb: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, long, 240.0]:
 				for radius: float in [TIGHT_RADIUS, TURN_RADIUS, WIDE_RADIUS, 180.0]:
 					var p0 := Vector2(pa.x, pa.z) + h0 * ra
 					var p1 := Vector2(pb.x, pb.z) - h1 * rb
@@ -741,6 +752,18 @@ func _route_clear(c: Curve3D) -> bool:
 				return false
 		s += 9.0
 	return true
+
+
+## Marks `isl`'s slips off limits to other routes (_clear_of_slips).
+func _add_slip_zones(isl: MapData.Island) -> void:
+	var lat := isl.lateral()
+	var last := isl.slips.size() - 1
+	for i in isl.slips.size():
+		# Slips butt up against each other; the end ones reach out past their
+		# outer dolphins.
+		var lo := -(OUTER_DOLPHIN_CLEAR if i == 0 else Layout.SLIP_SPACING * 0.5)
+		var hi := OUTER_DOLPHIN_CLEAR if i == last else Layout.SLIP_SPACING * 0.5
+		_slip_zones.append([isl.shore, isl.dock_dir, lat, isl.slip_offset(i), isl.slips[i].routes, lo, hi])
 
 
 ## True if the hull, swept along `c`, never enters another route's slip.

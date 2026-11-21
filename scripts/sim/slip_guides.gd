@@ -5,7 +5,7 @@ extends Node3D
 ## splayed wing wall either side of the landing. The node sits in the terminal frame
 ## at the slip's lateral offset, like SlipRamp: x across the slip, z (u) out along it.
 ##
-## The dolphins stand as wide as the slip's size (FerryClass size of the widest hull
+## The dolphins funnel out to sea as the slip's size (FerryClass size of the widest hull
 ## it takes) puts them (Layout.slip_face_v); `fit` rebuilds them for another size.
 ## Everything that doesn't move is one mesh, and the piles carry on down to the
 ## seabed under each. The parts that give are live: each dolphin fender's Compression
@@ -17,8 +17,9 @@ const LANTERN := 3.9
 # Each wing wall stands this far clear of the landed end of the widest hull the slip
 # takes, so a landing off the centre of the slip rides it.
 const WALL_CLEAR := 0.3
-const WALL_ANGLES := Vector2i(14, 40)   # the splays (degrees off the centreline) a wall may take
-const WALL_V_MIN := 8.0
+const WALL_ANGLES := Vector2i(14, 60)   # the splays (degrees off the centreline) a wall may take
+# Its corner stands just off the apron's side (6.55 m out), so the bow nestles in.
+const WALL_V_MIN := 6.9
 # How quickly the parts ease to their targets (per second).
 const EASE := 2.5
 # How far below the seabed a pile is carried, so it never shows a gap on a slope.
@@ -85,11 +86,13 @@ func fit(s: int) -> void:
 	var mb := MeshBuilder.new()
 	var glows := GlowBuilder.new()
 	glows.xform = _world
-	var face := Layout.slip_face_v(s)
+	var inner_u := Layout.slip_inner_u(s)
+	var inner := Layout.slip_face_v(s, inner_u)
+	var outer := Layout.slip_face_v(s, Layout.DOLPHIN_OUTER.x)
 	for side: float in [-1.0, 1.0]:
 		_add_wall(mb, side)
-		inner_caps.append(_add_dolphin(mb, side, Layout.DOLPHIN_INNER.x, face, Models.SLIP_DOLPHIN_INNER_GLB))
-		var cap := _add_dolphin(mb, side, Layout.DOLPHIN_OUTER.x, face + Layout.OUTER_FLARE, Models.SLIP_DOLPHIN_OUTER_GLB)
+		inner_caps.append(_add_dolphin(mb, side, inner_u, inner, Models.SLIP_DOLPHIN_INNER_GLB))
+		var cap := _add_dolphin(mb, side, Layout.DOLPHIN_OUTER.x, outer, Models.SLIP_DOLPHIN_OUTER_GLB)
 		outer_caps.append(cap)
 		# The outer dolphins carry the slip's lanterns: green to port, red to starboard.
 		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
@@ -106,6 +109,8 @@ func fit(s: int) -> void:
 	lights.material_override = GlowBuilder.material()
 	lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	lights.top_level = true
+	# Off the minimap's layer: its top-down camera blows glows up over the whole map.
+	lights.layers = NightLights.LAYER
 	add_child(lights)
 	_apply()
 
@@ -185,7 +190,7 @@ func _add_wall(mb: MeshBuilder, side: float) -> void:
 ## landed end of a `fc` hull lying straight in the slip, the way slips' wing walls hug
 ## their ferries' bows: from Layout.WING_WALL's first u, splayed whichever of
 ## WALL_ANGLES follows her outline most closely, WALL_CLEAR off her where it comes
-## nearest, and never in nearer the centreline than WALL_V_MIN (clear of the apron).
+## nearest, its corner in by the apron (WALL_V_MIN) unless her bow is too bluff for it.
 static func _wall_line(fc: FerryClass) -> Array[Vector2]:
 	var u0: float = (Layout.WING_WALL[0] as Vector2).x
 	var length := Layout.WING_LENGTH
@@ -199,6 +204,7 @@ static func _wall_line(fc: FerryClass) -> Array[Vector2]:
 		k += 0.5
 	var best: Array[Vector2] = [Vector2(u0, (Layout.WING_WALL[0] as Vector2).y), Layout.WING_WALL[1]]
 	var snuggest := INF
+	var nearest_v0 := INF
 	for deg in range(WALL_ANGLES.x, WALL_ANGLES.y + 1):
 		var a := deg_to_rad(deg)
 		var dir := Vector2(cos(a), sin(a))
@@ -218,7 +224,9 @@ static func _wall_line(fc: FerryClass) -> Array[Vector2]:
 		for q in span:
 			mean += (q - Vector2(u0, v0)).dot(n)
 		mean /= span.size()
-		if mean < snuggest:
+		# The corner in nearest the apron first, then the splay that follows her closest.
+		if v0 < nearest_v0 - 0.01 or (v0 < nearest_v0 + 0.01 and mean < snuggest):
+			nearest_v0 = v0
 			snuggest = mean
 			best = [Vector2(u0, v0), Vector2(u0, v0) + dir * length]
 	return best

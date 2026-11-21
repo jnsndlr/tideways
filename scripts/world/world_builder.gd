@@ -663,7 +663,7 @@ func _build_slip(mb: MeshBuilder, v: float) -> void:
 			Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
 			glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 		# Channel buoy, flashing.
-		var buoy := Vector3(v + side * 25.5, 0.0, pe + 138.0)
+		var buoy := Vector3(v + side * 25.5, 0.0, Layout.CHANNEL_BUOY_U)
 		var phase := Models.blink_phase_at(mb.xform * buoy)
 		Models.add_buoy(mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase)
 		glows.glow(Models.buoy_glow_at(buoy), mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)

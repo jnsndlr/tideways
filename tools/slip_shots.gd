@@ -158,7 +158,7 @@ func _process(_delta: float) -> bool:
 		var walls := []
 		for w in guides.walls:
 			walls.append("%+d:%.2f" % [int(w.side), w.squish])
-		print("  lie %.2f° tide side %+d  fenders %s  walls %s" % [rad_to_deg(_f._lie), int(_term.lie_side()), pressed, walls])
+		print("  lie %.2f° tide side %+d  slip size %d  fenders %s  walls %s  push %.2f thrust %.2f empty %s" % [rad_to_deg(_f._lie), int(_term.lie_side()), guides.size, pressed, walls, _f.stern_push(), _f.front_thrust(), _f.wake.is_empty()])
 	_shot += 1
 	if _left_at < 0 and _f.state == Ferry.State.SAILING and _f.here() == _term:
 		_left_at = _shot

@@ -124,7 +124,9 @@ var _ramp_synced := false
 const LAND_RUN := 40.0               # metres out she starts coming in askew
 const WALL_GIVE := 0.35              # riding this far into a wing wall presses its face right in
 const STRAIGHTEN := 0.6              # per second, straightening against the apron once alongside
-const MAX_LIE := deg_to_rad(3.0)
+# She lies over as far as it takes to reach the dolphins (a narrow hull in a wide
+# slip, further); this only keeps a freak fit from spinning her round.
+const MAX_LIE := deg_to_rad(15.0)
 const SHORT_LIE := deg_to_rad(1.2)   # a hull too short to reach the dolphins lies over this far
 const LIE_PRESS := 0.2               # how far into the fenders she leans
 const FENDER_GIVE := 0.3             # leaning this far in presses a fender right in

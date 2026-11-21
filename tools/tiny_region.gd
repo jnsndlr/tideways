@@ -58,10 +58,12 @@ static func build(towns := 2) -> TinyRegion:
 			map.islands[b].add_route_slip(r.id)
 	for isl in map.islands:
 		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
+		gen._add_slip_zones(isl)
 	for r in map.routes:
 		var a := map.islands[r.a]
 		var b := map.islands[r.b]
-		r.curve = gen._route_curve(a.dock_center(r.id), a.dock_dir, b.dock_center(r.id), b.dock_dir)
+		# Each route keeps out of the others' slips and berths, as on a generated map.
+		r.curve = gen._route_curve(a.dock_center(r.id), a.dock_dir, b.dock_center(r.id), b.dock_dir, r.id)
 		if r.curve == null:
 			push_error("TinyRegion: no clear route %s to %s" % [a.name, b.name])
 			return null
