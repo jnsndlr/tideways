@@ -10,6 +10,9 @@
 import math
 
 PAL.update({
+    "spruce": (.18,.37,.31), "sage": (.51,.65,.53), "fir": (.10,.25,.23),
+    "ochre": (.92,.58,.21), "deep_sea": (.13,.34,.40), "seafoam": (.40,.72,.72),
+    "salmon": (.91,.48,.34),
     "boxw": (0.9, 0.9, 0.88), "post": (0.8, 0.8, 0.78), "tape": (0.78, 0.07, 0.05),
     "tankw": (0.86, 0.86, 0.84), "deck": (0.62, 0.45, 0.28), "log": (0.5, 0.33, 0.2),
     "logend": (0.78, 0.6, 0.4), "gravel": (0.48, 0.46, 0.42), "dump": (0.2, 0.21, 0.24), "accent2": (0.15, 0.3, 0.7), "orange": (0.93, 0.45, 0.08), "reefer": (0.84, 0.85, 0.85),
@@ -358,26 +361,108 @@ def rear_end(s, z, hw, y_sill, key="black"):
 
 # --- Bodies ---------------------------------------------------------------------------
 
+def freight_graphics(s, front, rear):
+    """Flat screen-printed landscapes on the two local carriers' cargo bodies."""
+    p = s.p
+    hw, floor, height = p["W"] / 2, p["floor"], p["H"]
+    def print_panel(points, ink, layer=0):
+        poly([V(hw + 0.011 + layer * 0.004, lerp(floor, height, v),
+                lerp(rear + 0.10, front - 0.10, u)) for u, v in points],
+             ink, V(1, 0, 0), both=True)
+
+    if p["reefer"]:
+        print_panel([(0,.10),(1,.10),(1,.31),(.78,.31),(.64,.35),(.45,.31),
+                     (.23,.35),(0,.31)], "deep_sea")
+        print_panel([(0,.32),(.23,.36),(.45,.32),(.64,.36),(.78,.32),(1,.32),
+                     (1,.345),(.78,.345),(.64,.385),(.45,.345),(.23,.385),(0,.345)], "seafoam")
+        # Broad salmon back, forked tail, dorsal fin and a pale flash on its flank.
+        print_panel([(.22,.49),(.25,.62),(.22,.74),(.36,.65),(.48,.73),(.51,.81),
+                     (.57,.735),(.68,.71),(.75,.64),(.79,.57),(.70,.51),
+                     (.52,.48),(.46,.43),(.47,.50),(.36,.56)], "deep_sea")
+        print_panel([(.38,.59),(.49,.68),(.62,.70),(.70,.65),(.57,.64),(.47,.58)], "salmon", 1)
+        print_panel([(.68,.54),(.71,.60),(.68,.67),(.725,.61)], "seafoam", 1)
+        print_panel([(.733,.615),(.742,.633),(.751,.615),(.742,.597)], "boxw", 1)
+    else:
+        print_panel([(0,.10),(1,.10),(1,.43),(.88,.47),(.79,.40),(.67,.51),
+                     (.61,.48),(.47,.64),(.40,.58),(.28,.69),(.14,.44),(0,.47)], "sage")
+        print_panel([(0,.10),(1,.10),(1,.24),(.83,.30),(.64,.25),(.52,.36),
+                     (.40,.32),(.27,.43),(.15,.34),(0,.40)], "spruce", 1)
+        # Sun disc kept round in metres even on a long cargo body.
+        cx, cy, radius = .73, .67, .34
+        print_panel([(cx + radius*math.cos(i*math.tau/14)/(front-rear-.20),
+                      cy + radius*math.sin(i*math.tau/14)/(height-floor)) for i in range(14)], "ochre")
+        for x, base, size in ((.12,.19,.48),(.18,.21,.34),(.84,.19,.46),(.90,.19,.33)):
+            crown = [(0,1),(-.42,.59),(-.20,.61),(-.53,.35),(-.28,.38),
+                     (-.64,.12),(-.09,.15),(-.09,0),(.09,0),(.09,.15),
+                     (.64,.12),(.28,.38),(.53,.35),(.20,.61),(.42,.59)]
+            print_panel([(x + u*size*.19, base + v*size) for u,v in crown], "fir", 2)
+
+
+def cold_unit(p, front):
+    """A deep condenser pod with a visible axial fan and a bank of inlet vanes."""
+    low, high = p["roof"] + .08, p["H"] - .07
+    nose = front + .68
+    loft([rrect(front,.99,low,high,.09,.05), rrect(nose-.12,.99,low,high,.09,.05),
+          rrect(nose,.91,low+.07,high-.06,.065,.04)], "reefer")
+    mid = (high+low)/2
+    def fan_face(points, key, depth):
+        poly([V(x,y,nose+depth) for x,y in points], key, V(0,0,1))
+    def disc(x, y, radius, key, depth):
+        fan_face([(x+radius*math.cos(i*math.tau/14),y+radius*math.sin(i*math.tau/14))
+                  for i in range(14)],key,depth)
+    cx = -.46
+    disc(cx,mid,.32,"silver",.005)
+    disc(cx,mid,.285,"deep_sea",.010)
+    for i in range(5):
+        angle = i*math.tau/5
+        fan_face([(cx+r*math.cos(angle+a),mid+r*math.sin(angle+a)) for r,a in
+                  ((.05,0),(.22,.10),(.255,.53),(.17,.64),(.055,.40))], "grey", .015)
+    disc(cx,mid,.072,"silver",.020)
+    fdecal(nose,-.043,.78,mid-.23,mid+.23,"gunmetal")
+    for i in range(4):
+        y = mid-.15+i*.10
+        fdecal(nose+.008,-.002,.74,y,y+.029,"silver")
+    for x in (-.72,.72):
+        box(V(x,low-.045,front+.15), (.13,.11,.27), "gunmetal")
+
+
+def cab_deflector(s):
+    """A tapered three-panel wind deflector set back from the cab's marker lights."""
+    p = s.p
+    base = p["roof"] + .016
+    def ring(z, half, rise):
+        return [V(-half,base,z), V(-half+.14,base+rise,z),
+                V(half-.14,base+rise,z), V(half,base,z)]
+    loft([ring(s.zb+.91,.76,.055), ring(s.zb+.44,.89,.41),
+          ring(s.zb+.08,.96,.56)], "body")
+
+
 def box_body(s, z0, z1):
     """A van body: plain sides with posts, rails, tape, clearance lamps, a roll-up or
     swing rear door, and a refrigeration unit on its nose for a reefer."""
     p = s.p
     hw, y0, y1 = p["W"] / 2, p["floor"], p["H"]
-    loft([rrect(z0, hw, y0, y1, 0.02), rrect(z1, hw, y0, y1, 0.02)], "boxw")
+    local = p["kind"] == "straight"
+    bevel = 0.10 if local else 0.02
+    skin = "cream" if local and not p["reefer"] else "boxw"
+    loft([rrect(z0, hw, y0, y1, bevel), rrect(z1, hw, y0, y1, bevel)], skin)
+    if local:
+        freight_graphics(s, z0, z1)
     # Rails top and bottom, posts between.
     sdecal(hw, z1, z0, y1 - 0.09, y1 - 0.02, "silver")
     sdecal(hw, z1, z0, y0, y0 + 0.14, "silver")
-    n = max(2, int((z0 - z1) / 0.62))
+    n = 1 if local else max(2, int((z0 - z1) / 0.62))
     for i in range(1, n):
         z = lerp(z0, z1, i / n)
         sdecal(hw, z - 0.025, z + 0.025, y0 + 0.14, y1 - 0.09, "post")
-    tape_side(hw, z0, z1, y0 + 0.045)
+    tape_side(hw + (0.008 if local else 0), z0, z1, y0 + 0.045)
     # Floor bearers on the frame, crossmembers showing under the floor.
     yb = p["bearer_y"]
     for x in (-0.43, 0.43):
         box(V(x, (yb + y0) / 2, (z0 + z1) / 2), (0.1, y0 - yb, z0 - z1), "under")
-    for i in range(int((z0 - z1) / 0.5)):
-        box(V(0, y0 - 0.04, z0 - 0.25 - i * 0.5), (2 * hw - 0.2, 0.08, 0.07), "under")
+    spacing = 1.25 if local else 0.5
+    for i in range(int((z0 - z1) / spacing)):
+        box(V(0, y0 - 0.04, z0 - 0.25 - i * spacing), (2 * hw - 0.2, 0.08, 0.07), "under")
     # Rear frame and door.
     fdecal(z1, -hw, hw, y1 - 0.12, y1, "silver", out=-1)
     for sx in (1, -1):
@@ -402,7 +487,9 @@ def box_body(s, z0, z1):
         box(V(sx * (hw + 0.01), y0 + 0.08, z1 + 0.15), (0.03, 0.05, 0.1), "tail")
     for x in (-0.25, 0.0, 0.25):
         box(V(x, y1 - 0.06, z1 - 0.025), (0.07, 0.05, 0.04), "tail")
-    if p["reefer"]:
+    if local and p["reefer"]:
+        cold_unit(p, z0)
+    elif p["reefer"]:
         # The refrigeration unit high on the nose, over the cab roof.
         uy0, uy1 = p["roof"] + 0.12, y1 - 0.06
         box(V(0, (uy0 + uy1) / 2, z0 + 0.21), (1.8, uy1 - uy0, 0.42), "reefer")
@@ -485,6 +572,21 @@ def tank_body(s, z0, z1):
 
 # --- Builds ---------------------------------------------------------------------------
 
+def delivery_wheels(p, front_axle, rear_axle, x):
+    r = p["r"]
+    # Wide rear tyres suggest the duals under the skirt. Spend facets on visible rims.
+    for z in (front_axle, rear_axle):
+        for sx in (-1, 1):
+            profile = [(x-(2 if z == rear_axle else 1)*p["tw"],r*0.90),
+                       (x-0.045,r), (x,r*0.90), (x,r*0.57),
+                       (x-0.026,r*0.49), (x-0.026,r*0.25), (x+0.025,r*0.19)]
+            rings = [[V(sx*q.x,q.y,q.z) for q in disc_pts(V(xx,r,z),rr,12)] for xx,rr in profile]
+            keys = ("tyre","tyre","tyre","silver","grey","silver")
+            loft(rings, lambda i,j: keys[i], caps=False)
+            poly(rings[-1],"silver",V(sx,0,0))
+            poly(rings[0],"under",V(-sx,0,0))
+
+
 def build_straight(p):
     s = TS(); s.p = p
     PAL["body"] = p["paint"]
@@ -500,9 +602,26 @@ def build_straight(p):
     else:
         box_body(s, z0, s.zR)
         mud_flap(p, min(rear) - p["r"] - 0.15, p["track"])
-    axle(p, s.zfa, False)
-    for z in rear:
-        axle(p, z, True)
+    if p["body"] == "box" and not p["tandem"]:
+        delivery_wheels(p, s.zfa, rear[0], p["track"])
+        ink = "deep_sea" if p["reefer"] else "spruce"
+        # Door flash ties a randomly painted cab to its fixed cargo body.
+        cowl = s.zF - 0.26 - p["hood"]
+        for y, thickness, key in ((1.45, .12, ink), (1.59, .035, "silver")):
+            sdecal(p["cab_w"] / 2, s.zb + .22, cowl - .09, y, y + thickness, key)
+        # Recesses on the discs read as steel wheels from the ferry deck.
+        for z in (s.zfa, rear[0]):
+            for i in range(5):
+                angle = math.tau*i/5
+                center = V(p["track"]-.022, p["r"]+.19*math.cos(angle),
+                           z+.19*math.sin(angle))
+                poly(disc_pts(center,.035,5,angle), "gunmetal", V(1,0,0), both=True)
+        if not p["reefer"]:
+            cab_deflector(s)
+    else:
+        axle(p, s.zfa, False)
+        for z in rear:
+            axle(p, z, True)
     return s
 
 
@@ -625,18 +744,7 @@ def build_step(p):
     s.tail = V(1.065, 1.075, rear)
     box(V(0,0.47,rear-0.045), (2*hw-0.12,0.15,0.25), "gunmetal")
 
-    # Wide rear tyres suggest the duals under the skirt. Spend facets on visible rims.
-    for z in (front_axle, rear_axle):
-        for sx in (-1, 1):
-            x = hw - 0.035
-            profile = [(x-(2 if z == rear_axle else 1)*p["tw"],r*0.90),
-                       (x-0.045,r), (x,r*0.90), (x,r*0.57),
-                       (x-0.026,r*0.49), (x-0.026,r*0.25), (x+0.025,r*0.19)]
-            rings = [[V(sx*q.x,q.y,q.z) for q in disc_pts(V(xx,r,z),rr,12)] for xx,rr in profile]
-            keys = ("tyre","tyre","tyre","silver","grey","silver")
-            loft(rings, lambda i,j: keys[i], caps=False)
-            poly(rings[-1],"silver",V(sx,0,0))
-            poly(rings[0],"under",V(-sx,0,0))
+    delivery_wheels(p, front_axle, rear_axle, hw - 0.035)
     box(V(0,0.47,(front_axle+rear_axle)/2), (1.30,0.28,front_axle-rear_axle+0.45), "under")
     PAL["accent"] = previous_accent
     return s
