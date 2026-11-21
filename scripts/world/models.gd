@@ -3018,15 +3018,37 @@ static func tug_mast_light() -> ArrayMesh:
 		return gb.commit())
 
 
-static func add_lighthouse(mb: MeshBuilder, base: Vector3) -> void:
-	mb.cylinder(base + Vector3(0, -3.0, 0), 4.5, 3.45, 12.0, 8, WHITE)
-	mb.cylinder(base + Vector3(0, 9.0, 0), 3.45, 3.0, 4.8, 8, Color(0.75, 0.17, 0.14))
-	mb.cylinder(base + Vector3(0, 13.8, 0), 3.0, 2.7, 6.6, 8, WHITE)
-	mb.cylinder(base + Vector3(0, 20.4, 0), 4.05, 4.05, 0.75, 8, Color(0.2, 0.2, 0.2))
-	mb.cylinder(base + Vector3(0, 21.15, 0), 1.95, 1.95, 2.7, 8, Color(0.95, 0.9, 0.6))
-	mb.cylinder(base + Vector3(0, 23.85, 0), 2.55, 0.0, 3.0, 8, Color(0.75, 0.17, 0.14))
-	mb.box(base + Vector3(7.8, 0.6, 1.8), Vector3(7.2, 7.2, 9.0), WHITE)
-	mb.box(base + Vector3(7.8, 4.65, 1.8), Vector3(7.8, 0.9, 9.6), Color(0.75, 0.17, 0.14))
+const LIGHTHOUSE_KIT := "res://assets/models/lighthouse_kit.glb"
+const LIGHTHOUSE_TOWERS := ["doubleband", "timber", "ironwork", "brick"]
+const LIGHTHOUSE_ROOFS := ["oxblood", "copper", "graphite"]
+const LIGHTHOUSE_VARIANTS := 24
+const LIGHTHOUSE_LENS_Y := 2.08
+const LIGHTHOUSE_RAIL_Y := 1.53
+const LIGHTHOUSE_RAIL_RADIUS := 3.07
+
+
+## Four shafts, three caps and an optional keeper's house. Returns the gallery's
+## frame so birds and the sweeping light share the same mounting point as the art.
+static func add_lighthouse(mb: MeshBuilder, base: Vector3, variant := 0, yaw := 0.0) -> Transform3D:
+	var lib := ModelParts.library(LIGHTHOUSE_KIT)
+	var tower: String = LIGHTHOUSE_TOWERS[variant % LIGHTHOUSE_TOWERS.size()]
+	var roof: String = LIGHTHOUSE_ROOFS[(variant / LIGHTHOUSE_TOWERS.size()) % LIGHTHOUSE_ROOFS.size()]
+	var foot := Transform3D(Basis(Vector3.UP, yaw), base)
+	var shaft: MeshBuilder = lib[tower]
+	_append_part(mb, shaft, foot)
+	var gallery := foot.translated_local(Vector3.UP * _lighthouse_gallery_height(shaft))
+	_append_part(mb, lib["gallery"], gallery)
+	_append_part(mb, lib[roof], gallery.translated_local(Vector3.UP * 3.23))
+	if variant < LIGHTHOUSE_VARIANTS / 2:
+		_append_part(mb, lib["keepershouse"], foot.translated_local(Vector3(6.7, 0, -2.5)))
+	return gallery
+
+
+static func _lighthouse_gallery_height(shaft: MeshBuilder) -> float:
+	var height := 0.0
+	for vertex in shaft.verts:
+		height = maxf(height, vertex.y)
+	return height
 
 
 ## A channel buoy with its flashing lantern on a short post at the top (see

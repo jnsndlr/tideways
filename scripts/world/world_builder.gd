@@ -873,12 +873,14 @@ func _build_lighthouses() -> void:
 		var h := terrain.height_v(p)
 		if h < 3.6 or _is_blocked(p.x, p.z):
 			continue
-		Models.add_lighthouse(mb, Vector3(p.x, h - 0.3, p.z))
+		var variant := floori(_hash(p.x, p.z) * Models.LIGHTHOUSE_VARIANTS)
+		var gallery := Models.add_lighthouse(mb, Vector3(p.x, h - 0.3, p.z), variant, PI - ang)
 		for k in 3:
-			var a := ang + PI + (k - 1) * 0.9
-			var seat := Vector3(p.x + cos(a) * 3.3, h + 20.85, p.z + sin(a) * 3.3)
+			var rail_angle := (k - 1) * TAU / 16.0
+			var seat := gallery * Vector3(cos(rail_angle) * Models.LIGHTHOUSE_RAIL_RADIUS,
+					Models.LIGHTHOUSE_RAIL_Y, sin(rail_angle) * Models.LIGHTHOUSE_RAIL_RADIUS)
 			_perch(seat, seat, 0.0, Seagulls.Kind.LIGHTHOUSE)
-		var lamp := Vector3(p.x, h + 22.2, p.z)
+		var lamp := gallery * (Vector3.UP * Models.LIGHTHOUSE_LENS_Y)
 		var beacon := Color(1.0, 0.92, 0.75)
 		glows.xform = Transform3D.IDENTITY
 		glows.glow(lamp, beacon, 2.4, 9.0, true, 0.0, Vector3.ZERO, 0.0)
