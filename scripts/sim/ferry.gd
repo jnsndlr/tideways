@@ -547,7 +547,6 @@ func _begin_loading() -> void:
 func _tick_loading(delta: float) -> void:
 	_dispatch_timer -= delta
 	var term := here()
-	var full := true
 	var serves := serves_from_here()
 	var fits := func(c: Vehicle): return _free_slot(c) >= 0
 	if _dispatch_timer <= 0.0 and _state_time < MAX_DWELL and not _casting_off and _ramp_down():
@@ -555,10 +554,7 @@ func _tick_loading(delta: float) -> void:
 		if car != null:
 			_dispatch_timer = _gap_after(car)
 			_drive_on(car, term)
-	# (full: nothing waiting would fit)
-	full = not term.has_waiting(serves, fits)
-	var queue_empty := not term.has_waiting(serves, func(_c: Vehicle): return true)
-	if _casting_off or _boarding == 0 and _state_time >= MIN_DWELL and (full or queue_empty or _state_time >= MAX_DWELL):
+	if _casting_off or _boarding == 0 and _state_time >= MIN_DWELL and (_state_time >= MAX_DWELL or not term.has_waiting(serves, fits)):
 		# Apron up before she goes.
 		_casting_off = true
 		var ramp := _ramp(term)

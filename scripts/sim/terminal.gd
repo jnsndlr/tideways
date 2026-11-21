@@ -299,12 +299,24 @@ func _spawn_car() -> void:
 	car.drive(path, _on_car_reached_lot.bind(lane))
 
 
-func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
+func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> void:
+	if not changing_lanes:
+		car.lot_arrival = sim.minutes
+	# A ferry can cast off while overflow traffic is still driving to this lot.
+	if lane not in lanes.get(car.dest, []):
+		for key in lanes:
+			if lane in lanes[key]:
+				var loader := next_loader(key)
+				if loader == null or car.dest not in loader.serves_next_call_at(self):
+					lane.enroute -= car.slots
+					car.lane_v = lane.v
+					_redirect_guest(car)
+					return
+				break
 	var ahead := lane.queued_slots()
 	car.leader = instance_from_id(lane.queue.back().vehicle_id) as Vehicle if not lane.queue.is_empty() else null
 	lane.arrive(car.get_instance_id(), car.slots)
 	car.lane_v = lane.v
-	car.lot_arrival = sim.minutes
 	_park_in_queue(car, lane, ahead)
 
 
@@ -425,17 +437,20 @@ func sort_overflow() -> void:
 					continue
 				lane.queue.erase(waiting)
 				moved = true
-				var own := _pick_lane(car.dest, car.slots)
-				if own != null:
-					own.enroute += car.slots
-					car.leader = null
-					car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own))
-				else:
-					turned_recent += 1.0
-					car.leader = null
-					car.drive(_leave_path(car.lane_v), func(c: Vehicle): c.queue_free())
+				_redirect_guest(car)
 			if moved:
 				_close_up(lane)
+
+
+func _redirect_guest(car: Vehicle) -> void:
+	car.leader = null
+	var own := _pick_lane(car.dest, car.slots)
+	if own != null:
+		own.enroute += car.slots
+		car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own, true))
+	else:
+		turned_recent += 1.0
+		car.drive(_leave_path(car.lane_v), func(c: Vehicle): c.queue_free())
 
 
 ## Out of lane `from_v`, round by the exit lane and back in at the tail of `to_v`.
