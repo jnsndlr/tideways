@@ -801,6 +801,23 @@ static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(MID_SLIP_GLB)
 
 
+## The slip's guide structures, modelled in metres with the water at y = 0 and their
+## fendered faces looking +Z: a six-pile dolphin for the lit outer pair, a four-pile
+## one for the inner pair (art/ferry_dolphin*.blend) and the splayed wing wall
+## (art/wing_wall.blend, art/export_wing_wall.py), the wall running along X. Their
+## material colours are baked in (ModelParts.baked). The procedural piles and boxes are
+## the fallback: with `--classic-slip`, or if a model is missing.
+const SLIP_DOLPHIN_OUTER_GLB := "res://assets/models/ferry_dolphin.glb"
+const SLIP_DOLPHIN_INNER_GLB := "res://assets/models/ferry_dolphin_small.glb"
+const SLIP_WING_WALL_GLB := "res://assets/models/wing_wall.glb"
+# How far each dolphin's fender face stands in front of its origin, and its deck top.
+const SLIP_DOLPHIN_FACE := 3.5
+const SLIP_DOLPHIN_DECK := 4.17
+static var mid_slip_guides := not "--classic-slip" in OS.get_cmdline_user_args() \
+	and ResourceLoader.exists(SLIP_DOLPHIN_OUTER_GLB) and ResourceLoader.exists(SLIP_DOLPHIN_INNER_GLB) \
+	and ResourceLoader.exists(SLIP_WING_WALL_GLB)
+
+
 ## One part of the mid-poly slip, about its own pivot (see SlipRamp).
 static func slip_part(part: String) -> MeshBuilder:
 	return ModelParts.library(MID_SLIP_GLB)[part]

@@ -628,12 +628,14 @@ func _build_slip(mb: MeshBuilder, v: float) -> void:
 			_wing_wall(mb, Vector2(w0.x, v + side * w0.y), Vector2(w1.x, v + side * w1.y), side)
 		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
 		var inner := Layout.DOLPHIN_INNER
-		var inner_cap := _dolphin(mb, Vector3(v + side * inner.y, 0, inner.x), inner.z, 6)
+		var inner_cap := _dolphin(mb, Vector3(v + side * inner.y, 0, inner.x), inner.z, 6) \
+			if not Models.mid_slip_guides else _mid_dolphin(mb, v, side, inner, Models.SLIP_DOLPHIN_INNER_GLB)
 		# (The outer ones' lanterns leave no room for an eagle.)
 		eagle_perches.append(Eagles.Perch.new(mb.xform * inner_cap, Eagles.Kind.DOLPHIN))
 		# The outer dolphins carry the slip's lanterns.
 		var outer := Layout.DOLPHIN_OUTER
-		var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8)
+		var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8) \
+			if not Models.mid_slip_guides else _mid_dolphin(mb, v, side, outer, Models.SLIP_DOLPHIN_OUTER_GLB)
 		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
 		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 		# Channel buoy, flashing.
@@ -663,6 +665,13 @@ func _wing_wall(mb: MeshBuilder, a: Vector2, b: Vector2, side: float) -> void:
 		out = -out
 		along = -along
 	var length := p0.distance_to(p1)
+	if Models.mid_slip_guides:
+		# The model runs along its X with its face looking +Z: X along the wall, +Z
+		# towards the slip (-out).
+		var model := Basis(Vector3(0, 0, 1), Vector3.UP, Vector3(-1, 0, 0))
+		Models._append_part(mb, ModelParts.baked(Models.SLIP_WING_WALL_GLB),
+			mb.xform * Transform3D(Basis(out, Vector3.UP, along) * model, (p0 + p1) * 0.5))
+		return
 	var saved := mb.xform
 	mb.xform = saved * Transform3D(Basis(out, Vector3.UP, along), (p0 + p1) * 0.5)
 	# Fender panel, the timber wall behind it and a cap along the top.
@@ -674,6 +683,22 @@ func _wing_wall(mb: MeshBuilder, a: Vector2, b: Vector2, side: float) -> void:
 		var z := -length * 0.5 + length * i / n
 		mb.cylinder(Vector3(3.0, -6.0, z), 0.72, 0.66, 13.8, 6, Models.WOOD, Color(0.62, 0.6, 0.56))
 	mb.xform = saved
+
+
+## A modelled dolphin (`glb`) beside the slip at `v`, on its `side` (±1), where `at`
+## (Layout.DOLPHIN_*: u, v off the centreline, radius) puts the old cluster: its
+## fendered face where the cluster's inner edge was, square to the centreline and
+## looking in at the slip. Returns the middle of its deck.
+func _mid_dolphin(mb: MeshBuilder, v: float, side: float, at: Vector3, glb: String) -> Vector3:
+	var c := Vector3(v + side * (at.y - at.z + Models.SLIP_DOLPHIN_FACE), 0, at.x)
+	# Model +Z (the face) towards the centreline, its length (X) along the slip.
+	var basis := Basis(Vector3(0, 0, side), Vector3.UP, Vector3(-side, 0, 0))
+	Models._append_part(mb, ModelParts.baked(glb), mb.xform * Transform3D(basis, c))
+	var cap := c + Vector3(0, Models.SLIP_DOLPHIN_DECK, 0)
+	for k in 3:
+		var seat := mb.xform * (cap + Vector3(0, 0, (k - 1) * 1.6))
+		_perch(seat, seat, 0.0, Seagulls.Kind.DOLPHIN)
+	return cap
 
 
 ## A dolphin: a cluster of piles round one at `c` (on the waterline, terminal
