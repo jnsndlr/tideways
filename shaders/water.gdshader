@@ -86,6 +86,7 @@ uniform float wake_life = 10.0;
 uniform float kelvin_life = 14.0;
 uniform float kelvin_wavelength = 5.5;
 uniform float kelvin_height = 0.2;
+uniform int wake_repeat_mask = 0;
 uniform int wake_count = 0;
 uniform vec4 wake_box[16];
 // Eight groups of six trail segments per slot; four wash radii per vec4.
@@ -465,265 +466,273 @@ float end_fade(float raw, float seg, float hw) {
 	return 1.0 - smoothstep(0.0, min(1.5 + hw, seg * 0.5 + 0.4), over);
 }
 
-// Wakes at world xz `p`. Adds the wake waves' slope to `grad` and returns foam
-// (0..1) and aeration (0..1, the turquoise of bubbly water).
-// `ride` is the wind waves' slope here, which the foam is carried about on.
+void vessel_wake(int f, vec2 p, float lod, float t, vec2 ride, inout vec2 grad, inout float foam, inout float aer) {
+	vec4 box = wake_box[f];
+	if (p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w) {
+		return;
+	}
+	int n = int(wake_info[f].y);
+	int base = f * WAKE_PTS;
+	vec4 hull = wake_hull[f];
+	float hw = hull.x;
+	float hull_len = hull.y;
+	float wash_str = hull.z;
+	float ks = hull.w;
+	vec4 shape = wake_shape[f];
+
+	// Reverse thrust: from the outer dolphins in, the forward prop throws the
+	// same churned wash out ahead of the bow, streaming forwards into the slip.
+	// Negative: lying alongside, she pushes ahead to hold herself in, and the
+	// seaward prop's gentler wash streams out astern, away from the slip.
+	float thrust = wake_info[f].w;
+	if (thrust != 0.0) {
+		bool aft = thrust < 0.0;
+		thrust = abs(thrust);
+		vec2 bow_p = wake_pts[base + (aft ? 1 : 0)].xy;
+		vec2 fdir = normalize(bow_p - wake_pts[base + (aft ? 0 : 1)].xy + vec2(1e-5, 0.0));
+		vec2 fperp = vec2(-fdir.y, fdir.x);
+		vec2 rel = p - bow_p;
+		float ah = dot(rel, fdir);
+		float fl = dot(rel, fperp);
+		// Reaches further the longer the prop has been running.
+		float reach = 3.0 + 9.0 * thrust;
+		if (ah > -3.0 && ah < reach + 4.0 && abs(fl) < 16.0) {
+			// The wash creeps out slowly but boils hard within: its foam drifts
+			// forwards at JET_SPEED, while it ages as if thrown out at JET_AGE
+			// so it stays fresh and violent all the way out.
+			const float JET_SPEED = 0.9;
+			const float JET_AGE = 2.5;
+			const float JET_VIO = 2.2;
+			float fstr = thrust * (1.0 - smoothstep(reach * 0.55, reach, ah));
+			// Fans out into a cone: ~50% wider at the far end than at the bow.
+			float cone = 1.0 + 0.5 * clamp(ah / reach, 0.0, 1.0);
+			prop_wash(hw, abs(fl) / cone, fl < 0.0 ? -1.0 : 1.0, dot(p, fdir) - t * JET_SPEED, max(ah, 0.0), ah,
+					max(ah, 0.0) / JET_AGE, fstr, fperp, -fdir, ride, t, lod, 1.0, aft ? 1.0 : JET_VIO, foam, aer, grad);
+		}
+	}
+
+	float odo = wake_info[f].x;
+	float span = max(wake_info[f].z, 1.0);
+	// The nearest point on the trail places the ferry's own hull foam and Kelvin
+	// waves. The prop wash instead comes from whichever stretches of trail reach
+	// here strongest: old foam spreads wide, so where the ferry has slowed down
+	// (or turned back on itself) the older, wider foam still shows past the
+	// newer stretch instead of being cut off along the line where it's nearer.
+	float best = 1e12;
+	int bi = 0;
+	float bt = 0.0;
+	float braw = 0.0;
+	float c1 = 0.0;
+	int i1 = -1;
+	float r1 = 0.0;
+	float c2 = 0.0;
+	int i2 = -1;
+	float r2 = 0.0;
+	for (int group = 0; group < 8; group++) {
+		int first = group * 6;
+		if (first >= n - 1) {
+			break;
+		}
+		int index = f * 8 + group;
+		vec4 bounds = wake_group_box[index];
+		vec2 outside = max(max(bounds.xy - p, p - bounds.zw), vec2(0.0));
+		float lower_sq = dot(outside, outside);
+		float radius = wake_group_radius[index / 4][index % 4];
+		if (radius >= 0.0 && lower_sq > best && lower_sq > radius * radius) {
+			continue;
+		}
+		for (int segment = 0; segment < 6; segment++) {
+			int i = first + segment;
+			if (i >= n - 1) {
+				break;
+			}
+			vec2 a = wake_pts[base + i].xy;
+			vec2 ab = wake_pts[base + i + 1].xy - a;
+			vec2 ap = p - a;
+			float raw = dot(ap, ab) / max(dot(ab, ab), 1e-4);
+			float tt = clamp(raw, 0.0, 1.0);
+			vec2 d = ap - ab * tt;
+			float dd = dot(d, d);
+			if (dd < best) {
+				best = dd;
+				bi = i;
+				bt = tt;
+				braw = raw;
+			}
+			// Measured straight across the segment's line rather than to its
+			// nearest point, so neighbouring segments overlap and blend at their
+			// joints, and only reaching a little past its ends. (Measured to the
+			// nearest point, an older, wider segment's rounded end pokes out past
+			// the joint into the next one, leaving a ring of foam at every crumb.)
+			float seg = sqrt(max(dot(ab, ab), 1e-6));
+			float fade = end_fade(raw, seg, hw);
+			if (fade <= 0.0 || wash_str <= 0.0) {
+				continue;
+			}
+			float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
+			float ts, tage, tspd, ttail;
+			trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
+			float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
+			if (cov > c1) {
+				c2 = c1;
+				i2 = i1;
+				r2 = r1;
+				c1 = cov;
+				i1 = i;
+				r1 = raw;
+			} else if (cov > c2) {
+				c2 = cov;
+				i2 = i;
+				r2 = raw;
+			}
+		}
+	}
+
+	// Prop wash from the strongest stretch, and where a second one reaches
+	// nearly as far, from that too, so the two cross-fade instead of meeting
+	// in a seam.
+	float w2 = c2 > 0.0 ? 0.5 * smoothstep(0.4, 1.0, c2 / c1) : 0.0;
+	for (int k = 0; k < 2; k++) {
+		int wi = k == 0 ? i1 : i2;
+		float wr = k == 0 ? r1 : r2;
+		if (wi < 0 || (k == 1 && w2 <= 0.0)) {
+			continue;
+		}
+		vec4 WA = wake_pts[base + wi];
+		vec4 WB = wake_pts[base + wi + 1];
+		vec2 wab = WB.xy - WA.xy;
+		vec2 wdir = normalize(-wab + vec2(1e-5, 0.0));
+		vec2 wperp = vec2(-wdir.y, wdir.x);
+		float wlat = dot(p - WA.xy, wperp);
+		float wfade = end_fade(wr, length(wab), hw);
+		float ws, wage, wspd, wtail;
+		trail_at(base, wi, n, wr, span, ws, wage, wspd, wtail);
+		float walong = odo - ws;
+		// Gentler wash churns more calmly too.
+		prop_wash(hw, abs(wlat), wlat < 0.0 ? -1.0 : 1.0, ws, max(walong, 0.0), walong, wage,
+				wspd * wtail * wash_str * wfade, wperp, wdir, ride, t, lod, k == 0 ? 1.0 - w2 : w2, max(wash_str, 0.3), foam, aer, grad);
+	}
+
+	vec4 A = wake_pts[base + bi];
+	vec4 B = wake_pts[base + bi + 1];
+	// Points run backwards along the trail, so the ferry heads from B to A.
+	vec2 dir = normalize(A.xy - B.xy + vec2(1e-5, 0.0));
+	vec2 perp = vec2(-dir.y, dir.x);
+	float side = dot(p - A.xy, perp) < 0.0 ? -1.0 : 1.0;
+	float alat = sqrt(best);
+	float s, age, spd, tail;
+	trail_at(base, bi, n, braw, span, s, age, spd, tail);
+	// Where the nearest segment switches on a bend, the two segments disagree
+	// a little about s, which would leave a seam in the Kelvin waves. Blend
+	// towards the neighbouring segment's answer near the switch.
+	int nb = braw < 0.5 ? bi - 1 : bi + 1;
+	if (nb >= 0 && nb < n - 1) {
+		vec4 C = wake_pts[base + nb];
+		vec4 D = wake_pts[base + nb + 1];
+		vec2 cd = D.xy - C.xy;
+		float nraw = dot(p - C.xy, cd) / max(dot(cd, cd), 1e-4);
+		float nd = length(p - C.xy - cd * clamp(nraw, 0.0, 1.0));
+		float ns = mix(C.z, D.z, clamp(nraw, -0.5, 1.5));
+		s = mix(ns, s, 0.5 + 0.5 * smoothstep(0.0, 4.0, nd - alat));
+	}
+	// Metres behind the stern (negative alongside the hull and ahead of the bow).
+	float along = odo - s;
+	float from_bow = along + hull_len;
+	float reach = KELVIN_REACH * ks;
+	float wk = hw + clamp(from_bow, 0.0, reach) * KELVIN_SPREAD;
+	if (alat > wk * 1.1 + 3.0 || from_bow < -6.0 || spd <= 0.0 || tail <= 0.0) {
+		return;
+	}
+	// Trail frame, fixed in the world: across, and along the path travelled.
+	vec2 c = vec2(side * alat, s);
+
+	// Kelvin waves: feathered divergent crests bunched along the edges of the
+	// wedge (outer end trailing, ~55° to the track), and gentler transverse
+	// crests across it. They hold their place relative to the vessel. Bigger
+	// hulls make longer, taller waves; small ones shorter and gentler ones.
+	float kel = spd * tail * exp(-age / kelvin_life) * smoothstep(-2.0, 4.0, from_bow)
+			* (1.0 - smoothstep(reach * 0.6, reach, from_bow)) / (1.0 + from_bow * 0.012 / ks);
+	float k = TAU / (kelvin_wavelength * ks);
+	float kh = kelvin_height * ks * sqrt(ks);
+	float x = alat / wk;
+	float div_env = smoothstep(0.45, 0.92, x) * (1.0 - smoothstep(0.97, 1.08, x));
+	float ph = k * (from_bow * 0.82 - alat * 0.57) - t * 0.6;
+	float e = exp(1.6 * (sin(ph) - 1.0));
+	vec2 dph = k * (-0.82 * dir - 0.57 * side * perp);
+	grad += kh * kel * div_env * e * 1.6 * cos(ph) * dph;
+	float tr_env = (1.0 - smoothstep(0.55, 0.9, x)) * smoothstep(0.0, 8.0, along);
+	float pt = k * 0.75 * (from_bow + alat * alat * 0.015 / ks);
+	grad += kh * 0.45 * kel * tr_env * cos(pt) * k * 0.75 * (-dir + side * perp * alat * 0.03 / ks);
+	// Right at the edge of the wedge, near the vessel, the divergent crests break
+	// into thin broken lines of white.
+	float streak = gnoise(c * vec2(0.9, 0.3) + 21.0) * 0.5 + gnoise(c * vec2(2.3, 0.8) + 5.0) * 0.3 * lod;
+	float crest_foam = smoothstep(0.88, 0.99, e) * smoothstep(0.8, 0.97, x) * (1.0 - smoothstep(1.0, 1.06, x))
+			* smoothstep(0.05, 0.35, streak) * kel * exp(-age / 6.0) * (1.0 - smoothstep(25.0 * ks, 50.0 * ks, from_bow));
+
+	// The hull's outline where the water meets it. fb runs back from its stem.
+	float sc = clamp(hw / 4.2, 0.2, 1.0);
+	float fb = from_bow - shape.x;
+	float fade = hull_len * 0.3 + 6.0 * sc;
+	// Behind the stern, hull foam is zero. Past the bow-wave fade, only
+	// Kelvin crest foam and the prop wash already accumulated can remain.
+	if (along >= 0.0 && fb >= fade) {
+		foam = max(foam, crest_foam);
+		return;
+	}
+	float stem_w = shape.w;
+	float hull_w;
+	// Distance out from the hull's side (rounded round the stem ahead of it).
+	float out_d = waterline_dist(f, shape.y, hw, vec2(fb, alat), 3.0, hull_w);
+	float hn = (gnoise(c * vec2(1.4, 0.5) + vec2(0.0, -t * 2.0)) * 0.6 + gnoise(c * 3.1 + vec2(t * 0.7, 2.0)) * 0.4 * lod) * 0.5;
+
+	// Water heaped up against the stem: a thin, bright cushion right ahead
+	// of it, thickest at the stem and thinning along the flare of the bow.
+	float at_bow = 1.0 - smoothstep(0.0, shape.z * 0.9 + 1.0, fb);
+	// Pocked with holes along the flanks, so it reads as foam, not a sheet.
+	float thick = (0.3 + (0.6 + 0.9 * spd) * at_bow) * sc;
+	float pock = gnoise(c * vec2(2.6, 1.1) + vec2(0.0, -t * 1.5)) * lod * (1.0 - at_bow * 0.7);
+	float hug = smoothstep(0.4, 0.55, 1.0 - out_d / thick + hn + pock * 0.35) * (1.0 - smoothstep(-1.5 * sc, 0.0, along));
+
+	// The bow wave proper: a breaking crest thrown off each side of the stem
+	// that runs out and back at a steeper angle than the hull flares, so it
+	// leaves the side where the bow meets the parallel body, then spreads,
+	// breaks up into patches and fades: the bow's "moustache".
+	float ridge_x = max(hull_w + 0.3 * sc, stem_w + max(fb, 0.0) * 0.7);
+	float rw = (0.6 + 0.08 * max(fb, 0.0)) * sc;
+	float rn = gnoise(c * vec2(0.8, 0.35) + vec2(3.0, -t * 0.4)) * 0.6 + gnoise(c * vec2(2.2, 1.0) + vec2(t * 0.5, 7.0)) * 0.4 * lod;
+	float rlife = (1.0 - smoothstep(fade * 0.4, fade, fb)) * smoothstep(-1.0 * sc, 0.5 * sc, fb);
+	float ridge = (1.0 - smoothstep(0.0, rw, abs(alat - ridge_x) + rn * rw * 0.6)) * rlife;
+	// Breaks into patches as it ages: more of it drops out further back.
+	ridge *= smoothstep(0.15 + 0.55 * fb / fade, 0.35 + 0.55 * fb / fade, rn * 0.5 + 0.55);
+	// Between the crest and the hull: churned, bubbly water with a little
+	// broken foam, filling the V the crest opens up.
+	float inside = smoothstep(-0.3 * sc, 0.4 * sc, out_d) * (1.0 - smoothstep(-0.5 * rw, 0.3 * rw, alat - ridge_x));
+	float fill = inside * rlife * (1.0 - smoothstep(0.0, fade * 0.6, fb));
+	float bubbles = fill * smoothstep(0.55, 0.75, rn * 0.5 + 0.5 + fill * 0.2);
+	float bw = max(ridge, bubbles * 0.7) * spd;
+	hug = max(hug * spd * mix(0.3, 1.0, sc), bw * mix(0.3, 1.0, sc));
+	aer = max(aer, fill * spd * 0.5);
+
+	foam = max(foam, max(hug, crest_foam));
+	aer = max(aer, hug * 0.6);
+}
+
+// The same vessel in consecutive slots produces identical foam and aeration
+// (both combined by max), but its slope is additive for every occurrence.
 void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam, out float aer) {
 	foam = 0.0;
 	aer = 0.0;
 	float lod = clamp(0.5 / fp - 0.3, 0.0, 1.0);
+	vec2 vessel_slope = vec2(0.0);
 	for (int f = 0; f < WAKE_SLOTS; f++) {
 		if (f >= wake_count) {
 			break;
 		}
-		vec4 box = wake_box[f];
-		if (p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w) {
-			continue;
+		if ((wake_repeat_mask & (1 << f)) == 0) {
+			vessel_slope = vec2(0.0);
+			vessel_wake(f, p, lod, t, ride, vessel_slope, foam, aer);
 		}
-		int n = int(wake_info[f].y);
-		int base = f * WAKE_PTS;
-		vec4 hull = wake_hull[f];
-		float hw = hull.x;
-		float hull_len = hull.y;
-		float wash_str = hull.z;
-		float ks = hull.w;
-		vec4 shape = wake_shape[f];
-
-		// Reverse thrust: from the outer dolphins in, the forward prop throws the
-		// same churned wash out ahead of the bow, streaming forwards into the slip.
-		// Negative: lying alongside, she pushes ahead to hold herself in, and the
-		// seaward prop's gentler wash streams out astern, away from the slip.
-		float thrust = wake_info[f].w;
-		if (thrust != 0.0) {
-			bool aft = thrust < 0.0;
-			thrust = abs(thrust);
-			vec2 bow_p = wake_pts[base + (aft ? 1 : 0)].xy;
-			vec2 fdir = normalize(bow_p - wake_pts[base + (aft ? 0 : 1)].xy + vec2(1e-5, 0.0));
-			vec2 fperp = vec2(-fdir.y, fdir.x);
-			vec2 rel = p - bow_p;
-			float ah = dot(rel, fdir);
-			float fl = dot(rel, fperp);
-			// Reaches further the longer the prop has been running.
-			float reach = 3.0 + 9.0 * thrust;
-			if (ah > -3.0 && ah < reach + 4.0 && abs(fl) < 16.0) {
-				// The wash creeps out slowly but boils hard within: its foam drifts
-				// forwards at JET_SPEED, while it ages as if thrown out at JET_AGE
-				// so it stays fresh and violent all the way out.
-				const float JET_SPEED = 0.9;
-				const float JET_AGE = 2.5;
-				const float JET_VIO = 2.2;
-				float fstr = thrust * (1.0 - smoothstep(reach * 0.55, reach, ah));
-				// Fans out into a cone: ~50% wider at the far end than at the bow.
-				float cone = 1.0 + 0.5 * clamp(ah / reach, 0.0, 1.0);
-				prop_wash(hw, abs(fl) / cone, fl < 0.0 ? -1.0 : 1.0, dot(p, fdir) - t * JET_SPEED, max(ah, 0.0), ah,
-						max(ah, 0.0) / JET_AGE, fstr, fperp, -fdir, ride, t, lod, 1.0, aft ? 1.0 : JET_VIO, foam, aer, grad);
-			}
-		}
-
-		float odo = wake_info[f].x;
-		float span = max(wake_info[f].z, 1.0);
-		// The nearest point on the trail places the ferry's own hull foam and Kelvin
-		// waves. The prop wash instead comes from whichever stretches of trail reach
-		// here strongest: old foam spreads wide, so where the ferry has slowed down
-		// (or turned back on itself) the older, wider foam still shows past the
-		// newer stretch instead of being cut off along the line where it's nearer.
-		float best = 1e12;
-		int bi = 0;
-		float bt = 0.0;
-		float braw = 0.0;
-		float c1 = 0.0;
-		int i1 = -1;
-		float r1 = 0.0;
-		float c2 = 0.0;
-		int i2 = -1;
-		float r2 = 0.0;
-		for (int group = 0; group < 8; group++) {
-			int first = group * 6;
-			if (first >= n - 1) {
-				break;
-			}
-			int index = f * 8 + group;
-			vec4 bounds = wake_group_box[index];
-			vec2 outside = max(max(bounds.xy - p, p - bounds.zw), vec2(0.0));
-			float lower_sq = dot(outside, outside);
-			float radius = wake_group_radius[index / 4][index % 4];
-			if (radius >= 0.0 && lower_sq > best && lower_sq > radius * radius) {
-				continue;
-			}
-			for (int segment = 0; segment < 6; segment++) {
-				int i = first + segment;
-				if (i >= n - 1) {
-					break;
-				}
-				vec2 a = wake_pts[base + i].xy;
-				vec2 ab = wake_pts[base + i + 1].xy - a;
-				vec2 ap = p - a;
-				float raw = dot(ap, ab) / max(dot(ab, ab), 1e-4);
-				float tt = clamp(raw, 0.0, 1.0);
-				vec2 d = ap - ab * tt;
-				float dd = dot(d, d);
-				if (dd < best) {
-					best = dd;
-					bi = i;
-					bt = tt;
-					braw = raw;
-				}
-				// Measured straight across the segment's line rather than to its
-				// nearest point, so neighbouring segments overlap and blend at their
-				// joints, and only reaching a little past its ends. (Measured to the
-				// nearest point, an older, wider segment's rounded end pokes out past
-				// the joint into the next one, leaving a ring of foam at every crumb.)
-				float seg = sqrt(max(dot(ab, ab), 1e-6));
-				float fade = end_fade(raw, seg, hw);
-				if (fade <= 0.0 || wash_str <= 0.0) {
-					continue;
-				}
-				float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
-				float ts, tage, tspd, ttail;
-				trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
-				float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
-				if (cov > c1) {
-					c2 = c1;
-					i2 = i1;
-					r2 = r1;
-					c1 = cov;
-					i1 = i;
-					r1 = raw;
-				} else if (cov > c2) {
-					c2 = cov;
-					i2 = i;
-					r2 = raw;
-				}
-			}
-		}
-
-		// Prop wash from the strongest stretch, and where a second one reaches
-		// nearly as far, from that too, so the two cross-fade instead of meeting
-		// in a seam.
-		float w2 = c2 > 0.0 ? 0.5 * smoothstep(0.4, 1.0, c2 / c1) : 0.0;
-		for (int k = 0; k < 2; k++) {
-			int wi = k == 0 ? i1 : i2;
-			float wr = k == 0 ? r1 : r2;
-			if (wi < 0 || (k == 1 && w2 <= 0.0)) {
-				continue;
-			}
-			vec4 WA = wake_pts[base + wi];
-			vec4 WB = wake_pts[base + wi + 1];
-			vec2 wab = WB.xy - WA.xy;
-			vec2 wdir = normalize(-wab + vec2(1e-5, 0.0));
-			vec2 wperp = vec2(-wdir.y, wdir.x);
-			float wlat = dot(p - WA.xy, wperp);
-			float wfade = end_fade(wr, length(wab), hw);
-			float ws, wage, wspd, wtail;
-			trail_at(base, wi, n, wr, span, ws, wage, wspd, wtail);
-			float walong = odo - ws;
-			// Gentler wash churns more calmly too.
-			prop_wash(hw, abs(wlat), wlat < 0.0 ? -1.0 : 1.0, ws, max(walong, 0.0), walong, wage,
-					wspd * wtail * wash_str * wfade, wperp, wdir, ride, t, lod, k == 0 ? 1.0 - w2 : w2, max(wash_str, 0.3), foam, aer, grad);
-		}
-
-		vec4 A = wake_pts[base + bi];
-		vec4 B = wake_pts[base + bi + 1];
-		// Points run backwards along the trail, so the ferry heads from B to A.
-		vec2 dir = normalize(A.xy - B.xy + vec2(1e-5, 0.0));
-		vec2 perp = vec2(-dir.y, dir.x);
-		float side = dot(p - A.xy, perp) < 0.0 ? -1.0 : 1.0;
-		float alat = sqrt(best);
-		float s, age, spd, tail;
-		trail_at(base, bi, n, braw, span, s, age, spd, tail);
-		// Where the nearest segment switches on a bend, the two segments disagree
-		// a little about s, which would leave a seam in the Kelvin waves. Blend
-		// towards the neighbouring segment's answer near the switch.
-		int nb = braw < 0.5 ? bi - 1 : bi + 1;
-		if (nb >= 0 && nb < n - 1) {
-			vec4 C = wake_pts[base + nb];
-			vec4 D = wake_pts[base + nb + 1];
-			vec2 cd = D.xy - C.xy;
-			float nraw = dot(p - C.xy, cd) / max(dot(cd, cd), 1e-4);
-			float nd = length(p - C.xy - cd * clamp(nraw, 0.0, 1.0));
-			float ns = mix(C.z, D.z, clamp(nraw, -0.5, 1.5));
-			s = mix(ns, s, 0.5 + 0.5 * smoothstep(0.0, 4.0, nd - alat));
-		}
-		// Metres behind the stern (negative alongside the hull and ahead of the bow).
-		float along = odo - s;
-		float from_bow = along + hull_len;
-		float reach = KELVIN_REACH * ks;
-		float wk = hw + clamp(from_bow, 0.0, reach) * KELVIN_SPREAD;
-		if (alat > wk * 1.1 + 3.0 || from_bow < -6.0 || spd <= 0.0 || tail <= 0.0) {
-			continue;
-		}
-		// Trail frame, fixed in the world: across, and along the path travelled.
-		vec2 c = vec2(side * alat, s);
-
-		// Kelvin waves: feathered divergent crests bunched along the edges of the
-		// wedge (outer end trailing, ~55° to the track), and gentler transverse
-		// crests across it. They hold their place relative to the vessel. Bigger
-		// hulls make longer, taller waves; small ones shorter and gentler ones.
-		float kel = spd * tail * exp(-age / kelvin_life) * smoothstep(-2.0, 4.0, from_bow)
-				* (1.0 - smoothstep(reach * 0.6, reach, from_bow)) / (1.0 + from_bow * 0.012 / ks);
-		float k = TAU / (kelvin_wavelength * ks);
-		float kh = kelvin_height * ks * sqrt(ks);
-		float x = alat / wk;
-		float div_env = smoothstep(0.45, 0.92, x) * (1.0 - smoothstep(0.97, 1.08, x));
-		float ph = k * (from_bow * 0.82 - alat * 0.57) - t * 0.6;
-		float e = exp(1.6 * (sin(ph) - 1.0));
-		vec2 dph = k * (-0.82 * dir - 0.57 * side * perp);
-		grad += kh * kel * div_env * e * 1.6 * cos(ph) * dph;
-		float tr_env = (1.0 - smoothstep(0.55, 0.9, x)) * smoothstep(0.0, 8.0, along);
-		float pt = k * 0.75 * (from_bow + alat * alat * 0.015 / ks);
-		grad += kh * 0.45 * kel * tr_env * cos(pt) * k * 0.75 * (-dir + side * perp * alat * 0.03 / ks);
-		// Right at the edge of the wedge, near the vessel, the divergent crests break
-		// into thin broken lines of white.
-		float streak = gnoise(c * vec2(0.9, 0.3) + 21.0) * 0.5 + gnoise(c * vec2(2.3, 0.8) + 5.0) * 0.3 * lod;
-		float crest_foam = smoothstep(0.88, 0.99, e) * smoothstep(0.8, 0.97, x) * (1.0 - smoothstep(1.0, 1.06, x))
-				* smoothstep(0.05, 0.35, streak) * kel * exp(-age / 6.0) * (1.0 - smoothstep(25.0 * ks, 50.0 * ks, from_bow));
-
-		// The hull's outline where the water meets it. fb runs back from its stem.
-		float sc = clamp(hw / 4.2, 0.2, 1.0);
-		float fb = from_bow - shape.x;
-		float fade = hull_len * 0.3 + 6.0 * sc;
-		// Behind the stern, hull foam is zero. Past the bow-wave fade, only
-		// Kelvin crest foam and the prop wash already accumulated can remain.
-		if (along >= 0.0 && fb >= fade) {
-			foam = max(foam, crest_foam);
-			continue;
-		}
-		float stem_w = shape.w;
-		float hull_w;
-		// Distance out from the hull's side (rounded round the stem ahead of it).
-		float out_d = waterline_dist(f, shape.y, hw, vec2(fb, alat), 3.0, hull_w);
-		float hn = (gnoise(c * vec2(1.4, 0.5) + vec2(0.0, -t * 2.0)) * 0.6 + gnoise(c * 3.1 + vec2(t * 0.7, 2.0)) * 0.4 * lod) * 0.5;
-
-		// Water heaped up against the stem: a thin, bright cushion right ahead
-		// of it, thickest at the stem and thinning along the flare of the bow.
-		float at_bow = 1.0 - smoothstep(0.0, shape.z * 0.9 + 1.0, fb);
-		// Pocked with holes along the flanks, so it reads as foam, not a sheet.
-		float thick = (0.3 + (0.6 + 0.9 * spd) * at_bow) * sc;
-		float pock = gnoise(c * vec2(2.6, 1.1) + vec2(0.0, -t * 1.5)) * lod * (1.0 - at_bow * 0.7);
-		float hug = smoothstep(0.4, 0.55, 1.0 - out_d / thick + hn + pock * 0.35) * (1.0 - smoothstep(-1.5 * sc, 0.0, along));
-
-		// The bow wave proper: a breaking crest thrown off each side of the stem
-		// that runs out and back at a steeper angle than the hull flares, so it
-		// leaves the side where the bow meets the parallel body, then spreads,
-		// breaks up into patches and fades: the bow's "moustache".
-		float ridge_x = max(hull_w + 0.3 * sc, stem_w + max(fb, 0.0) * 0.7);
-		float rw = (0.6 + 0.08 * max(fb, 0.0)) * sc;
-		float rn = gnoise(c * vec2(0.8, 0.35) + vec2(3.0, -t * 0.4)) * 0.6 + gnoise(c * vec2(2.2, 1.0) + vec2(t * 0.5, 7.0)) * 0.4 * lod;
-		float rlife = (1.0 - smoothstep(fade * 0.4, fade, fb)) * smoothstep(-1.0 * sc, 0.5 * sc, fb);
-		float ridge = (1.0 - smoothstep(0.0, rw, abs(alat - ridge_x) + rn * rw * 0.6)) * rlife;
-		// Breaks into patches as it ages: more of it drops out further back.
-		ridge *= smoothstep(0.15 + 0.55 * fb / fade, 0.35 + 0.55 * fb / fade, rn * 0.5 + 0.55);
-		// Between the crest and the hull: churned, bubbly water with a little
-		// broken foam, filling the V the crest opens up.
-		float inside = smoothstep(-0.3 * sc, 0.4 * sc, out_d) * (1.0 - smoothstep(-0.5 * rw, 0.3 * rw, alat - ridge_x));
-		float fill = inside * rlife * (1.0 - smoothstep(0.0, fade * 0.6, fb));
-		float bubbles = fill * smoothstep(0.55, 0.75, rn * 0.5 + 0.5 + fill * 0.2);
-		float bw = max(ridge, bubbles * 0.7) * spd;
-		hug = max(hug * spd * mix(0.3, 1.0, sc), bw * mix(0.3, 1.0, sc));
-		aer = max(aer, fill * spd * 0.5);
-
-		foam = max(foam, max(hug, crest_foam));
-		aer = max(aer, hug * 0.6);
+		grad += vessel_slope;
 	}
 }
 
