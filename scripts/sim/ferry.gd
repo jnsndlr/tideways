@@ -103,6 +103,11 @@ var _state_time: float:
 	set(value): voyage.state_time = value
 var _bob_time := 0.0
 var _thrust := 0.0   # forward prop reverse thrust while braking, 0..1
+# Alongside at her slip she pushes ahead on her seaward prop at HOLD_THROTTLE to keep
+# her landing end hard in against the apron, kicking up a little wash astern; it
+# stops as soon as she casts off.
+const HOLD_THROTTLE := 0.1
+var _push := 0.0     # her seaward prop's throttle holding her in, 0..HOLD_THROTTLE
 var _last_pos := Vector3.ZERO
 var _tracking := false
 var _waiting_for: Ferry = null   # holding off a corridor this ferry has reserved
@@ -466,6 +471,8 @@ func _process(delta: float) -> void:
 		_let_go_of_slip()
 		_tick_berth(delta)
 		_thrust = move_toward(_thrust, 0.0, delta * 0.4)
+		_push = 0.0
+		wake.hold = false
 		_update_trail(delta)
 		return
 	match state:
@@ -478,6 +485,11 @@ func _process(delta: float) -> void:
 	if state != State.SAILING:
 		# Holds the ferry against the dock for a moment after arriving.
 		_thrust = move_toward(_thrust, 0.0, delta * 0.4)
+		# Then her seaward prop takes up pushing her in as the forward one eases off.
+		_push = move_toward(_push, HOLD_THROTTLE, delta * 0.05)
+	else:
+		_push = 0.0
+	wake.hold = _push > 0.0
 	_update_lie(delta)
 	_update_trail(delta)
 
@@ -1163,7 +1175,10 @@ func _update_trail(delta: float) -> void:
 	# heading still points the way it arrived, which would put the first crumb at
 	# the wrong end of the hull and fold the trail back on itself. The stern
 	# props ease off while the forward prop brakes.
-	wake.update(delta, global_position, fwd if moving else Vector3.ZERO, speed * delta,
+	# Alongside she only swings about her landing end as she lies over, which mustn't
+	# turn her wake round: she keeps the heading she came in on.
+	var under_way := moving and state == State.SAILING
+	wake.update(delta, global_position, fwd if under_way else Vector3.ZERO, speed * delta,
 			speed / fc.cruise * (1.0 - 0.6 * _thrust), state == State.SAILING and moving)
 	_blow_nets(moved / delta if moving and delta > 0.0 else Vector3.ZERO, delta)
 
@@ -1190,6 +1205,11 @@ func wake_waterline() -> PackedFloat32Array:
 ## Reverse thrust from the forward prop, 0..1 (braking for, or holding at, the dock).
 func front_thrust() -> float:
 	return _thrust
+
+
+## Her seaward prop's throttle pushing her in against the apron, alongside.
+func stern_push() -> float:
+	return _push
 
 
 func load_count() -> int:

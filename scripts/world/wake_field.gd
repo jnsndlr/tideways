@@ -15,6 +15,8 @@ const KELVIN_SPREAD := 0.354
 const KELVIN_REACH := 540.0
 # Furthest the shader's reverse-thrust wash reaches from the bow (with its spread).
 const FRONT_WASH_REACH := 72.0
+# Holding wash astern, per unit of ahead throttle (so 10% throttle shows 0.35).
+const PUSH_WASH := 3.5
 # The water shader's unit (water.gdshader's UNIT): everything goes over in it.
 const UNIT := 3.0
 const WAKE_GROUP := &"wake_sources"
@@ -89,11 +91,15 @@ func _process(_delta: float) -> void:
 			lo = lo.min(Vector2(p.x - r, p.y - r))
 			hi = hi.max(Vector2(p.x + r, p.y + r))
 		var thrust: float = v.call(&"front_thrust")
-		if thrust > 0.0:
-			# Room for the reverse-thrust wash thrown out ahead of the bow.
-			var bow := Vector2(_pts[at].x, _pts[at].y)
-			lo = lo.min(bow - Vector2.ONE * FRONT_WASH_REACH)
-			hi = hi.max(bow + Vector2.ONE * FRONT_WASH_REACH)
+		var push: float = v.call(&"stern_push")
+		if thrust > 0.0 or push > 0.0:
+			# Room for the reverse-thrust wash thrown out ahead of the bow, or the
+			# holding wash astern (the shader's wake_info.w: negative for that).
+			var end := Vector2(_pts[at].x, _pts[at].y) if thrust > 0.0 else Vector2(_pts[at + 1].x, _pts[at + 1].y)
+			lo = lo.min(end - Vector2.ONE * FRONT_WASH_REACH)
+			hi = hi.max(end + Vector2.ONE * FRONT_WASH_REACH)
+		if thrust <= 0.0 and push > 0.0:
+			thrust = -push * PUSH_WASH
 		_box[count] = Vector4(lo.x, lo.y, hi.x, hi.y) / UNIT
 		_info[count] = Vector4(tr.odometer / UNIT, n, tr.life, thrust)
 		_hull[count] = Vector4(hull.x / UNIT, hull.y / UNIT, hull.z, hull.w)

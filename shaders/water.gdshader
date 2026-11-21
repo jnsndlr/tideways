@@ -491,10 +491,14 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 
 		// Reverse thrust: from the outer dolphins in, the forward prop throws the
 		// same churned wash out ahead of the bow, streaming forwards into the slip.
+		// Negative: lying alongside, she pushes ahead to hold herself in, and the
+		// seaward prop's gentler wash streams out astern, away from the slip.
 		float thrust = wake_info[f].w;
-		if (thrust > 0.0) {
-			vec2 bow_p = wake_pts[base].xy;
-			vec2 fdir = normalize(bow_p - wake_pts[base + 1].xy + vec2(1e-5, 0.0));
+		if (thrust != 0.0) {
+			bool aft = thrust < 0.0;
+			thrust = abs(thrust);
+			vec2 bow_p = wake_pts[base + (aft ? 1 : 0)].xy;
+			vec2 fdir = normalize(bow_p - wake_pts[base + (aft ? 0 : 1)].xy + vec2(1e-5, 0.0));
 			vec2 fperp = vec2(-fdir.y, fdir.x);
 			vec2 rel = p - bow_p;
 			float ah = dot(rel, fdir);
@@ -512,7 +516,7 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 				// Fans out into a cone: ~50% wider at the far end than at the bow.
 				float cone = 1.0 + 0.5 * clamp(ah / reach, 0.0, 1.0);
 				prop_wash(hw, abs(fl) / cone, fl < 0.0 ? -1.0 : 1.0, dot(p, fdir) - t * JET_SPEED, max(ah, 0.0), ah,
-						max(ah, 0.0) / JET_AGE, fstr, fperp, -fdir, ride, t, lod, 1.0, JET_VIO, foam, aer, grad);
+						max(ah, 0.0) / JET_AGE, fstr, fperp, -fdir, ride, t, lod, 1.0, aft ? 1.0 : JET_VIO, foam, aer, grad);
 			}
 		}
 
