@@ -16,7 +16,7 @@ var fleet: Array[Assignment] = []
 static func _island_record(map: MapData, island: MapData.Island) -> Dictionary:
 	var slips: Array[String] = []
 	for route_id in island.slips:
-		slips.append(map.routes[route_id].key)
+		slips.append(map.routes[route_id].key if MapData.is_route(route_id) else "idle")
 	return {"key": island.key, "terminal": island.has_terminal, "slips": slips}
 
 

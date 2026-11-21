@@ -388,6 +388,8 @@ The order for building the game loop and progression systems, agreed 2026-11-18.
 
 Decided in stage 1 (2026-11-19): fuel and wages post to the ledger once per trip, when the boat docks, with any remainder at midnight. Pace is set per boat, and switching it shows a whole trip's cost at the new pace straight away. Floating costs over boats are a Settings option, off by default.
 
+Decided in stage 2 (2026-11-20): the opening scenario is `maps/opening.json`, naming terminals by island key. A schedule is a boat and its stops, shuttled as fast as loading allows until stage 4 adds times. A terminal with no scheduled stop gets one idle slip that draws no traffic, a minimal split of slips from routes ahead of stage 3. Sandbox keeps its planned network with a boat per route, and Play takes `--full-network` for the same.
+
 Details to work out in stage 3:
 
 - When overflow traffic shares a lane and the shared boat cannot take all of it, what happens to the cars left in that lane before a boat that does not serve them arrives.

@@ -742,8 +742,10 @@ func _refresh_panels() -> void:
 		var term: Terminal = sim.terminals.get(isl.id)
 		var sat := term.satisfaction() if term else 70.0
 		_info_title.text = isl.name.to_upper()
-		_info_sub.text = ("Ferry terminal · %d route%s" % [isl.slips.size(), "" if isl.slips.size() == 1 else "s"]) \
-			if term else "No ferry service yet"
+		var served := isl.slips.filter(MapData.is_route).size()
+		_info_sub.text = ("No ferry service yet" if not term else
+			"Ferry terminal · idle slip" if served == 0 else
+			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
 		var rows := [
 			["Population", fmt_int(isl.population)],
 			["Satisfaction", "%d%%" % roundi(sat)],
@@ -783,7 +785,8 @@ func _refresh_panels() -> void:
 					_lane_button.text = "Buy lane (+%d spaces) · $%d" % [term.slots_per_lane, isl.lane_extension_price]
 					_lane_button.disabled = sim.available_cash < isl.lane_extension_price
 					offer_lane = true
-			rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
+			if term.has_service():
+				rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
 			rows.append(["Carried today", fmt_int(term.served_today)])
 		_set_rows(rows)
 		_info_button.text = "Center view"
@@ -841,7 +844,8 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 func _update_terminal_bar(term: Terminal) -> void:
 	_tb_set("terminal", term.island.name.to_upper() + " TERMINAL",
-		"Queue: %d vehicles" % term.total_queued(), "Wait: %d min" % roundi(term.avg_wait))
+		"Queue: %d vehicles" % term.total_queued(),
+		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
 	var f: Ferry = nd[1]
 	if f:

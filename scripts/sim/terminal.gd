@@ -194,10 +194,20 @@ func _process(delta: float) -> void:
 	turned_recent *= pow(0.985, delta)
 
 
+## Whether any route calls at this terminal (an idle slip draws no traffic).
+func has_service() -> bool:
+	for rid in lanes.keys():
+		if MapData.is_route(rid):
+			return true
+	return false
+
+
 func _pick_route() -> int:
 	var total := 0.0
 	var weights := {}
 	for rid in lanes.keys():
+		if not MapData.is_route(rid):
+			continue
 		var r: MapData.Route = sim.map.routes[rid]
 		var other := sim.map.islands[r.b if r.a == island.id else r.a]
 		weights[rid] = other.population + 600.0
@@ -207,7 +217,7 @@ func _pick_route() -> int:
 		pick -= weights[rid]
 		if pick <= 0.0:
 			return rid
-	return lanes.keys()[0]
+	return weights.keys()[0]
 
 
 func _pick_lane(rid: int, need := 1) -> Lane:
@@ -215,7 +225,7 @@ func _pick_lane(rid: int, need := 1) -> Lane:
 
 
 func _spawn_car() -> void:
-	if lanes.is_empty():
+	if not has_service():
 		return
 	var car := sim.make_vehicle()
 	var lane := _pick_lane(_pick_route(), car.slots)
@@ -247,6 +257,8 @@ func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
 ## Places some already-waiting cars so the lot isn't empty at the start.
 func prefill() -> void:
 	for rid in lanes.keys():
+		if not MapData.is_route(rid):
+			continue
 		for lane: Lane in lanes[rid]:
 			var want := sim.rng.randi_range(1, slots_per_lane - 2)
 			var k := 0
