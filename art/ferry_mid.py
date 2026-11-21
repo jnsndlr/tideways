@@ -215,6 +215,36 @@ def torus(c, ax, R, r, n1, n2, key):
             face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
 
 
+def life_ring(c, ax):
+    """A SOLAS life ring hung on a rail: centre c, its face toward ax (horizontal). An
+    orange ring of round section with four white reflective bands on the diagonals, and
+    the grab line festooned round its outside, seized to it top, bottom and sides."""
+    R, r, n1, n2 = 0.32, 0.075, 24, 8
+    ax = Vector((ax.x, 0.0, ax.z)).normalized()
+    up, w = UP, ax.cross(UP).normalized()
+    at = lambda a, rad: c + (up * math.cos(a) + w * math.sin(a)) * rad
+    rings = []
+    for i in range(n1):
+        a = math.tau * i / n1
+        d = up * math.cos(a) + w * math.sin(a)
+        rings.append([c + d * (R + r * math.cos(math.tau * k / n2)) + ax * (r * math.sin(math.tau * k / n2)) for k in range(n2)])
+    for i in range(n1):
+        a, b = rings[i], rings[(i + 1) % n1]
+        ca = at(math.tau * (i + 0.5) / n1, R)
+        key = "white" if i % 6 == 2 else "orange"   # the bands, centred on 45, 135...
+        for k in range(n2):
+            q = [a[k], a[(k + 1) % n2], b[(k + 1) % n2], b[k]]
+            face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
+    # The grab line: four festoons hanging a little clear between the seizings.
+    for j in range(4):
+        a0 = j * math.pi / 2
+        path = [at(a0 + t * math.pi / 2, R + r + 0.012 + 0.05 * math.sin(t * math.pi)) for t in (k / 8 for k in range(9))]
+        tube(path, 0.012, 4, "white")
+        # The seizing: a short white wrap round the ring's section.
+        tdir = (up * -math.sin(a0) + w * math.cos(a0)).normalized()
+        cyl(at(a0, R) - tdir * 0.025, at(a0, R) + tdir * 0.025, r + 0.012, r + 0.012, 8, "white")
+
+
 def panel(c, n, w, h, d, key):
     """A flat box standing on a wall: centre `c` on its face, `n` the wall's outward
     (horizontal) normal, `w` along the wall, `h` tall, `d` proud of it."""
@@ -544,6 +574,19 @@ def pax_deck():
         box(V(-0.9, PAX_DECK - 0.2, zf), (1.0, 0.3, 0.04), "white")
 
 
+WIN_R = 0.16   # the passenger windows' corner radius
+
+
+def fillet(c, u, v, r, n, key="white", steps=4):
+    """The wall's corner of a rounded pane: at corner c of the opening (u along its sill
+    or head into the pane, v up or down its side into it), the part outside a radius r
+    quarter round; facing n."""
+    o = c + u * r + v * r
+    q = [c] + [o - v * (r * math.cos(a)) - u * (r * math.sin(a))
+               for a in (j * math.pi / 2 / steps for j in range(steps + 1))]
+    face(q if normal(q).dot(n) > 0 else q[::-1], key)
+
+
 def cabin_dims():
     hw = min(10.3, half_beam(CABIN_Z - 3.0) - 0.25)
     ch = max(1.2, hw - (half_beam(CABIN_Z) - 0.3))
@@ -554,20 +597,42 @@ def cabin():
     hw, ch = cabin_dims()
     base, sill, head, top = (rect(0, y, 0, hw, cabin_hd(y), ch) for y in (PAX_TOP, SILL, HEAD, ROOF))
     loft([base, sill, head, top], lambda i, j, c: "glass" if i == 1 else "white", caps=False)
-    # Piers between the windows, about 2.1 m apart (following the raked ends).
+    # Piers between the windows, about 2.1 m apart, standing upright (each head straight
+    # above its foot: along the sides the same z, on the raked ends the same x), the end
+    # ones filling the raked corners, so every pane is a true rectangle; its corners
+    # rounded WIN_R. (As the Issaquah's, art/issaquah_mid.py.)
     pw = 0.5
-    for k in range(8):
-        a0, a1 = sill[k], sill[(k + 1) % 8]
-        b0, b1 = head[k], head[(k + 1) % 8]
-        L = (a1 - a0).length
-        n = max(1, round(L / 2.13))
+    n_e = len(sill)
+    for k in range(n_e):
+        a0, a1 = sill[k], sill[(k + 1) % n_e]
+        b0, b1 = head[k], head[(k + 1) % n_e]
+        if (a1 - a0).length < 0.5:
+            continue
+        ax = 0 if abs(a1.x - a0.x) > abs(a1.z - a0.z) else 2
+        d = 1.0 if a1[ax] > a0[ax] else -1.0
+        S = lambda c, a0=a0, a1=a1, ax=ax: lerp(a0, a1, (c - a0[ax]) / (a1[ax] - a0[ax]))
+        H = lambda c, b0=b0, b1=b1, ax=ax: lerp(b0, b1, (c - b0[ax]) / (b1[ax] - b0[ax]))
+        # The span both rings share: from the inner of the two starts to the inner of the ends.
+        cs = max(a0[ax], b0[ax]) if d > 0 else min(a0[ax], b0[ax])
+        ce = min(a1[ax], b1[ax]) if d > 0 else max(a1[ax], b1[ax])
+        n = max(1, round(abs(ce - cs) / 2.13))
         out = V(a1.z - a0.z, 0, -(a1.x - a0.x)).normalized()
         if out.dot(V(a0.x + a1.x, 0, a0.z + a1.z)) < 0: out = -out
+        u = (a1 - a0).normalized()
+        edges = []
         for i in range(n + 1):
-            t0, t1 = max(0.0, i / n - pw / 2 / L), min(1.0, i / n + pw / 2 / L)
-            q = [lerp(a0, a1, t0), lerp(a0, a1, t1), lerp(b0, b1, t1), lerp(b0, b1, t0)]
+            cm = lerp(cs, ce, i / n)
+            c0, c1 = cm - d * pw / 2, cm + d * pw / 2
+            q = [a0 if i == 0 else S(c0), S(c1) if i < n else a1, H(c1) if i < n else b1, b0 if i == 0 else H(c0)]
             q = [p + out * 0.02 for p in q]
             face(q if normal(q).dot(out) > 0 else q[::-1], "white")
+            edges.append((c0, c1))
+        for i in range(n):
+            for c, su in ((edges[i][1], 1.0), (edges[i + 1][0], -1.0)):
+                lo, hi = S(c), H(c)
+                v = (hi - lo).normalized()
+                for corner, sv in ((lo, 1.0), (hi, -1.0)):
+                    fillet(corner + out * 0.02, u * su, v * sv, WIN_R, out)
     # Its roof: the sun deck, overhanging a little.
     loft([rect(0, ROOF, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, ch), rect(0, SUN, 0, hw + 0.15, cabin_hd(ROOF) + 0.15, ch)],
          "white", cap_key="deckp")
@@ -651,8 +716,8 @@ def end_decks():
         # A staff on the walkway, raked out a little, and life rings on the fork rails.
         cyl(V(0, PAX_TOP + 0.95, e * (WALK_Z - 0.1)), V(0, 12.4, e * (WALK_Z + 0.9)), 0.06, 0.035, 4, "white")
         for s in (1, -1):
-            torus(V(s * (FORK_X - 0.05), PAX_TOP + 0.6, e * (WALK_Z + 1.2)), V(1, 0, 0), 0.38, 0.09, 10, 4, "orange")
-            torus(V(s * (half_beam(36.0) + 0.12), PAX_TOP + 0.6, e * 36.0), V(1, 0, 0), 0.38, 0.09, 10, 4, "orange")
+            life_ring(V(s * (FORK_X - 0.05), PAX_TOP + 0.6, e * (WALK_Z + 1.2)), V(1, 0, 0))
+            life_ring(V(s * (half_beam(36.0) + 0.12), PAX_TOP + 0.6, e * 36.0), V(1, 0, 0))
     # The rescue boat's cradle on the -Z end, and its davit (the boat is rib_mid.glb).
     rib_cradle(RIB_AT, RIB_YAW, (half_beam(RIB_AT.z + RIB_HOOK[2]) - 0.6, RIB_AT.z + RIB_HOOK[2]))
 
@@ -702,7 +767,7 @@ def sun_deck():
                 for dz in (-0.42, 0.42):
                     a = V(s * 6.2, SUN + 0.75, e * (zr + dz))
                     cyl(a, a + V(s * 2.8, 0, 0), 0.36, 0.36, 8, "white")
-            torus(V(s * (hw - 1.4), SUN + 0.75, e * (cabin_hd(ROOF) + 0.12)), V(0, 0, 1), 0.38, 0.09, 10, 4, "orange")
+            life_ring(V(s * (hw - 1.4), SUN + 0.75, e * (cabin_hd(ROOF) + 0.12)), V(0, 0, 1))
 
 
 FUNNEL_X = 4.2      # the two funnels, side by side either side of the centreline
@@ -805,7 +870,7 @@ def build():
 
 
 built = build()
-_glb = os.path.normpath(os.path.join(os.path.dirname(bpy.data.filepath) or "/Users/jon/Documents/GitHub/lowpoly/art",
+_glb = os.path.normpath(os.path.join(os.path.dirname(bpy.data.filepath) or "/Users/jon/Documents/GitHub/tideways/art",
                                      "..", "assets", "models", "ferry_mid.glb"))
 for o in bpy.data.objects: o.select_set(o in built)
 bpy.ops.export_scene.gltf(filepath=_glb, export_format="GLB", use_selection=True,

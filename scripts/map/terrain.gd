@@ -311,32 +311,101 @@ func add_flat(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1
 
 func apply_flats() -> void:
 	for f in flats:
-		var o: Vector3 = f.o
-		var nd: Vector3 = f.n
-		var td: Vector3 = f.t
-		var u0: float = f.u0
-		var u1: float = f.u1
-		var v0: float = f.v0
-		var v1: float = f.v1
-		var blend: float = f.blend
-		var target: float = f.h
-		var reach := maxf(absf(u0), absf(u1)) + maxf(absf(v0), absf(v1)) + blend
-		var i0 := _index_of(o.x - reach)
-		var i1 := _index_of(o.x + reach)
-		var j0 := _index_of(o.z - reach)
-		var j1 := _index_of(o.z + reach)
-		for j in range(j0, j1 + 1):
-			for i in range(i0, i1 + 1):
-				var p := Vector3(-half_size + i * CELL, 0.0, -half_size + j * CELL) - o
-				var u := p.dot(nd)
-				var v := p.dot(td)
-				var du := maxf(maxf(u0 - u, u - u1), 0.0)
-				var dv := maxf(maxf(v0 - v, v - v1), 0.0)
-				var dd := sqrt(du * du + dv * dv)
-				if dd >= blend:
-					continue
-				var k := j * (n + 1) + i
-				h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
+		_apply_flat(f)
+
+
+## Levels the ground right away (not kept in `flats`): a house lot, the rect
+## `u0..u1` along `dir` and `v0..v1` across it from `origin`, at `height`, easing
+## back to the ground around it over `blend`.
+func level_now(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1: float, height: float, blend: float) -> void:
+	_apply_flat({"o": origin, "n": dir, "t": Vector3.UP.cross(dir), "u0": u0, "u1": u1,
+		"v0": v0, "v1": v1, "h": height, "blend": blend})
+
+
+func _apply_flat(f: Dictionary) -> void:
+	var o: Vector3 = f.o
+	var nd: Vector3 = f.n
+	var td: Vector3 = f.t
+	var u0: float = f.u0
+	var u1: float = f.u1
+	var v0: float = f.v0
+	var v1: float = f.v1
+	var blend: float = f.blend
+	var target: float = f.h
+	var reach := maxf(absf(u0), absf(u1)) + maxf(absf(v0), absf(v1)) + blend
+	var i0 := _index_of(o.x - reach)
+	var i1 := _index_of(o.x + reach)
+	var j0 := _index_of(o.z - reach)
+	var j1 := _index_of(o.z + reach)
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var p := Vector3(-half_size + i * CELL, 0.0, -half_size + j * CELL) - o
+			var u := p.dot(nd)
+			var v := p.dot(td)
+			var du := maxf(maxf(u0 - u, u - u1), 0.0)
+			var dv := maxf(maxf(v0 - v, v - v1), 0.0)
+			var dd := sqrt(du * du + dv * dv)
+			if dd >= blend:
+				continue
+			var k := j * (n + 1) + i
+			h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
+
+
+## Irons the small bumps out of the ground around `center` (a town) so house lots
+## come out nearly level, keeping the broad hills: the heights are box-blurred
+## twice (about TOWN_BLUR cells either way), full strength out to `radius`, easing
+## back to the raw ground over `fade`. Low ground (shore cliffs, beaches, the
+## ferry lot) keeps its shape.
+const TOWN_BLUR := 6
+func smooth_town(center: Vector3, radius: float, fade: float) -> void:
+	var reach := radius + fade
+	var pad := TOWN_BLUR * 2
+	var i0 := maxi(_index_of(center.x - reach) - pad, 0)
+	var i1 := mini(_index_of(center.x + reach) + pad, n)
+	var j0 := maxi(_index_of(center.z - reach) - pad, 0)
+	var j1 := mini(_index_of(center.z + reach) + pad, n)
+	var w := i1 - i0 + 1
+	var hgt := j1 - j0 + 1
+	var src := PackedFloat32Array()
+	src.resize(w * hgt)
+	for j in hgt:
+		for i in w:
+			src[j * w + i] = h_grid[(j0 + j) * (n + 1) + i0 + i]
+	var blur := src.duplicate()
+	for pass_ in 2:
+		blur = _box_blur(blur, w, hgt, true)
+		blur = _box_blur(blur, w, hgt, false)
+	for j in hgt:
+		var z := -half_size + (j0 + j) * CELL
+		for i in w:
+			var x := -half_size + (i0 + i) * CELL
+			var d := Vector2(x - center.x, z - center.z).length()
+			if d >= reach:
+				continue
+			var a := src[j * w + i]
+			var b := blur[j * w + i]
+			var k := (1.0 - smoothstep(radius, reach, d)) * smoothstep(4.0, 7.0, minf(a, b))
+			h_grid[(j0 + j) * (n + 1) + i0 + i] = lerpf(a, b, k)
+
+
+## One box-blur pass along rows (`along_x`) or columns, edges clamped.
+func _box_blur(g: PackedFloat32Array, w: int, h: int, along_x: bool) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	out.resize(g.size())
+	var r := TOWN_BLUR
+	var lines := h if along_x else w
+	var span := w if along_x else h
+	for l in lines:
+		var sum := 0.0
+		for t in range(-r, r + 1):
+			var c := clampi(t, 0, span - 1)
+			sum += g[l * w + c] if along_x else g[c * w + l]
+		for t in span:
+			out[l * w + t if along_x else t * w + l] = sum / (2 * r + 1)
+			var add := clampi(t + r + 1, 0, span - 1)
+			var sub := clampi(t - r, 0, span - 1)
+			sum += (g[l * w + add] - g[l * w + sub]) if along_x else (g[add * w + l] - g[sub * w + l])
+	return out
 
 
 ## Cuts a pocket beach into the shore at `origin` (on the waterline), facing out

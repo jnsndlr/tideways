@@ -15,8 +15,11 @@ const KELVIN_SPREAD := 0.354
 const KELVIN_REACH := 540.0
 # Furthest the shader's reverse-thrust wash reaches from the bow (with its spread).
 const FRONT_WASH_REACH := 72.0
+# Holding wash astern, per unit of ahead throttle (so 10% throttle shows 0.35).
+const PUSH_WASH := 3.5
 # The water shader's unit (water.gdshader's UNIT): everything goes over in it.
 const UNIT := 3.0
+const WAKE_GROUP := &"wake_sources"
 # Conservative world-space vertical range around the displaced sea surface.
 const WATER_HEIGHT_MARGIN := 50.0
 
@@ -52,20 +55,25 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	var fleet: Array[Vessel] = []
+	# Vessels, plus anything else that leaves a wake (the slip refit crew's tow and
+	# skiff): nodes in WAKE_GROUP with the same wake methods as a Vessel.
+	var fleet: Array[Node3D] = []
 	for f in sim.ferries:
 		if not f.wake.is_empty():
 			fleet.append(f)
 	for v in sim.marine.vessels:
 		if is_instance_valid(v) and v.wake and not v.wake.is_empty():
 			fleet.append(v)
+	for n in get_tree().get_nodes_in_group(WAKE_GROUP):
+		if n.wake and not n.wake.is_empty():
+			fleet.append(n)
 	# There are more vessels than the shader has slots (and moored or docked ones
 	# keep their trail for a while), so the nearest to the camera get them first.
 	var cam := get_viewport().get_camera_3d()
 	if cam and fleet.size() > MAX_SLOTS:
 		var c := Vector2(cam.global_position.x, cam.global_position.z)
-		fleet.sort_custom(func(a: Vessel, b: Vessel):
-			return (a.pos2() - c).length_squared() < (b.pos2() - c).length_squared())
+		fleet.sort_custom(func(a: Node3D, b: Node3D):
+			return (a.call(&"pos2") - c).length_squared() < (b.call(&"pos2") - c).length_squared())
 	# The one-shot minimap shares the water material on its initial draw.
 	var planes: Array[Plane] = []
 	if cam and Engine.get_frames_drawn() > _setup_frame:
@@ -73,12 +81,12 @@ func _process(_delta: float) -> void:
 	var eligible := 0
 	var count := 0
 	var repeat_mask := 0
-	var previous: Vessel
+	var previous: Node3D
 	for v in fleet:
 		if eligible >= MAX_SLOTS:
 			break
-		var tr := v.wake
-		var hull := v.wake_hull()
+		var tr: WakeTrail = v.get(&"wake")
+		var hull: Vector4 = v.call(&"wake_hull")
 		var at := count * MAX_POINTS
 		var n := tr.pack(v.global_position, _pts, _spd, at, MAX_POINTS)
 		if n < 2:
@@ -93,12 +101,16 @@ func _process(_delta: float) -> void:
 			var r := wk * 1.1 + 12.0
 			lo = lo.min(Vector2(p.x - r, p.y - r))
 			hi = hi.max(Vector2(p.x + r, p.y + r))
-		var thrust := v.front_thrust()
-		if thrust > 0.0:
-			# Room for the reverse-thrust wash thrown out ahead of the bow.
-			var bow := Vector2(_pts[at].x, _pts[at].y)
-			lo = lo.min(bow - Vector2.ONE * FRONT_WASH_REACH)
-			hi = hi.max(bow + Vector2.ONE * FRONT_WASH_REACH)
+		var thrust: float = v.call(&"front_thrust")
+		var push: float = v.call(&"stern_push")
+		if thrust > 0.0 or push > 0.0:
+			# Room for the reverse-thrust wash thrown out ahead of the bow, or the
+			# holding wash astern (the shader's wake_info.w: negative for that).
+			var end := Vector2(_pts[at].x, _pts[at].y) if thrust > 0.0 else Vector2(_pts[at + 1].x, _pts[at + 1].y)
+			lo = lo.min(end - Vector2.ONE * FRONT_WASH_REACH)
+			hi = hi.max(end + Vector2.ONE * FRONT_WASH_REACH)
+		if thrust <= 0.0 and push > 0.0:
+			thrust = -push * PUSH_WASH
 		# Preserve the original nearest-vessel budget even when a slot is culled.
 		eligible += 1
 		if _outside_view(lo, hi, planes):
@@ -113,7 +125,7 @@ func _process(_delta: float) -> void:
 		_hull[count] = Vector4(hull.x / UNIT, hull.y / UNIT, hull.z, hull.w)
 		# The waterline: where it starts and how long it is, how far back from its stem
 		# the bow fills out (to 97% of its widest) and its half-width at the stem.
-		var wl := v.wake_waterline()
+		var wl: PackedFloat32Array = v.call(&"wake_waterline")
 		var widest := 0.0
 		for i in STATIONS:
 			widest = maxf(widest, wl[2 + i])

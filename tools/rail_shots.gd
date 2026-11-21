@@ -2,7 +2,7 @@ extends SceneTree
 ## Renders a run of consecutive frames of a ferry's upper deck from a camera riding
 ## abeam and above it, once it's under way, for checking how the rail shadows hold up
 ## (thin casters break into dashes that crawl as the ship moves).
-##   godot --path . --script tools/rail_shots.gd -- --seed=N --ferry-sizes=4 --out=DIR
+##   godot --path . --script tools/rail_shots.gd -- --seed=N --ferry-sizes=3 --out=DIR
 ##   [--time=H] [--frames=6] [--every=2] [--side=K] [--up=K] (camera offset, metres)
 
 var main: Node

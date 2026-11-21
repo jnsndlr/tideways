@@ -13,6 +13,8 @@ var max_crumbs := 46
 var odometer := 0.0
 var heading := Vector3.FORWARD
 var speed_frac := 0.0   # how hard it is churning now, as a fraction of cruise
+# Lying still but pushing on her props (alongside): kept drawn with no trail behind her.
+var hold := false
 
 var _clock := 0.0
 var _crumbs: Array[Vector4] = []   # (x, z, odometer, time dropped), newest first
@@ -70,7 +72,7 @@ func clear() -> void:
 
 
 func is_empty() -> bool:
-	return _crumbs.is_empty()
+	return _crumbs.is_empty() and not hold
 
 
 ## Drops the interior crumb whose removal moves the trail least (the smallest
@@ -95,7 +97,7 @@ func _thin_crumbs() -> void:
 ## `room` points. `pos` is the vessel's centre. Returns the number of points
 ## written (0 when there is no wake).
 func pack(pos: Vector3, pts: PackedVector4Array, spd: PackedFloat32Array, at: int, room: int) -> int:
-	if _crumbs.is_empty():
+	if is_empty():
 		return 0
 	var bow := pos + heading * half_length
 	var stern := pos - heading * half_length

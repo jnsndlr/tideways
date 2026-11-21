@@ -48,7 +48,11 @@ func _initialize() -> void:
 	if _poses:
 		_setup_poses()
 		return
-	main = load("res://scenes/sandbox.tscn").instantiate()
+	# A scenario (--scenario=opening) plays on the main map; otherwise a generated one.
+	var scenario := false
+	for a in OS.get_cmdline_user_args():
+		scenario = scenario or a.begins_with("--scenario=")
+	main = load("res://scenes/main_map.tscn" if scenario else "res://scenes/sandbox.tscn").instantiate()
 	root.add_child(main)
 
 
@@ -144,6 +148,17 @@ func _process(_delta: float) -> bool:
 	var ramp: SlipRamp = _term.ramps.get(_f.route.id)
 	print("shot ", path, " ", Ferry.State.keys()[_f.state], " ", _f.status_text(),
 		" span ", ramp._span_t if ramp else -1.0, " apron ", ramp._apron_t if ramp else -1.0)
+	# How far she lies over, and the fenders she presses in (side, u: squish).
+	var guides := _term.guides_for(_f.route.id)
+	if guides:
+		var pressed := []
+		for fd in guides.fenders:
+			if fd.squish > 0.01:
+				pressed.append("%+d,%.0f:%.2f" % [int(fd.side), fd.u, fd.squish])
+		var walls := []
+		for w in guides.walls:
+			walls.append("%+d:%.2f" % [int(w.side), w.squish])
+		print("  lie %.2f° tide side %+d  slip size %d  fenders %s  walls %s  push %.2f thrust %.2f empty %s" % [rad_to_deg(_f._lie), int(_term.lie_side()), guides.size, pressed, walls, _f.stern_push(), _f.front_thrust(), _f.wake.is_empty()])
 	_shot += 1
 	if _left_at < 0 and _f.state == Ferry.State.SAILING and _f.here() == _term:
 		_left_at = _shot

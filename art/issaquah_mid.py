@@ -2,11 +2,11 @@
 # exec(open(path).read()), or blender -b -P art/issaquah_mid.py) and exports it to
 # assets/models/issaquah_mid.glb (glTF, +Y up, vertex colours, flat shaded).
 # Built on the Evergreen State's script (art/ferry_mid.py): the same WSF look, a
-# longer, beamier hull (100 m over the guards, 24 m in the beam) and WSF's first
+# longer, beamier hull (111.9 m over the guards, 24.4 m in the beam) and WSF's first
 # two-level car deck. Real scale, in metres; game frame: double ended, +Z and -Z ends
 # alike, +Y up, waterline at y = 0.
 # The car deck at CAR_DECK (laid out after WSF's two-level boats): a full-height centre
-# tunnel of three lanes for trucks and vans between the casings, and outboard of each
+# tunnel of two lanes for trucks and vans between the casings, and outboard of each
 # casing a wing of two lanes under a "tween deck" (the mezzanine, two lanes wide, top
 # at MEZ_TOP, open below with no posts) running |z| < MEZ_Z. Its outer lane carries on
 # toward each end as a single-lane ramp down into the hull's rounded corner, its foot
@@ -17,9 +17,9 @@
 # openings, one onto each car-deck level.
 #
 # Numbers the game wants (game frame, metres):
-#   CAR_DECK 2.85; MEZ_TOP 5.9; tunnel lanes x = 0, +-3.5 (|x| < 5.4: trucks); wing
-#   lanes +-8.4, +-11.6 on both decks (cars), over |z| < MEZ_Z 27; ramps on the outer
-#   lane from MEZ_Z (centre x 11.65) down to RAMP_Z 42 (centre 8.9). Masthead
+#   CAR_DECK 2.85; MEZ_TOP 5.9; tunnel lanes x = +-1.75 (|x| < 3.65: trucks); wing
+#   lanes +-6.65, +-9.85 on both decks (cars), over |z| < MEZ_Z 32.95; ramps on the outer
+#   lane from MEZ_Z (centre x 9.9) down to RAMP_Z 47.95 (centre 7.15). Masthead
 #   lanterns MAST_TOP + LIFT at z = +-MAST_Z.
 import bpy, bmesh, math, os
 from mathutils import Vector
@@ -43,17 +43,20 @@ def V(x, y, z): return Vector((x, y, z))
 def lerp(a, b, t): return a + (b - a) * t
 
 
-coll = bpy.data.collections.get("Issaquah") or bpy.data.collections.new("Issaquah")
-if coll.name not in bpy.context.scene.collection.children:
-    bpy.context.scene.collection.children.link(coll)
-for o in list(coll.objects):
-    bpy.data.objects.remove(o, do_unlink=True)
-mat = bpy.data.materials.get("VertexColour") or bpy.data.materials.new("VertexColour")
-mat.use_nodes = True
-_nt = mat.node_tree
-_attr = _nt.nodes.get("Attr") or _nt.nodes.new("ShaderNodeVertexColor")
-_attr.name = "Attr"; _attr.layer_name = "Col"
-_nt.links.new(_attr.outputs["Color"], _nt.nodes["Principled BSDF"].inputs["Base Color"])
+def model_collection(name):
+    coll = bpy.data.collections.get(name) or bpy.data.collections.new(name)
+    if coll.name not in bpy.context.scene.collection.children:
+        bpy.context.scene.collection.children.link(coll)
+    for o in list(coll.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    mat = bpy.data.materials.get("VertexColour") or bpy.data.materials.new("VertexColour")
+    mat.use_nodes = True
+    _nt = mat.node_tree
+    _attr = _nt.nodes.get("Attr") or _nt.nodes.new("ShaderNodeVertexColor")
+    _attr.name = "Attr"; _attr.layer_name = "Col"
+    _nt.links.new(_attr.outputs["Color"], _nt.nodes["Principled BSDF"].inputs["Base Color"])
+    return coll, mat
+
 
 BMS = {}
 THIN_PART = [None]  # set while thin() draws: the part its faces go to
@@ -211,6 +214,36 @@ def torus(c, ax, R, r, n1, n2, key):
             face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
 
 
+def life_ring(c, ax):
+    """A SOLAS life ring hung on a rail: centre c, its face toward ax (horizontal). An
+    orange ring of round section with four white reflective bands on the diagonals, and
+    the grab line festooned round its outside, seized to it top, bottom and sides."""
+    R, r, n1, n2 = 0.32, 0.075, 24, 8
+    ax = Vector((ax.x, 0.0, ax.z)).normalized()
+    up, w = UP, ax.cross(UP).normalized()
+    at = lambda a, rad: c + (up * math.cos(a) + w * math.sin(a)) * rad
+    rings = []
+    for i in range(n1):
+        a = math.tau * i / n1
+        d = up * math.cos(a) + w * math.sin(a)
+        rings.append([c + d * (R + r * math.cos(math.tau * k / n2)) + ax * (r * math.sin(math.tau * k / n2)) for k in range(n2)])
+    for i in range(n1):
+        a, b = rings[i], rings[(i + 1) % n1]
+        ca = at(math.tau * (i + 0.5) / n1, R)
+        key = "white" if i % 6 == 2 else "orange"   # the bands, centred on 45, 135...
+        for k in range(n2):
+            q = [a[k], a[(k + 1) % n2], b[(k + 1) % n2], b[k]]
+            face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
+    # The grab line: four festoons hanging a little clear between the seizings.
+    for j in range(4):
+        a0 = j * math.pi / 2
+        path = [at(a0 + t * math.pi / 2, R + r + 0.012 + 0.05 * math.sin(t * math.pi)) for t in (k / 8 for k in range(9))]
+        tube(path, 0.012, 4, "white")
+        # The seizing: a short white wrap round the ring's section.
+        tdir = (up * -math.sin(a0) + w * math.cos(a0)).normalized()
+        cyl(at(a0, R) - tdir * 0.025, at(a0, R) + tdir * 0.025, r + 0.012, r + 0.012, 8, "white")
+
+
 def panel(c, n, w, h, d, key, r=0.0):
     """A flat box standing on a wall: centre `c` on its face, `n` the wall's outward
     (horizontal) normal, `w` along the wall, `h` tall, `d` proud of it; its corners
@@ -241,6 +274,10 @@ def horiz_normals(pts, closed):
     return ns
 
 
+# Her midbody is drawn STRETCH_Z longer at each end than the real boat's (one more
+# row of cars each end, for capacity); the ends themselves keep their shape.
+STRETCH_Z = 5.95
+
 # --- Plan outline -------------------------------------------------------------------
 # Normalised: u along the half length (0 amidships, 1 at the end), v the half beam (1
 # at the parallel body). At the deck her ends are one smooth oval, a superellipse from
@@ -248,7 +285,7 @@ def horiz_normals(pts, closed):
 # bulwarks all follow; under water her lines are much finer, so the hull's sides flare
 # out toward the ends. `full` blends from the fine lines (0) to the deck's (1).
 
-OVAL_Z, OVAL_P = 26.0, 2.3     # where the ends begin to round in, and how full they are
+OVAL_Z, OVAL_P = 26.0 + STRETCH_Z, 2.3     # where the ends begin to round in, and how full they are
 
 
 def deck_x(z):
@@ -266,9 +303,9 @@ def plan_v(u, full=1.0):
 
 # --- Dimensions (metres, game frame) ------------------------------------------------
 
-HB = 13.6          # half beam of the hull at the deck (the guards stand 0.35 proud: 27.9 m)
-HZ = 49.15         # half length of the hull at the deck (the guards' ends at 50.0)
-GZ = 50.0          # the guards' ends
+HB = 11.85         # half beam of the hull at the deck (the guards stand 0.35 proud: 24.4 m)
+HZ = 49.15 + STRETCH_Z   # half length of the hull at the deck (the guards' ends at GZ)
+GZ = 50.0 + STRETCH_Z     # the guards' ends
 GUARD = 0.35
 CAR_DECK = 2.85
 GREEN_TOP = 3.92   # the green band up the hull side
@@ -277,29 +314,29 @@ LIFT = DECKHEAD - 7.0   # the upper works are drawn at the Evergreen's heights, 
 PAX_DECK = 7.0     # (the upper works' own heights, before LIFT)
 PAX_TOP = 7.3
 RAKE = math.tan(math.radians(15.0))   # the forks' ends and the cabin's end faces lean back
-FORK_Z = 44.0      # the forks' ends, where the hull sides round in to the car deck's opening
-FORK_X = 6.0       # the forks' inner edges (over the casings)
-GREEN_Z = 45.4     # the green bulwark's ends, at the apron's edge
-CABIN_Z = 31.0     # the cabin's ends at the deck (raked back 15 degrees above)
-WALK_Z = 32.6      # the walkway across the cabin's end, between the forks
+FORK_Z = 44.0 + STRETCH_Z      # the forks' ends, where the hull sides round in to the car deck's opening
+FORK_X = 4.25      # the forks' inner edges (over the casings)
+GREEN_Z = 45.4 + STRETCH_Z     # the green bulwark's ends, at the apron's edge
+CABIN_Z = 31.0 + STRETCH_Z     # the cabin's ends at the deck (raked back 15 degrees above)
+WALK_Z = 32.6 + STRETCH_Z      # the walkway across the cabin's end, between the forks
 SILL, HEAD, ROOF = 8.3, 9.75, 10.55
 SUN = 10.75        # the sun deck (the cabin roof's top)
-CASING_X0, CASING_X1, CASING_Z = 5.4, 6.8, 30.0
-PH_Z0, PH_Z1, PH_HW = 23.4, 27.8, 5.0     # pilothouse (each end)
+CASING_X0, CASING_X1, CASING_Z = 3.65, 5.05, 30.0 + STRETCH_Z
+PH_Z0, PH_Z1, PH_HW = 23.4 + STRETCH_Z, 27.8 + STRETCH_Z, 4.25     # pilothouse (each end)
 PH_SILL, PH_HEAD, PH_TOP = 12.4, 13.4, 13.7
-MAST_Z, MAST_TOP = 24.3, 21.6     # on the pilothouse roofs, toward their inboard ends
+MAST_Z, MAST_TOP = 24.3 + STRETCH_Z, 21.6     # on the pilothouse roofs, toward their inboard ends
 STAIR_RUN = 5.6    # the open stair up inside each casing's end
 FUNNEL_TOP = 14.8
 # The tween decks (as WSF lays them out): each wing's two lanes on the main deck run
 # under a tween deck of two lanes, flat over |z| < MEZ_Z; its outer lane runs on as a
 # ramp down into the hull's rounded corner, its foot at RAMP_Z near the end.
 MEZ_BOT, MEZ_TOP = 5.65, 5.9   # its plating (2.8 m clear under it, 2.5 over it)
-MEZ_Z = 27.0       # its flat, |z| < MEZ_Z
-RAMP_X = 10.0      # the ramp's inner edge at its top (between the wing's two lanes)
-RAMP_Z, RAMP_FX = 42.0, 7.4   # the ramp's foot on the main deck, its inner edge there
-LANES = (-3.5, 0.0, 3.5)      # tunnel: trucks and vans
-WING = (8.4, 11.6)            # each wing's two lanes, on the main deck and the tween deck
-POST_X = 10.0                 # the line between each wing's two lanes
+MEZ_Z = 27.0 + STRETCH_Z       # its flat, |z| < MEZ_Z
+RAMP_X = 8.25      # the ramp's inner edge at its top (between the wing's two lanes)
+RAMP_Z, RAMP_FX = 42.0 + STRETCH_Z, 5.65   # the ramp's foot on the main deck, its inner edge there
+LANES = (-1.75, 1.75)         # tunnel: trucks and vans
+WING = (6.65, 9.85)           # each wing's two lanes, on the main deck and the tween deck
+POST_X = 8.25                 # the line between each wing's two lanes
 
 
 def half_beam(z):
@@ -340,8 +377,9 @@ def zs_between(z0, z1, step=1.2):
 # --- Hull ---------------------------------------------------------------------------
 
 def hull():
-    lines = [(-4.1, 0.8, 30.7, 0.0, 0.0), (-3.6, 0.92, 36.5, 0.0, 0.1), (-2.5, 0.975, 41.8, 0.0, 0.25),
-             (-1.0, 0.995, 45.7, 0.0, 0.45), (0.0, 1.0, 47.2, 0.0, 0.6), (1.0, 1.0, 48.2, 0.0, 0.8), (2.15, 1.0, HZ, 0.0),
+    D = STRETCH_Z
+    lines = [(-4.1, 0.8, 30.7 + D, 0.0, 0.0), (-3.6, 0.92, 36.5 + D, 0.0, 0.1), (-2.5, 0.975, 41.8 + D, 0.0, 0.25),
+             (-1.0, 0.995, 45.7 + D, 0.0, 0.45), (0.0, 1.0, 47.2 + D, 0.0, 0.6), (1.0, 1.0, 48.2 + D, 0.0, 0.8), (2.15, 1.0, HZ, 0.0),
              (2.2, 1.0, GZ, GUARD), (2.78, 1.0, GZ, GUARD), (CAR_DECK, 1.0, GZ - 0.1, GUARD - 0.06)]
     rings = [ring_at(*l) for l in lines]
 
@@ -360,9 +398,9 @@ def hull():
         hface(stb + [V(-p.x, p.y, p.z) for p in reversed(stb)], "apron")
     # Under water at each end: a skeg, the propeller and the rudder abaft it.
     for e in (1, -1):
-        box(V(0, -3.8, e * 35.0), (0.5, 0.9, 7.0), "antifoul")
-        hub = V(0, -2.9, e * 41.9)
-        cyl(V(0, -2.9, e * 39.0), hub, 0.22, 0.22, 6, "antifoul")
+        box(V(0, -3.8, e * (35.0 + STRETCH_Z)), (0.5, 0.9, 7.0), "antifoul")
+        hub = V(0, -2.9, e * (41.9 + STRETCH_Z))
+        cyl(V(0, -2.9, e * (39.0 + STRETCH_Z)), hub, 0.22, 0.22, 6, "antifoul")
         cyl(hub, hub + V(0, 0, e * 0.6), 0.35, 0.2, 8, "bronze")
         for k in range(4):
             a = math.tau * k / 4 + 0.4
@@ -371,13 +409,13 @@ def hull():
                    tip + V(0, 0, e * 0.1)],
                   [hub + V(0, 0, e * 0.05) + V(-math.sin(a), math.cos(a), 0) * 0.25 + V(0, 0, 0.001), hub + V(0, 0, e * 0.45 + 0.001),
                    tip + V(0, 0, e * 0.1 + 0.001)]], "bronze")
-        box(V(0, -2.3, e * 43.7), (0.4, 2.8, 1.6), "antifoul")
+        box(V(0, -2.3, e * (43.7 + STRETCH_Z)), (0.4, 2.8, 1.6), "antifoul")
 
 
 # The side openings: a low row onto the main deck's wings, a tall row onto the tween
 # decks (with a cross of bars), the same pitch and in step. (y0, y1, half width, bars)
 TIERS = [(4.2, 5.6, 1.3, False), (6.3, 7.7, 1.25, True)]
-OPEN_Z = [-40.19 + k * 4.23 for k in range(3, 17)]  # their centres, 14 down each side (the end three solid)
+OPEN_Z = [(k - 7.5) * 4.23 for k in range(16)]  # their centres, 16 down each side (the ends solid)
 
 
 def bulwarks():
@@ -463,11 +501,11 @@ def car_deck():
             for x in (CASING_X0 + 0.25, CASING_X1 - 0.25):
                 box_between(V(s * x, CAR_DECK, e * (CASING_Z - 0.15)), V(s * x, DECKHEAD - 0.05, e * (CASING_Z + 1.9)),
                             0.32, "yellow")
-    # Lane lines: between the tunnel's three lanes, between each wing's two, and the
+    # Lane lines: between the tunnel's two lanes, between each wing's two, and the
     # tunnel's edges past the casings.
-    lines = [(x, -44.5, 44.5) for x in (-1.75, 1.75)]
+    lines = [(0.0, -44.5 - STRETCH_Z, 44.5 + STRETCH_Z)]
     lines += [(s * POST_X, -MEZ_Z + 1.0, MEZ_Z - 1.0) for s in (1, -1)]
-    lines += [(s * (CASING_X0 - 0.3), e0, e1) for s in (1, -1) for e0, e1 in ((CASING_Z + 0.5, 43.5), (-43.5, -CASING_Z - 0.5))]
+    lines += [(s * (CASING_X0 - 0.3), e0, e1) for s in (1, -1) for e0, e1 in ((CASING_Z + 0.5, 43.5 + STRETCH_Z), (-43.5 - STRETCH_Z, -CASING_Z - 0.5))]
     for x, z0, z1 in lines:
         z = z0
         while z < z1:
@@ -478,8 +516,8 @@ def car_deck():
     # lane (a shallow housing and its lens, flush on the deckhead), and under the tween
     # decks over the main deck's wing lanes; a big knee at each fork's end, arching
     # the wing's entrance.
-    z = -42.0
-    while z <= 42.01:
+    z = -42.0 - STRETCH_Z
+    while z <= 42.01 + STRETCH_Z:
         hw = half_beam(z) - 0.3
         if abs(z) < WALK_Z:
             box(V(0, DECKHEAD - 0.13, z), (2 * hw, 0.26, 0.35), "ceiling")
@@ -490,7 +528,7 @@ def car_deck():
             knee(s, z, 0.9, 0.3)
         zl = z + 2.0
         for x in LANES + WING + tuple(-x for x in WING):
-            if abs(x) < hw - 1.0 and abs(zl) < 43.0 and (abs(zl) < WALK_Z - 0.6 or abs(x) > FORK_X + 0.6):
+            if abs(x) < hw - 1.0 and abs(zl) < 43.0 + STRETCH_Z and (abs(zl) < WALK_Z - 0.6 or abs(x) > FORK_X + 0.6):
                 box(V(x, DECKHEAD - 0.03, zl), (0.7, 0.06, 1.6), "steel")
                 box(V(x, DECKHEAD - 0.075, zl), (0.56, 0.03, 1.46), "lamp")
         if abs(zl) < MEZ_Z - 1.0:
@@ -645,7 +683,7 @@ def cabin_dims():
 # across its front: one upright face from the centre section's end out to the side,
 # angled back VEST_RAKE in plan, with a double doorway (VEST_DOOR wide) in it; roofed
 # by the sun deck (flush with the walls) and a raised, bevelled cap of skylights.
-PORCH_X, PORCH_D = 7.0, 5.5
+PORCH_X, PORCH_D = 5.25, 5.5
 VEST_RAKE = math.tan(math.radians(15.0))
 VEST_DOOR = 2.4
 
@@ -884,7 +922,7 @@ def rib_cradle(at, yaw, davit):
     box(h + UP * 0.13, (0.06, 0.1, 0.05), "orange")
 
 
-RIB_AT, RIB_YAW = V(7.6, PAX_TOP + LIFT + RIB_LIFT, -37.0), 0.0   # bow toward amidships
+RIB_AT, RIB_YAW = V(5.85, PAX_TOP + LIFT + RIB_LIFT, -37.0 - STRETCH_Z), 0.0   # bow toward amidships
 
 
 def end_decks():
@@ -911,8 +949,8 @@ def end_decks():
         # A staff on the walkway, raked out a little, and life rings on the fork rails.
         cyl(V(0, PAX_TOP + 0.95, e * (WALK_Z - 0.1)), V(0, 12.4, e * (WALK_Z + 0.9)), 0.06, 0.035, 4, "white")
         for s in (1, -1):
-            torus(V(s * (FORK_X - 0.05), PAX_TOP + 0.6, e * (WALK_Z + 1.2)), V(1, 0, 0), 0.38, 0.09, 10, 4, "orange")
-            torus(V(s * (half_beam(38.5) + 0.12), PAX_TOP + 0.6, e * 38.5), V(1, 0, 0), 0.38, 0.09, 10, 4, "orange")
+            life_ring(V(s * (FORK_X - 0.05), PAX_TOP + 0.6, e * (WALK_Z + 1.2)), V(1, 0, 0))
+            life_ring(V(s * (half_beam(38.5 + STRETCH_Z) + 0.12), PAX_TOP + 0.6, e * (38.5 + STRETCH_Z)), V(1, 0, 0))
     # The rescue boat's cradle on the -Z end, and its davit (the boat is rib_mid.glb).
     rib_cradle(RIB_AT - V(0, LIFT, 0), RIB_YAW, (half_beam(RIB_AT.z + RIB_HOOK[2]) - 0.6, RIB_AT.z + RIB_HOOK[2]))
 
@@ -928,7 +966,7 @@ def sun_deck():
     # inboard end.
     for e in (1, -1):
         z0, z1 = 5.6, PH_Z0
-        cz, hd, hw, top = e * (z0 + z1) / 2, (z1 - z0) / 2, 5.0, 12.9
+        cz, hd, hw, top = e * (z0 + z1) / 2, (z1 - z0) / 2, PH_HW, 12.9
         loft([rect(0, SUN, cz, hw, hd, 0.3), rect(0, top, cz, hw, hd, 0.3)], "white", cap_key="white")
         loft([rect(0, top, cz, hw + 0.12, hd + 0.12, 0.35), rect(0, top + 0.15, cz, hw + 0.12, hd + 0.12, 0.35)],
              "white", cap_key="deckp")
@@ -957,15 +995,15 @@ def sun_deck():
     # Liferaft canisters on racks outboard of each pilothouse, life rings on the rail.
     for e in (1, -1):
         for s in (1, -1):
-            for zr in (19.6, 21.7):
-                box(V(s * 7.6, SUN + 0.2, e * zr), (3.2, 0.4, 1.6), "steel")
+            for zr in (19.6 + STRETCH_Z, 21.7 + STRETCH_Z):
+                box(V(s * (PH_HW + 2.6), SUN + 0.2, e * zr), (3.2, 0.4, 1.6), "steel")
                 for dz in (-0.42, 0.42):
-                    a = V(s * 6.2, SUN + 0.75, e * (zr + dz))
+                    a = V(s * (PH_HW + 1.2), SUN + 0.75, e * (zr + dz))
                     cyl(a, a + V(s * 2.8, 0, 0), 0.36, 0.36, 8, "white")
-            torus(V(s * (PORCH_X - 1.6), SUN + 0.75, e * (cabin_hd(ROOF) + 0.12)), V(0, 0, 1), 0.38, 0.09, 10, 4, "orange")
+            life_ring(V(s * (PORCH_X - 1.6), SUN + 0.75, e * (cabin_hd(ROOF) + 0.12)), V(0, 0, 1))
 
 
-FUNNEL_X = 5.0      # the two funnels, side by side either side of the centreline
+FUNNEL_X = 4.25     # the two funnels, side by side either side of the centreline
 
 
 def funnel():
@@ -1053,12 +1091,17 @@ def build():
     pax_deck(); cabin(); end_decks()
     sun_deck(); funnel(); pilothouses(); masts()
     LIFTED[0] = 0.0
+    coll, mat = model_collection("Issaquah")
+    return finish_meshes("issaquah", coll, mat)
+
+
+def finish_meshes(prefix, coll, mat):
     obs = []
     for role, bm in BMS.items():
         bmesh.ops.triangulate(bm, faces=list(bm.faces))
-        old = bpy.data.meshes.get("issaquah_" + role)
+        old = bpy.data.meshes.get(prefix + "_" + role)
         if old: bpy.data.meshes.remove(old)
-        me = bpy.data.meshes.new("issaquah_" + role); bm.to_mesh(me); bm.free()
+        me = bpy.data.meshes.new(prefix + "_" + role); bm.to_mesh(me); bm.free()
         me.materials.append(mat)
         me.color_attributes.active_color_name = "Col"; me.color_attributes.render_color_index = 0
         ob = bpy.data.objects.new(role, me); coll.objects.link(ob); obs.append(ob)
@@ -1066,12 +1109,13 @@ def build():
     return obs
 
 
-built = build()
-_here = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.dirname(os.path.abspath(__file__)) \
-    if "__file__" in globals() else "/Users/jon/Documents/GitHub/tideways/art"
-_glb = os.path.normpath(os.path.join(_here, "..", "assets", "models", "issaquah_mid.glb"))
-for o in bpy.data.objects: o.select_set(o in built)
-bpy.ops.export_scene.gltf(filepath=_glb, export_format="GLB", use_selection=True,
-                          export_normals=True, export_vertex_color="ACTIVE", export_materials="NONE", export_yup=True)
-result = {o.name: len(o.data.polygons) for o in built}
-print("ISSAQUAH", _glb, result)
+if __name__ == "__main__":
+    built = build()
+    _here = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.dirname(os.path.abspath(__file__)) \
+        if "__file__" in globals() else "/Users/jon/Documents/GitHub/tideways/art"
+    _glb = os.path.normpath(os.path.join(_here, "..", "assets", "models", "issaquah_mid.glb"))
+    for o in bpy.data.objects: o.select_set(o in built)
+    bpy.ops.export_scene.gltf(filepath=_glb, export_format="GLB", use_selection=True,
+                              export_normals=True, export_vertex_color="ACTIVE", export_materials="NONE", export_yup=True)
+    result = {o.name: len(o.data.polygons) for o in built}
+    print("ISSAQUAH", _glb, result)
