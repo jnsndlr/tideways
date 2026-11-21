@@ -835,9 +835,11 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array) -> void:
 		walked += seg
 
 
-const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall"]
+const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall",
+	"brick_mercantile", "sunset_terrace", "harbor_office", "seafoam_cafe"]
 # Width and depth of each shell, before awnings or decks.
-const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7)]
+const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7),
+	Vector2(9.8, 6.3), Vector2(12, 6), Vector2(10.5, 6), Vector2(9.1, 5.65)]
 
 
 func _build_towns() -> void:
