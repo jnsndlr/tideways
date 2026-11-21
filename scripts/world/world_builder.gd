@@ -70,6 +70,13 @@ var ground_rgba := PackedByteArray()
 var grass_lift := PackedByteArray()
 var lift_side := 0
 const LIFT_CELL := 2.0
+# The most the ground may fall (m) across a building's plan; steeper lots are
+# left empty rather than graded.
+const KIT_MAX_DROP := 3.5
+# A building's graded lot reaches this far past its plan, then eases back to the
+# hillside over KIT_LOT_BLEND (m).
+const KIT_LOT_MARGIN := 1.5
+const KIT_LOT_BLEND := 6.0
 
 
 func _init(m: MapData, t: Terrain) -> void:
@@ -81,13 +88,14 @@ func _init(m: MapData, t: Terrain) -> void:
 func build() -> Node3D:
 	root = Node3D.new()
 	root.name = "World"
-	_build_terrain()
+	# Towns before the ground mesh: each building grades its own level lot.
 	_build_water()
 	_build_terminals()
 	_build_marinas()
 	_build_quays()
 	_build_roads()
 	_build_towns()
+	_build_terrain()
 	_build_lighthouses()
 	_build_haul_outs()
 	_build_vegetation()
@@ -823,13 +831,38 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array) -> void:
 		walked += seg
 
 
+const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall"]
+# Width and depth of each shell, before awnings or decks.
+const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7)]
+
+
 func _build_towns() -> void:
+	# The kit houses: the painted families twice each in different colours, the
+	# contemporary ones as authored. Then the downtown storefronts.
 	var variants: Array[Mesh] = []
-	for i in 10:
-		var stories := 2 if i >= 7 else 1
-		variants.append(Models.house(WALLS[i % WALLS.size()], ROOFS[(i * 3 + 1) % ROOFS.size()], stories))
-	variants.append(Models.block(Color(0.72, 0.7, 0.66)))
-	variants.append(Models.block(Color(0.62, 0.42, 0.34)))
+	var kit_names: Array[String] = []
+	for k in Models.KIT_HOUSES.size():
+		var kit_name: String = Models.KIT_HOUSES[k]
+		var coats := 1 if kit_name.begins_with("contemporary") else 2
+		for c in coats:
+			var n := kit_names.size()
+			if coats == 1:
+				variants.append(Models.kit_house(kit_name))
+			else:
+				variants.append(Models.kit_house(kit_name, WALLS[n % WALLS.size()], ROOFS[(n * 3 + 1) % ROOFS.size()]))
+			kit_names.append(kit_name)
+	var houses := kit_names.size()
+	var shop_plans: Array[Rect2] = []
+	for i in SHOP_FILES.size():
+		var path := "res://assets/models/coastal_shops/%s.glb" % SHOP_FILES[i]
+		var mb := MeshBuilder.new()
+		Models._append_part(mb, ModelParts.baked(path), Transform3D.IDENTITY)
+		var shell: Vector2 = SHOP_SHELLS[i]
+		mb.box(Vector3(0, -KIT_MAX_DROP / 2, 0), Vector3(shell.x, KIT_MAX_DROP, shell.y), Models.KIT_FOUNDATION)
+		var mesh := mb.commit()
+		var bounds := mesh.get_aabb()
+		shop_plans.append(Rect2(bounds.position.x, bounds.position.z, bounds.size.x, bounds.size.z))
+		variants.append(mesh)
 	var per_variant: Array = []
 	for v in variants:
 		var list: Array[Transform3D] = []
@@ -867,41 +900,68 @@ func _build_towns() -> void:
 					var hh := terrain.height_v(p + o)
 					hmin = minf(hmin, hh)
 					hmax = maxf(hmax, hh)
-				if hmax - hmin > 5.4 or hmin < 2.4:
+				if hmax - hmin > 4.2 or hmin < 2.4:
 					continue
 				var front := -inland * signf(b) if absi(b) <= absi(a) or a == 0 else -t * signf(a)
 				if not isl.has_terminal:
 					front = -inland
 				var basis := Basis(Vector3.UP, atan2(front.x, front.z) + rng.randf_range(-0.05, 0.05))
-				basis = basis.scaled(Vector3.ONE * Models.LEGACY_SCALE * rng.randf_range(0.9, 1.1))
-				var vi := rng.randi_range(0, 9)
-				if r < town_r * 0.4 and isl.population > 3500 and rng.randf() < 0.5:
-					vi = 10 + rng.randi_range(0, 1)
+				var vi := rng.randi_range(0, houses - 1)
+				var block := r < town_r * 0.4 and isl.population > 3500 and rng.randf() < 0.5
+				if block:
+					vi = houses + rng.randi_range(0, SHOP_FILES.size() - 1)
+					basis = basis.scaled(Vector3.ONE * rng.randf_range(0.9, 1.1))
 				var bucket: Array[Transform3D] = per_variant[vi]
-				var xf := Transform3D(basis, Vector3(p.x, hmin - 0.15, p.z))
+				# Each building gets a level lot graded under its whole plan (porch and
+				# steps included) at the ground's mean height there, so its steps and
+				# foundation meet the grass all round.
+				var plan: Rect2 = shop_plans[vi - houses] if block else Models.kit_footprint(kit_names[vi])
+				var lot := _kit_lot_heights(p, basis, plan)
+				if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
+					continue
+				var k := basis.get_scale().x
+				var pad := Rect2(plan.position * k, plan.size * k).grow(KIT_LOT_MARGIN)
+				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
+					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
+				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				bucket.append(xf)
-				_porch_light(xf, vi >= 10, h < 15.0)
+				if block:
+					var front_z: float = SHOP_SHELLS[vi - houses].y / 2
+					if SHOP_FILES[vi - houses] == "glass_hall":
+						front_z += 0.46
+					_entry_light(xf, Vector3(.83, 2.59, front_z + .30), Vector3(0, .34, front_z + .64), h < 15.0)
+				else:
+					_entry_light(xf, Models.kit_marker(kit_names[vi], "PorchLight"), Models.kit_marker(kit_names[vi], "Entry"), h < 15.0)
 				_block(p, 7.8)
 	var no_colors: Array[Color] = []
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
-		_multimesh(variants[i], xforms, no_colors, "Houses%d" % i)
+		var group_name: String = "Houses%d" % i if i < houses else SHOP_FILES[i - houses]
+		_multimesh(variants[i], xforms, no_colors, group_name)
 
 
-## A lamp by the door and the light it throws on the path; waterfront ones are
-## reflected in the water.
-func _porch_light(xf: Transform3D, block: bool, waterfront: bool) -> void:
+## The highest (x), lowest (y) and mean (z) ground under `plan` (house frame x, z)
+## placed at `p` turned by `basis`, sampled on a 5 x 5 grid.
+func _kit_lot_heights(p: Vector3, basis: Basis, plan: Rect2) -> Vector3:
+	var hi := -INF
+	var lo := INF
+	var sum := 0.0
+	for i in 5:
+		for j in 5:
+			var local := Vector3(plan.position.x + plan.size.x * i / 4.0, 0,
+				plan.position.y + plan.size.y * j / 4.0)
+			var h := terrain.height_v(p + basis * local)
+			hi = maxf(hi, h)
+			lo = minf(lo, h)
+			sum += h
+	return Vector3(hi, lo, sum / 25.0)
+
+
+## A lamp by the door and the light it throws on the path.
+func _entry_light(xf: Transform3D, lamp: Vector3, entry: Vector3, waterfront: bool) -> void:
 	glows.xform = xf
-	# In the fixture Models.house() / block() put by the door.
-	var lamp := Models.BLOCK_LAMP if block else Models.HOUSE_LAMP
-	var s := Models.BLOCK_LAMP_SCALE if block else Models.HOUSE_LAMP_SCALE
-	# (Positions in the house's frame; sizes in the world's.)
-	glows.glow(Models.bulkhead_glow_at(lamp, Vector3.BACK, s), GlowBuilder.WARM, Models.bulkhead_glow_size(s) * xf.basis.x.length(),
-		4.0 if block else 3.5, waterfront, 0.0, Vector3(0, 0, 1), Models.LAMP_ON_AT)
-	if block:
-		glows.pool(Vector3(0.0, 0.2, 3.6), GlowBuilder.WARM, 7.8, 0.35)
-	else:
-		glows.pool(Vector3(0.6, 0.2, 2.5), GlowBuilder.WARM, 5.4, 0.3)
+	glows.glow(lamp + Vector3(0, 0, 0.08), GlowBuilder.WARM, 0.22, 3.5, waterfront, 0.0, Vector3(0, 0, 1), Models.LAMP_ON_AT)
+	glows.pool(Vector3(lamp.x, entry.y + 0.05, entry.z - 0.6), GlowBuilder.WARM, 4.5, 0.3)
 
 
 func _build_lighthouses() -> void:
@@ -1181,6 +1241,24 @@ func lift_image() -> Image:
 	return Image.create_from_data(lift_side, lift_side, false, Image.FORMAT_R8, grass_lift)
 
 
+const PIER_RESTAURANTS := ["sea_glass_grill", "red_net_kitchen"]
+
+
+## Put the dining deck flush with the right edge of the jetty, landward of its T-head.
+## The deck surface is local Y=0 and the opening in its railing is on the -X side.
+func _marina_restaurant(m: MapData.Marina) -> void:
+	var center := Vector3(2.7 + 7.0, 2.25 + 0.375, 24.0)
+	for x: float in [-7.0, 0.0, 7.0]:
+		for z: float in [-4.0, 1.0, 6.0]:
+			if terrain.height_v(m.at(center.z + z, center.x + x)) >= 0.0:
+				return
+	var model: String = PIER_RESTAURANTS[m.id % PIER_RESTAURANTS.size()]
+	var path := "res://assets/models/coastal_shops/%s.glb" % model
+	var mesh := Models._cached(path, func(): return ModelParts.baked(path).commit())
+	var dining := _add_mesh(mesh, model + "_" + str(m.id))
+	dining.transform = m.xform() * Transform3D(Basis.IDENTITY, center)
+
+
 ## A wooden pier out to a T-head float with berths along its seaward face (the
 ## sailboats themselves are MarineTraffic's), a lamp at each end of the head.
 func _build_marinas() -> void:
@@ -1217,6 +1295,7 @@ func _build_marinas() -> void:
 			var top := mb.xform * (lamp + Vector3(0, 1.08, 0))
 			_perch(top, top, 0.0, Seagulls.Kind.LAMP)
 		_add_mesh(mb.commit(), map.islands[m.island].name + " Marina")
+		_marina_restaurant(m)
 		# Keep trees and houses off the pier's landing.
 		var bu := -24.0
 		while bu < 6.0:

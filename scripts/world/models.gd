@@ -579,6 +579,107 @@ static func house(wall: Color, roof: Color, stories: int) -> ArrayMesh:
 		return mb.commit())
 
 
+const KIT_HOUSES_DIR := "res://assets/models/coastal_houses/"
+## The coastal house kit (docs/coastal-house-kit.md), at scale 1, origin at ground
+## level, +Z to the street.
+const KIT_HOUSES := [
+	"cottage_braced_stoop", "cottage_rain_porch",
+	"craftsman_gable_porch", "craftsman_veranda",
+	"craftsman_two_story_gable_porch", "craftsman_two_story_veranda",
+	"cabin_lookout_deck", "cabin_mudroom",
+	"contemporary_single_shed_view_terrace", "contemporary_single_shed_screened_entry",
+	"contemporary_butterfly_view_terrace", "contemporary_butterfly_screened_entry",
+	"contemporary_offset_gable_view_terrace", "contemporary_offset_gable_screened_entry",
+	"contemporary_raised_clerestory_view_terrace", "contemporary_raised_clerestory_screened_entry",
+]
+const KIT_FOUNDATION := Color(0.46, 0.45, 0.42)
+# How far the foundation runs below the floor, so houses on slopes never float.
+const KIT_FOUNDATION_DEPTH := 6.0
+
+
+## A kit house flattened to one mesh. `wall` / `roof` (when given) repaint the
+## Siding and RoofFinish surfaces, keeping each board's shade; the contemporary
+## houses keep their authored two-tone cladding. A stone foundation runs down from
+## under the shell.
+static func kit_house(name: String, wall := Color(-1, 0, 0), roof := Color(-1, 0, 0)) -> ArrayMesh:
+	var key := "kit_%s_%s_%s" % [name, wall.to_html(), roof.to_html()]
+	return _cached(key, func():
+		var mb := MeshBuilder.new()
+		var root := (load(KIT_HOUSES_DIR + name + ".tscn") as PackedScene).instantiate()
+		var repaint_walls := not name.begins_with("contemporary")
+		var shell := AABB()
+		var have_shell := false
+		for node: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
+			var part := ModelParts.painted(node)
+			var xf := ModelParts.relative_xform(node, root)
+			var n := String(node.name)
+			var paint := Color(-1, 0, 0)
+			if n.ends_with("Siding") and repaint_walls:
+				paint = wall
+			elif n.ends_with("RoofFinish"):
+				paint = roof
+			if paint.r >= 0.0:
+				part = _repainted(part, paint)
+			_append_part(mb, part, xf)
+			if n.ends_with("Siding") and node.get_parent().name == "Shell":
+				var box := xf * node.mesh.get_aabb()
+				shell = box if not have_shell else shell.merge(box)
+				have_shell = true
+		root.free()
+		if have_shell:
+			var c := shell.get_center()
+			mb.box(Vector3(c.x, 0.45 - KIT_FOUNDATION_DEPTH * 0.5, c.z),
+				Vector3(shell.size.x - 0.1, KIT_FOUNDATION_DEPTH, shell.size.z - 0.1), KIT_FOUNDATION)
+		return mb.commit())
+
+
+## `part` with every colour replaced by `paint`, shaded by how far that vertex sat
+## from the part's mean brightness.
+static func _repainted(part: MeshBuilder, paint: Color) -> MeshBuilder:
+	var out := MeshBuilder.new()
+	out.verts = part.verts
+	out.normals = part.normals
+	var mean := 0.0
+	for c in part.colors:
+		mean += c.get_luminance()
+	mean = maxf(mean / maxf(part.colors.size(), 1.0), 0.01)
+	for c in part.colors:
+		var k := clampf(c.get_luminance() / mean, 0.8, 1.2)
+		out.colors.append(Color(paint.r * k, paint.g * k, paint.b * k))
+	return out
+
+
+## A kit house's marker (`PorchLight`, `Entry`) in its own frame.
+static func kit_marker(name: String, marker: String) -> Vector3:
+	var key := name + ":" + marker
+	if not _kit_markers.has(key):
+		var root := (load(KIT_HOUSES_DIR + name + ".tscn") as PackedScene).instantiate()
+		var m := root.get_node_or_null(marker) as Node3D
+		_kit_markers[key] = m.position if m else Vector3.ZERO
+		root.free()
+	return _kit_markers[key]
+
+static var _kit_markers := {}
+
+
+## A kit house's plan in its own frame (x, z), porch, deck and steps included, so
+## placement can sit the floor above every bit of ground the house covers.
+static func kit_footprint(name: String) -> Rect2:
+	if not _kit_footprints.has(name):
+		var root := (load(KIT_HOUSES_DIR + name + ".tscn") as PackedScene).instantiate()
+		var box := AABB()
+		var first := true
+		for node: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
+			var b := ModelParts.relative_xform(node, root) * node.mesh.get_aabb()
+			box = b if first else box.merge(b)
+			first = false
+		root.free()
+		_kit_footprints[name] = Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
+	return _kit_footprints[name]
+
+static var _kit_footprints := {}
+
+
 ## One slope of a gable roof, eave to ridge (both at -z), running to +z and
 ## `thick` deep below its top face.
 static func _roof_slope(mb: MeshBuilder, eave: Vector3, ridge: Vector3, hz: float, col: Color, thick := 0.15) -> void:

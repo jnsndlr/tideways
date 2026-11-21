@@ -1325,10 +1325,10 @@ func _h(p: Vector3) -> float:
 
 ## Main road from the lot entrance inland to a town centre, plus a cross street.
 func _layout_towns() -> void:
+	# Where each town sits, then smooth ground around it, then its roads.
 	for isl in _main_islands():
 		if isl.has_terminal:
 			var nd := isl.dock_dir
-			var t := isl.lateral()
 			var e := isl.shore + nd * Layout.LOT_BACK
 			var dist := 48.0
 			while dist > 12.0:
@@ -1336,7 +1336,28 @@ func _layout_towns() -> void:
 				if _h(p) > 3.9 and _h(p - nd * 24.0) > 3.9:
 					break
 				dist -= 6.0
-			var tc := e - nd * dist
+			isl.town_center = e - nd * dist
+			isl.town_axis = isl.lateral()
+		else:
+			# Unconnected island: settle on the highest ground near the centre.
+			var best := Vector3(isl.center.x, 0.0, isl.center.y)
+			for k in 24:
+				var p := Vector3(isl.center.x + rng.randf_range(-150, 150), 0.0, isl.center.y + rng.randf_range(-150, 150))
+				if _h(p) > _h(best):
+					best = p
+			isl.town_center = best
+			var a := rng.randf() * TAU
+			isl.town_axis = Vector3(cos(a), 0.0, sin(a))
+		# Out past where the houses thin out (world_builder's town spread).
+		var town_r := sqrt(isl.population / 90.0) * 9.0
+		terrain.smooth_town(isl.town_center, town_r * 1.4 + 20.0, 45.0)
+	terrain.apply_flats()  # the ferry lots stay exactly level
+	for isl in _main_islands():
+		if isl.has_terminal:
+			var nd := isl.dock_dir
+			var t := isl.lateral()
+			var e := isl.shore + nd * Layout.LOT_BACK
+			var tc := isl.town_center
 			isl.road_main_a = _road_line(e, tc, t)
 			var far := 0.0
 			while far < 48.0 and _h(tc - nd * (far + 6.0)) > 3.9:
@@ -1349,18 +1370,6 @@ func _layout_towns() -> void:
 					length += 6.0
 				if length >= 18.0:
 					isl.road_cross.append(_road_line(tc, tc + t * side * length, nd))
-			isl.town_center = tc
-			isl.town_axis = t
-		else:
-			# Unconnected island: settle on the highest ground near the centre.
-			var best := Vector3(isl.center.x, 0.0, isl.center.y)
-			for k in 24:
-				var p := Vector3(isl.center.x + rng.randf_range(-150, 150), 0.0, isl.center.y + rng.randf_range(-150, 150))
-				if _h(p) > _h(best):
-					best = p
-			isl.town_center = best
-			var a := rng.randf() * TAU
-			isl.town_axis = Vector3(cos(a), 0.0, sin(a))
 		isl.town_center.y = _h(isl.town_center)
 		isl.label_pos = isl.town_center + Vector3(0, 48, 0)
 
