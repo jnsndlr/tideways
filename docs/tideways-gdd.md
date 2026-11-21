@@ -390,10 +390,24 @@ Decided in stage 1 (2026-11-19): fuel and wages post to the ledger once per trip
 
 Decided in stage 2 (2026-11-20): the opening scenario is `maps/opening.json`, naming terminals by island key. A schedule is a boat and its stops, shuttled as fast as loading allows until stage 4 adds times. A terminal with no scheduled stop gets one idle slip that draws no traffic, a minimal split of slips from routes ahead of stage 3. Sandbox keeps its planned network with a boat per route, and Play takes `--full-network` for the same.
 
-Details to work out in stage 3:
+Later, noted in stage 3 (2026-11-20):
 
-- When overflow traffic shares a lane and the shared boat cannot take all of it, what happens to the cars left in that lane before a boat that does not serve them arrives.
-- How a multi-stop boat orders cars on deck so the first stop can drive off.
+- Manual lane assignment: the player sets how many lanes each destination gets, e.g. 5 lanes for a busy route and 1 for a small one, or a single lane split between two destinations.
+- A terminal upgrades view that shows every upgrade a terminal can take in one place: lanes, slip count, slip sizes, tie-up slips, amenities and the rest. This is the UI for stage 5's purchase catalogue.
+
+Decided in stage 3 (2026-11-20):
+
+- Slips belong to the terminal. A scenario lists each terminal's slips and their sizes, one small slip by default, and the routes calling there share them. A planned network (Sandbox) still gives each route its own large slip.
+- A boat coming in to a slip another boat holds waits offshore, clear of the other route, until the slip is free. The hold point is where the two approaches stop being clear of each other.
+- A terminal's lanes divide evenly among the destinations its boats serve from there. A destination is any later stop the boat reaches before it is back at this terminal, so a through car can board for a stop beyond the next one. Each car has a destination and queues in that destination's lane.
+- Sharing follows the rule under Terminals. "The next boat to load that lane" is a boat alongside, then one coming in, then the soonest due.
+- A schedule of more than two stops runs round them in turn. For example, Port Rosario → Madrona → Gullrock → Madrona runs out and back, as WSF does with Fauntleroy, Vashon and Southworth. At each stop only the cars for that stop drive off.
+- Deck order, first version: a boat boards cars for her first stop first. They park deepest, at the end that opens at that stop, and through cars park behind them. A double-ended boat never turns, so this works without spinning cars on deck.
+- Multi-stop boats are set in the scenario file until the stage 4 editor.
+- The opening terminals start with 2 paved holding lanes on a lot graded for 8. Each lane bought paves the next lot position, working out from the middle, and closes no working lanes while it is built. Once the lot is full, the next lane goes alongside it as before. Sandbox lots start fully paved.
+- Tie-up slips sit along the shore beside the working slips. A scenario lists them per terminal. Laying a boat up (ferry panel) makes her finish her crossing, unload, then move to a free tie-up slip she fits at the first terminal on her route that has one. Her crew is stood down while she lies there, so she costs no wages. Returning to service brings her back to her working slip once it and the water round it are clear. A scenario schedule can start its boat laid up.
+- Overflow cars left in another destination's lane when the shared boat has gone move back to their own lane once it has space, or are turned away.
+- Multi-stop deck order follows Washington State Ferries practice. Cars for the intermediate stop board first and lap the deck to face the end that opens there, with through traffic loaded behind them. Big vehicles and late arrivals back on instead. Large boats can keep through traffic on upper ramps or wings. Small single-deck boats park cars nose-to-nose or tail-to-tail in one lane, so each stop drives off its own end. The simplest of these to build first is still to be chosen.
 
 ---
 

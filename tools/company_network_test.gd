@@ -49,8 +49,9 @@ func _round_trip() -> String:
 	for i in region.routes.size():
 		region.routes[i].id = i
 	for island in region.islands:
-		for i in island.slips.size():
-			island.slips[i] = region.routes.size() - 1 - island.slips[i]
+		for slip in island.slips:
+			for i in slip.routes.size():
+				slip.routes[i] = region.routes.size() - 1 - slip.routes[i]
 	var restored := Simulation.new()
 	root.add_child(restored)
 	var error := restored.setup_from_network(region, fresh.terrain, contents)

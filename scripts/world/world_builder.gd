@@ -515,22 +515,38 @@ func _build_terminals() -> void:
 		var ly := Layout.LOT_Y
 		var mid_u := (Layout.LOT_FRONT + Layout.LOT_BACK) * 0.5
 		mb.box(Vector3(0, ly - 1.35, mid_u), Vector3(hw * 2.0 + 3.6, 2.4, Layout.LOT_LENGTH + 3.6), CONCRETE)
-		mb.box(Vector3(0, ly - 0.9, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), ASPHALT)
+		var open := Layout.open_lanes(hw, isl.open_lanes)
+		if isl.open_lanes > 0:
+			# Only the lanes in use are paved; the rest of the site is graded gravel.
+			mb.box(Vector3(0, ly - 0.95, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), PavingCrew.GRAVEL.darkened(0.1))
+			var lo := minf(open.front() - Layout.LANE_WIDTH * 0.5, -Layout.EXIT_CLEAR + Layout.LANE_WIDTH * 0.5)
+			var hi := maxf(open.back() + Layout.LANE_WIDTH * 0.5, Layout.EXIT_CLEAR - Layout.LANE_WIDTH * 0.5)
+			mb.box(Vector3((lo + hi) * 0.5, ly - 0.9, mid_u), Vector3(hi - lo, 1.8, Layout.LOT_LENGTH), ASPHALT)
+		else:
+			mb.box(Vector3(0, ly - 0.9, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), ASPHALT)
 
 		# Lane markings
 		var mark_len := Layout.LANE_HEAD - (Layout.LOT_BACK + 7.5) + 3.0
 		var mark_u := (Layout.LANE_HEAD + 3.0 + Layout.LOT_BACK + 7.5) * 0.5
-		for lane_set in Layout.lane_positions(hw, isl.slips.size()):
-			for v in lane_set:
-				for side: float in [-3.6, 3.6]:
-					mb.box(Vector3(v + side, ly + 0.03, mark_u), Vector3(0.36, 0.06, mark_len), LINE_WHITE)
+		var marked: Array[float] = open
+		if isl.open_lanes == 0:
+			marked = []
+			for lane_set in Layout.lane_positions(hw, maxi(isl.route_ids().size(), 1)):
+				for v in lane_set:
+					marked.append(v)
+		for v in marked:
+			for side: float in [-3.6, 3.6]:
+				mb.box(Vector3(v + side, ly + 0.03, mark_u), Vector3(0.36, 0.06, mark_len), LINE_WHITE)
 		var u := Layout.LOT_BACK + 4.5
 		while u < Layout.LOT_FRONT - 3.0:
 			mb.box(Vector3(0, ly + 0.03, u), Vector3(0.42, 0.06, 3.6), LINE_YELLOW)
 			u += 7.2
 
 		for i in isl.slips.size():
-			_build_slip(mb, isl.slip_offset(i))
+			if isl.slips[i].tie_up:
+				_build_tie_up(mb, isl.slip_offset(i))
+			else:
+				_build_slip(mb, isl.slip_offset(i))
 
 		# Terminal building beside the lot
 		var bv := hw + 15.0
@@ -648,6 +664,34 @@ func _build_slip(mb: MeshBuilder, v: float) -> void:
 		glows.glow(Models.bulkhead_glow_at(lamp, out, LIFT_LAMP), GlowBuilder.WARM,
 			Models.bulkhead_glow_size(LIFT_LAMP), 5.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
+
+
+## A tie-up slip: dolphins and fendered wing walls to lie against, and a
+## catwalk out from the shore for the crew, but no transfer span (it loads no cars).
+func _build_tie_up(mb: MeshBuilder, v: float) -> void:
+	var ly := Layout.LOT_Y
+	var pe := Layout.PIER_END
+	var lf := Layout.LOT_FRONT
+	mb.box(Vector3(v, ly - 0.3, (lf + pe) * 0.5), Vector3(2.4, 0.3, pe - lf), Models.WOOD)
+	var u := lf + 3.0
+	while u < pe:
+		for side: float in [-1.2, 1.2]:
+			mb.box(Vector3(v + side, -4.2, u), Vector3(0.6, 12.6, 0.6), Models.WOOD)
+		u += 6.0
+	for side: float in [-1.0, 1.0]:
+		var ww: Array = Layout.WING_WALL
+		for k in ww.size() - 1:
+			var w0: Vector2 = ww[k]
+			var w1: Vector2 = ww[k + 1]
+			_wing_wall(mb, Vector2(w0.x, v + side * w0.y), Vector2(w1.x, v + side * w1.y), side)
+		var inner := Layout.DOLPHIN_INNER
+		var inner_cap := _dolphin(mb, Vector3(v + side * inner.y, 0, inner.x), inner.z, 6)
+		eagle_perches.append(Eagles.Perch.new(mb.xform * inner_cap, Eagles.Kind.DOLPHIN))
+		var outer := Layout.DOLPHIN_OUTER
+		var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8)
+		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
+		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
+		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 
 
 ## A wing wall from `a` to `b` (u, v in the terminal frame), its fendered face on

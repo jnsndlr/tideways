@@ -156,8 +156,10 @@ func _find_corridors() -> void:
 		for j in range(i + 1, routes.size()):
 			var r1 := routes[i]
 			var r2 := routes[j]
-			var w1 := _in_the_way(ferry_on(r1), ferry_on(r2))
-			var w2 := _in_the_way(ferry_on(r2), ferry_on(r1))
+			if ferry_on(r1) == null or ferry_on(r2) == null:
+				continue   # no boat sails it (its schedule could not be run)
+			var w1 := _in_the_way(ferry_on(r1), r1, ferry_on(r2), r2)
+			var w2 := _in_the_way(ferry_on(r2), r2, ferry_on(r1), r1)
 			var span1: Vector2 = w1[0]
 			var span2: Vector2 = w2[0]
 			if span1.x > span1.y or span2.x > span2.y:
@@ -175,7 +177,7 @@ func _find_corridors() -> void:
 
 func ferry_on(r: MapData.Route) -> Ferry:
 	for f in sim.ferries:
-		if f.route == r:
+		if r in f.legs:
 			return f
 	return null
 
@@ -183,10 +185,9 @@ func ferry_on(r: MapData.Route) -> Ferry:
 ## [the stretch of `f`'s route (first to last curve offset, padded a little) over
 ## which its hull comes within reach of `other`'s hull anywhere along its route
 ## (empty, x > y, if none), whether `f` docked at its A / B end is (x / y)].
-func _in_the_way(f: Ferry, other: Ferry) -> Array:
-	var r := f.route
-	var mine := _route_poses(f)
-	var theirs := _route_poses(other)
+func _in_the_way(f: Ferry, r: MapData.Route, other: Ferry, other_r: MapData.Route) -> Array:
+	var mine := _route_poses(f, r)
+	var theirs := _route_poses(other, other_r)
 	var gap := f.hull_radius + other.hull_radius + CORRIDOR_CLEAR
 	# Their poses bucketed by where they are; two hulls that close are within a
 	# bucket of each other.
@@ -226,15 +227,15 @@ func _in_the_way(f: Ferry, other: Ferry) -> Array:
 
 
 ## A ferry's hull every POSE_STEP along its crossing, dock to dock, as [ends a, ends b].
-func _route_poses(f: Ferry) -> Array:
+func _route_poses(f: Ferry, r: MapData.Route) -> Array:
 	var ea := PackedVector2Array()
 	var eb := PackedVector2Array()
 	var half := f.half_seg
 	var s := -f.dock_inset()
-	var end := f.route.length + f.dock_inset()
+	var end := r.length + f.dock_inset()
 	while s <= end + 0.03:
-		var p := f.route_point(s)
-		var t := f.route_point(s + 4.5) - f.route_point(s - 4.5)
+		var p := f.route_point_on(r, s)
+		var t := f.route_point_on(r, s + 4.5) - f.route_point_on(r, s - 4.5)
 		var t2 := Vector2(t.x, t.z).normalized() * half
 		ea.append(Vector2(p.x, p.z) - t2)
 		eb.append(Vector2(p.x, p.z) + t2)

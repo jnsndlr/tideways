@@ -38,6 +38,7 @@ var lane_v := 0.0          # lateral lane position while queued at a terminal
 var lot_arrival := 0.0     # sim minutes when it joined the queue
 var length := 0.0          # bumper to bumper, rig included (game units)
 var slots := 1             # queue / deck slots it takes
+var dest := -1             # island id it is travelling to (-1: not set)
 var center_offset := 0.0   # where the middle of the whole rig lies along its own z
 var trailer: Node3D        # pivots at the fifth wheel (null for anything else)
 var trailer_model := ""

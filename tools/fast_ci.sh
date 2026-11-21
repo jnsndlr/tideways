@@ -37,6 +37,10 @@ check import smoke --editor --import
 if [[ $suite == traffic ]]; then
   check captain-crossings test --fixed-fps 30 --script tools/captain_crossing_test.gd -- --seed=123 --ferry=1 --rounds=1
   check road-traffic test --fixed-fps 30 --script tools/vehicle_overlap_test.gd -- --verify --seed=123 --frames=6000
+  check shared-slip test --fixed-fps 30 --script tools/shared_slip_test.gd -- --scenario=shared_slip
+  check tie-up test --fixed-fps 30 --script tools/tie_up_test.gd -- --scenario=shared_slip
+  check lot-lanes test --fixed-fps 30 --script tools/lot_lanes_test.gd
+  check lane-sharing test --fixed-fps 30 --script tools/lane_sharing_test.gd -- --scenario=lane_sharing
   check marine-traffic test --fixed-fps 30 --script tools/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
   exit 0
 fi
