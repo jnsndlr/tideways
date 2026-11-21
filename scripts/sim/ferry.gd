@@ -18,6 +18,16 @@ const DISPATCH_GAP := 0.5
 const ARRIVAL_PRIORITY := 660.0
 # Coming in, the slip's span starts down to the deck this far out (SlipRamp).
 const RAMP_LOWER_AT := 40.0
+# Running costs (CompanyLedger). Fuel burnt per mile goes as the square of speed
+# through the water, so easing off saves fuel but takes longer, and crew are paid by
+# the hour. Both are metered as she goes and posted to the ledger once a trip, when
+# she docks (and at midnight, so each day's lines are whole).
+const FUEL_PRICE := 3.6        # $ per gallon
+const CREW_WAGE := 12.0        # $ per crew member per game hour (tuned, like the burn)
+const METRES_PER_NM := 1852.0
+# Pace settings: [share of the class's service speed, name]
+const PACES := [[0.85, "Economy"], [1.0, "Service"], [1.1, "Full ahead"]]
+const SERVICE_PACE := 1
 
 var sim: Simulation
 var fc: FerryClass
@@ -44,6 +54,12 @@ var traveled: float:      # how far the hull's centre has come, dock to dock
 var trips: int:
 	get: return voyage.trips
 	set(value): voyage.trips = value
+var pace := SERVICE_PACE
+var fuel_today := 0.0     # $ this hull has burnt since midnight
+var crew_today := 0.0
+var last_crossing_fuel := 0.0
+var _crossing_fuel := 0.0   # metered since she last posted
+var _crew_owed := 0.0
 # Her master sets how she is handled (Captain.speed_limit). A new one takes the
 # helm when she next casts off, so a crossing is made under one captain.
 var captain: Captain = Captain.roster()[0]
@@ -93,7 +109,7 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	name = nm
 	captain = Captain.roster()[r.id % Captain.roster().size()]
 	next_captain = captain
-	cruise = captain.cruise(fc.cruise)
+	cruise = captain.cruise(paced_cruise())
 	yield_decel = YIELD_DECEL
 	_inset = Layout.FERRY_HALF - fc.half_length
 	if SlipRamp.available():
@@ -431,7 +447,7 @@ func _tick_loading(delta: float) -> void:
 				return
 		_casting_off = false
 		captain = next_captain
-		cruise = captain.cruise(fc.cruise)
+		cruise = captain.cruise(paced_cruise())
 		voyage.depart()
 		_sail_time = 0.0
 		# The last crossing's wake has long faded by now, and it lies along the same
@@ -500,7 +516,9 @@ func _tick_sailing(delta: float) -> void:
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
+	var was := traveled
 	voyage.advance(delta, speed, run_length())
+	_burn(traveled - was)
 	_place(_route_s(traveled))
 	_bob_time += delta
 	position.y = sin(_bob_time * 1.3) * 0.21
@@ -516,6 +534,8 @@ func _tick_sailing(delta: float) -> void:
 			last_crossing = _sail_time
 			last_crossing_captain = captain
 		_sail_time = -1.0
+		last_crossing_fuel = _crossing_fuel
+		post_costs(true)
 		_begin_unloading()
 
 
@@ -845,13 +865,13 @@ func assign_captain(c: Captain) -> void:
 	next_captain = c
 	if state != State.SAILING:
 		captain = c
-		cruise = c.cruise(fc.cruise)
+		cruise = c.cruise(paced_cruise())
 
 
 ## Unhindered crossing time of this route under `c`, in game minutes.
 func forecast_minutes(c: Captain) -> float:
 	if not _forecasts.has(c.id):
-		_forecasts[c.id] = c.crossing_minutes(run_length(), fc.cruise)
+		_forecasts[c.id] = c.crossing_minutes(run_length(), paced_cruise())
 	return _forecasts[c.id]
 
 
@@ -881,3 +901,70 @@ func minutes_until_departure_from(term: Terminal) -> float:
 
 func crossing_minutes() -> float:
 	return forecast_minutes(next_captain)
+
+
+# --- Running costs ------------------------------------------------------------------
+
+## The class's cruise speed at her pace setting; her captain then takes it from there.
+func paced_cruise() -> float:
+	return fc.cruise * PACES[pace][0]
+
+
+## Open-water speed at her pace, under the captain who has (or is taking) the helm.
+func cruise_speed() -> float:
+	return next_captain.cruise(paced_cruise())
+
+
+## Takes effect at once, even mid-crossing (unlike a change of captain).
+func set_pace(p: int) -> void:
+	pace = clampi(p, 0, PACES.size() - 1)
+	cruise = captain.cruise(paced_cruise())
+	_forecasts.clear()
+
+
+func pace_name() -> String:
+	return PACES[pace][1]
+
+
+## Gallons per nautical mile at speed `v` (map m/s).
+func burn_at(v: float) -> float:
+	var f := v / fc.cruise
+	return fc.burn * f * f
+
+
+## Fuel for `metres` made good at the present speed.
+func _burn(metres: float) -> void:
+	if metres <= 0.0:
+		return
+	_crossing_fuel += FUEL_PRICE * metres / METRES_PER_NM * burn_at(speed)
+
+
+## What a crossing's fuel comes to at her pace (cruising the whole way).
+func crossing_fuel_estimate() -> float:
+	return FUEL_PRICE * run_length() / METRES_PER_NM * burn_at(cruise_speed())
+
+
+func crew_per_hour() -> float:
+	return fc.crew * CREW_WAGE
+
+
+## Crew are on the clock all day; `minutes` of game time.
+func pay_crew(minutes: float) -> void:
+	_crew_owed += crew_per_hour() * minutes / 60.0
+
+
+## Puts the fuel and wages metered since the last post on the ledger.
+## `trip`: at the end of a crossing (shown as it happens), rather than midnight's.
+func post_costs(trip: bool) -> void:
+	var fuel := _crossing_fuel
+	var crew := _crew_owed
+	_crossing_fuel = 0.0
+	_crew_owed = 0.0
+	fuel_today += fuel
+	crew_today += crew
+	sim.post_running_costs(self, fuel, crew, trip)
+
+
+func start_day() -> void:
+	fuel_today = 0.0
+	crew_today = 0.0

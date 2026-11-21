@@ -19,7 +19,7 @@ func check_drain(staging_count: int) -> String:
 	term.island.slips = [0, 1]
 	term.island.lane_extension_price = 100
 	term.island.construction_staging_lanes = staging_count
-	sim.fares.revenue_total = 200
+	sim.ledger.cash = 200
 	var first := Terminal.Lane.new(-30)
 	var second := Terminal.Lane.new(-23)
 	var active := Terminal.Lane.new(-16)
@@ -104,12 +104,12 @@ func _process(_dt: float) -> bool:
 		served_at_purchase = terminal.served_today
 		var price := terminal.island.lane_extension_price
 		var initial_funds: float = game.sim.available_cash
-		game.sim.terminal_spending += initial_funds
+		game.sim.ledger.cash = 0.0
 		if terminal.buy_holding_lane():
 			return fail("Unaffordable lane purchased")
-		game.sim.terminal_spending -= initial_funds
+		game.sim.ledger.cash = initial_funds
 		while game.sim.available_cash < price:
-			game.sim.fares.credit_flat(false)
+			game.sim.ledger.credit_flat(false)
 		var before: float = game.sim.available_cash
 		if not terminal.buy_holding_lane() or terminal.buy_holding_lane():
 			return fail("Expected exactly one successful purchase")

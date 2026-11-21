@@ -92,6 +92,17 @@ const TABLE := {
 	5: [4, 12, 57.0, 12.9, 28.5, "Jumbo ferry"],
 }
 
+# size: [crew, gallons burnt per nautical mile at service speed]. The map's
+# crossings are a mile or less, so the burn is tuned for game balance (fuel about
+# as big a cost as crew) rather than taken from real hulls.
+const RUNNING := {
+	1: [3, 20.0],
+	2: [4, 32.0],
+	3: [6, 56.0],
+	4: [9, 88.0],
+	5: [12, 128.0],
+}
+
 static var _cache := {}
 
 var size := 4
@@ -102,6 +113,8 @@ var capacity := 36
 var half_length := 45.0
 var half_beam := 12.6
 var cruise := 27.0
+var crew := 9
+var burn := 11.0                   # gallons per nautical mile at service speed (RUNNING)
 var open_deck := false
 var portal := false
 var evergreen := false             # the mid-poly Evergreen State (size 4, `mid`)
@@ -225,6 +238,8 @@ func _init(s: int) -> void:
 	half_beam = t[3]
 	cruise = t[4]
 	label = t[5]
+	crew = RUNNING[s][0]
+	burn = RUNNING[s][1]
 	capacity = lanes * rows
 	guemes = s == 1 and small
 	open_deck = s == 1 and not guemes

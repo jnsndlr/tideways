@@ -133,6 +133,10 @@ func _ready() -> void:
 	var gulls := Seagulls.new()
 	add_child(gulls)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
+	var ambience := Ambience.new()
+	ambience.name = "Ambience"
+	ambience.setup(rig, gulls, day_cycle)
+	add_child(ambience)
 	eagles = Eagles.new()
 	add_child(eagles)
 	eagles.setup(sim.wildlife, day_cycle, builder.eagle_perches, gulls)

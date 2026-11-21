@@ -57,7 +57,7 @@ scripts/
   sim/wildlife.gd         species table, daily visits, sightings, island wildlife reputation
   sim/terminal.gd         spawning, lane queues, boarding/exit paths
   sim/vessel.gd           base for anything afloat: hull capsule, path lookahead, right of way
-  sim/fare_ledger.gd      fare credits, daily receipts and lifetime revenue
+  sim/company_ledger.gd   cash, fares, fuel, crew and purchases, by day
   sim/ferry_deck.gd       capacity, lane preference and reservations for a crossing
   sim/ferry.gd            load → sail → unload state machine along a Curve3D
   sim/ferry_class.gd      the five ferry sizes: lanes, rows, hull, speed, fittings

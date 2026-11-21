@@ -21,16 +21,18 @@ var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
-var terminal_spending := 0.0
+## A boat's running costs went on the ledger (`trip`: as she docked).
+signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
+
+var ledger := CompanyLedger.new()
 var available_cash: float:
-	get: return revenue_total - terminal_spending
-var fares := FareLedger.new()
+	get: return ledger.cash
 var revenue_today: float:
-	get: return fares.revenue_today
+	get: return ledger.revenue_today
 var revenue_total: float:
-	get: return fares.revenue_total
+	get: return ledger.revenue_total
 var cars_today: int:
-	get: return fares.cars_today
+	get: return ledger.cars_today
 var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
@@ -123,14 +125,31 @@ func _ferry_sizes() -> Array[int]:
 
 
 func _process(delta: float) -> void:
-	minutes += delta
 	weather.step(delta)
-	if minutes >= 24.0 * 60.0:
-		minutes -= 24.0 * 60.0
+	const DAY_MINUTES := 24.0 * 60.0
+	while minutes + delta >= DAY_MINUTES:
+		var to_midnight := DAY_MINUTES - minutes
+		for ferry in ferries:
+			ferry.pay_crew(to_midnight)
+		delta -= to_midnight
+		minutes = 0.0
 		day += 1
-		fares.start_day()
+		for ferry in ferries:
+			ferry.post_costs(false)
+		ledger.start_day()
+		for ferry in ferries:
+			ferry.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
+	minutes += delta
+	for ferry in ferries:
+		ferry.pay_crew(delta)
+
+
+func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:
+	ledger.spend("fuel", fuel)
+	ledger.spend("crew", crew)
+	running_costs_posted.emit(ferry, fuel, crew, trip)
 
 
 func make_vehicle(parent: Node3D = null) -> Vehicle:
@@ -142,9 +161,9 @@ func make_vehicle(parent: Node3D = null) -> Vehicle:
 
 func collect_fare(car: Vehicle) -> void:
 	if car.model.is_empty():
-		fares.credit_flat(car.is_truck)
+		ledger.credit_flat(car.is_truck)
 	else:
-		fares.credit_measured(car.length_metres())
+		ledger.credit_measured(car.length_metres())
 
 
 func hour() -> float:
