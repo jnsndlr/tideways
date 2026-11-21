@@ -1021,13 +1021,85 @@ func _place_station(map_seed: int) -> void:
 	map.stations.append(st)
 
 
-func _flatten_terminals() -> void:
+## How far into the ground a lot may be cut to keep its trestle short, and how gently
+## the ground eases back from the lot and from under the trestle.
+const LOT_CUT := 6.0
+const LOT_BLEND := 33.0
+const TRESTLE_BLEND := 12.0
+const TRESTLE_CLEAR := 1.5   # ground kept under the deck's slab
+
+
+## Fits each terminal's approach to the ground: its lot stands about as high as the
+## ground it covers (cut in by up to LOT_CUT), on the shortest trestle that can come
+## down from there to the span's hinge at TRESTLE_MAX_GRADE.
+func _fit_approaches() -> void:
 	for isl in map.islands:
 		if not isl.has_terminal:
 			continue
 		var hw := isl.lot_half_width
-		terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - 6.0, Layout.LOT_FRONT + 3.0,
-			-hw - Layout.LANE_WIDTH - 4.5, hw + 33.0, Layout.LOT_Y - 0.15, 21.0)
+		for bays in range(1, Layout.TRESTLE_MAX_BAYS + 1):
+			isl.approach_bays = bays
+			var front := isl.lot_front_u()
+			var sum := 0.0
+			var count := 0
+			var u := front - Layout.LOT_LENGTH
+			while u <= front:
+				var v := -hw
+				while v <= hw:
+					sum += _h(isl.shore + isl.dock_dir * u + isl.lateral() * v)
+					count += 1
+					v += 12.0
+				u += 12.0
+			var ground := sum / count
+			var top := Layout.LOT_Y + Layout.approach_rise(bays)
+			isl.lot_y = clampf(ground, Layout.LOT_Y, top)
+			if ground - LOT_CUT <= top:
+				break
+
+
+## Most landings (every mainland port, and about two in three island towns) come
+## ashore where the land behind is low: a gentle valley carved back from the shore,
+## so the lot sits on a short trestle. The rest stand on higher ground and keep a long
+## pier. Decided by the island's key, so a town keeps its landing as the map changes.
+const LANDING_LOW := 3.3
+const LANDING_GRADE := 0.035
+const LANDING_LENGTH := 230.0
+const LANDING_FADE := 70.0
+
+
+static func low_landing(isl: MapData.Island) -> bool:
+	return isl.is_mainland or hash(isl.key if isl.key != "" else isl.name) % 3 != 0
+
+
+func _carve_landings() -> void:
+	for isl in map.islands:
+		if not isl.has_terminal or not low_landing(isl):
+			continue
+		var hw := isl.lot_half_width
+		terrain.carve_landing(isl.shore, isl.dock_dir, -hw - 50.0, hw + 70.0, LANDING_LENGTH,
+			LANDING_LOW, LANDING_GRADE, LANDING_FADE)
+
+
+func _flatten_terminals() -> void:
+	_carve_landings()
+	_fit_approaches()
+	for isl in map.islands:
+		if not isl.has_terminal:
+			continue
+		var hw := isl.lot_half_width
+		var lot := isl.shore - isl.dock_dir * isl.lot_shift()
+		terrain.add_flat(lot, isl.dock_dir, Layout.LOT_BACK - 6.0, Layout.LOT_FRONT + 3.0,
+			-hw - Layout.LANE_WIDTH - 4.5, hw + 33.0, isl.lot_y - 0.15, LOT_BLEND)
+	# Then the ground under each pier, clear of its deck (they may cross the lot's blend).
+	for isl in map.islands:
+		if not isl.has_terminal:
+			continue
+		var under := func(u: float) -> float: return isl.road_y(u) - Layout.TRESTLE_SLAB - TRESTLE_CLEAR
+		for i in isl.slips.size():
+			var o := isl.shore + isl.lateral() * isl.slip_offset(i)
+			var w0 := -2.4 if isl.slips[i].tie_up else Layout.TRESTLE_V_WALK - 1.0
+			var w1 := 2.4 if isl.slips[i].tie_up else Layout.TRESTLE_V_OUT + 1.0
+			terrain.add_cut(o, isl.dock_dir, isl.lot_front_u() + 1.5, Layout.PIER_END, w0, w1, under, TRESTLE_BLEND)
 	terrain.apply_flats()
 
 
@@ -1352,7 +1424,7 @@ func _layout_towns() -> void:
 	for isl in _main_islands():
 		if isl.has_terminal:
 			var nd := isl.dock_dir
-			var e := isl.shore + nd * Layout.LOT_BACK
+			var e := isl.shore + nd * (Layout.LOT_BACK - isl.lot_shift())
 			var dist := 48.0
 			while dist > 12.0:
 				var p := e - nd * dist
@@ -1379,7 +1451,7 @@ func _layout_towns() -> void:
 		if isl.has_terminal:
 			var nd := isl.dock_dir
 			var t := isl.lateral()
-			var e := isl.shore + nd * Layout.LOT_BACK
+			var e := isl.shore + nd * (Layout.LOT_BACK - isl.lot_shift())
 			var tc := isl.town_center
 			isl.road_main_a = _road_line(e, tc, t)
 			var far := 0.0

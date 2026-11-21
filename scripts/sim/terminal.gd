@@ -356,8 +356,27 @@ static func _keep_right(pts: PackedVector3Array) -> PackedVector3Array:
 	return out
 
 
+## A point on the lot (Layout's lot coordinates, in the lot's raised, set-back frame).
 func _local(v: float, u: float) -> Vector3:
-	return to_global(Vector3(v, Layout.LOT_Y, u))
+	return to_global(island.lot_offset() * Vector3(v, Layout.LOT_Y, u))
+
+
+func lot_point(v: float, u: float) -> Vector3:
+	return _local(v, u)
+
+
+## Down the trestle at `v` (terminal frame) from the lot's edge to the span's hinge,
+## every few metres on the road's profile (reversed: back up it).
+func _approach(v: float, reverse := false) -> PackedVector3Array:
+	var pts := PackedVector3Array()
+	var u0 := island.lot_front_u()
+	var steps := maxi(1, ceili((SlipRamp.HINGE_U - u0) / 4.0))
+	for k in range(1, steps + 1):
+		var u := lerpf(u0, SlipRamp.HINGE_U, float(k) / steps)
+		pts.append(to_global(Vector3(v, island.road_y(u), u)))
+	if reverse:
+		pts.reverse()
+	return pts
 
 
 ## Where `car` waits with `ahead` slots taken in front of it: the middle of its slots,
@@ -656,14 +675,14 @@ func boarding_path(car: Vehicle, rid: int) -> PackedVector3Array:
 	var path := PackedVector3Array([
 		_local(car.lane_v, Layout.LANE_HEAD + 6.0),
 		_local(entrance, Layout.LOT_FRONT + 1.5),
-		_local(entrance, SlipRamp.HINGE_U),
 	])
+	path.append_array(_approach(entrance))
 	if ramps.has(rid):
 		# Up the span to its tip, a little above the ferry's deck (the apron slopes down onto it).
 		var ramp: SlipRamp = ramps[rid]
 		path.append(to_global(ramp.crossing(-3.0)[1]))
 	else:
-		path.append(_local(sv - 3.0, Layout.PIER_END))
+		path.append(to_global(Vector3(sv - 3.0, Layout.LOT_Y, Layout.PIER_END)))
 	return path
 
 
@@ -676,7 +695,8 @@ func exit_path(rid: int) -> PackedVector3Array:
 		path.append(to_global(over[1]))
 		path.append(to_global(over[0]))
 	else:
-		path.append(_local(sv + 3.0, Layout.PIER_END))
+		path.append(to_global(Vector3(sv + 3.0, Layout.LOT_Y, Layout.PIER_END)))
+	path.append_array(_approach(sv + 3.0, true))
 	path.append_array(PackedVector3Array([
 		_local(sv + 3.0, Layout.LOT_FRONT + 1.5),
 		_local(Layout.EXIT_V, Layout.LANE_HEAD + 6.0),

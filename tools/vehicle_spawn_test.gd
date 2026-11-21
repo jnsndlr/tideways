@@ -126,6 +126,7 @@ func check_queue_parking() -> void:
 
 func check_boarding_approaches() -> void:
 	var terminal := Terminal.new()
+	terminal.island = MapData.Island.new()  # the lot's frame and the trestle's profile
 	root.add_child(terminal)
 	terminal.rotation.y = 1.1
 	terminal.position = Vector3(45, 0, 80)

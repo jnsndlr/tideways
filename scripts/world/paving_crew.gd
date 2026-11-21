@@ -49,7 +49,7 @@ func setup(site: Terminal) -> void:
 	var entrance := PackedVector3Array()
 	var road := terminal.island.road_main_a
 	for i in range(road.size() - 1, -1, -1):
-		var point := terminal.to_local(road[i])
+		var point: Vector3 = get_parent().to_local(road[i])
 		if point.z < Layout.LOT_BACK - 15:
 			entrance.append(_ground(point.x - 6.7, point.z))
 	if entrance.is_empty():
@@ -85,7 +85,7 @@ func setup(site: Terminal) -> void:
 
 
 func _ground(x: float, z: float) -> Vector3:
-	var world := terminal.to_global(Vector3(x, 0, z))
+	var world: Vector3 = get_parent().to_global(Vector3(x, 0, z))
 	return Vector3(x, terminal.sim.terrain.height_v(world) + 0.22, z)
 
 
