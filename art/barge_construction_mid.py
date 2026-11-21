@@ -34,17 +34,6 @@ def deck_equipment():
         block(deck, x, -0.84, 1.06, 0.41, 3.04, 0.26, "8d724e")
         for y in (-2.24, 0.56):
             block(deck, x, y, 1.32, 0.21, 0.15, 1.12, GOLD)
-    for i, (y, z) in enumerate([(-1.67, 1.73), (-0.84, 1.73), (-0.01, 1.73),
-                                (-1.255, 2.44), (-0.425, 2.44)]):
-        annulus(deck, (-4.55, y, z), (1, 0, 0), 0.41, 0.353, 8.7 - i % 2 * 0.25,
-                ["685443", "7e6550", "756051"][i % 3], "ba9774", 14)
-    for x in (-7.4, -1.6):
-        strap = [(x, y, z) for y, z in [(-2.25, 1.38), (-2.09, 1.87), (-1.59, 2.69),
-                                        (-1.31, 2.87), (-0.38, 2.87), (-0.10, 2.70),
-                                        (0.40, 1.85), (0.55, 1.38)]]
-        for a, b in zip(strap, strap[1:]):
-            pipe(deck, a, b, 0.052, SAFETY, 6)
-
     # A shore-power cabinet and a cable reel occupy the opposite side of the aisle.
     block(deck, -5.9, 1.91, 1.06, 2.85, 1.23, 0.18, IRON)
     block(deck, -5.9, 1.91, 1.24, 2.58, 1.10, 1.07, PALE_GREEN, 0.10)
@@ -71,6 +60,29 @@ def deck_equipment():
         for z in (4.72, 5.04):
             pipe(deck, (x, y, z), (x, y, z+0.12), 0.276, CREAM, 12)
     return deck
+
+
+def pile_cargo():
+    # Each pile has its origin at its centre and runs along Godot local Z.
+    slots = [(-1.67, 1.73), (-0.84, 1.73), (-0.01, 1.73),
+             (-1.255, 2.44), (-0.425, 2.44)]
+    for i, (y, z) in enumerate(slots):
+        pile = Part(f"Pile{i + 1}")
+        annulus(pile, (0, 0, 0), (1, 0, 0), 0.41, 0.353, 8.7 - i % 2 * 0.25,
+                ["685443", "7e6550", "756051"][i % 3], "ba9774", 14)
+        yield pile, (-4.55, y, z)
+
+
+def pile_straps():
+    straps = Part("PileStraps")
+    for x in (-7.4, -1.6):
+        strap = [(x, y, z) for y, z in [(-2.25, 1.38), (-2.09, 1.87), (-1.59, 2.69),
+                                        (-1.31, 2.87), (-0.38, 2.87), (-0.10, 2.70),
+                                        (0.40, 1.85), (0.55, 1.38)]]
+        for a, b in zip(strap, strap[1:]):
+            pipe(straps, a, b, 0.052, SAFETY, 6)
+
+    return straps
 
 
 def machinery():
@@ -145,12 +157,14 @@ def lattice_and_tackle():
     # The running line leads up the boom and down to a striped traveling block.
     pipe(rig, (0.15, 0, 1.75), head+normal*0.26, 0.042, ROPE, 6)
     hook_x = head.x+0.24
+    lines = Part("HoistLines")
+    hook = Part("HookBlock")
     for y in (-0.24, 0.24):
-        pipe(rig, (hook_x, y, head.z), (hook_x, y, 5.65), 0.043, ROPE, 6)
+        pipe(lines, (hook_x, y, head.z), (hook_x, y, 5.65), 0.043, ROPE, 6)
     for z, length, width, height, color in [(5.24, 0.82, 0.68, 0.23, GOLD),
             (5.47, 0.88, 0.72, 0.17, IRON), (5.64, 0.84, 0.69, 0.23, GOLD)]:
-        block(rig, hook_x, 0, z, length, width, height, color, 0.11)
-    pipe(rig, (hook_x, 0, 5.03), (hook_x, 0, 5.24), 0.13, STEEL)
+        block(hook, hook_x, 0, z, length, width, height, color, 0.11)
+    pipe(hook, (hook_x, 0, 5.03), (hook_x, 0, 5.24), 0.13, STEEL)
     curve = [(0,5.12,0.13),(-0.04,4.93,0.14),(-0.18,4.74,0.15),(-0.15,4.52,0.15),
              (0.02,4.40,0.14),(0.25,4.45,0.10),(0.38,4.64,0.065),(0.40,4.78,0.025)]
     sections = []
@@ -158,8 +172,8 @@ def lattice_and_tackle():
         prev = curve[max(0,i-1)]
         nxt = curve[min(len(curve)-1,i+1)]
         sections.append(round_ring((hook_x+x, 0, z), (nxt[0]-prev[0], 0, nxt[1]-prev[1]), radius, 8))
-    rig.loft(sections, STEEL)
-    return rig
+    hook.loft(sections, STEEL)
+    return rig, lines, hook
 
 
 def build():
@@ -176,12 +190,26 @@ def build():
     scene.collection.children.link(collection)
     hull, stores = [part.finish(collection, material) for part in barge(deck_equipment(), False)]
     stores.parent = hull
+    for part, position in pile_cargo():
+        pile = part.finish(collection, material)
+        pile.parent = stores
+        pile.location = blender_point(position)
+    pile_straps().finish(collection, material).parent = stores
     upper = machinery().finish(collection, material)
     upper.parent = hull
     upper.location = blender_point(PIVOT)
     upper.rotation_euler.z = math.radians(28)
-    boom = lattice_and_tackle().finish(collection, material)
+    rig, lines, hook = lattice_and_tackle()
+    boom = rig.finish(collection, material)
     boom.parent = upper
+    # Set local origins at the top sheave and cable attachment. Godot can
+    # scale the lines vertically from the sheave and translate the hook.
+    for part, height in [(lines, 14.30), (hook, 5.65)]:
+        origin = Vector(blender_point((12.54, 0, height)))
+        part.vertices = [Vector(vertex) - origin for vertex in part.vertices]
+        obj = part.finish(collection, material)
+        obj.parent = boom
+        obj.location = origin
     bpy.ops.export_scene.gltf(filepath=str(ROOT/"assets/models/barge_construction_mid.glb"),
                               export_format="GLB", export_vertex_color="ACTIVE")
 
