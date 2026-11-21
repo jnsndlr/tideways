@@ -865,7 +865,8 @@ func _refresh_panels() -> void:
 					_lane_button.text = "Buy lane (+%d spaces) · $%d" % [term.slots_per_lane, isl.lane_extension_price]
 					_lane_button.disabled = sim.available_cash < isl.lane_extension_price
 					offer_lane = true
-			rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
+			if term.has_service():
+				rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
 			rows.append(["Carried today", fmt_int(term.served_today)])
 		_set_rows(rows)
 		_info_button.text = "Center view"
@@ -926,7 +927,8 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 func _update_terminal_bar(term: Terminal) -> void:
 	_tb_set("terminal", term.island.name.to_upper() + " TERMINAL",
-		"Queue: %d vehicles" % term.total_queued(), "Wait: %d min" % roundi(term.avg_wait))
+		"Queue: %d vehicles" % term.total_queued(),
+		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
 	var f: Ferry = nd[1]
 	if f:
@@ -1395,7 +1397,8 @@ func _lanes_text(term: Terminal) -> String:
 		var guests := 0
 		for lane: Terminal.Lane in term.lanes[key]:
 			for waiting in lane.queue:
-				if (instance_from_id(waiting.vehicle_id) as Vehicle).dest != key:
+				var car := instance_from_id(waiting.vehicle_id) as Vehicle
+				if car.dest != key:
 					guests += 1
 		var name: String = sim.map.islands[key].name.trim_suffix(" Island")
 		parts.append("%s %d%s" % [name, term.lanes[key].size(), " (%d sharing)" % guests if guests > 0 else ""])
