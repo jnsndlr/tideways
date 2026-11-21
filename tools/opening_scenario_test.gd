@@ -9,7 +9,11 @@ func _run() -> void:
 	var play = load(Scenes.MAIN_MAP).instantiate()
 	root.add_child(play)
 	current_scene = play
-	var error := _check(play.sim, play.hud)
+	var error: String
+	if OS.get_cmdline_user_args().has("--full-network"):
+		error = _check_full_network(play.sim)
+	else:
+		error = _check(play.sim, play.hud)
 	play.queue_free()
 	await process_frame
 	await process_frame
@@ -35,7 +39,10 @@ func _check(sim: Simulation, hud: Hud) -> String:
 			return "An opening terminal should have one slip"
 		if terminal.island.key == "island-7":
 			idle = terminal
-	if idle == null or idle.has_service() or idle.total_queued() != 0 or idle.buy_holding_lane():
+	if idle == null:
+		return "Gullrock needs an idle terminal"
+	idle._spawn_car()
+	if idle.has_service() or idle.total_queued() != 0 or idle.buy_holding_lane():
 		return "Gullrock should start idle with no waiting cars or lane purchase"
 	hud.select_island(idle.island, false)
 	if hud._info_sub.text != "Ferry terminal · idle slip" or hud._tb["terminal"][2].text != "No scheduled service":
@@ -43,4 +50,18 @@ func _check(sim: Simulation, hud: Hud) -> String:
 	for label: Label in hud._info_grid.get_children():
 		if label.text == "Avg. wait":
 			return "The idle terminal inspector should omit its unused wait estimate"
+	return ""
+
+
+func _check_full_network(sim: Simulation) -> String:
+	if sim.map.routes.size() < 2 or sim.ferries.size() != sim.map.routes.size():
+		return "Full-network Play should assign one boat to each planned route"
+	var served := {}
+	for ferry in sim.ferries:
+		if served.has(ferry.route.id):
+			return "Full-network Play assigned two boats to the same route"
+		served[ferry.route.id] = true
+	for route in sim.map.routes:
+		if not served.has(route.id):
+			return "Full-network Play left a planned route unserved"
 	return ""
