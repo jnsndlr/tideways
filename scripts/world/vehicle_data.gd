@@ -49,7 +49,7 @@ const VARIANTS := {
 	"truck_box": {"size": Vector3(2.500, 3.600, 10.300), "head": Vector3(0.805, 1.000, 4.890), "tail": Vector3(1.020, 1.105, -5.150)},
 	"truck_reefer": {"size": Vector3(2.500, 3.700, 9.300), "head": Vector3(0.805, 1.000, 4.390), "tail": Vector3(1.020, 1.105, -4.650)},
 	"truck_tank": {"size": Vector3(2.500, 3.000, 9.400), "head": Vector3(0.805, 1.000, 4.440), "tail": Vector3(0.980, 0.825, -4.650)},
-	"truck_step": {"size": Vector3(2.360, 3.040, 7.200), "head": Vector3(0.640, 1.050, 3.400), "tail": Vector3(1.060, 1.120, -3.600)},
+	"truck_step": {"size": Vector3(2.360, 3.000, 7.200), "head": Vector3(0.735, 0.995, 3.400), "tail": Vector3(1.065, 1.075, -3.430)},
 	"tractor_aero": {"size": Vector3(2.500, 4.000, 9.200), "head": Vector3(0.832, 1.100, 4.340), "tail": Vector3(0.920, 0.850, -4.600), "hitch": Vector3(0.000, 1.220, -2.700)},
 	"tractor_midroof": {"size": Vector3(2.500, 3.450, 8.800), "head": Vector3(0.832, 1.100, 4.140), "tail": Vector3(0.920, 0.850, -4.400), "hitch": Vector3(0.000, 1.220, -2.500)},
 	"tractor_day": {"size": Vector3(2.500, 3.040, 6.900), "head": Vector3(0.832, 1.100, 3.190), "tail": Vector3(0.920, 0.850, -3.450), "hitch": Vector3(0.000, 1.220, -2.050)},

@@ -507,89 +507,138 @@ def build_straight(p):
 
 
 def build_step(p):
-    """A walk-in step van: one body from a short nose to a barn-door back."""
-    s = TS(); s.p = p
+    """A coastal parcel van with a pressed-metal nose and a crowned ivory roof."""
+    s = TS()
+    s.p = p
     PAL["body"] = p["paint"]
-    zF, zR = p["L"] / 2, -p["L"] / 2
-    s.zF, s.zR = zF, zR
-    zfa = zF - p["fo"]; zra = zfa - p["wb"]
-    r, R = p["r"], p["r"] + 0.07
-    hw, H = p["W"] / 2, p["H"]
-    zn = zF - 0.2                 # nose face
-    zws = zF - p["hood"]          # windscreen foot
-    zwt = zws - 0.22              # windscreen top
-    ywt = H - 0.48
+    previous_accent = PAL["accent"]
+    PAL["accent"] = tuple(c * 0.55 for c in p["paint"])
+    hw, h, r = p["W"] / 2, p["H"], p["r"]
+    s.zF, s.zR = p["L"] / 2, -p["L"] / 2
+    nose, rear = s.zF - 0.20, s.zR + 0.17
+    front_axle = s.zF - p["fo"]
+    rear_axle = front_axle - p["wb"]
+    cowl, brow = s.zF - p["hood"], s.zF - p["hood"] - 0.34
+    belt, eave = p["hood_y"] + 0.14, h - 0.25
+    sill = p["sill"] - 0.12
 
-    def top(z):
-        if z > zws: return lerp(p["hood_y"] - 0.06, p["hood_y"], min((zn - z) / 0.12, 1.0))
-        if z > zwt: return lerp(p["hood_y"], ywt, (zws - z) / (zws - zwt))
-        return H
+    # Split the skirt from the upper shell so wheel arches cost no roof triangles.
+    stations = {nose, nose - 0.18, cowl, rear}
+    for axle_z in (front_axle, rear_axle):
+        for i in range(9):
+            stations.add(axle_z + (r + 0.10) * math.cos(math.pi * i / 8))
+    def skirt(z):
+        width = hw - 0.16 * max(0, 1 - (nose - z) / 0.18)
+        top = belt - 0.21 * max(0, (z - cowl) / (nose - cowl))
+        bottom = arch_bottom(z, sill, (front_axle, rear_axle), r, r + 0.10)
+        return rrect(z, width, bottom, top, 0.065)
+    rings = [skirt(z) for z in sorted(stations, reverse=True)]
+    loft(rings, lambda i, j: "under" if j == 6 else "body", caps=False)
+    for ring, direction in ((rings[0], 1), (rings[-1], -1)):
+        poly(ring, "body", V(0, 0, direction))
 
-    def half(z):
-        return hw - 0.08 * (1 - min((zn - z) / 0.25, 1.0)) ** 2
+    # The windshield leans back, while the sides stay plumb for the sliding doors.
+    def cabin_end(bottom_z, top_z):
+        return [V(hw, belt - 0.065, bottom_z), V(hw, eave, top_z),
+                V(-hw, eave, top_z), V(-hw, belt - 0.065, bottom_z)]
+    front_ring, rear_ring = cabin_end(cowl, brow), cabin_end(rear, rear)
+    loft([front_ring, rear_ring], "body", caps=False)
+    poly(front_ring, "body", V(0, 0, 1))
+    # Follow the skirt chamfer where the two end panels meet.
+    poly([rear_ring[0], V(hw - 0.065, belt, rear), V(-hw + 0.065, belt, rear),
+          rear_ring[3], rear_ring[2], rear_ring[1]], "body", V(0, 0, -1))
+    roof = [(hw + 0.025, eave), (hw + 0.025, eave + 0.085),
+            (hw - 0.09, h - 0.055), (hw - 0.35, h)]
+    roof_profile = roof + [(-x, y) for x, y in reversed(roof)]
+    loft([[V(x, y, z) for x, y in roof_profile] for z in (brow + 0.10, rear - 0.025)], "cream")
 
-    def ring(z, ytop=None):
-        yb = arch_bottom(z, p["sill"], (zfa, zra), r, R)
-        return rrect(z, half(z), yb, ytop if ytop is not None else top(z), 0.06)
-    zs = arch_stations((zfa, zra), R, zn, zR)
-    zs = sorted(set(zs) | {zn - 0.06, zn - 0.14, zws, zwt}, reverse=True)
-    rings = []
-    for z in zs:
-        # (a vertical header over the windscreen: two rings at its top)
-        rings += [ring(z, ywt), ring(z, H)] if z == zwt else [ring(z)]
-    loft(rings, lambda i, j: "black" if j == 6 else "body", caps=False)
-    poly(rings[0], "body", V(0, 0, 1))
-    poly(rings[-1], "body", V(0, 0, -1))
-    # Roof peak over the windscreen.
-    box(V(0, H - 0.04, zwt + 0.02), (2 * hw - 0.04, 0.08, 0.16), "body")
-    # Windscreen (two panes), side window by the driver, the folding door's glass.
-    a, b = V(0, p["hood_y"], zws), V(0, ywt, zwt)
-    d = b - a
-    nrm = V(0, -d.z, d.y).normalized()
-    for x0, x1 in ((0.04, hw - 0.12), (-(hw - 0.12), -0.04)):
-        q0, q1 = lerp(a, b, 0.08) + nrm * 0.006, lerp(a, b, 0.92) + nrm * 0.006
-        poly([q0 + V(x0, 0, 0), q0 + V(x1, 0, 0), q1 + V(x1, 0, 0), q1 + V(x0, 0, 0)], "glass", nrm)
-    for sx in (1, -1):
-        sdecal(sx * hw, zwt - 0.75, zwt - 0.08, p["hood_y"] + 0.05, ywt - 0.02, "glass", both=False)
-        sdecal(sx * hw, zwt - 0.8, zwt - 0.77, p["sill"] + 0.05, H - 0.15, "seam", both=False)
-        sdecal(sx * hw, zwt - 1.2, zwt - 0.9, p["hood_y"] + 0.15, ywt - 0.1, "glass", both=False)
-        sdecal(sx * hw, zwt - 1.23, zwt - 1.2, p["sill"] + 0.05, H - 0.15, "seam", both=False)
-    # A crease down each side, rub strip low.
-    sdecal(hw, zR + 0.05, zwt - 1.25, p["hood_y"] - 0.04, p["hood_y"] - 0.02, "seam")
-    # Nose: grille between stacked lamps, black bumper.
-    fdecal(zn, -0.42, 0.42, 0.7, p["hood_y"] - 0.12, "black")
-    for i in range(1, 4):
-        y = lerp(0.7, p["hood_y"] - 0.12, i / 4)
-        fdecal(zn + 0.004, -0.4, 0.4, y - 0.012, y + 0.012, "grey")
-    for sx in (1, -1):
-        x0, x1 = sorted((sx * 0.5, sx * 0.78))
-        fdecal(zn, x0, x1, p["hood_y"] - 0.4, p["hood_y"] - 0.14, "head")
-        fdecal(zn, x0, x1, p["hood_y"] - 0.58, p["hood_y"] - 0.44, "amber")
-    s.head = V(0.64, p["hood_y"] - 0.27, zn)
-    box(V(0, 0.5, zF - 0.1), (2 * hw + 0.02, 0.3, 0.2), "black")
-    # Marker lamps along the roof edges.
-    for sx in (1, -1):
-        for z in (zwt - 0.05, zR + 0.05):
-            box(V(sx * (hw - 0.08), H + 0.02, z), (0.08, 0.04, 0.06), "amber" if z > 0 else "tail")
-    for x in (-0.2, 0.0, 0.2):
-        box(V(x, H + 0.02, zwt - 0.05), (0.07, 0.04, 0.06), "amber")
-    # Rear: barn doors with windows, tail lamps up the corners, bumper.
-    fdecal(zR, -0.012, 0.012, p["sill"] + 0.1, H - 0.1, "seam", out=-1)
-    for x0, x1 in ((0.2, 0.75), (-0.75, -0.2)):
-        fdecal(zR, x0, x1, H - 1.0, H - 0.35, "glass", out=-1)
-    for sx in (1, -1):
-        x0, x1 = sorted((sx * (hw - 0.04), sx * (hw - 0.2)))
-        fdecal(zR, x0, x1, 0.9, 1.35, "tail", out=-1)
-        fdecal(zR, x0, x1, 0.78, 0.88, "reverse", out=-1)
-    s.tail = V(hw - 0.12, 1.12, zR)
-    box(V(0, 0.48, zR - 0.08), (2 * hw - 0.1, 0.2, 0.16), "black")
-    box(V(0, 0.26, zR + 0.3), (0.5, 0.06, 0.3), "grey")  # (the rear step)
-    frame(s, zF - 0.3, zR + 0.1, p["sill"])
-    box(V(0, p["sill"] - 0.15, (zfa + zra) / 2), (0.9, 0.3, 1.8), "under")
-    tp = dict(p); tp["track"] = hw - 0.02
-    axle(tp, zfa, False)
-    axle(tp, zra, True)
-    mud_flap(tp, zra - r - 0.15, hw)
+    glass_base = V(0, belt - 0.065, cowl)
+    glass_top = V(0, eave, brow)
+    outward = V(0, cowl - brow, eave - glass_base.y).normalized()
+    def windshield(x, t, offset):
+        return lerp(glass_base, glass_top, t) + V(x, 0, 0) + outward * offset
+    for sx in (-1, 1):
+        for key, inner, outer, low, high, offset in (
+                ("trim", 0.018, hw - 0.075, 0.055, 0.97, 0.008),
+                ("glass", 0.047, hw - 0.105, 0.085, 0.94, 0.014)):
+            poly([windshield(sx*x, t, offset) for x, t in
+                  ((inner, low), (outer, low), (outer, high), (inner, high))], key, outward)
+        # Wiper blades in their parked position.
+        poly([windshield(sx*x, t, 0.020) for x, t in
+              ((0.16, 0.13), (0.85, 0.21), (0.85, 0.23), (0.16, 0.15))], "trim", outward)
+
+    door = brow - 1.12
+    for sx in (-1, 1):
+        def panel(points, key, inset=0.008):
+            poly([V(sx * (hw + inset), y, z) for z, y in points], key, V(sx, 0, 0))
+        for key, margin, depth in (("trim", 0, 0.010), ("glass", 0.045, 0.016)):
+            panel([(door + 0.09 + margin, belt + margin), (cowl - 0.13 - margin, belt + margin),
+                   (brow - 0.11 - margin, eave - 0.08 - margin),
+                   (door + 0.09 + margin, eave - 0.08 - margin)], key, depth)
+        sdecal(sx*hw, door - 0.023, door, sill + 0.04, eave - 0.04, "trim", False)
+        sdecal(sx*hw, door + 0.09, door + 0.28, belt - 0.14, belt - 0.085, "gunmetal", False)
+        box(V(sx*(hw - 0.02), sill - 0.06, door + 0.38), (0.26, 0.095, 0.85), "silver")
+        bar(V(sx*hw, belt + 0.22, cowl - 0.27),
+            V(sx*(hw + 0.18), belt + 0.28, cowl - 0.22), 0.035, 0.04, "gunmetal")
+        box(V(sx*(hw + 0.18), belt + 0.42, cowl - 0.22), (0.08, 0.34, 0.17), "trim")
+
+        # A rising tide stripe and a gull, cut as flat colour.
+        for start, end, low, high in ((rear+0.05, -1.42, 1.30, 1.30),
+                                     (-1.42, -0.65, 1.30, 1.60), (-0.65, door-0.09, 1.60, 1.60)):
+            panel([(start, low), (end, high), (end, high+0.16), (start, low+0.16)], "accent")
+            panel([(start, low+0.17), (end, high+0.17), (end, high+0.22), (start, low+0.22)], "cream")
+        panel([(-2.90, 2.27), (-2.52, 2.22), (-2.31, 2.10), (-2.10, 2.36),
+               (-1.76, 2.42), (-2.06, 2.23), (-2.26, 1.99), (-2.53, 2.10)], "cream")
+
+    # Recessed grille, twin sealed beams and wraparound bumper.
+    fdecal(nose, -0.52, 0.52, 0.68, 1.14, "silver")
+    fdecal(nose + 0.008, -0.48, 0.48, 0.71, 1.11, "trim")
+    for y in (0.79, 0.91, 1.03):
+        fdecal(nose + 0.016, -0.46, 0.46, y, y+0.026, "grey")
+    for sx in (-1, 1):
+        def lamp(x0, x1, y0, y1, key, depth):
+            a, b = sorted((sx*x0, sx*x1))
+            fdecal(nose + depth, a, b, y0, y1, key)
+        lamp(0.57,0.96,0.84,1.14,"gunmetal",0)
+        lamp(0.61,0.86,0.89,1.10,"head",0.008)
+        lamp(0.88,0.94,0.89,1.10,"amber",0.008)
+    s.head = V(0.735, 0.995, nose)
+    box(V(0, 0.55, s.zF - 0.12), (2*hw-0.08, 0.21, 0.24), "gunmetal")
+    for x in (-0.92,-0.19,0,0.19,0.92):
+        fdecal(brow+0.10, x-0.047, x+0.047, eave+0.025, eave+0.077, "amber")
+
+    # Framed rear doors and a projecting loading step within the traffic footprint.
+    fdecal(rear,-0.92,0.92,0.63,eave-0.04,"gunmetal",out=-1)
+    for sx in (-1,1):
+        def rear_panel(x0,x1,y0,y1,key,depth):
+            a,b = sorted((sx*x0,sx*x1))
+            fdecal(rear-depth,a,b,y0,y1,key,out=-1)
+        rear_panel(0.017,0.89,0.67,eave-0.08,"body",0.010)
+        rear_panel(0.14,0.76,1.85,2.48,"trim",0.020)
+        rear_panel(0.18,0.72,1.89,2.44,"glass",0.029)
+        for y in (0.91,2.27):
+            rear_panel(0.80,0.97,y,y+0.06,"silver",0.030)
+        rear_panel(0.99,1.14,0.82,1.23,"trim",0.012)
+        rear_panel(1.01,1.12,0.95,1.20,"tail",0.022)
+        rear_panel(1.01,1.12,0.85,0.92,"reverse",0.022)
+    rear_panel(0.08,0.25,1.39,1.45,"gunmetal",0.03)
+    s.tail = V(1.065, 1.075, rear)
+    box(V(0,0.47,rear-0.045), (2*hw-0.12,0.15,0.25), "gunmetal")
+
+    # Wide rear tyres suggest the duals under the skirt. Spend facets on visible rims.
+    for z in (front_axle, rear_axle):
+        for sx in (-1, 1):
+            x = hw - 0.035
+            profile = [(x-(2 if z == rear_axle else 1)*p["tw"],r*0.90),
+                       (x-0.045,r), (x,r*0.90), (x,r*0.57),
+                       (x-0.026,r*0.49), (x-0.026,r*0.25), (x+0.025,r*0.19)]
+            rings = [[V(sx*q.x,q.y,q.z) for q in disc_pts(V(xx,r,z),rr,12)] for xx,rr in profile]
+            keys = ("tyre","tyre","tyre","silver","grey","silver")
+            loft(rings, lambda i,j: keys[i], caps=False)
+            poly(rings[-1],"silver",V(sx,0,0))
+            poly(rings[0],"under",V(-sx,0,0))
+    box(V(0,0.47,(front_axle+rear_axle)/2), (1.30,0.28,front_axle-rear_axle+0.45), "under")
+    PAL["accent"] = previous_accent
     return s
 
 
