@@ -52,6 +52,7 @@ check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
 check region-contract test --script tools/region_contract_test.gd
+check road-grade test --script tools/road_grade_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
 check forest-proximity test --script tools/forest_proximity_test.gd
