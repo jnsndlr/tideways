@@ -13,21 +13,7 @@ const BUILD_MINUTES := 120.0
 const ARRIVAL_MINUTES := 20.0
 const DEPARTURE_MINUTES := 20.0
 
-## A holding lane reserves room for vehicles still driving in as well as those queued.
-class Lane:
-	var v: float
-	var queue: Array[Vehicle] = []
-	var enroute := 0
-
-	func _init(offset: float) -> void:
-		v = offset
-
-	func queued_slots() -> int:
-		var count := 0
-		for vehicle in queue:
-			count += vehicle.slots
-		return count
-
+const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
 var sim: Simulation
 var island: MapData.Island
@@ -190,7 +176,8 @@ func _park_in_queue(car: Vehicle, lane: Lane, ahead: int) -> void:
 func _close_up(lane: Lane) -> void:
 	var k := 0
 	var ahead: Vehicle = null
-	for c: Vehicle in lane.queue:
+	for waiting in lane.queue:
+		var c := instance_from_id(waiting.vehicle_id) as Vehicle
 		_park_in_queue(c, lane, k)
 		c.leader = ahead
 		ahead = c
@@ -234,16 +221,7 @@ func _pick_route() -> int:
 
 
 func _pick_lane(rid: int, need := 1) -> Lane:
-	var best: Lane
-	var best_count := slots_per_lane - need + 1
-	for lane: Lane in lanes[rid]:
-		if lane in staging_lanes:
-			continue
-		var count: int = lane.queued_slots() + lane.enroute
-		if count < best_count:
-			best_count = count
-			best = lane
-	return best
+	return Lane.for_arrival(lanes[rid], staging_lanes, slots_per_lane, need)
 
 
 func _spawn_car() -> void:
@@ -268,11 +246,9 @@ func _spawn_car() -> void:
 
 
 func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
-	lane.enroute -= car.slots
-	var queue: Array[Vehicle] = lane.queue
 	var ahead := lane.queued_slots()
-	car.leader = queue.back() if not queue.is_empty() else null
-	queue.append(car)
+	car.leader = instance_from_id(lane.queue.back().vehicle_id) as Vehicle if not lane.queue.is_empty() else null
+	lane.arrive(car.get_instance_id(), car.slots)
 	car.lane_v = lane.v
 	car.lot_arrival = sim.minutes
 	_park_in_queue(car, lane, ahead)
@@ -284,7 +260,6 @@ func prefill() -> void:
 		if not MapData.is_route(rid):
 			continue
 		for lane: Lane in lanes[rid]:
-			var queue: Array[Vehicle] = lane.queue
 			var want := sim.rng.randi_range(1, slots_per_lane - 2)
 			var k := 0
 			while k < want:
@@ -297,31 +272,24 @@ func prefill() -> void:
 				car.straighten()
 				car.lane_v = lane.v
 				car.lot_arrival = sim.minutes - sim.rng.randf_range(0.0, 20.0)
-				queue.append(car)
+				lane.enqueue(car.get_instance_id(), car.slots)
 				k += car.slots
-
-
-func _longest_fitting_lane(candidates: Array, fits: Callable) -> Lane:
-	var best: Lane
-	for lane: Lane in candidates:
-		if lane.queue.size() > 0 and (best == null or lane.queue.size() > best.queue.size()):
-			if fits.is_null() or fits.call(lane.queue[0]):
-				best = lane
-	return best
 
 
 ## Give the closing lanes a chance to drain. When their front vehicle is too
 ## large for the available deck slots, keep serving other lanes as usual.
 func take_car(rid: int, fits := Callable()) -> Vehicle:
+	var fits_id := Callable()
+	if not fits.is_null():
+		fits_id = func(id: int): return fits.call(instance_from_id(id))
 	var best: Lane
 	if work_stage == WorkStage.DRAINING and rid == island.slips[0]:
-		best = _longest_fitting_lane(staging_lanes, fits)
+		best = Lane.for_boarding(staging_lanes, fits_id)
 	if best == null:
-		best = _longest_fitting_lane(lanes[rid], fits)
+		best = Lane.for_boarding(lanes[rid], fits_id)
 	if best == null:
 		return null
-	var queue: Array[Vehicle] = best.queue
-	var car: Vehicle = queue.pop_front()
+	var car := instance_from_id(best.take_front()) as Vehicle
 	_boarding_from[car.get_instance_id()] = best
 	_close_up(best)
 	avg_wait = lerpf(avg_wait, sim.minutes - car.lot_arrival, 0.1)
