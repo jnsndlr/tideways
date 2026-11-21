@@ -85,10 +85,12 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	else:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
+	_build_lanes()
 	for term: Terminal in terminals.values():
 		term.prefill()
 	for i in ferries.size():
 		ferries[i].start_staggered(i)
+	_tie_up_laid_up()
 	wildlife = Wildlife.new()
 	wildlife.name = "Wildlife"
 	add_child(wildlife)
@@ -99,10 +101,12 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	marine.setup(self)
 
 
-## One boat per schedule, on the route between its first two stops. A schedule
-## shuttles; multi-stop running arrives with the timetable editor.
+## One boat per schedule. Two stops shuttle; more run round in turn, leg by leg.
 func _spawn_scheduled() -> void:
 	var route_by_pair := {}
+	var island_by_key := {}
+	for isl in map.islands:
+		island_by_key[isl.key] = isl.id
 	for r in map.routes:
 		var a := map.islands[r.a].key
 		var b := map.islands[r.b].key
@@ -110,13 +114,61 @@ func _spawn_scheduled() -> void:
 		route_by_pair[b + "|" + a] = r
 	for schedule in scenario.schedules:
 		var boat := scenario.boat(schedule.boat)
-		var route: MapData.Route = route_by_pair.get(
-			"|".join(schedule.stops.slice(0, 2)) if schedule.stops.size() >= 2 else "")
-		if boat == null or route == null:
-			push_warning("Schedule for %s has no boat or no route" % schedule.boat)
+		var n := schedule.stops.size()
+		var leg_routes: Array[MapData.Route] = []
+		for i in n:
+			var leg: MapData.Route = route_by_pair.get("%s|%s" % [schedule.stops[i], schedule.stops[(i + 1) % n]])
+			if leg != null:
+				leg_routes.append(leg)
+		if boat == null or n < 2 or leg_routes.size() != n:
+			push_warning("Schedule for %s has no boat or a stop with no route" % schedule.boat)
 			continue
+		var route := leg_routes[0]
+		for id in [route.a, route.b]:
+			var isl := map.islands[id]
+			var slip := isl.slips[isl.slip_index(route.id)]
+			if not slip.fits(boat.size):
+				push_warning("%s (size %d) is too big for %s's %s slip" % [boat.name, boat.size, isl.name, slip.size_name()])
 		_spawn_ferry(boat.key, route, boat.name, boat.size)
 		ferries[-1].schedule = schedule
+		var stop_ids: Array[int] = []
+		for key in schedule.stops:
+			stop_ids.append(island_by_key[key])
+		ferries[-1].set_legs(stop_ids, leg_routes)
+
+
+## Each terminal's lanes, divided among the destinations its boats serve from
+## there: first the far ends of its routes in slip order (so a plain shuttle
+## network lays out as before), then anywhere further a boat carries cars to.
+func _build_lanes() -> void:
+	for term: Terminal in terminals.values():
+		var served: Array[int] = []
+		for f in ferries:
+			for i in f.stops.size():
+				if f.stops[i] == term.island.id:
+					for d in f._served_from(i):
+						if d not in served:
+							served.append(d)
+		var dests: Array[int] = []
+		for rid in term.island.route_ids():
+			var r := map.routes[rid]
+			var other := r.b if r.a == term.island.id else r.a
+			if other in served and other not in dests:
+				dests.append(other)
+		for d in served:
+			if d not in dests:
+				dests.append(d)
+		term.build_lanes(dests)
+
+
+## Boats whose schedule starts laid up lie at a tie-up slip at its first stop.
+func _tie_up_laid_up() -> void:
+	for f in ferries:
+		if f.schedule == null or not f.schedule.laid_up:
+			continue
+		var term: Terminal = f.term_a if f.term_a.island.key == f.schedule.stops[0] else f.term_b
+		if not f.start_tied_up(term):
+			push_warning("%s starts laid up but %s has no free tie-up slip for her" % [f.ferry_name, term.island.name])
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:

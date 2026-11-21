@@ -11,7 +11,7 @@ var rng := RandomNumberGenerator.new()
 var terrain: Terrain
 var map: MapData
 var _route_samples := PackedVector3Array()
-var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route id, lateral min, lateral max]
+var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route ids, lateral min, lateral max]
 ## When set, terminals and links come from it instead of being planned.
 var _scenario: Scenario
 
@@ -298,7 +298,6 @@ func _plan_routes() -> void:
 ## Vector2i of indices into `mains`) whose routes turned out not to make sense.
 func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 	map.routes.clear()
-	map.idle_slips = 0
 	_slip_zones.clear()
 	for isl in mains:
 		isl.has_terminal = false
@@ -373,6 +372,10 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 
 	var bad: Array = []
 	var link := {}
+	var calls := {}    # island id -> the routes calling there
+	for isl in mains:
+		var none: Array[int] = []
+		calls[isl.id] = none
 	for e in chosen:
 		var a: MapData.Island = mains[e[1]]
 		var b: MapData.Island = mains[e[2]]
@@ -392,29 +395,29 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		r.curve = test
 		map.routes.append(r)
 		link[r.id] = Vector2i(e[1], e[2])
-		a.slips.append(r.id)
-		b.slips.append(r.id)
+		calls[a.id].append(r.id)
+		calls[b.id].append(r.id)
 	if not bad.is_empty():
 		return bad
 
 	for isl in mains:
-		if isl.slips.is_empty() and isl.has_terminal and _scenario:
-			isl.slips.append(map.add_idle_slip())
-		if isl.slips.is_empty():
+		var here: Array[int] = calls[isl.id]
+		if here.is_empty() and not (isl.has_terminal and _scenario):
 			isl.has_terminal = false
 			continue
 		var lat := isl.lateral()
-		isl.slips.sort_custom(func(ra, rb): return _departure_lateral(isl, ra, lat) < _departure_lateral(isl, rb, lat))
-		isl.lane_extension_price = 150 if MapData.is_route(isl.slips[0]) else 0
-		isl.construction_staging_lanes = 2 if isl.slips.size() > 1 else 1
-		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
+		here.sort_custom(func(ra, rb): return _departure_lateral(isl, ra, lat) < _departure_lateral(isl, rb, lat))
+		_assign_slips(isl, here)
+		isl.lane_extension_price = 150 if not here.is_empty() else 0
+		isl.construction_staging_lanes = 2 if isl.working_slips() > 1 else 1
+		isl.lot_half_width = maxf(36.0, (isl.working_slips() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
 		var last := isl.slips.size() - 1
 		for i in isl.slips.size():
 			# Slips butt up against each other; the end ones reach out past their
 			# outer dolphins.
 			var lo := -(OUTER_DOLPHIN_CLEAR if i == 0 else Layout.SLIP_SPACING * 0.5)
 			var hi := OUTER_DOLPHIN_CLEAR if i == last else Layout.SLIP_SPACING * 0.5
-			_slip_zones.append([isl.shore, isl.dock_dir, lat, isl.slip_offset(i), isl.slips[i], lo, hi])
+			_slip_zones.append([isl.shore, isl.dock_dir, lat, isl.slip_offset(i), isl.slips[i].routes, lo, hi])
 
 	for r in map.routes:
 		var a := map.islands[r.a]
@@ -428,6 +431,24 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 			continue
 		r.length = r.curve.get_baked_length()
 	return bad
+
+
+## Gives `isl` its slips and the routes calling there (sorted left to right by
+## where they head) to them. A scenario terminal has the slips it lists, shared in
+## turn by neighbouring routes; a planned network gives every route a large slip.
+func _assign_slips(isl: MapData.Island, routes: Array[int]) -> void:
+	isl.slips.clear()
+	if _scenario == null:
+		for rid in routes:
+			isl.add_route_slip(rid)
+		return
+	for size in _scenario.slip_sizes(isl.key):
+		isl.slips.append(MapData.Slip.new(size))
+	for i in routes.size():
+		isl.slips[floori(i * isl.slips.size() / float(routes.size()))].routes.append(routes[i])
+	for size in _scenario.tie_ups.get(isl.key, []):
+		isl.slips.append(MapData.Slip.new(size, true))
+	isl.open_lanes = _scenario.lanes.get(isl.key, 0)
 
 
 ## The scenario's scheduled links as edges ([distance, i, j] into `mains`).
@@ -733,7 +754,7 @@ func _clear_of_slips(c: Curve3D, route_id: int) -> bool:
 		t = t.normalized()
 		var side := Vector3.UP.cross(t)
 		for z in _slip_zones:
-			if z[4] == route_id:
+			if route_id in z[4]:
 				continue
 			var rel: Vector3 = p - z[0]
 			# Cheap reject: nowhere near this terminal.

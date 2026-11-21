@@ -127,7 +127,10 @@ func _close_terminals(map: MapData) -> void:
 	for isl in map.islands:
 		if not isl.has_terminal:
 			continue
-		var hw := isl.lot_half_width + 48.0
+		var reach := isl.lot_half_width
+		for i in isl.slips.size():
+			reach = maxf(reach, absf(isl.slip_offset(i)) + Layout.DOLPHIN_OUTER.y)
+		var hw := reach + 48.0
 		var u := -30.0
 		while u <= Layout.PIER_END + 162.0:
 			var v := -hw

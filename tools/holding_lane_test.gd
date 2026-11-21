@@ -16,7 +16,8 @@ func check_drain(staging_count: int) -> String:
 	sim.add_child(term)
 	term.sim = sim
 	term.island = MapData.Island.new()
-	term.island.slips = [0, 1]
+	term.island.add_route_slip(0)
+	term.island.add_route_slip(1)
 	term.island.lane_extension_price = 100
 	term.island.construction_staging_lanes = staging_count
 	sim.ledger.cash = 200
@@ -130,7 +131,7 @@ func _process(_dt: float) -> bool:
 		for ferry: Ferry in game.sim.ferries:
 			for car: Vehicle in ferry.aboard:
 				if observed.has(car.get_instance_id()):
-					if ferry.route.id != terminal.island.slips[0]:
+					if car.dest != terminal.lane_keys()[0]:
 						return fail("Vehicle boarded the wrong service")
 					print("New lane at %s: observed %d queued vehicles; one boarded %s on frame %d." % [terminal.island.name, observed.size(), ferry.ferry_name, frame])
 					print("TEST PASSED")

@@ -24,9 +24,10 @@ var mat_strip := MeshInstance3D.new()
 
 func setup(site: Terminal) -> void:
 	terminal = site
-	var lane_x := terminal.staging_lanes[0].v
 	var work_x := terminal.extension_offset()
-	var maneuver_x := terminal.staging_lanes.back().v as float
+	# Inside an unfinished lot the crew stages on the unpaved ground further out.
+	var lane_x := terminal.staging_lanes[0].v if not terminal.staging_lanes.is_empty() else work_x + signf(work_x) * Layout.LANE_WIDTH
+	var maneuver_x := terminal.staging_lanes.back().v as float if not terminal.staging_lanes.is_empty() else lane_x
 	loader_park = Vector3(maneuver_x, FLOOR_Y, -58)
 	roller_park = Vector3(work_x, FLOOR_Y, -68)
 	pickup = Vector3(lane_x, FLOOR_Y, -40)
