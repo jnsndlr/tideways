@@ -28,9 +28,16 @@ func _initialize() -> void:
 	field._pack_segment_bounds(slot, positions.size())
 	radii = field._group_radius[first / 4]
 	valid = valid and radii.x > 0.0 and radii.y < 0.0
+	# The vessel at x=12 is outside the right edge of the view. Its trail
+	# stays until the last crumb (including the edge margin) clears that edge.
+	var planes: Array[Plane] = [Plane(Vector3.RIGHT, 10.0)]
+	valid = valid and not WakeField._outside_view(Vector2(5, 0), Vector2(12, 2), planes)
+	valid = valid and not WakeField._outside_view(Vector2(11, 0), Vector2(12, 2), planes)
+	valid = valid and WakeField._outside_view(Vector2(12, 0), Vector2(20, 2), planes)
+	valid = valid and not WakeField._outside_view(Vector2(12, 0), Vector2(20, 2), [])
 	field.free()
 	if valid:
 		print("TEST PASSED")
 	else:
-		push_error("Wake groups must cover their segments, end wash and coincident crumbs.")
+		push_error("Wake bounds must retain visible segments, end wash and trails crossing a camera edge.")
 	quit(0 if valid else 1)
