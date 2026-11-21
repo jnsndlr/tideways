@@ -36,11 +36,13 @@ bpy.ops.export_scene.gltf(
     filepath=_glb,
     export_format="GLB",
     use_selection=True,
-    export_apply=True,
+    export_apply=False,
     export_yup=True,
     export_cameras=False,
     export_lights=False,
-    export_animations=False,
+    export_animations=True,
+    export_morph=True,
+    export_morph_normal=False,
     export_materials="EXPORT",
 )
 print("wing_wall:", _glb)

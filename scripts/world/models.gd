@@ -807,9 +807,9 @@ static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
 ## (art/wing_wall.blend, art/export_wing_wall.py), the wall running along X. Their
 ## material colours are baked in (ModelParts.baked). The procedural piles and boxes are
 ## the fallback: with `--classic-slip`, or if a model is missing.
-const SLIP_DOLPHIN_OUTER_GLB := "res://assets/models/ferry_dolphin.glb"
-const SLIP_DOLPHIN_INNER_GLB := "res://assets/models/ferry_dolphin_small.glb"
-const SLIP_WING_WALL_GLB := "res://assets/models/wing_wall.glb"
+const SLIP_DOLPHIN_OUTER_GLB := "res://assets/models/ferry_dolphin_lod.glb"
+const SLIP_DOLPHIN_INNER_GLB := "res://assets/models/ferry_dolphin_small_lod.glb"
+const SLIP_WING_WALL_GLB := "res://assets/models/wing_wall_lod.glb"
 # How far each dolphin's fender face stands in front of its origin, and its deck top.
 const SLIP_DOLPHIN_FACE := 3.5
 const SLIP_DOLPHIN_DECK := 4.17
