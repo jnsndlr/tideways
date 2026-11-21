@@ -1403,4 +1403,3 @@ func _lanes_text(term: Terminal) -> String:
 		var name: String = sim.map.islands[key].name.trim_suffix(" Island")
 		parts.append("%s %d%s" % [name, term.lanes[key].size(), " (%d sharing)" % guests if guests > 0 else ""])
 	return " · ".join(parts) if not parts.is_empty() else "-"
-

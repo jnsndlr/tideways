@@ -38,6 +38,10 @@ var ramps := {}        # route id -> the SlipRamp of the slip it calls at (none 
 var slip_ramps: Array[SlipRamp] = []   # by slip index (null with the classic slip)
 var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolphins (null with
                                         # the classic slip)
+## A terminal's slips share one road out. One ferry's outbound stream gets
+## the forecourt until its last vehicle has passed the boarding approaches.
+var unloading_ferry: Ferry
+
 # The slip being refitted (-1 for none), how far along, and game minutes of work left
 # once the crew is under way.
 var refit_slip := -1
