@@ -658,7 +658,7 @@ func _tick_sailing(delta: float) -> void:
 	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
 	var traffic_limit := yield_speed()
-	var wait := _corridor_wait()
+	var wait := minf(_corridor_wait(), _refit_wait())
 	hold = wait
 	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
@@ -712,6 +712,18 @@ func _corridor_runs() -> Array:
 			runs.append([e[0], e[1], [[e[1], e[2]]]])
 	_runs[key] = runs
 	return runs
+
+
+## Distance to go before she must hold off her destination's slip while it is refitted
+## (Terminal.REFIT_HOLD out; INF if it's open, or she was already inside that when it
+## closed, and finishes her call).
+func _refit_wait() -> float:
+	if berth != Berth.WORKING or not destination().slip_closed(route.id):
+		return INF
+	var left := path_left()
+	if left < Terminal.REFIT_HOLD - 5.0:
+		return INF
+	return maxf(0.0, left - Terminal.REFIT_HOLD)
 
 
 ## Distance to go before the next run of corridors another ferry holds part of
@@ -1204,6 +1216,8 @@ func status_text() -> String:
 
 
 func _service_text() -> String:
+	if state == State.SAILING and speed < 0.6 and _refit_wait() < 30.0:
+		return "Holding off %s while her slip is refitted" % destination().island.name
 	if state == State.SAILING and speed < 0.6 and _waiting_for:
 		if _giving_way:
 			return "Holding in for %s to come in" % _waiting_for.ferry_name

@@ -41,6 +41,7 @@ if [[ $suite == traffic ]]; then
   check tie-up test --fixed-fps 30 --script tools/tie_up_test.gd -- --scenario=shared_slip
   check lot-lanes test --fixed-fps 30 --script tools/lot_lanes_test.gd
   check lane-sharing test --fixed-fps 30 --script tools/lane_sharing_test.gd -- --scenario=lane_sharing
+  check slip-refit test --fixed-fps 30 --script tools/slip_refit_test.gd -- --scenario=opening
   check marine-traffic test --fixed-fps 30 --script tools/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
   exit 0
 fi

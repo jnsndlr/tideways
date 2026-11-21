@@ -9,12 +9,24 @@ extends Node3D
 ## The node's transform is the terminal frame (see Layout).
 
 signal extension_changed
+signal refit_changed
 
 enum WorkStage { IDLE, DRAINING, ARRIVING, PAVING, LEAVING, OPEN }
+## Refitting a slip for bigger boats (TID-44): the slip closes to arrivals at once
+## (boats on their way hold off REFIT_HOLD out), and once it is clear a pusher brings
+## the crane scow in. The crew drives the new dolphins and wing walls, the slip takes
+## the next size up as they leave, and it reopens when they have gone.
+enum RefitStage { NONE, CLEARING, ARRIVING, WORKING, LEAVING }
 
 const BUILD_MINUTES := 120.0
 const ARRIVAL_MINUTES := 20.0
 const DEPARTURE_MINUTES := 20.0
+# Price of refitting a slip up to each size (by the size it becomes: medium, large).
+const REFIT_PRICE := [0, 0, 8000, 20000]
+const REFIT_ARRIVAL := 20.0
+const REFIT_WORK := 150.0
+const REFIT_DEPARTURE := 20.0
+const REFIT_HOLD := 320.0      # how far out boats for a closed slip hold off (m)
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
@@ -26,6 +38,11 @@ var ramps := {}        # route id -> the SlipRamp of the slip it calls at (none 
 var slip_ramps: Array[SlipRamp] = []   # by slip index (null with the classic slip)
 var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolphins (null for a
                                         # tie-up slip, and with the classic slip)
+# The slip being refitted (-1 for none), how far along, and game minutes of work left
+# once the crew is under way.
+var refit_slip := -1
+var refit_stage := RefitStage.NONE
+var refit_remaining := 0.0
 # Which way (+1 / -1 across the slips, the terminal frame's x) the flood tide sets a
 # ferry lying alongside here; the ebb sets her the other way.
 var flood_side := 1.0
@@ -119,6 +136,95 @@ func _advance_construction(delta: float) -> void:
 		_set_work_stage(WorkStage.LEAVING)
 	elif build_remaining <= BUILD_MINUTES - ARRIVAL_MINUTES and work_stage == WorkStage.ARRIVING:
 		_set_work_stage(WorkStage.PAVING)
+
+
+# --- Refitting a slip ---------------------------------------------------------------
+
+## What refitting slip `i` to the next size up costs (0 if it can't be: a tie-up, or
+## already large).
+func refit_price(i: int) -> int:
+	var slip := island.slips[i]
+	if slip.tie_up or slip.size >= MapData.Slip.LARGEST_BOAT.size() - 1:
+		return 0
+	return REFIT_PRICE[slip.size + 1]
+
+
+## The working slip to offer a refit for: the smallest one that can still grow (-1 if
+## none, or one is already being refitted).
+func next_refit() -> int:
+	if refit_stage != RefitStage.NONE:
+		return -1
+	var best := -1
+	for i in island.slips.size():
+		if refit_price(i) > 0 and (best < 0 or island.slips[i].size < island.slips[best].size):
+			best = i
+	return best
+
+
+func buy_refit(i: int) -> bool:
+	var price := refit_price(i)
+	if price <= 0 or refit_stage != RefitStage.NONE or sim.available_cash < price:
+		return false
+	sim.ledger.spend("purchases", price)
+	refit_slip = i
+	refit_remaining = REFIT_ARRIVAL + REFIT_WORK + REFIT_DEPARTURE
+	_set_refit_stage(RefitStage.CLEARING)
+	return true
+
+
+## Whether the slip `rid` calls at here is closed for a refit.
+func slip_closed(rid: int) -> bool:
+	return refit_stage != RefitStage.NONE and island.slip_index(rid) == refit_slip
+
+
+## How far through its current stage the refit is (0..1).
+func refit_progress() -> float:
+	match refit_stage:
+		RefitStage.ARRIVING:
+			return clampf((REFIT_ARRIVAL + REFIT_WORK + REFIT_DEPARTURE - refit_remaining) / REFIT_ARRIVAL, 0.0, 1.0)
+		RefitStage.WORKING:
+			return clampf((REFIT_WORK + REFIT_DEPARTURE - refit_remaining) / REFIT_WORK, 0.0, 1.0)
+		RefitStage.LEAVING:
+			return clampf(1.0 - refit_remaining / REFIT_DEPARTURE, 0.0, 1.0)
+	return 0.0
+
+
+func _set_refit_stage(stage: RefitStage) -> void:
+	refit_stage = stage
+	refit_changed.emit()
+
+
+func _advance_refit(delta: float) -> void:
+	if refit_stage == RefitStage.CLEARING:
+		if _refit_slip_clear():
+			_set_refit_stage(RefitStage.ARRIVING)
+		return
+	refit_remaining = maxf(0.0, refit_remaining - delta)
+	if refit_remaining == 0.0:
+		refit_slip = -1
+		_set_refit_stage(RefitStage.NONE)
+	elif refit_remaining <= REFIT_DEPARTURE and refit_stage != RefitStage.LEAVING:
+		# The work is done: the slip takes the next size up, with its new guides.
+		var slip := island.slips[refit_slip]
+		slip.size += 1
+		if slip_guides[refit_slip]:
+			slip_guides[refit_slip].fit(MapData.Slip.LARGEST_BOAT[slip.size])
+		_set_refit_stage(RefitStage.LEAVING)
+	elif refit_remaining <= REFIT_WORK + REFIT_DEPARTURE and refit_stage == RefitStage.ARRIVING:
+		_set_refit_stage(RefitStage.WORKING)
+
+
+## No boat lies at the slip being refitted, and none is coming in under the closure
+## (inside REFIT_HOLD when it closed, so let finish her call).
+func _refit_slip_clear() -> bool:
+	for f in sim.ferries:
+		if f.berth != Ferry.Berth.WORKING or island.slip_index(f.route.id) != refit_slip:
+			continue
+		if f.state != Ferry.State.SAILING and f.here() == self:
+			return false
+		if f.state == Ferry.State.SAILING and f.destination() == self and f.path_left() < REFIT_HOLD - 5.0:
+			return false
+	return true
 
 
 ## Where the next lane goes: the next unpaved lot position, else alongside the lot.
@@ -268,6 +374,8 @@ func _close_up(lane: Lane) -> void:
 func _process(delta: float) -> void:
 	if build_remaining > 0.0:
 		_advance_construction(delta)
+	if refit_stage != RefitStage.NONE:
+		_advance_refit(delta)
 	_spawn_acc += sim.demand_rate(island) * delta
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0

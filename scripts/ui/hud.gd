@@ -39,6 +39,7 @@ var _info_grid: GridContainer
 ## The left-hand menu (COMPANY … SETTINGS); the island editor sits its toggle below it.
 var sidebar: PanelContainer
 var _lane_button := Button.new()
+var _refit_button := Button.new()
 var _service_button := Button.new()
 var _info_button: Button
 var _captain_box: VBoxContainer
@@ -557,6 +558,9 @@ func _build_info_panel() -> void:
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
+	_refit_button.custom_minimum_size.y = 48
+	_refit_button.pressed.connect(_buy_refit)
+	v.add_child(_refit_button)
 	_info_panel.visible = false
 
 
@@ -640,6 +644,17 @@ func _crossing_text(minutes: float, c: Captain) -> String:
 	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
 
+## Refits the terminal's smallest slip that can still grow (Terminal.next_refit).
+func _buy_refit() -> void:
+	if selected_island == null:
+		return
+	var terminal: Terminal = sim.terminals.get(selected_island.id)
+	var i := terminal.next_refit() if terminal else -1
+	if i >= 0 and terminal.buy_refit(i):
+		rig.focus_on(terminal.to_global(Vector3(selected_island.slip_offset(i), 0.0, SlipRefitCrew.WORK_U)), 260.0)
+		_refresh_panels()
+
+
 func _buy_lane() -> void:
 	if selected_island == null:
 		return
@@ -683,6 +698,7 @@ func _refresh_panels() -> void:
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
 	var offer_lane := false
+	var offer_refit := false
 	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
 	_terminal_bar.visible = selected_island != null and sim.terminals.has(selected_island.id)
 	_help.visible = not _terminal_bar.visible
@@ -779,6 +795,25 @@ func _refresh_panels() -> void:
 			rows.append(["Vehicles waiting", str(term.total_queued())])
 			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
 			rows.append(["Slips", _slips_text(isl)])
+			if term.refit_stage != Terminal.RefitStage.NONE:
+				var stage: String = {
+					Terminal.RefitStage.CLEARING: "Slip closed · waiting for it to clear",
+					Terminal.RefitStage.ARRIVING: "Crane scow coming in",
+					Terminal.RefitStage.WORKING: "Driving new dolphins and wing walls",
+					Terminal.RefitStage.LEAVING: "Crane scow leaving",
+				}[term.refit_stage]
+				rows.append(["Slip refit", stage])
+				if term.refit_stage != Terminal.RefitStage.CLEARING:
+					rows.append(["Slip reopens in", "%d game min" % ceili(term.refit_remaining)])
+			else:
+				var r := term.next_refit()
+				if r >= 0:
+					var to: String = MapData.Slip.SIZE_NAMES[isl.slips[r].size + 1]
+					var price := term.refit_price(r)
+					rows.append(["Refit takes", "Slip closed ~%d min · boats hold off" % int(Terminal.REFIT_ARRIVAL + Terminal.REFIT_WORK + Terminal.REFIT_DEPARTURE)])
+					_refit_button.text = "Refit %s slip to %s · $%d" % [isl.slips[r].size_name(), to, price]
+					_refit_button.disabled = sim.available_cash < price
+					offer_refit = true
 			rows.append(["Lanes", _lanes_text(term)])
 			if isl.lane_extension_price > 0:
 				var destination := sim.map.islands[term.lane_keys()[0]].name
@@ -821,6 +856,7 @@ func _refresh_panels() -> void:
 		if term:
 			_update_terminal_bar(term)
 	_lane_button.visible = offer_lane
+	_refit_button.visible = offer_refit
 	_pace_row.visible = selected_ferry != null
 	_service_button.visible = selected_ferry != null
 
