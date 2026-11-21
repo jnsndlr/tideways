@@ -63,8 +63,8 @@ func rebuild() -> void:
 
 
 func intro(islands: int) -> Array:
-	return ["MAIN MAP", "%d islands · %d routes%s.\nPress I to edit the islands." % [
-		islands, map.routes.size(), " · unsaved layout" if unsaved else ""]]
+	return ["MAIN MAP", "%d islands · %d route%s%s.\nPress I to edit the islands." % [
+		islands, map.routes.size(), "" if map.routes.size() == 1 else "s", " · unsaved layout" if unsaved else ""]]
 
 
 ## G makes a new map in the sandbox; here the layout is authored.
