@@ -53,6 +53,7 @@ check simulation-rules test --script tools/simulation_rules_test.gd
 check region-contract test --script tools/region_contract_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
+check forest-proximity test --script tools/forest_proximity_test.gd
 check model-parts test --script tools/model_parts_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
