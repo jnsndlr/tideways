@@ -875,6 +875,8 @@ func _build_lighthouses() -> void:
 			continue
 		var variant := floori(_hash(p.x, p.z) * Models.LIGHTHOUSE_VARIANTS)
 		var gallery := Models.add_lighthouse(mb, Vector3(p.x, h - 0.3, p.z), variant, PI - ang)
+		if variant < Models.LIGHTHOUSE_VARIANTS / 2:
+			_place_keepers_house(mb, p, gallery.basis)
 		for k in 3:
 			var rail_angle := (k - 1) * TAU / 16.0
 			var seat := gallery * Vector3(cos(rail_angle) * Models.LIGHTHOUSE_RAIL_RADIUS,
@@ -887,6 +889,29 @@ func _build_lighthouses() -> void:
 		glows.beam(lamp, beacon, 6.6, 225.0, 0.5, 0.3, _hash(p.x, p.z) * TAU)
 		_block(p, 18.0)
 	_add_mesh(mb.commit(), "Lighthouses")
+
+
+## Sample the house's own footprint so rising ground cannot swallow its windows.
+func _place_keepers_house(mb: MeshBuilder, tower: Vector3, basis: Basis) -> void:
+	var style := floori(_hash(tower.z, tower.x) * Models.LIGHTHOUSE_HOUSES.size())
+	for offset in [Vector3(10, 0, 3), Vector3(7, 0, 10), Vector3(7, 0, -10)]:
+		var center: Vector3 = tower + basis * offset
+		var high := terrain.height_v(center)
+		var low := high
+		var clear := true
+		# Include the widest eaves and the front porch in the site check.
+		for x in [-4.2, 0.0, 4.2]:
+			for z in [-2.9, 0.0, 4.4]:
+				var point := center + basis * Vector3(x, 0, z)
+				var ground := terrain.height_v(point)
+				high = maxf(high, ground)
+				low = minf(low, ground)
+				if _is_blocked(point.x, point.z):
+					clear = false
+		if clear and low > 2.0 and high - low < 2.1:
+			center.y = high - 0.25
+			Models.add_keepers_house(mb, Transform3D(basis, center), style)
+			return
 
 
 # --- Haul-outs -----------------------------------------------------------------------

@@ -181,27 +181,59 @@ def cap(name,color,profile):
     return p.finish()
 
 
-def cottage():
-    p = Part("KeepersHouse")
-    p.box(0,0,-.78,6.4,4.6,2.8,stone)
-    p.box(0,0,2.04,6.25,4.5,3.22,cream)
-    for x in [-2.98,2.98]:
-        p.box(x,0,2.04,.2,4.63,3.22,white)
-    for x in [-1.94,1.94]:
-        sash(p,x,-2.29,2.04,.95,1.23)
-    p.box(0,-2.31,1.57,1.36,.21,2.38,white)
-    p.box(0,-2.46,1.53,1.09,.14,2.19,teal)
-    for x in [-3.13,3.13]:
-        tri=[(x,-2.25,3.63),(x,2.25,3.63),(x,0,5.30)]
-        p.face(tri if x>0 else tri[::-1],cream)
+def house_window(p, x, y, z, angle=0, w=.95, h=1.23):
+    # Turn the complete sash, including the projecting sill, onto its wall.
+    start = len(p.vertices)
+    sash(p, 0, 0, z, w, h)
+    for i in range(start, len(p.vertices)):
+        u, v, height = p.vertices[i]
+        p.vertices[i] = (x+u*cos(angle)-v*sin(angle), y+u*sin(angle)+v*cos(angle), height)
+
+
+def cottage(name, width, depth, eaves, rise, siding, roof, hip=0, porch=False):
+    p = Part(name)
+    x, y = width/2, depth/2
+    p.box(0,0,-.9,width+.18,depth+.18,2.8,stone)
+    p.box(0,0,(eaves+.42)/2,width,depth,eaves-.42,siding)
+    for end in [-1,1]:
+        for side in [-1,1]:
+            p.box(end*(x-.08),side*(y-.08),(eaves+.42)/2,.22,.22,eaves-.42,white)
+        house_window(p,end*(x+.04),0,2.04,end*pi/2)
+        for side in [-1,1]:
+            house_window(p,end*(x-1.03),side*(y+.04),2.04,pi if side>0 else 0)
+    p.box(0,-y-.06,1.57,1.36,.21,2.38,white)
+    p.box(0,-y-.21,1.53,1.09,.14,2.19,teal)
+    for step in range(3):
+        p.box(0,-y-1.25+.34*step,.065*(step+1),1.75,.4,.13*(step+1),stone)
+    rx, ry = x+.35, y+.34
+    ridge = rx-hip
+    peak = eaves+rise
     for sign in [-1,1]:
-        a,b,c,d = [(-3.53,0,5.52),(-3.53,sign*2.64,3.62),(3.53,sign*2.64,3.62),(3.53,0,5.52)]
-        p.face([a,b,c,d] if sign<0 else [d,c,b,a],slate)
-        p.box(0,sign*2.64,3.55,7.06,.16,.18,white)
-        for x in [-3.53,3.53]:
-            p.rod((x,0,5.5),(x,sign*2.67,3.6),.11,white)
-    p.box(1.98,.65,5.16,.7,.65,2.48,brick)
-    p.box(1.98,.65,6.39,.88,.84,.24,iron)
+        pts = [(-ridge,0,peak),(-rx,sign*ry,eaves),(rx,sign*ry,eaves),(ridge,0,peak)]
+        p.face(pts if sign<0 else pts[::-1],roof)
+        p.box(0,sign*ry,eaves-.065,2*rx,.15,.16,white)
+        if hip:
+            pts = [(sign*rx,-ry,eaves),(sign*rx,ry,eaves),(sign*ridge,0,peak)]
+            p.face(pts if sign>0 else pts[::-1],roof)
+            p.box(sign*rx,0,eaves-.065,.15,2*ry,.16,white)
+        else:
+            # Fit the wall gable under the roof slope at the wall line.
+            pts = [(sign*x,-y,eaves),(sign*x,y,eaves),(sign*x,0,peak)]
+            p.face(pts if sign>0 else pts[::-1],siding)
+            for side in [-1,1]:
+                p.rod((sign*rx,0,peak),(sign*rx,side*ry,eaves),.09,white)
+    if porch:
+        p.box(0,-y-.9,.32,width-.4,1.8,.36,wood)
+        for post in [-x+.4,x-.4]:
+            p.box(post,-y-1.65,1.65,.15,.15,2.65,white)
+        p.face([(-x,-y-1.87,2.99),(x,-y-1.87,2.99),(x,-y,3.45),(-x,-y,3.45)],roof)
+        p.box(0,-y-1.87,2.9,width,.13,.18,white)
+    if eaves>5:
+        for wx in [-x+1.03,0,x-1.03]:
+            house_window(p,wx,-y-.04,4.62,w=.82,h=1.08)
+    chimney = peak+.36
+    p.box(x*.55,.55,chimney-1,.68,.68,2,brick)
+    p.box(x*.55,.55,chimney,.86,.86,.19,iron)
     return p.finish()
 
 
@@ -211,8 +243,12 @@ gallery = lantern()
 roofs = [cap("Oxblood",red,[(0,2.26),(.18,2.3),(1.55,.25)]),
          cap("Copper",teal,[(0,2.28),(.19,2.3),(.52,1.78),(1.28,1.15),(1.72,.25)]),
          cap("Graphite",iron,[(0,2.22),(.16,2.28),(.44,1.73),(.92,1.36),(1.33,.78),(1.48,.25)])]
-house = cottage()
-kit = towers+[gallery]+roofs+[house]
+houses = [
+    cottage("KeepersHouse",6.25,4.5,3.65,1.88,cream,slate),
+    cottage("PorchBungalow",7.5,4.9,3.65,1.65,"a9c2b4",iron,hip=2.15,porch=True),
+    cottage("BrickQuarters",5.6,5.0,5.7,2.05,brick,"53696e"),
+]
+kit = towers+[gallery]+roofs+houses
 bpy.ops.object.select_all(action="DESELECT")
 for obj in kit:
     obj.select_set(True)
@@ -229,12 +265,12 @@ def place(obj, xyz, collection):
 for i,(shaft,h) in enumerate(zip(towers,[21,13,17,18])):
     collection = bpy.data.collections.new(["Headland","Harbor","Shoal","Fort Point"][i])
     bpy.context.scene.collection.children.link(collection)
-    x = (i-1.5)*16
+    x = (i-1.5)*21
     place(shaft,(x,0,0),collection)
     place(gallery,(x,0,h),collection)
     place(roofs[[0,1,2,1][i]],(x,0,h+3.23),collection)
-    if i in [0,3]:
-        place(house,(x+5.5,2.5,0),collection)
+    if i != 2:
+        place(houses[[0,1,0,2][i]],(x+10,-3,0),collection)
 for obj in kit:
     bpy.data.objects.remove(obj,do_unlink=True)
 
@@ -252,17 +288,17 @@ floor.data.materials.append(mat)
 bpy.ops.object.light_add(type="SUN", rotation=(.56,-.5,-.35))
 bpy.context.object.data.energy = 2.7
 bpy.context.object.data.angle = .21
-target = Vector((1.2,0,10.7))
+target = Vector((4,0,9.8))
 bpy.ops.object.camera_add(location=target+Vector((15,-83,26)))
 cam = bpy.context.object
 cam.rotation_euler = (target-cam.location).to_track_quat("-Z","Y").to_euler()
 cam.data.type = "ORTHO"
-cam.data.ortho_scale = 67
+cam.data.ortho_scale = 85
 scene.camera = cam
 scene.render.engine = "CYCLES"
 scene.cycles.samples = 12
 scene.cycles.use_denoising = True
-scene.render.resolution_x,scene.render.resolution_y = 1550,785
+scene.render.resolution_x,scene.render.resolution_y = 1860,785
 scene.render.resolution_percentage = 100
 for area in bpy.context.screen.areas:
     if area.type=="VIEW_3D":

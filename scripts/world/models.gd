@@ -3021,13 +3021,14 @@ static func tug_mast_light() -> ArrayMesh:
 const LIGHTHOUSE_KIT := "res://assets/models/lighthouse_kit.glb"
 const LIGHTHOUSE_TOWERS := ["doubleband", "timber", "ironwork", "brick"]
 const LIGHTHOUSE_ROOFS := ["oxblood", "copper", "graphite"]
+const LIGHTHOUSE_HOUSES := ["keepershouse", "porchbungalow", "brickquarters"]
 const LIGHTHOUSE_VARIANTS := 24
 const LIGHTHOUSE_LENS_Y := 2.08
 const LIGHTHOUSE_RAIL_Y := 1.53
 const LIGHTHOUSE_RAIL_RADIUS := 3.07
 
 
-## Four shafts, three caps and an optional keeper's house. Returns the gallery's
+## Four shafts and three caps. Returns the gallery's
 ## frame so birds and the sweeping light share the same mounting point as the art.
 static func add_lighthouse(mb: MeshBuilder, base: Vector3, variant := 0, yaw := 0.0) -> Transform3D:
 	var lib := ModelParts.library(LIGHTHOUSE_KIT)
@@ -3039,9 +3040,12 @@ static func add_lighthouse(mb: MeshBuilder, base: Vector3, variant := 0, yaw := 
 	var gallery := foot.translated_local(Vector3.UP * _lighthouse_gallery_height(shaft))
 	_append_part(mb, lib["gallery"], gallery)
 	_append_part(mb, lib[roof], gallery.translated_local(Vector3.UP * 3.23))
-	if variant < LIGHTHOUSE_VARIANTS / 2:
-		_append_part(mb, lib["keepershouse"], foot.translated_local(Vector3(6.7, 0, -2.5)))
 	return gallery
+
+
+static func add_keepers_house(mb: MeshBuilder, foot: Transform3D, style: int) -> void:
+	var lib := ModelParts.library(LIGHTHOUSE_KIT)
+	_append_part(mb, lib[LIGHTHOUSE_HOUSES[style]], foot)
 
 
 static func _lighthouse_gallery_height(shaft: MeshBuilder) -> float:
