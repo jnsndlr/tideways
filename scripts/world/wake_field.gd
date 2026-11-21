@@ -72,6 +72,8 @@ func _process(_delta: float) -> void:
 		planes = cam.get_frustum()
 	var eligible := 0
 	var count := 0
+	var repeat_mask := 0
+	var previous: Vessel
 	for v in fleet:
 		if eligible >= MAX_SLOTS:
 			break
@@ -101,6 +103,11 @@ func _process(_delta: float) -> void:
 		eligible += 1
 		if _outside_view(lo, hi, planes):
 			continue
+		# A scheduled ferry can also appear in the marine traffic list. Keep both
+		# slots in order; only identical consecutive vessels can reuse shading.
+		if v == previous:
+			repeat_mask |= 1 << count
+		previous = v
 		_box[count] = Vector4(lo.x, lo.y, hi.x, hi.y) / UNIT
 		_info[count] = Vector4(tr.odometer / UNIT, n, tr.life, thrust)
 		_hull[count] = Vector4(hull.x / UNIT, hull.y / UNIT, hull.z, hull.w)
@@ -126,6 +133,7 @@ func _process(_delta: float) -> void:
 	# Speeds go four to a vec4, which keeps the shader's uniforms compact.
 	for i in _spd4.size():
 		_spd4[i] = Vector4(_spd[i * 4], _spd[i * 4 + 1], _spd[i * 4 + 2], _spd[i * 4 + 3])
+	water_mat.set_shader_parameter("wake_repeat_mask", repeat_mask)
 	water_mat.set_shader_parameter("wake_count", count)
 	water_mat.set_shader_parameter("wake_pts", _pts)
 	water_mat.set_shader_parameter("wake_speed", _spd4)
