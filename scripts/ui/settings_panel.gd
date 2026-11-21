@@ -15,6 +15,9 @@ const SLIDERS := [["Master", "Master volume"], ["Music", "Music"], ["Radio", "Ra
 	["Effects", "Interface sounds"], ["Ambience", "Environment sounds"]]
 ## Flag -> label shown.
 const TOGGLES := [["floating_costs", "Show running costs over boats as they're paid"]]
+## Map layers, as flags too. Water areas only exist on maps that have them.
+const MAP_TOGGLES := [["show_routes", "Ferry routes"], ["show_names", "Town names"],
+	["show_areas", "Water areas"]]
 
 var _close: Button
 
@@ -71,13 +74,12 @@ func _init() -> void:
 	display.add_theme_font_override("font", bold)
 	col.add_child(display)
 	for item in TOGGLES:
-		var check := CheckButton.new()
-		check.text = item[1]
-		check.button_pressed = GameSettings.flag(item[0])
-		check.add_theme_font_size_override("font_size", 15)
-		var key: String = item[0]
-		check.toggled.connect(func(on: bool) -> void: GameSettings.set_flag(key, on))
-		col.add_child(check)
+		col.add_child(_toggle(item[0], item[1]))
+	var map_section := _label("MAP", 12, MUTED)
+	map_section.add_theme_font_override("font", bold)
+	col.add_child(map_section)
+	for item in MAP_TOGGLES:
+		col.add_child(_toggle(item[0], item[1]))
 
 	_close = Button.new()
 	_close.text = "Done"
@@ -88,6 +90,15 @@ func _init() -> void:
 	_close.add_theme_color_override("font_focus_color", ACCENT)
 	_close.pressed.connect(close)
 	col.add_child(_close)
+
+
+func _toggle(key: String, text: String) -> CheckButton:
+	var check := CheckButton.new()
+	check.text = text
+	check.button_pressed = GameSettings.flag(key)
+	check.add_theme_font_size_override("font_size", 15)
+	check.toggled.connect(func(on: bool) -> void: GameSettings.set_flag(key, on))
+	return check
 
 
 func _volume_row(bus: String, text: String) -> Control:

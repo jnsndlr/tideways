@@ -35,6 +35,7 @@ var _speed_buttons: Array[Button] = []
 var _speed_index := 1
 var _last_running_speed := 1
 var _info_panel: PanelContainer
+var _info_scroll: ScrollContainer
 var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
@@ -259,8 +260,8 @@ func _build_sidebar() -> void:
 	col.add_theme_constant_override("separation", 2)
 	sidebar.add_child(col)
 	for item in [["COMPANY", "company"], ["RESEARCH", "research"], ["FLEET", "fleet"],
-			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["MAP", "map"],
-			["SETTINGS", "settings"]]:
+			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["WEATHER", "weather"],
+			["MAP", "map"], ["SETTINGS", "settings"]]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(96, 46)
@@ -289,7 +290,11 @@ func _build_help() -> void:
 
 
 func _on_sidebar(id: String) -> void:
+	if id != "weather":
+		map_controls.dismiss()
 	match id:
+		"weather":
+			map_controls.toggle_open()
 		"fleet":
 			_fleet_panel.visible = not _fleet_panel.visible
 			_wild_panel.visible = false
@@ -370,7 +375,7 @@ func _on_label_input(event: InputEvent, isl: MapData.Island) -> void:
 
 func _update_labels() -> void:
 	var cam := rig.camera
-	var named := map_controls.shows("names")
+	var named := MapControls.shows("names")
 	for isl in map.islands:
 		if not _labels.has(isl.id):
 			continue
@@ -386,6 +391,7 @@ func _update_labels() -> void:
 # --- Selection ----------------------------------------------------------------------
 
 func _on_ground_clicked(screen_pos: Vector2) -> void:
+	map_controls.dismiss()
 	var cam := rig.camera
 	var visit: Wildlife.Visit = main.pick_wildlife(screen_pos, cam)
 	if visit:
@@ -527,9 +533,14 @@ func _build_info_panel() -> void:
 	_info_panel.offset_top = 16
 	_info_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	root.add_child(_info_panel)
+	# Scrolls when the inspector is taller than the room above the minimap.
+	_info_scroll = ScrollContainer.new()
+	_info_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_info_panel.add_child(_info_scroll)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	_info_panel.add_child(v)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_info_scroll.add_child(v)
 	_info_title = _label("", 19, TEXT, true)
 	_info_sub = _label("", 12, MUTED)
 	v.add_child(_info_title)
@@ -1190,15 +1201,10 @@ func show_toast(title: String, body: String, seconds := 6.0) -> void:
 # --- Map controls (screen edge) ----------------------------------------------------
 
 func _build_map_controls() -> void:
-	var layers := []
-	if area_overlay:
-		layers.append(["areas", "Areas", "Water areas"])
-	layers.append(["routes", "Routes", "Ferry route lines"])
-	layers.append(["names", "Names", "Town names"])
 	map_controls = MapControls.new()
 	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 4, 4))
 	root.add_child(map_controls)
-	map_controls.setup(layers, sim, main.day_cycle, font, bold)
+	map_controls.setup(sim, main.day_cycle, font)
 	map_controls.weather_toggled.connect(_on_weather_toggled)
 
 
@@ -1206,6 +1212,21 @@ func _build_map_controls() -> void:
 func _on_weather_toggled(shown: bool) -> void:
 	main.clouds.set_shown(shown)
 	show_toast("WEATHER", "Map weather shown." if shown else "Map weather hidden. Conditions keep changing.", 2.5)
+
+
+## The inspector and the minimap share the right edge: the inspector stops a gap
+## above the minimap and scrolls the rest, so neither covers the other.
+func _fit_info_panel() -> void:
+	if not _info_panel.visible:
+		return
+	var content := _info_scroll.get_child(0) as Control
+	var frame := _info_panel.get_theme_stylebox("panel").get_minimum_size().y
+	var bottom := _minimap_panel.get_rect().position.y - 10.0 if _minimap_panel.visible else _usable_rect().end.y
+	var room := maxf(120.0, bottom - _info_panel.position.y - frame)
+	var height := minf(content.get_combined_minimum_size().y, room)
+	if not is_equal_approx(_info_scroll.custom_minimum_size.y, height):
+		_info_scroll.custom_minimum_size.y = height
+		_info_panel.size.y = 0.0
 
 
 ## Keeps the group inside the screen's safe area and clear of whichever panels are
@@ -1341,10 +1362,12 @@ func _process(delta: float) -> void:
 	_update_labels()
 	_minimap_overlay.queue_redraw()
 	if route_overlay:
-		route_overlay.visible = map_controls.shows("routes")
+		route_overlay.visible = MapControls.shows("routes")
 	if area_overlay:
-		area_overlay.visible = map_controls.shows("areas")
-	_place_map_controls()
+		area_overlay.visible = MapControls.shows("areas")
+	_fit_info_panel()
+	if map_controls.visible:
+		_place_map_controls()
 
 	var real_dt := delta / maxf(Engine.time_scale, 0.001) if Engine.time_scale > 0.0 else 1.0 / 60.0
 	if _toast.visible:

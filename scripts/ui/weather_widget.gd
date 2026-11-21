@@ -10,6 +10,8 @@ extends Control
 ## time, a few redraws a second, whatever the game speed.
 
 signal tapped
+## The pin in the top-right corner was tapped.
+signal pin_tapped
 ## A press turned into a drag. `point` is where the press began, on the canvas.
 signal drag_started(point: Vector2)
 signal drag_moved(point: Vector2)
@@ -24,6 +26,7 @@ const SLOP := 8.0                # a press that travels further than this is a d
 const FEEDBACK_MSEC := 280.0     # a brief outline on release, never a lasting one
 const REDRAW_MSEC := 80
 const ACCENT := Color("a9e5cc")
+const PIN_RADIUS := 14.0         # tap area around the pin, in control pixels
 
 var sim: Simulation
 var day_cycle: DayCycle
@@ -33,6 +36,12 @@ var effects_shown := true:
 	set(on):
 		effects_shown = on
 		_refresh()
+
+## Whether the widget stays open; drawn as a filled or hollow pin.
+var pinned := false:
+	set(on):
+		pinned = on
+		queue_redraw()
 
 var _state := ""     # "clear", "cloudy" or "storm"
 var _night := false
@@ -104,7 +113,7 @@ func _refresh() -> void:
 	if label == "Clear":
 		_label = "Clear night" if night else "Clear skies"
 	_prepare_sky()
-	tooltip_text = "%s%s · %s. Tap to %s map weather; drag to move." % [label, " at night" if night else "",
+	tooltip_text = "%s%s · %s. Tap to %s map weather; drag to move; pin to keep open." % [label, " at night" if night else "",
 		"Weather shown" if effects_shown else "Map effects hidden", "hide" if effects_shown else "show"]
 	queue_redraw()
 
@@ -124,6 +133,8 @@ func _gui_input(event: InputEvent) -> void:
 			if _dragging:
 				_dragging = false
 				drag_ended.emit()
+			elif mb.position.distance_to(_pin_center()) <= PIN_RADIUS:
+				pin_tapped.emit()
 			else:
 				tapped.emit()
 		accept_event()
@@ -138,6 +149,10 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventScreenTouch or event is InputEventScreenDrag:
 		# The finger is on this control: keep it from the camera underneath.
 		accept_event()
+
+
+func _pin_center() -> Vector2:
+	return Vector2(size.x - 22.0 * size.x / ART_SIZE.x, GRIP_Y * size.y / ART_SIZE.y)
 
 
 ## A point on this control in canvas coordinates. The control moves under the
@@ -298,6 +313,19 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO)
 	for i in 3:
 		draw_circle(Vector2(size.x * 0.5 - 5 + i * 5, GRIP_Y * size.y / ART_SIZE.y), 1.0, Color("a9c9c4"))
+	_draw_pin(_pin_center())
 	var feedback := 1.0 - (Time.get_ticks_msec() - _feedback_at) / FEEDBACK_MSEC
 	if feedback > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(ACCENT, feedback), false, 2.0)
+
+
+## A small map pin on a disc that covers the frame's border: solid when pinned.
+func _draw_pin(at: Vector2) -> void:
+	draw_circle(at, 9.0, Color("173740"))
+	draw_circle(at, 9.0, Color("c9c4ac"), false, 1.5, true)
+	var col := ACCENT if pinned else Color("a9c9c4")
+	draw_line(at + Vector2(0, 0), at + Vector2(0, 5.5), col, 1.5, true)
+	if pinned:
+		draw_circle(at + Vector2(0, -1.5), 3.5, col)
+	else:
+		draw_circle(at + Vector2(0, -1.5), 3.2, col, false, 1.3, true)
