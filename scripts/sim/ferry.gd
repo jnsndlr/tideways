@@ -1576,4 +1576,3 @@ func _follow_shift(delta: float) -> bool:
 			break
 		s -= seg
 	return _shift_s >= length - 0.01
-
