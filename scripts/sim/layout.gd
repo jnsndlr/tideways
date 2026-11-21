@@ -45,7 +45,11 @@ const DOLPHIN_DEPTH := 5.8
 
 ## Lateral offset of a slip's inner dolphins' fender faces, for a slip of `size`.
 static func slip_face_v(size: int) -> float:
-	return FerryClass.of(size).half_beam + SLIP_CLEAR
+	var beam := FerryClass.of(size).half_beam
+	if size == 6:
+		# The Issaquah's guards stand slightly wider than the Jumbo's.
+		beam = maxf(beam, FerryClass.of(5).half_beam)
+	return beam + SLIP_CLEAR
 const DECK_Y := LOT_Y
 
 # Marina frame, like a terminal's: origin where the pier meets the shore, +Z ("u")

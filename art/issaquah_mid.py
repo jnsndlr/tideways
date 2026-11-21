@@ -43,17 +43,20 @@ def V(x, y, z): return Vector((x, y, z))
 def lerp(a, b, t): return a + (b - a) * t
 
 
-coll = bpy.data.collections.get("Issaquah") or bpy.data.collections.new("Issaquah")
-if coll.name not in bpy.context.scene.collection.children:
-    bpy.context.scene.collection.children.link(coll)
-for o in list(coll.objects):
-    bpy.data.objects.remove(o, do_unlink=True)
-mat = bpy.data.materials.get("VertexColour") or bpy.data.materials.new("VertexColour")
-mat.use_nodes = True
-_nt = mat.node_tree
-_attr = _nt.nodes.get("Attr") or _nt.nodes.new("ShaderNodeVertexColor")
-_attr.name = "Attr"; _attr.layer_name = "Col"
-_nt.links.new(_attr.outputs["Color"], _nt.nodes["Principled BSDF"].inputs["Base Color"])
+def model_collection(name):
+    coll = bpy.data.collections.get(name) or bpy.data.collections.new(name)
+    if coll.name not in bpy.context.scene.collection.children:
+        bpy.context.scene.collection.children.link(coll)
+    for o in list(coll.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    mat = bpy.data.materials.get("VertexColour") or bpy.data.materials.new("VertexColour")
+    mat.use_nodes = True
+    _nt = mat.node_tree
+    _attr = _nt.nodes.get("Attr") or _nt.nodes.new("ShaderNodeVertexColor")
+    _attr.name = "Attr"; _attr.layer_name = "Col"
+    _nt.links.new(_attr.outputs["Color"], _nt.nodes["Principled BSDF"].inputs["Base Color"])
+    return coll, mat
+
 
 BMS = {}
 THIN_PART = [None]  # set while thin() draws: the part its faces go to
@@ -1053,12 +1056,17 @@ def build():
     pax_deck(); cabin(); end_decks()
     sun_deck(); funnel(); pilothouses(); masts()
     LIFTED[0] = 0.0
+    coll, mat = model_collection("Issaquah")
+    return finish_meshes("issaquah", coll, mat)
+
+
+def finish_meshes(prefix, coll, mat):
     obs = []
     for role, bm in BMS.items():
         bmesh.ops.triangulate(bm, faces=list(bm.faces))
-        old = bpy.data.meshes.get("issaquah_" + role)
+        old = bpy.data.meshes.get(prefix + "_" + role)
         if old: bpy.data.meshes.remove(old)
-        me = bpy.data.meshes.new("issaquah_" + role); bm.to_mesh(me); bm.free()
+        me = bpy.data.meshes.new(prefix + "_" + role); bm.to_mesh(me); bm.free()
         me.materials.append(mat)
         me.color_attributes.active_color_name = "Col"; me.color_attributes.render_color_index = 0
         ob = bpy.data.objects.new(role, me); coll.objects.link(ob); obs.append(ob)
@@ -1066,12 +1074,13 @@ def build():
     return obs
 
 
-built = build()
-_here = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.dirname(os.path.abspath(__file__)) \
-    if "__file__" in globals() else "/Users/jon/Documents/GitHub/tideways/art"
-_glb = os.path.normpath(os.path.join(_here, "..", "assets", "models", "issaquah_mid.glb"))
-for o in bpy.data.objects: o.select_set(o in built)
-bpy.ops.export_scene.gltf(filepath=_glb, export_format="GLB", use_selection=True,
-                          export_normals=True, export_vertex_color="ACTIVE", export_materials="NONE", export_yup=True)
-result = {o.name: len(o.data.polygons) for o in built}
-print("ISSAQUAH", _glb, result)
+if __name__ == "__main__":
+    built = build()
+    _here = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.dirname(os.path.abspath(__file__)) \
+        if "__file__" in globals() else "/Users/jon/Documents/GitHub/tideways/art"
+    _glb = os.path.normpath(os.path.join(_here, "..", "assets", "models", "issaquah_mid.glb"))
+    for o in bpy.data.objects: o.select_set(o in built)
+    bpy.ops.export_scene.gltf(filepath=_glb, export_format="GLB", use_selection=True,
+                              export_normals=True, export_vertex_color="ACTIVE", export_materials="NONE", export_yup=True)
+    result = {o.name: len(o.data.polygons) for o in built}
+    print("ISSAQUAH", _glb, result)

@@ -734,6 +734,9 @@ static func ferry(fc: FerryClass) -> ArrayMesh:
 	if fc.evergreen:
 		return _cached("ferry_%d" % fc.size, func():
 			return _mid_ferry(fc, FerryClass.MID_GLB, FerryClass.MID_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
+	if fc.jumbo:
+		return _cached("ferry_%d" % fc.size, func():
+			return _mid_ferry(fc, FerryClass.JUMBO_GLB, FerryClass.MID_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
 	if fc.issaquah:
 		return _cached("ferry_%d" % fc.size, func():
 			return _mid_ferry(fc, FerryClass.ISQ_GLB, FerryClass.ISQ_DROP, ["fixed", "thin", "glass", "window", "lamp"]).commit())
@@ -915,7 +918,8 @@ static func ferry_thin_shadow(fc: FerryClass) -> ArrayMesh:
 	var src: Array = [FerryClass.MID_GLB, FerryClass.MID_DROP] if fc.evergreen \
 		else [FerryClass.SMALL_GLB, FerryClass.SMALL_DROP] if fc.guemes \
 		else [FerryClass.HIYU_GLB, FerryClass.HIYU_DROP] if fc.hiyu \
-		else [FerryClass.ISQ_GLB, FerryClass.ISQ_DROP] if fc.issaquah else []
+		else [FerryClass.ISQ_GLB, FerryClass.ISQ_DROP] if fc.issaquah \
+		else [FerryClass.JUMBO_GLB, FerryClass.MID_DROP] if fc.jumbo else []
 	if src.is_empty():
 		return null
 	return _cached("ferry_thin_shadow_%d" % fc.size, func():
