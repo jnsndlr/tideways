@@ -123,18 +123,26 @@ func _spawn_scheduled() -> void:
 		if boat == null or n < 2 or leg_routes.size() != n:
 			push_warning("Schedule for %s has no boat or a stop with no route" % schedule.boat)
 			continue
-		var route := leg_routes[0]
-		for id in [route.a, route.b]:
-			var isl := map.islands[id]
-			var slip := isl.slips[isl.slip_index(route.id)]
-			if not slip.fits(boat.size):
-				push_warning("%s (size %d) is too big for %s's %s slip" % [boat.name, boat.size, isl.name, slip.size_name()])
-		_spawn_ferry(boat.key, route, boat.name, boat.size)
+		if not _schedule_fits(boat, leg_routes):
+			continue
+		_spawn_ferry(boat.key, leg_routes[0], boat.name, boat.size)
 		ferries[-1].schedule = schedule
 		var stop_ids: Array[int] = []
 		for key in schedule.stops:
 			stop_ids.append(island_by_key[key])
 		ferries[-1].set_legs(stop_ids, leg_routes)
+
+
+## A multi-stop schedule can call at a different slip on each leg.
+func _schedule_fits(boat: Scenario.Boat, legs: Array[MapData.Route]) -> bool:
+	for route in legs:
+		for id in [route.a, route.b]:
+			var island := map.islands[id]
+			var berth := island.slip_index(route.id)
+			if berth < 0 or not island.slips[berth].fits(boat.size):
+				push_warning("Cannot schedule %s (size %d) at %s: no suitable slip for this leg" % [boat.name, boat.size, island.name])
+				return false
+	return true
 
 
 ## Each terminal's lanes, divided among the destinations its boats serve from
