@@ -59,6 +59,9 @@ var glows := GlowBuilder.new()
 var gull_perches: Array[Seagulls.Perch] = []
 ## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
 var tree_shadows: Array[MultiMeshInstance3D] = []
+## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
+var tree_cells := {}
+const TREE_CELL := 64.0
 ## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
 var eagle_perches: Array[Eagles.Perch] = []
 var _blocked := {}
@@ -753,6 +756,30 @@ func _dolphin(mb: MeshBuilder, c: Vector3, r: float, piles: int) -> Vector3:
 	return cap
 
 
+func _add_tree_cell(p: Vector3) -> void:
+	var k := Vector2i(floori(p.x / TREE_CELL), floori(p.z / TREE_CELL))
+	if not tree_cells.has(k):
+		tree_cells[k] = PackedVector3Array()
+	tree_cells[k].append(p + Vector3(0.0, 4.0, 0.0))  # about mid-crown
+
+
+## How far the nearest tree is from `p`, looking no further than `reach` (INF past it).
+func nearest_tree_distance(p: Vector3, reach: float) -> float:
+	if p.y > reach + 60.0:
+		return INF  # higher than any crown is within reach
+	var r := ceili(reach / TREE_CELL)
+	var c := Vector2i(floori(p.x / TREE_CELL), floori(p.z / TREE_CELL))
+	var best := reach * reach
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var pts: Variant = tree_cells.get(c + Vector2i(dx, dz))
+			if pts == null:
+				continue
+			for t: Vector3 in pts:
+				best = minf(best, t.distance_squared_to(p))
+	return sqrt(best) if best < reach * reach else INF
+
+
 ## Eagle lookouts: the tallest conifer in each EAGLE_CELL along the shore, its top
 ## (the variant's highest point) facing out over the nearest water.
 func _eagle_trees(pines: Array[Transform3D]) -> void:
@@ -835,9 +862,11 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array) -> void:
 		walked += seg
 
 
-const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall"]
+const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall",
+	"brick_mercantile", "sunset_terrace", "harbor_office", "seafoam_cafe"]
 # Width and depth of each shell, before awnings or decks.
-const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7)]
+const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7),
+	Vector2(9.8, 6.3), Vector2(12, 6), Vector2(10.5, 6), Vector2(9.1, 5.65)]
 
 
 func _build_towns() -> void:
@@ -1103,6 +1132,11 @@ func _build_vegetation() -> void:
 				rocks.append(Transform3D(basis, Vector3(px, h, pz)))
 		z += step
 	_eagle_trees(pines)
+	for list: Array[Transform3D] in [pines, rounds]:
+		for xf in list:
+			_add_tree_cell(xf.origin)
+	for c in edge_cards:
+		_add_tree_cell(c)
 	Models.card_material().set_shader_parameter("map_half", terrain.half_size)
 	Models.card_material(true).set_shader_parameter("map_half", terrain.half_size)
 	_forest(Models.tree_variants(false), pines, pine_cols, "Pines")
