@@ -169,7 +169,8 @@ def glazed_house(z, y, height, hw, hd, cut, pitch, slope=0, roof="white", trim=.
     # dark panels remain legible at the game camera's normal ferry zoom.
     base = rect(0,y,z,hw,hd,cut)
     top = rect(0,y+height,z,hw+slope,hd+slope,cut)
-    loft([base,top],"white")
+    # The deck below and the roof plate above already close the house.
+    loft([base,top],"white",caps=False)
     for i,a in enumerate(base):
         b = base[(i+1)%len(base)]
         direction = b-a
@@ -207,8 +208,10 @@ def passenger_deck():
     # Continuous passenger saloon following the hull taper, with end viewing decks.
     def width(z):
         return beam(z)-.39-max(0,abs(z)-50)*.28
-    rings = [outline(y,54.0,width,k) for y,k in [(PAX,1),(SUN,.987)]]
-    loft(rings,"white")
+    # The sun-deck plate is the saloon roof. End the walls at its underside
+    # so the grey walkway has a single exposed surface all the way around.
+    rings = [outline(y,54.0,width,k) for y,k in [(PAX,1),(SUN-.25,.987)]]
+    loft(rings,"white",caps=False)
     for s in [-1,1]:
         for z in stations(-51.1,51.1,2.35):
             derivative = (width(z+.05)-width(z-.05))/.1
