@@ -39,6 +39,8 @@ var _args := {}
 ## Frame caps: the sim is slow-paced, so 60 fps is plenty, and nobody is watching
 ## when the window is in the background. Headless runs (soak tests) stay uncapped.
 const MAX_FPS := 60
+# By path, so the editor resolves it even before its class list catches up.
+const RefitCrew := preload("res://scripts/world/slip_refit_crew.gd")
 const BACKGROUND_FPS := 15
 ## Benchmarks render flat out regardless of focus.
 var uncapped := false
@@ -106,8 +108,8 @@ func _ready() -> void:
 	# main thread.
 	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario))
 	for terminal: Terminal in sim.terminals.values():
-		if SlipRefitCrew.available():
-			var crew := SlipRefitCrew.new()
+		if RefitCrew.available():
+			var crew := RefitCrew.new()
 			terminal.add_child(crew)
 			crew.setup(terminal)
 		if terminal.island.lane_extension_price > 0:

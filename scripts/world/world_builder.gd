@@ -688,6 +688,10 @@ func _build_tie_up(mb: MeshBuilder, v: float) -> void:
 		for side: float in [-1.2, 1.2]:
 			mb.box(Vector3(v + side, -4.2, u), Vector3(0.6, 12.6, 0.6), Models.WOOD)
 		u += 6.0
+	# The modelled wing walls and dolphins are the slip's own live part (SlipGuides),
+	# fitted to its size and refitted with it, as a working slip's are.
+	if SlipGuides.available():
+		return
 	for side: float in [-1.0, 1.0]:
 		var ww: Array = Layout.WING_WALL
 		for k in ww.size() - 1:

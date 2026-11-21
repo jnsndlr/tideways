@@ -1397,7 +1397,7 @@ func can_lay_up() -> bool:
 ## A tie-up slip at `term` she fits and no other boat holds (-1 if none).
 func free_tie_up(term: Terminal) -> int:
 	for i in term.island.tie_ups():
-		if not term.island.slips[i].fits(fc.size):
+		if not term.island.slips[i].fits(fc.size) or term.tie_up_closed(i):
 			continue
 		var taken := false
 		for f in sim.ferries:

@@ -36,8 +36,8 @@ var lanes := {}        # destination island id -> Array[Lane] (MapData.NO_ROUTE 
 var slip_v := {}       # route id -> lateral offset of the slip it calls at
 var ramps := {}        # route id -> the SlipRamp of the slip it calls at (none with the classic slip)
 var slip_ramps: Array[SlipRamp] = []   # by slip index (null with the classic slip)
-var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolphins (null for a
-                                        # tie-up slip, and with the classic slip)
+var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolphins (null with
+                                        # the classic slip)
 # The slip being refitted (-1 for none), how far along, and game minutes of work left
 # once the crew is under way.
 var refit_slip := -1
@@ -140,22 +140,24 @@ func _advance_construction(delta: float) -> void:
 
 # --- Refitting a slip ---------------------------------------------------------------
 
-## What refitting slip `i` to the next size up costs (0 if it can't be: a tie-up, or
-## already large).
+## What refitting slip `i` (working or tie-up) to the next size up costs (0 if it
+## can't be: already large).
 func refit_price(i: int) -> int:
 	var slip := island.slips[i]
-	if slip.tie_up or slip.size >= MapData.Slip.LARGEST_BOAT.size() - 1:
+	if slip.size >= MapData.Slip.LARGEST_BOAT.size() - 1:
 		return 0
 	return REFIT_PRICE[slip.size + 1]
 
 
-## The working slip to offer a refit for: the smallest one that can still grow (-1 if
-## none, or one is already being refitted).
-func next_refit() -> int:
+## The working slip (or with `tie_up`, the tie-up slip) to offer a refit for: the
+## smallest one that can still grow (-1 if none, or one is already being refitted).
+func next_refit(tie_up := false) -> int:
 	if refit_stage != RefitStage.NONE:
 		return -1
 	var best := -1
 	for i in island.slips.size():
+		if island.slips[i].tie_up != tie_up:
+			continue
 		if refit_price(i) > 0 and (best < 0 or island.slips[i].size < island.slips[best].size):
 			best = i
 	return best
@@ -170,6 +172,11 @@ func buy_refit(i: int) -> bool:
 	refit_remaining = REFIT_ARRIVAL + REFIT_WORK + REFIT_DEPARTURE
 	_set_refit_stage(RefitStage.CLEARING)
 	return true
+
+
+## Whether tie-up slip `i` is closed for a refit (no boat may make for it).
+func tie_up_closed(i: int) -> bool:
+	return refit_stage != RefitStage.NONE and i == refit_slip
 
 
 ## Whether the slip `rid` calls at here is closed for a refit.
@@ -217,6 +224,12 @@ func _advance_refit(delta: float) -> void:
 ## No boat lies at the slip being refitted, and none is coming in under the closure
 ## (inside REFIT_HOLD when it closed, so let finish her call).
 func _refit_slip_clear() -> bool:
+	if island.slips[refit_slip].tie_up:
+		# A tie-up: no boat lies there or is on her way in or out.
+		for f in sim.ferries:
+			if f.berth != Ferry.Berth.WORKING and f.here() == self and f.tie_up == refit_slip:
+				return false
+		return true
 	for f in sim.ferries:
 		if f.berth != Ferry.Berth.WORKING or island.slip_index(f.route.id) != refit_slip:
 			continue
@@ -247,7 +260,7 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 			add_child(ramp)
 		slip_ramps.append(ramp)
 		var g: SlipGuides = null
-		if SlipGuides.available() and not isl.slips[i].tie_up:
+		if SlipGuides.available():
 			g = SlipGuides.new(isl.slip_offset(i), transform, s.terrain)
 			add_child(g)
 			g.fit(MapData.Slip.LARGEST_BOAT[isl.slips[i].size])
