@@ -60,22 +60,24 @@ func check_demand() -> void:
 
 
 func check_lane_capacity() -> void:
-	var terminal := Terminal.new()
-	terminal.slots_per_lane = 4
-	var first := Terminal.Lane.new(-2.0)
-	var second := Terminal.Lane.new(2.0)
-	terminal.lanes[0] = [first, second]
-	var truck := Vehicle.new()
-	truck.slots = 2
-	first.queue.append(truck)
+	var first := TerminalLane.new(-2.0)
+	var second := TerminalLane.new(2.0)
+	var lanes := [first, second]
+	first.enqueue(41, 2)
 	first.enroute = 1
 	second.enroute = 2
-	expect(terminal._pick_lane(0, 2) == second, "Use the lane with room for the whole vehicle")
+	expect(TerminalLane.for_arrival(lanes, [], 4, 2) == second, "Use the lane with room for the whole vehicle")
 	second.enroute += 2
-	expect(terminal._pick_lane(0, 2) == null, "Approaching vehicles must reserve their space")
-	expect(terminal._pick_lane(0, 1) == first, "One remaining slot still fits a car")
-	truck.free()
-	terminal.free()
+	expect(TerminalLane.for_arrival(lanes, [], 4, 2) == null, "Approaching vehicles must reserve their space")
+	expect(TerminalLane.for_arrival(lanes, [], 4, 1) == first, "One remaining slot still fits a car")
+	first.arrive(42, 1)
+	second.arrive(43, 3)
+	expect(first.enroute == 0 and first.queued_slots() == 3, "Arrival converts reserved slots into waiting slots")
+	expect(TerminalLane.for_boarding(lanes, Callable()) == first, "Serve the longest line by vehicle count")
+	expect(TerminalLane.for_boarding(lanes, func(id: int): return id != 41) == second, "Only a lane head can board")
+	expect(first.take_front() == 41 and first.queued_slots() == 1, "The head leaves with all its slots")
+	expect(TerminalLane.for_boarding(lanes, Callable()) == first, "Equal waiting counts keep lane order")
+	expect(TerminalLane.for_arrival(lanes, [first], 4, 1) == null, "Closed lanes cannot take new traffic")
 
 
 func check_departures() -> void:

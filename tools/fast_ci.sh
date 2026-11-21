@@ -59,6 +59,7 @@ check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
 check sandbox smoke --fixed-fps 30 --quit-after 120 res://scenes/sandbox.tscn -- --seed=123
 check holding-lane test --fixed-fps 30 --script tools/holding_lane_test.gd -- --seed=123
+check wake-bounds test --script tools/wake_bounds_test.gd
 check frame-budget test --fixed-fps 30 --script tools/frame_budget_test.gd -- --seed=123
 check vehicle-journey test --fixed-fps 30 --script tools/vehicle_journey_test.gd -- --seed=123
 check leaving-sandbox test --fixed-fps 30 --script tools/scene_cycle_test.gd
