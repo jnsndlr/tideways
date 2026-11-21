@@ -107,6 +107,7 @@ func _ready() -> void:
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
 	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario))
+	sim.routes_changed.connect(builder.rebuild_route_overlay)
 	for terminal: Terminal in sim.terminals.values():
 		if RefitCrew.available():
 			var crew := RefitCrew.new()

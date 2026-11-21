@@ -1532,9 +1532,21 @@ func _pilot_station_props(mb: MeshBuilder, q: MapData.Wharf, _r: RandomNumberGen
 
 
 func _build_route_overlay() -> void:
+	route_overlay = _add_mesh(_route_overlay_mesh(), "RouteOverlay", false)
+
+
+## Redraws the dashes after a schedule change, for the routes now in service.
+func rebuild_route_overlay() -> void:
+	if route_overlay:
+		route_overlay.mesh = _route_overlay_mesh()
+
+
+func _route_overlay_mesh() -> Mesh:
 	var mb := MeshBuilder.new()
 	var col := Color(0.92, 0.96, 1.0, 0.1)
 	for r in map.routes:
+		if not r.in_service:
+			continue
 		var s := 42.0
 		while s < r.length - 48.0:
 			var a := r.curve.sample_baked(s)
@@ -1549,4 +1561,4 @@ func _build_route_overlay() -> void:
 	# sorting between them flips with the camera. Force the overlay to draw after it.
 	var mat := Models.unshaded_material()
 	mat.render_priority = 5
-	route_overlay = _add_mesh(mb.commit(mat), "RouteOverlay", false)
+	return mb.commit(mat)

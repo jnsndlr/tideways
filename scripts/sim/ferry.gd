@@ -39,6 +39,10 @@ var schedule: Scenario.Schedule     # the stops she runs (null when restored fro
 var stops: Array[int] = []
 var legs: Array[MapData.Route] = []
 var call := 0                       # index into stops: where she is, or is sailing to
+## A schedule change from the editor (stage 4), taken at her next call at one of
+## its stops: she finishes the crossing she is on first.
+var next_stops: Array[int] = []
+var _next_legs: Array[MapData.Route] = []
 ## Her +Z end faces the current route's B → A rather than A → B (she came onto
 ## this leg from one running the other way; a double-ended ferry never turns).
 var _rev := false
@@ -235,6 +239,45 @@ func set_legs(stop_ids: Array[int], leg_routes: Array[MapData.Route]) -> void:
 	call = 0
 	at_a = term_a.island.id == stops[0]
 	_place(_dock_s())
+
+
+## The terminal she next comes alongside (where she is, if laid up).
+func next_dock() -> Terminal:
+	if berth != Berth.WORKING:
+		return here()
+	if state == State.SAILING:
+		return destination()
+	return sim.terminals[stops[(call + 1) % stops.size()]]
+
+
+## Gives her new stops from her next call at one of them (see next_stops).
+func plan_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route]) -> void:
+	next_stops = stop_ids
+	_next_legs = leg_routes
+
+
+## Takes the planned stops if she is at one of them. Cars aboard for a stop she
+## no longer reaches from here drive off here instead.
+func _take_next_stops() -> bool:
+	var term_id := here().island.id
+	if next_stops.is_empty() or term_id not in next_stops:
+		return false
+	var came_from := stops[(call - 1 + stops.size()) % stops.size()]
+	var k := next_stops.find(term_id)
+	for i in next_stops.size():
+		if next_stops[i] == term_id and next_stops[(i - 1 + next_stops.size()) % next_stops.size()] == came_from:
+			k = i
+	stops = next_stops
+	legs = _next_legs
+	call = k
+	next_stops = []
+	_next_legs = []
+	var ahead := _served_from(call)
+	for car in aboard:
+		if car.dest >= 0 and car.dest not in ahead:
+			car.dest = term_id
+	sim.stops_changed(self)
+	return true
 
 
 ## Where on the route curve her hull lies docked at the end she is at.
@@ -497,6 +540,7 @@ func _process(delta: float) -> void:
 
 
 func _begin_unloading() -> void:
+	_take_next_stops()
 	state = State.UNLOADING
 	if _ramp(here()):
 		_ramp(here()).land()
@@ -575,6 +619,8 @@ func _drive_off(car: Vehicle) -> void:
 
 
 func _begin_loading() -> void:
+	if aboard.is_empty():
+		_take_next_stops()
 	state = State.LOADING
 	_state_time = 0.0
 	_dispatch_timer = 0.0

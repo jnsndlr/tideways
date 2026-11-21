@@ -44,6 +44,8 @@ var _lane_button := Button.new()
 var _refit_button := Button.new()
 var _tie_up_refit_button := Button.new()
 var _service_button := Button.new()
+var _stops_button := Button.new()
+var _schedule_editor: ScheduleEditor
 var _info_button: Button
 var _captain_box: VBoxContainer
 var _captain_why: Label
@@ -95,6 +97,9 @@ func setup(m: Node) -> void:
 	_build_terminal_bar()
 	_build_fleet_panel()
 	_build_finance_panel()
+	_schedule_editor = ScheduleEditor.new()
+	root.add_child(_schedule_editor)
+	_schedule_editor.setup(sim, _label)
 	_build_wildlife_panel()
 	_build_minimap(m.env)
 	_build_help()
@@ -558,6 +563,11 @@ func _build_info_panel() -> void:
 	_service_button.custom_minimum_size.y = 44
 	_service_button.pressed.connect(_toggle_service)
 	v.add_child(_service_button)
+	_stops_button.text = "Edit stops"
+	_stops_button.focus_mode = Control.FOCUS_NONE
+	_stops_button.custom_minimum_size.y = 44
+	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
+	v.add_child(_stops_button)
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
@@ -714,9 +724,13 @@ func _refresh_panels() -> void:
 	if selected_ferry:
 		var f := selected_ferry
 		_info_title.text = f.ferry_name.to_upper()
-		_info_sub.text = "M/V · " + " – ".join(f.stops.map(func(id): return sim.map.islands[id].name.trim_suffix(" Island")))
-		_set_rows([
-			["Status", f.status_text()],
+		var stop_names := func(ids: Array[int]) -> String:
+			return " – ".join(ids.map(func(id): return sim.map.islands[id].name.trim_suffix(" Island")))
+		_info_sub.text = "M/V · " + stop_names.call(f.stops)
+		var rows := [["Status", f.status_text()]]
+		if not f.next_stops.is_empty():
+			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().island.name.trim_suffix(" Island")]])
+		rows.append_array([
 			["Class", f.fc.label],
 			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],
 			["Speed", "%.1f kn" % Units.knots(f.speed)],
@@ -730,6 +744,7 @@ func _refresh_panels() -> void:
 			["Running cost today", fmt_money(f.fuel_today + f.crew_today)],
 			["Crossings", str(f.trips)],
 		])
+		_set_rows(rows)
 		for i in _pace_buttons.size():
 			_pace_buttons[i].set_pressed_no_signal(i == f.pace)
 		if f.in_service():
@@ -787,7 +802,7 @@ func _refresh_panels() -> void:
 		var term: Terminal = sim.terminals.get(isl.id)
 		var sat := term.satisfaction() if term else 70.0
 		_info_title.text = isl.name.to_upper()
-		var served := isl.route_ids().size()
+		var served := isl.route_ids().filter(func(rid): return sim.map.routes[rid].in_service).size()
 		_info_sub.text = ("No ferry service yet" if not term else
 			"Ferry terminal · idle slip" if served == 0 else
 			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
@@ -876,6 +891,9 @@ func _refresh_panels() -> void:
 	_tie_up_refit_button.visible = offer_tie_up_refit
 	_pace_row.visible = selected_ferry != null
 	_service_button.visible = selected_ferry != null
+	_stops_button.visible = selected_ferry != null and selected_ferry.in_service()
+	if _schedule_editor.visible and selected_ferry != _schedule_editor.ferry:
+		_schedule_editor.hide()
 
 
 func _staging_loss(count: int, slots: int) -> String:
@@ -1352,7 +1370,7 @@ func _process(delta: float) -> void:
 	_stat["cash"].add_theme_color_override("font_color", FinancePanel.LOSS if sim.available_cash < 0.0 else TEXT)
 	_stat["revenue"].text = fmt_money(sim.revenue_today)
 	_stat["vessels"].text = str(sim.ferries.size())
-	_stat["routes"].text = str(map.routes.size())
+	_stat["routes"].text = str(map.routes.filter(func(r): return r.in_service).size())
 	_stat["sat"].text = "%d%%" % roundi(sim.satisfaction())
 	_stat["queue"].text = fmt_int(sim.total_queued())
 	_stat["date"].text = sim.date_text()
@@ -1381,6 +1399,8 @@ func _slips_text(isl: MapData.Island) -> String:
 		var names: PackedStringArray = []
 		for rid in slip.routes:
 			var r: MapData.Route = sim.map.routes[rid]
+			if not r.in_service:
+				continue
 			names.append(sim.map.islands[r.b if r.a == isl.id else r.a].name.trim_suffix(" Island"))
 		parts.append("%s: %s" % [slip.size_name().capitalize(), ", ".join(names) if not names.is_empty() else "idle"])
 	return " · ".join(parts)

@@ -25,6 +25,8 @@ var wildlife: Wildlife
 var marine: MarineTraffic
 ## A boat's running costs went on the ledger (`trip`: as she docked).
 signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
+## Which routes are in service changed (a schedule was edited).
+signal routes_changed
 
 var ledger := CompanyLedger.new()
 var available_cash: float:
@@ -86,6 +88,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
 	_build_lanes()
+	_mark_routes_in_service()
 	for term: Terminal in terminals.values():
 		term.prefill()
 	for i in ferries.size():
@@ -137,28 +140,94 @@ func _spawn_scheduled() -> void:
 		ferries[-1].set_legs(stop_ids, leg_routes)
 
 
+## The route between two islands (either way round), or null if none was planned.
+func route_between(a: int, b: int) -> MapData.Route:
+	for r in map.routes:
+		if (r.a == a and r.b == b) or (r.a == b and r.b == a):
+			return r
+	return null
+
+
+## Why boat `f` can't run `ids` (island ids in turn), or "" if she can.
+func stops_problem(f: Ferry, ids: Array[int]) -> String:
+	if ids.size() < 2:
+		return "Give her at least two stops"
+	var n := ids.size()
+	for i in n:
+		var a := ids[i]
+		var b := ids[(i + 1) % n]
+		if a == b:
+			return "%s is listed twice in a row" % map.islands[a].name
+		if route_between(a, b) == null:
+			return "No route between %s and %s" % [map.islands[a].name, map.islands[b].name]
+	for i in n:
+		var isl := map.islands[ids[i]]
+		var slip := isl.slips[isl.slip_index(route_between(ids[i], ids[(i + 1) % n]).id)]
+		if not slip.fits(f.fc.size):
+			return "%s's %s slip is too small for her" % [isl.name, slip.size_name()]
+	if f.next_dock().island.id not in ids:
+		return "Keep %s, where she calls next" % f.next_dock().island.name
+	return ""
+
+
+## Puts boat `f` on `ids` from her next call (Ferry.plan_stops). False if she can't run them.
+func reschedule(f: Ferry, ids: Array[int]) -> bool:
+	if stops_problem(f, ids) != "":
+		return false
+	var n := ids.size()
+	var leg_routes: Array[MapData.Route] = []
+	for i in n:
+		leg_routes.append(route_between(ids[i], ids[(i + 1) % n]))
+	f.plan_stops(ids, leg_routes)
+	if f.schedule:
+		f.schedule.stops.assign(ids.map(func(id): return map.islands[id].key))
+	_mark_routes_in_service()
+	return true
+
+
+## A boat took new stops: the lanes divide again among the new destinations.
+func stops_changed(_f: Ferry) -> void:
+	for term: Terminal in terminals.values():
+		term.relane(_lane_destinations(term))
+	_mark_routes_in_service()
+
+
+## Routes a boat sails, or will once she takes her planned stops, are in service.
+func _mark_routes_in_service() -> void:
+	for r in map.routes:
+		r.in_service = false
+	for f in ferries:
+		for r in f.legs + f._next_legs:
+			r.in_service = true
+	routes_changed.emit()
+
+
 ## Each terminal's lanes, divided among the destinations its boats serve from
 ## there: first the far ends of its routes in slip order (so a plain shuttle
 ## network lays out as before), then anywhere further a boat carries cars to.
 func _build_lanes() -> void:
 	for term: Terminal in terminals.values():
-		var served: Array[int] = []
-		for f in ferries:
-			for i in f.stops.size():
-				if f.stops[i] == term.island.id:
-					for d in f._served_from(i):
-						if d not in served:
-							served.append(d)
-		var dests: Array[int] = []
-		for rid in term.island.route_ids():
-			var r := map.routes[rid]
-			var other := r.b if r.a == term.island.id else r.a
-			if other in served and other not in dests:
-				dests.append(other)
-		for d in served:
-			if d not in dests:
-				dests.append(d)
-		term.build_lanes(dests)
+		term.build_lanes(_lane_destinations(term))
+
+
+func _lane_destinations(term: Terminal) -> Array[int]:
+	var served: Array[int] = []
+	for f in ferries:
+		for i in f.stops.size():
+			if f.stops[i] == term.island.id:
+				for d in f._served_from(i):
+					if d not in served:
+						served.append(d)
+	var dests: Array[int] = []
+	for rid in term.island.route_ids():
+		var r := map.routes[rid]
+		var other := r.b if r.a == term.island.id else r.a
+		if other in served and other not in dests:
+			dests.append(other)
+	for d in served:
+		if d not in dests:
+			dests.append(d)
+	return dests
 
 
 ## Boats whose schedule starts laid up lie at a tie-up slip at its first stop.

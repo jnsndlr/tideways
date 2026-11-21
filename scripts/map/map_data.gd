@@ -281,6 +281,9 @@ class Route:
 	var b := 0
 	var curve: Curve3D
 	var length := 0.0
+	## Whether a schedule sails it. A scenario map also plans a route between every
+	## other pair of its terminals so a schedule can be edited onto it in play.
+	var in_service := true
 
 
 var map_seed := 0

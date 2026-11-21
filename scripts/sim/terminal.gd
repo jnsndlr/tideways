@@ -298,6 +298,31 @@ func build_lanes(dests: Array[int]) -> void:
 		lanes[keys[i]] = arr
 
 
+## After a schedule change: divides the lanes the lot has now (bought ones too)
+## among `dests` again, left to right, keeping each lane and the cars in it. Cars
+## left in a lane that now goes somewhere else move to their own or go home
+## (sort_overflow), as they do when a shared boat leaves without them.
+func relane(dests: Array[int]) -> void:
+	var keys := dests.duplicate()
+	if keys.is_empty():
+		keys.append(MapData.NO_ROUTE)
+	if keys == lane_keys():
+		return
+	var all: Array[Lane] = []
+	for key in lanes:
+		all.append_array(lanes[key])
+	all.sort_custom(func(a: Lane, b: Lane): return a.v < b.v)
+	lanes.clear()
+	var start := 0
+	for i in keys.size():
+		var n := all.size() / keys.size() + (1 if i < all.size() % keys.size() else 0)
+		var arr: Array[Lane] = []
+		arr.assign(all.slice(start, start + n))
+		lanes[keys[i]] = arr
+		start += n
+	sort_overflow()
+
+
 ## The wing walls and dolphins of the slip `rid` calls at here (null if none).
 func guides_for(rid: int) -> SlipGuides:
 	var i := island.slip_index(rid)

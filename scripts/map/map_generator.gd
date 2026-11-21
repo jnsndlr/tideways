@@ -340,6 +340,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 	# Dock sites face the average direction of each island's neighbours.
 	var desired := {}
 	for e in chosen:
+		if e.size() > 3:
+			continue   # a candidate route for the schedule editor: docks don't face it
 		for pair in [[e[1], e[2]], [e[2], e[1]]]:
 			var me: MapData.Island = mains[pair[0]]
 			var other: MapData.Island = mains[pair[1]]
@@ -393,6 +395,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		r.a = a.id
 		r.b = b.id
 		r.curve = test
+		r.in_service = e.size() <= 3
 		map.routes.append(r)
 		link[r.id] = Vector2i(e[1], e[2])
 		calls[a.id].append(r.id)
@@ -445,11 +448,18 @@ func _assign_slips(isl: MapData.Island, routes: Array[int]) -> void:
 	isl.open_lanes = _scenario.lanes.get(isl.key, 0)
 
 
-## The scenario's scheduled links as edges ([distance, i, j] into `mains`).
+## The scenario's scheduled links as edges ([distance, i, j] into `mains`), then
+## every other pair of its terminals in reach as a candidate ([distance, i, j, true])
+## the schedule editor can put a boat on. A candidate with no sensible route is
+## banned like any other link.
 func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: Array) -> void:
 	var index := {}
 	for i in mains.size():
 		index[mains[i].key] = i
+	var linked := {}
+	for pair in _scenario.links():
+		if index.has(pair[0]) and index.has(pair[1]):
+			linked[Vector2i(mini(index[pair[0]], index[pair[1]]), maxi(index[pair[0]], index[pair[1]]))] = true
 	for pair in _scenario.links():
 		if not (index.has(pair[0]) and index.has(pair[1])):
 			push_warning("Scenario links %s and %s, which are not both its terminals" % [pair[0], pair[1]])
@@ -460,6 +470,11 @@ func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: A
 			push_warning("No sensible route between %s and %s" % [mains[i].name, mains[j].name])
 			continue
 		chosen.append([mains[i].center.distance_to(mains[j].center), i, j])
+	for i in mains.size():
+		for j in range(i + 1, mains.size()):
+			var d := mains[i].center.distance_to(mains[j].center)
+			if not linked.has(Vector2i(i, j)) and not banned.has(Vector2i(i, j)) and d < 3100.0:
+				chosen.append([d, i, j, true])
 
 
 func _link(mains: Array[MapData.Island], bearings: Array, degree: PackedInt32Array, chosen: Array, e: Array) -> void:

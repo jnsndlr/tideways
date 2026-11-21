@@ -411,6 +411,11 @@ Decided in stage 3 (2026-11-20):
 - Overflow cars left in another destination's lane when the shared boat has gone move back to their own lane once it has space, or are turned away.
 - Multi-stop deck order follows Washington State Ferries practice. Cars for the intermediate stop board first and lap the deck to face the end that opens there, with through traffic loaded behind them. Big vehicles and late arrivals back on instead. Large boats can keep through traffic on upper ramps or wings. Small single-deck boats park cars nose-to-nose or tail-to-tail in one lane, so each stop drives off its own end. The simplest of these to build first is still to be chosen.
 
+Decided in stage 4 (2026-11-21):
+
+- A scenario map plans a route between every pair of its terminals in reach, so a schedule can be edited onto any of them in play. Only routes a schedule sails are in service: they show on the map and draw traffic. This replaces the stage 2 rule that no link exists without a schedule. The rule is now that no service exists without one.
+- The stop editor (ferry panel, Edit stops) lists a boat's stops in turn. A terminal she can't call at next is greyed out with the reason: no route, or a slip too small for her. A new list must keep the terminal she calls at next. She finishes her crossing and takes the new stops there. Cars aboard for a stop she no longer reaches drive off there, and the lanes at every terminal divide again among the new destinations.
+
 ---
 
 ## Phase 1: First Playable
