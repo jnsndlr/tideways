@@ -814,7 +814,8 @@ func _refresh_panels() -> void:
 					_lane_button.text = "Buy lane (+%d spaces) · $%d" % [term.slots_per_lane, isl.lane_extension_price]
 					_lane_button.disabled = sim.available_cash < isl.lane_extension_price
 					offer_lane = true
-			rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
+			if term.has_service():
+				rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
 			rows.append(["Carried today", fmt_int(term.served_today)])
 		_set_rows(rows)
 		_info_button.text = "Center view"
@@ -873,7 +874,8 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 func _update_terminal_bar(term: Terminal) -> void:
 	_tb_set("terminal", term.island.name.to_upper() + " TERMINAL",
-		"Queue: %d vehicles" % term.total_queued(), "Wait: %d min" % roundi(term.avg_wait))
+		"Queue: %d vehicles" % term.total_queued(),
+		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
 	var f: Ferry = nd[1]
 	if f:
