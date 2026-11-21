@@ -135,8 +135,9 @@ func _ready() -> void:
 	var gulls := Seagulls.new()
 	add_child(gulls)
 	for terminal: Terminal in sim.terminals.values():
-		for g: SlipGuides in terminal.guides.values():
-			g.add_perches(builder.gull_perches, builder.eagle_perches)
+		for g in terminal.slip_guides:
+			if g:
+				g.add_perches(builder.gull_perches, builder.eagle_perches)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"

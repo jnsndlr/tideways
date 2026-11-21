@@ -48,7 +48,11 @@ func _initialize() -> void:
 	if _poses:
 		_setup_poses()
 		return
-	main = load("res://scenes/sandbox.tscn").instantiate()
+	# A scenario (--scenario=opening) plays on the main map; otherwise a generated one.
+	var scenario := false
+	for a in OS.get_cmdline_user_args():
+		scenario = scenario or a.begins_with("--scenario=")
+	main = load("res://scenes/main_map.tscn" if scenario else "res://scenes/sandbox.tscn").instantiate()
 	root.add_child(main)
 
 
@@ -145,7 +149,7 @@ func _process(_delta: float) -> bool:
 	print("shot ", path, " ", Ferry.State.keys()[_f.state], " ", _f.status_text(),
 		" span ", ramp._span_t if ramp else -1.0, " apron ", ramp._apron_t if ramp else -1.0)
 	# How far she lies over, and the fenders she presses in (side, u: squish).
-	var guides: SlipGuides = _term.guides.get(_f.route.id)
+	var guides := _term.guides_for(_f.route.id)
 	if guides:
 		var pressed := []
 		for fd in guides.fenders:

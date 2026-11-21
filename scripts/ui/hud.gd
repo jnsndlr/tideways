@@ -1341,8 +1341,8 @@ func _lanes_text(term: Terminal) -> String:
 			continue
 		var guests := 0
 		for lane: Terminal.Lane in term.lanes[key]:
-			for car in lane.queue:
-				if car.dest != key:
+			for waiting in lane.queue:
+				if (instance_from_id(waiting.vehicle_id) as Vehicle).dest != key:
 					guests += 1
 		var name: String = sim.map.islands[key].name.trim_suffix(" Island")
 		parts.append("%s %d%s" % [name, term.lanes[key].size(), " (%d sharing)" % guests if guests > 0 else ""])
