@@ -1,4 +1,4 @@
-"""Run with blender -b -P art/coastal_shops.py. Append -- --waterfront-pair or -- --pier-restaurants to build either pair."""
+"""Run with blender -b -P art/coastal_shops.py. Select a study with -- followed by --waterfront-pair, --pier-restaurants or --commercial-trio."""
 from pathlib import Path
 from math import atan2, cos, sin, tau
 import sys
@@ -14,6 +14,9 @@ palette = {
     "Reflection": "55869a", "Cedar": "a56d45", "Honey": "d89b5b",
     "Vermilion": "c55245", "Brass": "efb85d", "Mint": "418e89",
     "Signal": "bd342e", "Lagoon": "238f9b", "Marigold": "efb830", "Pearl": "e5e3db",
+    "Seafoam": "348e76", "CanvasMint": "0daa89",
+    "Clay": "aa5c40", "OchreBrick": "b06547", "Mortar": "986d58", "Kiln": "924b36",
+    "Butter": "ecb854", "Persimmon": "e47937", "Pennant": "2383c3",
     "DeepTeal": "214853", "Lamplight": "ffc656", "TileRed": "cf4229", "Petal": "e9519c", "Aqua": "10aeb8", "Zinc": "8fa4b4", "Dock": "ac865e", "Pile": "776351", "Slate": "415269", "Water": "477f8c",
     "Patina": "367f82", "Leaf": "48735a", "Bloom": "d97980",
 }
@@ -611,6 +614,271 @@ def red_net_kitchen():
         crab_pot(x,-6.49,.23)
 
 
+def flat_roof(x,y,z,w,d):
+    box(x,y,z,w+.26,d+.26,.22,"Ivory")
+    box(x,y,z+.15,w+.36,d+.36,.09,"Slate")
+    box(x,y,z+.21,w+.22,d+.22,.055,"Zinc")
+
+
+def brick_skin(w,d,h):
+    # One quad per brick, with staggered courses and narrow mortar joints.
+    verts,faces,tones=[],[],[]
+    for side,(span,depth) in enumerate([(w,d),(d,w),(w,d),(d,w)]):
+        for row in range(int(h/.18)):
+            x=-span/2-.30*(row%2)
+            col=0
+            while x<span/2:
+                a=max(x+.008,-span/2)
+                b=min(x+.59,span/2)
+                if b>a:
+                    z=.17+row*.18
+                    face=[]
+                    for u,v in [(a,z),(b,z),(b,z+.167),(a,z+.167)]:
+                        xy=[(u,-depth/2-.012),(depth/2+.012,u),(-u,depth/2+.012),(-depth/2-.012,-u)][side]
+                        face.append(len(verts))
+                        verts.append((*xy,v))
+                    faces.append(face)
+                    tones.append((col*37+row*17+(col*row)%7)%9)
+                x+=.60
+                col+=1
+    mesh=bpy.data.meshes.new("Running bond")
+    mesh.from_pydata(verts,[],faces)
+    obj=bpy.data.objects.new("Running bond",mesh)
+    bpy.context.collection.objects.link(obj)
+    painted(obj,"Clay")
+    for color in ["Kiln","OchreBrick"]:
+        mesh.materials.append(mats[color])
+    for poly,tone in zip(mesh.polygons,tones):
+        poly.material_index=1 if tone==0 else 2 if tone in [1,2] else 0
+
+
+def retail_bay(x,y,width,door=False):
+    """Painted storefront with a recessed display, transom and brass door furniture."""
+    box(x,y,1.47,width,.14,2.74,"Marine")
+    box(x,y-.08,1.57,width-.14,.045,2.34,"DeepTeal")
+    box(x,y-.12,2.52,width-.16,.035,.41,"Reflection")
+    box(x,y-.15,2.26,width,.085,.09,"Cream")
+    if door:
+        for side in [-1,1]:
+            cx=x+side*width/4
+            box(cx,y-.16,1.23,width*.48,.09,2.01,"Marine")
+            box(cx,y-.22,1.51,width*.48-.13,.045,1.24,"Glass")
+            box(x+side*.12,y-.27,1.13,.045,.06,.26,"Brass")
+    else:
+        box(x,y-.14,.74,width-.19,.08,.10,"Honey")
+        for j in range(5):
+            cx=x+width*(j-2)*.15
+            box(cx,y-.13,.92,.13,.07,.26+.06*(j%3),["Honey","Patina","Cream"][j%3])
+        box(x,y-.18,1.49,.075,.10,2.59,"Marine")
+
+
+def seafoam_cafe():
+    w,d=9.1,5.65
+    shell(w,d,3.72,"Seafoam")
+    flat_roof(0,0,3.74,w,d)
+    # The taller right-hand volume carries the canvas above the entry.
+    box(1.22,.12,4.45,6.55,5.52,1.39,"Seafoam")
+    flat_roof(1.22,.12,5.17,6.55,5.52)
+    for x,y,z in [(-3.63,.98,4.02),(-1.04,.85,5.45),(.96,.94,5.45),(2.95,1.21,5.45)]:
+        box(x,y,z+.23,.70,.55,.47,"Zinc")
+        for j in range(4):
+            box(x-.20+j*.13,y-.29,z+.23,.058,.03,.25,"Slate")
+        box(x,y,z+.49,.75,.59,.07,"Oyster")
+    for x in [-3.48,-1.86]:
+        window(x,-d/2-.06,1.96,1.05,1.49)
+    for x,width,door in [(.16,1.19,False),(1.47,1.38,True),(2.95,1.51,False)]:
+        retail_bay(x,-d/2-.09,width,door)
+    for x in [-.53,3.78]:
+        box(x,-d/2-.11,1.92,.13,.21,3.66,"Ivory")
+    box(1.47,-3.14,.15,1.78,.72,.30,"Oyster")
+    # A pitched canvas with a round lower hem on each alternating stripe.
+    for j in range(11):
+        x=-.53+(j+.5)*.39
+        color="CanvasMint" if j%2==0 else "Ivory"
+        panel=box(x,-3.15,4.25,.39,1.91,.085,color)
+        panel.rotation_euler.x=.53
+        box(x,-3.98,3.68,.39,.08,.21,color)
+        hem=cone(x,-3.98,3.595,.192,.192,.077,color,16)
+        hem.rotation_euler.x=tau/4
+    for x in [-3.36,2.84]:
+        start=len(parts)
+        planter(x,-3.03)
+        for obj in parts[start:]:
+            obj.location.z+=.48
+    box(0,-3.88,.06,9.38,2.34,.12,"Oyster")
+    for x in [-3.36,-1.35,2.80]:
+        outdoor_table(x,-4.02,.12)
+    deck_lamp(.83,-2.91,2.56)
+
+
+def mercantile():
+    w,d=9.8,6.3
+    box(0,0,4.30,w,d,8.60,"Mortar")
+    brick_skin(w,d,8.40)
+    box(0,0,.15,w+.10,d+.10,.30,"Oyster")
+    for x in [-4.73,-2.47,2.47,4.73]:
+        box(x,-3.20,4.25,.29,.18,8.50,"Kiln")
+        box(x,-3.26,.25,.42,.22,.50,"Oyster")
+    for z in [4.44,7.00]:
+        for x in [-3.62,-1.66,0,1.66,3.62]:
+            window(x,-3.21,z,1.02,1.59)
+            box(x,-3.36,z+.86,1.22,.21,.15,"Cream")
+            box(x,-3.39,z+.87,.18,.24,.24,"Oyster")
+        for y in [-1.94,0,1.94]:
+            window(w/2,y,z,1.12,1.59,True)
+        for x in [-3,0,3]:
+            start=len(parts)
+            window(x,-3.15,z,1.1,1.59)
+            for obj in parts[start:]:
+                obj.location.y*=-1
+    # Deep teal shopfronts are separated by brick piers with stone plinths.
+    for x,width,door in [(-3.65,1.71,True),(-1.36,2.06,False),(.47,1.43,True),
+                         (2.28,1.66,False),(4.03,1.22,True)]:
+        retail_bay(x,-3.23,width,door)
+    for x in [-4.73,-2.47,1.36,3.29,4.73]:
+        box(x,-3.27,1.53,.26,.23,2.98,"Kiln")
+        box(x,-3.32,.22,.35,.27,.44,"Oyster")
+    for x in [-3.62,3.62]:
+        box(x,-3.24,5.72,1.55,.16,.54,"OchreBrick" if x<0 else "Cream")
+    box(0,-3.23,3.08,w+.10,.22,.32,"Kiln")
+    awning=box(2.28,-3.79,2.93,1.98,1.25,.105,"Signal")
+    awning.rotation_euler.x=.31
+    box(2.28,-4.38,2.66,1.98,.09,.19,"Signal")
+    for x in [-3.78,.62]:
+        deck_lamp(x,-3.40,2.71)
+    for x in [-1.41,2.25]:
+        hall_planter(x,-3.49)
+    flat_roof(0,0,8.57,w,d)
+    box(0,0,8.88,w+.43,d+.43,.13,"Cream")
+
+
+def canopy(x,y,z,w,d,height,color):
+    # Shallow rectangular hip roof above the open timber pavilion.
+    bpy.ops.mesh.primitive_cone_add(vertices=4,radius1=1,radius2=0,depth=height,
+                                   location=(x,y,z+height/2),rotation=(0,0,tau/8))
+    obj=painted(bpy.context.object,color)
+    bpy.ops.object.transform_apply(location=False,rotation=True,scale=False)
+    obj.scale=(w/1.41421356,d/1.41421356,1)
+    box(x,y,z,w,d,.11,color)
+
+
+def outdoor_table(x,y,floor,shade=None):
+    cone(x,y,floor+.47,.105,.075,.91,"Cedar")
+    cone(x,y,floor+.94,.55,.55,.11,"Honey")
+    for a in [-1.32,1.32,2.89]:
+        start=len(parts)
+        dining_chair(x+.74*sin(a),y+.74*cos(a),-a)
+        for obj in parts[start:]:
+            obj.location.z+=floor
+    if shade:
+        cone(x,y,floor+1.68,.035,.035,1.48,"Honey")
+        cone(x,y,floor+2.51,1.13,.035,.42,shade,8)
+
+
+def pavilion(x,y,floor,w,d,clearance):
+    z=floor+clearance
+    for sx in [-1,1]:
+        for sy in [-1,1]:
+            px,py=x+sx*(w/2-.21),y+sy*(d/2-.20)
+            box(px,py,floor+clearance/2,.13,.13,clearance,"Cedar")
+            rod((px,py,z-.52),(px-sx*.50,py,z-.07),.085,"Honey")
+            globe(px,py,z-.61,.082)
+    canopy(x,y,z,w,d,w*.21,"Persimmon")
+
+
+def sunset_terrace():
+    w,d=12,6
+    shell(w,d,3.02,"Butter")
+    shopfront(w,d)
+    box(-2.87,.12,4.42,6.28,5.68,2.80,"Butter")
+    for x in [-4.34,-1.36]:
+        window(x,-2.74,4.54,2.47,1.40)
+    flat_roof(-2.87,.12,5.88,6.28,5.68)
+    box(-2.97,-3.20,3.13,6.32,.70,.19,"Slate")
+    for x in [-5.60,-4.64,-3.68,-2.72,-1.76,-.80]:
+        rod((x,-3.03,2.59),(x,-3.44,3.09),.12,"Ink")
+    box(3.06,-.26,3.14,6.16,6.41,.30,"Cedar")
+    for y in [-3.45,2.9]:
+        for z in [3.55,4.19]:
+            box(3.05,y,z,6.11,.11,.12,"Honey")
+        for j in range(20):
+            box(.13+j*.31,y,3.82,.07,.09,.70,"Cedar")
+    for z in [3.55,4.19]:
+        box(6.05,-.28,z,.11,6.38,.12,"Honey")
+    for j in range(20):
+        box(6.05,-3.36+j*.32,3.82,.08,.08,.70,"Cedar")
+    pavilion(2.22,-.18,3.28,4.35,4.0,2.56)
+    outdoor_table(2.12,-1.13,3.30)
+    outdoor_table(4.92,-.28,3.30,"Signal")
+    box(0,-4.04,.12,12.24,2.23,.24,"Oyster")
+    pavilion(1.64,-4.13,.24,3.63,2.03,2.58)
+    outdoor_table(1.64,-4.10,.24)
+    outdoor_table(-2.66,-4.14,.24,"Persimmon")
+    outdoor_table(4.87,-4.16,.24,"Aqua")
+    hall_planter(-5.47,-3.62)
+
+
+def harbor_office():
+    w,d=10.50,6.0
+    shell(w,d,3.75,"Butter")
+    flat_roof(0,0,3.81,w,d)
+    for x in [-3.78,-2.10,.18,2.16,4.06]:
+        window(x,-3.04,1.93,1.64,2.18)
+    box(-1.95,-3.21,1.55,1.65,.14,2.65,"Marine")
+    for x in [-2.35,-1.55]:
+        box(x,-3.30,1.75,.66,.06,1.73,"Glass")
+        box(x*.18-1.60,-3.36,1.26,.045,.05,.31,"Brass")
+    box(-2.45,-3.91,.22,5.63,1.94,.44,"Oyster")
+    box(-1.93,-5.03,.12,2.14,.42,.24,"Cream")
+    flat_roof(-2.45,-3.91,3.22,5.65,2.09)
+    for x in [-5.02,-2.87,.12]:
+        box(x,-4.78,1.77,.17,.18,2.91,"Honey")
+        for side in [-1,1]:
+            rod((x,-4.78,2.57),(x+side*.46,-4.78,3.17),.109,"Honey")
+    for z in [.62,1.34]:
+        box(-4.05,-4.78,z,2,.10,.10,"Ivory")
+    for j in range(10):
+        box(-4.99+j*.20,-4.78,.98,.045,.07,.71,"Ivory")
+    for j in range(3):
+        box(2.57,-3.91+j*.12,.62,2.14,.10,.10,"Honey")
+        box(2.57,-3.62,.83+j*.14,2.14,.10,.10,"Honey")
+    for x in [1.78,3.36]:
+        box(x,-3.76,.33,.13,.38,.54,"Ink")
+    for x in [.75,4.57]:
+        hall_planter(x,-3.76)
+    for x in [-5.04,-3.05]:
+        cone(x,-4.98,.49,.11,.10,.94,"Ink")
+        cone(x,-4.98,.98,.12,.045,.12,"Zinc")
+    # Four glazed faces below the shallow hipped lookout roof.
+    box(-1.27,.42,4.76,3.62,2.62,1.37,"Glass")
+    for sy in [-1,1]:
+        for j in range(5):
+            box(-3.04+j*.89,.42+sy*1.33,4.77,.09,.10,1.34,"Ivory")
+        box(-1.27,.42+sy*1.34,4.90,3.68,.10,.09,"Ivory")
+    for sx in [-1,1]:
+        for j in range(4):
+            box(-1.27+sx*1.83,-.86+j*.85,4.77,.10,.09,1.34,"Ivory")
+        box(-1.27+sx*1.83,.42,4.90,.10,2.67,.09,"Ivory")
+    flat_roof(-1.27,.42,4.10,3.69,2.68)
+    canopy(-1.27,.42,5.49,4.05,3.08,.43,"Slate")
+    box(-1.27,.42,6.03,.48,.45,.42,"Oyster")
+    flat_roof(-1.27,.42,6.24,.49,.46)
+    cone(1.92,.35,5.29,.05,.043,2.65,"Ink")
+    cone(1.92,.35,6.66,.081,.032,.12,"Brass")
+    verts=[(1.96,.35,6.52),(2.38,.22,6.56),(2.86,.45,6.42),(3.29,.37,6.40),
+           (2.92,.43,6.23),(3.21,.37,6.12),(2.72,.45,6.04),(2.39,.22,6.16),(1.96,.35,6.10)]
+    mesh=bpy.data.meshes.new("Swallowtail pennant")
+    mesh.from_pydata(verts,[],[(0,8,7,1),(1,7,6,2),(2,6,5,4),(2,4,3)])
+    obj=bpy.data.objects.new("Swallowtail pennant",mesh)
+    bpy.context.collection.objects.link(obj)
+    painted(obj,"Pennant")
+    solid=obj.modifiers.new("Flag thickness",'SOLIDIFY')
+    solid.thickness=.025
+    bpy.context.view_layer.objects.active=obj
+    bpy.ops.object.modifier_apply(modifier=solid.name)
+    deck_lamp(.83,-3.01,2.56)
+
+
 def export(name, build, offset):
     parts.clear()
     build()
@@ -634,19 +902,30 @@ restaurants = "--pier-restaurants" in sys.argv
 if restaurants:
     study = "pier_restaurants"
     lineup = [("sea_glass_grill", sea_glass_grill, -8.6), ("red_net_kitchen", red_net_kitchen, 8.6)]
+trio = "--commercial-trio" in sys.argv
+if trio:
+    study = "commercial_trio"
+    lineup = [("brick_mercantile",mercantile,-13.3),("sunset_terrace",sunset_terrace,0),
+              ("harbor_office",harbor_office,14.0)]
+main_street = "--main-street-pair" in sys.argv
+if main_street:
+    study = "main_street_pair"
+    lineup = [("seafoam_cafe",seafoam_cafe,-5.95),("brick_mercantile",mercantile,5.95)]
 for name,build,x in lineup:
     export(name,build,(x,0,0))
+    if main_street:
+        bpy.context.object.rotation_euler.z = -.13 if name=="seafoam_cafe" else .14
     if restaurants:
         bpy.context.object.rotation_euler.z = -.25 if name=="sea_glass_grill" else .17
 
 scene=bpy.context.scene
 def aim(obj,target):
     obj.rotation_euler=(Vector(target)-obj.location).to_track_quat('-Z','Y').to_euler()
-bpy.ops.object.camera_add(location=(13,-48,8 if restaurants else 16 if pair else 22))
+bpy.ops.object.camera_add(location=(10,-56,11 if main_street else 15 if trio else 8 if restaurants else 16 if pair else 22))
 camera=bpy.context.object
-aim(camera,(0,-.5,2.1 if restaurants else 3.65 if pair else 2.6))
+aim(camera,(0,-.5,4.0 if main_street else 3.7 if trio else 2.1 if restaurants else 3.65 if pair else 2.6))
 camera.data.type='ORTHO'
-camera.data.ortho_scale=36 if restaurants else 30 if pair else 35
+camera.data.ortho_scale=24.4 if main_street else 42.8 if trio else 36 if restaurants else 30 if pair else 35
 scene.camera=camera
 scene.render.engine='CYCLES'
 scene.cycles.samples=12
@@ -659,7 +938,7 @@ light.data.energy=14500
 light.data.shape='DISK'
 light.data.size=15
 aim(light,(0,0,0))
-box(0,0,-1.75 if restaurants else -.16,420 if restaurants else 90,420 if restaurants else 90,.3,"Water" if restaurants else "Oyster")
+box(0,0,-1.75 if restaurants else -.16,420 if restaurants or trio or main_street else 90,420 if restaurants or trio or main_street else 90,.3,"Water" if restaurants else "Ivory" if trio or main_street else "Oyster")
 if restaurants:
     water=mats["Water"].node_tree
     surface=water.nodes.get("Principled BSDF")
@@ -677,8 +956,8 @@ if restaurants:
 if restaurants:
     scene.view_settings.view_transform="AgX"
     scene.view_settings.exposure=.55
-scene.render.resolution_x=1800 if restaurants else 1600
-scene.render.resolution_y=680 if restaurants else 730 if pair else 590
+scene.render.resolution_x=2000 if trio else 1800 if restaurants else 1600
+scene.render.resolution_y=780 if main_street else 700 if trio else 680 if restaurants else 730 if pair else 590
 scene.render.resolution_percentage=100
 scene.render.filepath=str(ROOT/'art'/f'{study}_preview.png')
 bpy.context.preferences.filepaths.save_version=0

@@ -141,8 +141,27 @@ const SPRUCE_VARIANTS := ["spruce", "spruce_open", "spruce_lean", "spruce_broad"
 ## spruces above with `--old-pines`.
 const MPINES_GLB := "res://assets/models/pines_meshy.glb"
 const MPINE_VARIANTS := ["mpine", "mpine_tall", "mpine_broad", "mpine_young"]
-static var PINE_VARIANTS: Array = MPINE_VARIANTS if ResourceLoader.exists(MPINES_GLB) \
-	and not "--old-pines" in OS.get_cmdline_user_args() else SPRUCE_VARIANTS
+## The 300-triangle pine (art/pine_tree.py's stand-in): one model drawn out to
+## IMPOSTOR_DIST and as its impostor (tree_impostor.gdshader, baked by
+## tools/bake_impostor.gd) past it, its variants that model rescaled as Jon's pines'
+## are. Jon's pines above with `--meshy-pines`.
+const LPINE_GLB := "res://assets/models/pine_tree_lod.glb"
+const LPINE_SCALE := {"lpine": Vector3.ONE, "lpine_tall": Vector3(0.98, 1.16, 0.98),
+	"lpine_broad": Vector3(0.93, 0.81, 0.93), "lpine_young": Vector3(0.53, 0.53, 0.53)}
+const IMPOSTOR_DIR := "res://assets/textures/impostors/"
+static var PINE_VARIANTS: Array = (func() -> Array:
+	var args := OS.get_cmdline_user_args()
+	if "--old-pines" in args:
+		return SPRUCE_VARIANTS
+	if ResourceLoader.exists(LPINE_GLB) and not "--meshy-pines" in args:
+		return LPINE_SCALE.keys()
+	return MPINE_VARIANTS if ResourceLoader.exists(MPINES_GLB) else SPRUCE_VARIANTS).call()
+## Where the 300-triangle pine hands over to its impostor (m). `--impostor=M`.
+static var IMPOSTOR_DIST: float = (func() -> float:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--impostor="):
+			return a.substr(11).to_float()
+	return 500.0).call()
 const BROAD_VARIANTS := ["oak", "poplar", "spreading", "leaning", "round", "birches"]
 # Past this distance (m, to a tile's centre) a forest tile draws the broadleaves'
 # stand-ins: as far out as Jon's pines' last step, where a tree is a few pixels, so the
@@ -189,6 +208,11 @@ static func tree_variants(broadleaf: bool) -> Array:
 		return [[round_tree() if broadleaf else pine_tree(), null, null, null]]
 	var out := []
 	for n: String in BROAD_VARIANTS if broadleaf else PINE_VARIANTS:
+		if n.begins_with("lpine"):
+			# One model all the way out, casting its own shadow, then its impostor.
+			var m := _tree_part(n)
+			out.append([m, m, null, impostor_card(n, m), null])
+			continue
 		var near := _tree_part(n)
 		var lod := _tree_part(n + "_lod")
 		if (broadleaf or n.begins_with("mpine")) and not "--raw-stand-ins" in OS.get_cmdline_user_args():
@@ -325,6 +349,54 @@ static func tree_card(n: String, near: Mesh) -> Mesh:
 	return _cards[n]
 
 
+## The impostor's layout (tools/bake_impostor.gd, tree_impostor.gdshader): frames of
+## IMPOSTOR_FRAME px, a column per IMPOSTOR_AZIMUTHS headings round the tree, a row per
+## IMPOSTOR_ELEVATIONS heights above it, IMPOSTOR_EL_STEP degrees apart from level.
+const IMPOSTOR_SHADER := "res://shaders/tree_impostor.gdshader"
+const IMPOSTOR_FRAME := 128
+const IMPOSTOR_AZIMUTHS := 16
+const IMPOSTOR_ELEVATIONS := 4
+const IMPOSTOR_EL_STEP := 20.0
+
+
+## The model the impostor is baked from and the sphere it's framed in: [mesh, centre, radius].
+static func impostor_base() -> Array:
+	var m := _tree_part("lpine")
+	var box := m.get_aabb()
+	return [m, box.get_center(), box.size.length() * 0.5]
+
+
+## Variant `n` of the 300-triangle pine as its impostor card, or null before it's baked.
+static func impostor_card(n: String, _near: Mesh) -> Mesh:
+	var albedo := IMPOSTOR_DIR + "lpine_albedo.res"
+	var normal := IMPOSTOR_DIR + "lpine_normal.res"
+	if not ResourceLoader.exists(albedo) or not ResourceLoader.exists(normal):
+		return null
+	if not _cards.has(n):
+		var b := impostor_base()
+		var c: Vector3 = b[1]
+		var r: float = b[2]
+		var k: Vector3 = LPINE_SCALE[n]
+		var q := QuadMesh.new()
+		q.size = Vector2.ONE
+		# It turns to the camera within the sphere round the (rescaled) tree.
+		var big := r * maxf(k.x, maxf(k.y, k.z))
+		q.custom_aabb = AABB(c * k - Vector3.ONE * big, Vector3.ONE * big * 2.0)
+		var mat := ShaderMaterial.new()
+		mat.shader = load(IMPOSTOR_SHADER)
+		mat.set_shader_parameter("albedo_atlas", load(albedo))
+		mat.set_shader_parameter("normal_atlas", load(normal))
+		mat.set_shader_parameter("center", c)
+		mat.set_shader_parameter("radius", r)
+		mat.set_shader_parameter("variant_scale", k)
+		mat.set_shader_parameter("azimuths", IMPOSTOR_AZIMUTHS)
+		mat.set_shader_parameter("elevations", IMPOSTOR_ELEVATIONS)
+		mat.set_shader_parameter("elevation_step", IMPOSTOR_EL_STEP)
+		q.material = mat
+		_cards[n] = q
+	return _cards[n]
+
+
 ## The mesh that casts a variant's shadow (its cheapest modelled level).
 static func tree_shadow_mesh(variant: Array) -> Mesh:
 	return variant[1] if variant[1] != null else variant[0]
@@ -365,6 +437,9 @@ static func tree_lod_levels(variant: Array) -> Array:
 	var card: Mesh = variant[3] if variant.size() > 3 else null
 	if card != null and sprite_trees:
 		return [[card, 0.0, 0.0]]
+	if near.has_meta("impostor_base"):
+		# The 300-triangle pine: its impostor lit as the model is, so no colour gain.
+		return [[near, 0.0, IMPOSTOR_DIST], [card, IMPOSTOR_DIST, 0.0]] if card != null else [[near, 0.0, 0.0]]
 	if card != null and variant[4] == null:
 		# A broadleaf: modelled out to the card.
 		if "--cone-trees" in OS.get_cmdline_user_args():
@@ -431,6 +506,16 @@ static func tree_variant(at: Vector3, count: int) -> int:
 
 
 static func _tree_part(n: String) -> ArrayMesh:
+	if n.begins_with("lpine"):
+		return _cached("tree_" + n, func():
+			var mb := ModelParts.merge_named(LPINE_GLB, ["pinetreelod"])
+			var k: Vector3 = LPINE_SCALE[n]
+			for i in mb.verts.size():
+				mb.verts[i] *= k
+				mb.normals[i] = (mb.normals[i] / k).normalized()
+			var m := mb.commit()
+			m.set_meta("impostor_base", "lpine")
+			return m)
 	var glb := MPINES_GLB if n.begins_with("mpine") else TREES_GLB
 	return _cached("tree_" + n, func(): return ModelParts.merge_named(glb, [n.replace("_", "")]).commit())
 

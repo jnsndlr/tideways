@@ -1053,10 +1053,10 @@ def setup_studio_and_render(hero_ob, mid_ob, lod_ob):
     bounce.data.size = 10.0
     to_studio(bounce)
 
-    bpy.ops.object.camera_add(location=(0.0, -24.5, 3.35))
+    bpy.ops.object.camera_add(location=(0.0, -30.0, 3.35))
     cam = bpy.context.object
     cam.name = "StudioCamera"
-    cam.data.lens = 72.0
+    cam.data.lens = 58.0
     cam.rotation_euler = (Vector((0.0, 0.0, 3.15)) - cam.location).to_track_quat("-Z", "Y").to_euler()
     scene.camera = cam
     to_studio(cam)
@@ -1076,10 +1076,10 @@ def setup_studio_and_render(hero_ob, mid_ob, lod_ob):
 
     # 2x2 lineup sheet (Hero | Mid | LOD left-to-right on front, quarter, elevated; reversed on back)
     views = [
-        ("front", Vector((0.0, -24.5, 3.35)), Vector((0.0, 0.0, 3.15))),
-        ("quarter", Vector((8.5, -23.0, 4.40)), Vector((0.0, 0.0, 3.15))),
-        ("back", Vector((0.0, 24.5, 3.35)), Vector((0.0, 0.0, 3.15))),
-        ("elevated", Vector((-6.0, -21.5, 13.0)), Vector((0.0, 0.0, 2.85))),
+        ("front", Vector((0.0, -30.0, 3.35)), Vector((0.0, 0.0, 3.15))),
+        ("quarter", Vector((10.5, -29.0, 4.60)), Vector((0.0, 0.0, 3.15))),
+        ("back", Vector((0.0, 30.0, 3.35)), Vector((0.0, 0.0, 3.15))),
+        ("elevated", Vector((-7.5, -27.5, 16.0)), Vector((0.0, 0.0, 2.85))),
     ]
     tile_w, tile_h = 960, 560
     scene.render.resolution_x = tile_w
