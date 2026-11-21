@@ -33,6 +33,7 @@ var sim: Simulation
 var fc: FerryClass
 var route: MapData.Route
 var fleet_key := ""                 # follows the hull through renames and route changes
+var schedule: Scenario.Schedule     # the stops she runs (null when restored from a save)
 var ferry_name := ""
 var term_a: Terminal
 var term_b: Terminal

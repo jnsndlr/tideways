@@ -1,0 +1,46 @@
+extends SceneTree
+## Verify the company a player gets when Play opens the authored map.
+
+func _initialize() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
+	var play = load(Scenes.MAIN_MAP).instantiate()
+	root.add_child(play)
+	current_scene = play
+	var error := _check(play.sim, play.hud)
+	play.queue_free()
+	await process_frame
+	await process_frame
+	if error.is_empty():
+		print("TEST PASSED")
+	else:
+		push_error(error)
+	quit(0 if error.is_empty() else 1)
+
+
+func _check(sim: Simulation, hud: Hud) -> String:
+	if sim.ledger.cash != 50000.0 or sim.terminals.size() != 3 or sim.ferries.size() != 1:
+		return "Play needs $50,000, three terminals and one ferry at startup"
+	var ferry := sim.ferries[0]
+	if ferry.ferry_name != "Hiyu" or ferry.fc.size != 2 or sim.map.routes.size() != 1:
+		return "The opening needs the size-2 Hiyu on a single route"
+	var keys := [ferry.term_a.island.key, ferry.term_b.island.key]
+	if not keys.has("island-1") or not keys.has("island-2"):
+		return "Hiyu should shuttle between Port Rosario and Madrona"
+	var idle: Terminal
+	for terminal: Terminal in sim.terminals.values():
+		if terminal.island.slips.size() != 1:
+			return "An opening terminal should have one slip"
+		if terminal.island.key == "island-7":
+			idle = terminal
+	if idle == null or idle.has_service() or idle.total_queued() != 0 or idle.buy_holding_lane():
+		return "Gullrock should start idle with no waiting cars or lane purchase"
+	hud.select_island(idle.island, false)
+	if hud._info_sub.text != "Ferry terminal · idle slip" or hud._tb["terminal"][2].text != "No scheduled service":
+		return "The idle terminal should show its service status instead of a wait estimate"
+	for label: Label in hud._info_grid.get_children():
+		if label.text == "Avg. wait":
+			return "The idle terminal inspector should omit its unused wait estimate"
+	return ""
