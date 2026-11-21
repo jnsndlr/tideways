@@ -13,7 +13,7 @@ from mathutils import Vector
 
 ART = Path(__file__).resolve().parent
 sys.path.insert(0, str(ART))
-from issaquah_mid import (V, box, cyl, finish_meshes, hface, loft, model_collection,
+from issaquah_mid import (V, box, cyl, face, finish_meshes, hface, loft, model_collection,
                           panel, rail_loop, rect, torus)
 
 HALF_LENGTH = 70.13
@@ -221,7 +221,120 @@ def passenger_deck():
         for x in stations(-8,8,1.8):
             panel(V(x,PAX+1.49,e*53.88),V(0,0,e),1.48,1.35,.035,"window")
     edge = deck_plate(SUN,53.4,.37,.25)
-    rail_loop(edge,1.02,"green",step=2.7)
+    # The public walkway has a solid white windbreak around each bridge base.
+    for s in [-1, 1]:
+        side = [p for p in edge if s*p.x > 0 and abs(p.z) < 41]
+        rail_loop(side, 1.02, "green", step=2.7, closed=False)
+    for e in [-1, 1]:
+        end = sorted([p for p in edge if p.x > 0 and e*p.z > 38], key=lambda p: e*p.z)
+        path = end + [V(-p.x, p.y, p.z) for p in reversed(end)]
+        rings = []
+        for p in path:
+            height = min(.88, (e*p.z - 38)*.32)
+            inside = V(p.x*.984, p.y, p.z - e*.19)
+            rings.append([p, inside, inside+V(0,height,0), p+V(0,height,0)])
+        loft(rings, "white")
+
+
+def bridge_ring(half_plan, e, y):
+    """Mirror a half outline running from the inboard end to the bow centre."""
+    plan = half_plan + [(-x, z) for x, z in reversed(half_plan[:-1])]
+    return [V(x, y, e*z) for x, z in plan]
+
+
+def pilothouse(e):
+    # The casing leaves open air underneath the outboard lookouts. Its forward
+    # face has four scuttles following the curve below the bridge windows.
+    casing = [(6.05,40.85), (6.35,42.1), (6.35,48.9), (6.03,50.4),
+              (5.22,51.55), (3.78,52.14), (1.88,52.50), (0,52.57)]
+    base = bridge_ring(casing, e, SUN)
+    loft([base, bridge_ring(casing, e, BRIDGE-.26)], "white", caps=False)
+    for s in [-1, 1]:
+        for i in (1, 4, 6):
+            a, b = base[i:i+2]
+            normal = V(e*(b.z-a.z), 0, -e*(b.x-a.x)).normalized()
+            p = (a+b)*.5 + V(0,1.64,0)
+            p.x *= s
+            normal.x *= s
+            cyl(p, p+normal*.055, .245, .245, 16, "steel")
+            cyl(p+normal*.05, p+normal*.075, .197, .197, 16, "window")
+
+    # The wing tips project past the sides of the ferry. The walkway steps
+    # back in around each bridge door, leaving sightlines straight down.
+    edge = [(6.28,40.78), (7.0,42.42), (12.82,43.00), (13.02,43.28),
+            (13.02,45.34), (12.78,45.60), (8.10,45.92), (7.10,46.88),
+            (7.10,49.20), (6.72,50.58), (5.82,51.87), (4.15,52.59),
+            (2.05,52.94), (0,53.01)]
+    floor = bridge_ring(edge, e, BRIDGE)
+    underside = bridge_ring(edge, e, BRIDGE-.26)
+    loft([underside, floor], "white", caps=False)
+    hface(floor, "deckp")
+    hface(underside, "ceiling", False)
+    rail_loop([floor[-1], floor[0]], .99, "green", step=1.45, closed=False)
+    for s in [-1, 1]:
+        rail = [V(s*p.x,p.y,p.z) for p in floor[:11]]
+        rail_loop(rail, .99, "green", step=1.45, closed=False)
+        torus(V(s*10.63,BRIDGE+.55,e*45.79), V(.07*s,0,e), .30,.085,16,6,"orange")
+        box(V(s*12.57,BRIDGE+.45,e*44.85), (.16,.90,1.04), "green")
+        cyl(V(s*12.13,SUN,e*44.05), V(s*12.13,BRIDGE-.26,e*44.05),
+            .09,.09,8,"white")
+        # The narrow grated ledge below the forward windows follows the bow.
+        nose = [V(s*x, BRIDGE-.07, e*z) for x,z in edge[10:]]
+        for a,b in zip(nose, nose[1:]):
+            outer_a = a + V(a.x*.048, 0, e*.40)
+            outer_b = b + V(b.x*.048, 0, e*.40)
+            cyl(outer_a, outer_b, .04,.04,6,"white")
+            count = math.ceil((b-a).length/.26)
+            for k in range(count):
+                t = k/count
+                cyl(a.lerp(b,t), outer_a.lerp(outer_b,t), .027,.027,4,"white")
+
+    # A run of forward-raked windows follows the shallow arc across the bow.
+    # Build the frames and glazing into each facet so they share their edges.
+    house = [(4.62,43.45), (5.02,43.96), (5.02,45.6), (5.02,47.55),
+             (5.02,49.28), (4.59,50.47), (3.48,51.20), (2.10,51.59),
+             (.70,51.75), (0,51.75)]
+    def outline_at(y, width, length):
+        return bridge_ring([(x*width, 48+(z-48)*length) for x,z in house], e, y)
+
+    sill = outline_at(BRIDGE+.68, 1.02, 1.01)
+    head = outline_at(BRIDGE+2.25, 1.095, 1.09)
+    loft([outline_at(BRIDGE,1,1), sill], "white", caps=False)
+    for i, a in enumerate(sill):
+        j = (i+1) % len(sill)
+        b, c, d = sill[j], head[j], head[i]
+        if (b-a).length > 5:  # solid inboard bulkhead behind the mast
+            wall = [a,b,c,d]
+            face(wall[::-1] if e > 0 else wall, "white")
+            continue
+        # The centre front pane spans the mirror line with just one frame
+        # on each side of it.
+        inset_a = 0 if abs(a.x) < .001 else .065/(b-a).length
+        inset_b = 0 if abs(b.x) < .001 else .065/(b-a).length
+        low_a, low_b = a.lerp(d,.055), b.lerp(c,.055)
+        high_a, high_b = d.lerp(a,.045), c.lerp(b,.045)
+        p, q = low_a.lerp(low_b,inset_a), low_b.lerp(low_a,inset_b)
+        r, t = high_b.lerp(high_a,inset_b), high_a.lerp(high_b,inset_a)
+        for polygon, color in [([a,b,q,p],"white"), ([b,c,r,q],"white"),
+                               ([c,d,t,r],"white"), ([d,a,p,t],"white"),
+                               ([p,q,r,t],"glass")]:
+            face(polygon[::-1] if e > 0 else polygon, color)
+    # Overhanging visor and tapered green crown visible from the approaches.
+    rim = outline_at(BRIDGE+2.39,1.20,1.19)
+    crown = outline_at(BRIDGE+2.85,1.10,1.09)
+    loft([head, rim, crown], "green", caps=False)
+    hface(crown, "green")
+    # The bridge crew step out through the inboard bulkhead onto either wing.
+    for s in [-1, 1]:
+        sill_z = sill[0].z
+        door_top = sill[0].lerp(head[0], .86)
+        bottom = V(s*3.73, BRIDGE+.06, e*43.45-e*.055)
+        top = V(bottom.x, door_top.y, door_top.z-e*.055)
+        half = V(.44,0,0)
+        door = [bottom-half,bottom+half,top+half,top-half]
+        face(door if e < 0 else door[::-1], "panel")
+        panel(V(bottom.x, BRIDGE+1.45, (sill_z+door_top.z)*.5-e*.12),
+              V(0,0,-e), .56,.54,.025,"glass")
 
 
 def upper_works():
@@ -248,8 +361,7 @@ def upper_works():
         for x in range(-3,4):
             for j in range(6):
                 box(V(x*2.04,SUN+2.81,e*(25.9+j*2.57)),(1.88,.075,2.37),"pane")
-        glazed_house(e*46.5,SUN,2.73,6.25,5.1,1.40,2.55)
-        glazed_house(e*48.2,BRIDGE,2.64,5.6,4.45,1.70,1.55,slope=.33,roof="green",trim=.43)
+        pilothouse(e)
         # Fin mast with two forward-facing radar platforms, matching both ends.
         cyl(V(0,SUN+.16,e*53.05),V(0,SUN+3.8,e*60.25),.12,.045,6,"white")
         mz=e*43.8
@@ -261,7 +373,7 @@ def upper_works():
             box(V(0,h+.66,mz+e*1.3),(2.65,.15,.27),"white")
         cyl(V(0,24.7,mz),V(0,26.65,mz),.12,.065,8,"white")
         for s in [-1,1]:
-            torus(V(s*(beam(40)-.47),SUN+.61,e*40),V(s,0,0),.39,.095,12,5,"orange")
+            torus(V(s*(beam(36)-.47),SUN+.61,e*36),V(s,0,0),.39,.095,12,5,"orange")
 
 
 def stowed_boats(parts):

@@ -660,7 +660,7 @@ func _lay_out_jumbo() -> void:
 		lanterns.append(_mid(0, 26.65, e * 43.8))
 		perches.append([_mid(-4.4, 18.10, e * 48.2), _mid(4.4, 18.10, e * 48.2), 2.8 * k])
 		for side: float in [-1.0, 1.0]:
-			sidelights.append([_mid(side * 5.82, 16.8, e * 49.5), side, e])
+			sidelights.append([_mid(side * 12.65, 15.72, e * 44.85), side, e])
 		for x: float in [-6.0, 0.0, 6.0]:
 			windows.append([_mid(x, 10.79, e * 53.88), 0.9, 2.2, Vector3(0, 0, e)])
 	for z in range(-30, 31, 10):
