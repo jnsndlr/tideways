@@ -21,6 +21,13 @@ func reserve(slot: int, length_in_slots: int, from_a: bool, vehicle_id: int) -> 
 		occupants[slot + k * step] = vehicle_id
 
 
+## Frees the slots `vehicle_id` holds (it drove off at its stop).
+func release(vehicle_id: int) -> void:
+	for i in occupants.size():
+		if occupants[i] == vehicle_id:
+			occupants[i] = 0
+
+
 func find_space(length_in_slots: int, tall: bool, from_a: bool) -> int:
 	var fallback := -1
 	for offset in layout.rows - length_in_slots + 1:

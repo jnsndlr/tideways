@@ -2,7 +2,8 @@ extends "res://scripts/sandbox.gd"
 ## The story map: the same world as the sandbox, built from an authored layout
 ## (MapLayout.MAIN_STORY) instead of a random seed. The island editor (I, or the
 ## ISLANDS button) rolls and dials its islands, then saves or copies the layout.
-## Takes the sandbox's debug args, plus --edit=K (open the editor on island K).
+## Takes the sandbox's debug args, plus --edit=K (open the editor on island K),
+## --full-network and --scenario=NAME (maps/NAME.json).
 
 ## The starter islands. If the layout file is missing, a fresh one is rolled with these.
 const ISLAND_NAMES := ["Port Rosario", "Madrona Island", "Cypress Island", "Juniper Island",
@@ -26,8 +27,10 @@ func _generate(gen: MapGenerator) -> MapData:
 			layout = MapGenerator.roll_layout(randi_range(1, 99999), ISLAND_NAMES, -2)
 			unsaved = true
 	# --full-network: the planned network with a boat per route, as in the sandbox.
+	# --scenario=shared_slip: maps/shared_slip.json instead of the opening.
 	if not _args.has("full-network"):
-		scenario = Scenario.load_file(Scenario.OPENING)
+		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else Scenario.OPENING
+		scenario = Scenario.load_file(file)
 	return gen.generate_from(layout, scenario)
 
 

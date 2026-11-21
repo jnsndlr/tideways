@@ -66,6 +66,25 @@ const STATION_BERTH_SPACING := 48.0
 
 
 ## Lateral lane positions grouped per slip (left → right), clear of the exit lane.
+## Every lane position on a lot, in the order they are paved: out from the middle,
+## the extension side (-v) first.
+static func lane_opening_order(half_width: float) -> Array[float]:
+	var all: Array[float] = []
+	for chunk in lane_positions(half_width, 1):
+		for v in chunk:
+			all.append(v)
+	all.sort_custom(func(a, b): return absf(a) < absf(b) or (absf(a) == absf(b) and a < b))
+	return all
+
+
+## The first `count` lanes paved on a lot (all of them when `count` is 0), left to right.
+static func open_lanes(half_width: float, count: int) -> Array[float]:
+	var order := lane_opening_order(half_width)
+	var out := order.slice(0, count) if count > 0 else order
+	out.sort()
+	return out
+
+
 static func lane_positions(half_width: float, slip_count: int) -> Array[PackedFloat32Array]:
 	var all: Array[float] = []
 	var v := EXIT_CLEAR

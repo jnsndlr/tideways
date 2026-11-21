@@ -24,7 +24,7 @@ func _initialize() -> void:
 		return
 	fixture.islands.reverse()
 	var route := fixture.routes[0]
-	fixture.islands[route.a].slips.append(fixture.routes.size())
+	fixture.islands[route.a].add_route_slip(fixture.routes.size())
 	if not inspect(fixture).contains("missing route"):
 		push_error("Region check accepted a dangling terminal slip")
 		quit(1)
@@ -40,7 +40,7 @@ func inspect(map: MapData) -> String:
 		var island := map.islands[i]
 		if island.id != i:
 			return "island ID differs from its runtime index at %s" % i
-		for rid in island.slips:
+		for rid in island.route_ids():
 			if rid < 0 or rid >= map.routes.size():
 				return "island %s references missing route %s" % [i, rid]
 			var route := map.routes[rid]
@@ -56,6 +56,6 @@ func inspect(map: MapData) -> String:
 			if endpoint < 0 or endpoint >= map.islands.size():
 				return "route %s references missing island %s" % [i, endpoint]
 			var island := map.islands[endpoint]
-			if not island.has_terminal or island.slips.count(i) != 1:
+			if not island.has_terminal or island.route_ids().count(i) != 1:
 				return "route %s needs exactly one terminal slip at %s" % [i, endpoint]
 	return ""
