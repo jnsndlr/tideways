@@ -201,12 +201,14 @@ func _ferry_sizes() -> Array[int]:
 
 
 func _process(delta: float) -> void:
-	minutes += delta
 	weather.step(delta)
-	for ferry in ferries:
-		ferry.pay_crew(delta)
-	if minutes >= 24.0 * 60.0:
-		minutes -= 24.0 * 60.0
+	const DAY_MINUTES := 24.0 * 60.0
+	while minutes + delta >= DAY_MINUTES:
+		var to_midnight := DAY_MINUTES - minutes
+		for ferry in ferries:
+			ferry.pay_crew(to_midnight)
+		delta -= to_midnight
+		minutes = 0.0
 		day += 1
 		for ferry in ferries:
 			ferry.post_costs(false)
@@ -215,6 +217,9 @@ func _process(delta: float) -> void:
 			ferry.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
+	minutes += delta
+	for ferry in ferries:
+		ferry.pay_crew(delta)
 
 
 func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:

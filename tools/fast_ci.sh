@@ -56,6 +56,9 @@ check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
 check refit-crane test --script tools/refit_crane_test.gd
 check model-parts test --script tools/model_parts_test.gd
+check lane-redistribution test --script tools/lane_redistribution_test.gd -- --scenario=lane_sharing
+check opening-scenario test --script tools/opening_scenario_test.gd
+check full-network-opening test --script tools/opening_scenario_test.gd -- --full-network
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
 check sandbox smoke --fixed-fps 30 --quit-after 120 res://scenes/sandbox.tscn -- --seed=123
