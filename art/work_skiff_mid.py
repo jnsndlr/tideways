@@ -8,7 +8,7 @@ from mathutils import Vector
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pusher_mid import ROOT, Part, annulus, block, pipe, rect
+from pusher_mid import ROOT, Part, annulus, blender_point, block, pipe, rect
 
 ALLOY, EDGE, FLOOR = "a1a6a4", "cbd0ca", "777d78"
 DARK, RUBBER, SEAM = "272f33", "232729", "727c7c"
@@ -126,8 +126,7 @@ def pilothouse():
     for side in (-1,1):
         y=side*0.62
         pipe(frame,(-2.10,y,0.18),(-2.10,y,1.97),0.033,EDGE)
-        pipe(frame,(-2.09,y,1.49),(-1.46,y,0.67),0.027,ALLOY)
-        pipe(frame,(-2.10,y,0.57),(-0.82,side*0.51,1.50),0.025,ALLOY)
+        pipe(frame,(-2.10,y,0.53),(-2.10,-y,1.90),0.027,ALLOY)
     pipe(frame,(-0.03,0,2.11),(-0.03,0,2.37),0.035,ALLOY)
     pipe(fittings,(-0.03,0,2.32),(-0.03,0,2.42),0.064,WHITE,12)
     for side,color in [(-1,"488568"),(1,"bd4534")]:
@@ -152,37 +151,41 @@ def pilothouse():
     pipe(frame,(-0.70,-0.34,1.03),(-0.78,-0.34,1.20),0.014,ALLOY)
     pipe(fittings,(-0.79,-0.37,1.20),(-0.79,-0.31,1.20),0.029,DARK)
     # Ring buoy with four white grab bands hangs on the aft canopy frame.
-    center=Vector((-1.95,0.47,0.85))
-    axis=Vector((0,1,0))
+    center=Vector((-2.024,0.30,0.88))
+    axis=Vector((1,0,0))
     annulus(fittings,center,axis,0.28,0.165,0.087,"d4582c",count=24)
     for i in range(4):
         angle=math.radians(45+90*i)
-        offset=Vector((math.cos(angle),0,math.sin(angle)))
+        offset=Vector((0,math.cos(angle),math.sin(angle)))
         pipe(fittings,center+offset*0.167,center+offset*0.278,0.052,WHITE,8)
     return frame, glass, fittings
 
 
-def motors():
-    metal, cowl = Part("Twin outboard legs"), Part("Outboard cowlings")
-    for y in (-0.45,0.45):
-        block(metal,-3.12,y,0.12,0.27,0.25,0.43,SEAM,0.04)
-        pipe(metal,(-3.16,y,0.39),(-3.38,y,0.22),0.075,DARK)
-        metal.loft([rect(-3.39,y,-0.47,0.23,0.10,0.035),
-                    rect(-3.37,y,0.12,0.25,0.17,0.04),rect(-3.34,y,0.36,0.36,0.27,0.055)],DARK)
-        block(metal,-3.42,y,-0.35,0.50,0.27,0.03,SEAM,0.03)
-        pipe(metal,(-3.30,y,-0.46),(-3.68,y,-0.46),0.072,DARK,10)
-        for i in range(3):
-            a=math.tau*i/3
-            tip=Vector((-3.63,y+0.116*math.cos(a),-0.46+0.116*math.sin(a)))
-            pipe(metal,(-3.61,y,-0.46),tip,0.040,ALLOY,6,0.021)
-        cowl.loft([rect(-3.32,y,0.30,0.50,0.35,0.07),rect(-3.33,y,0.43,0.63,0.41,0.09),
-                   rect(-3.35,y,0.70,0.63,0.43,0.10),rect(-3.37,y,0.87,0.52,0.38,0.095),
-                   rect(-3.37,y,0.91,0.40,0.29,0.09)],
-                  lambda row,i: ["343e43","252c33","30373d","444c50"][row],top="444c50")
-        for s in (-1,1):
-            tapered_plate(cowl,[(-3.54,0.54),(-3.13,0.60),(-3.12,0.63),(-3.50,0.59)],
-                          y+s*0.212,0.009,"bfc4be")
-    return metal,cowl
+# Engines are built in local coordinates about each vertical swivel pin.
+SWIVEL_X, SWIVEL_Z = -3.30, 0.25
+OUTBOARDS = [("OutboardPort", 0.45), ("OutboardStarboard", -0.45)]
+
+
+def outboard(name):
+    leg = Part(name + " lower unit")
+    cowl = Part(name)
+    leg.loft([rect(-0.09,0,-0.72,0.23,0.10,0.035),
+              rect(-0.07,0,-0.13,0.25,0.17,0.04),
+              rect(-0.04,0,0.11,0.36,0.27,0.055)], DARK)
+    block(leg,-0.12,0,-0.60,0.50,0.27,0.03,SEAM,0.03)
+    pipe(leg,(0,0,-0.71),(-0.38,0,-0.71),0.072,DARK,10)
+    for i in range(3):
+        a = math.tau*i/3
+        tip = (-0.33,0.116*math.cos(a),-0.71+0.116*math.sin(a))
+        pipe(leg,(-0.31,0,-0.71),tip,0.040,ALLOY,6,0.021)
+    cowl.loft([rect(-0.02,0,0.05,0.50,0.35,0.07),rect(-0.03,0,0.18,0.63,0.41,0.09),
+               rect(-0.05,0,0.45,0.63,0.43,0.10),rect(-0.07,0,0.62,0.52,0.38,0.095),
+               rect(-0.07,0,0.66,0.40,0.29,0.09)],
+              lambda row,i: ["343e43","252c33","30373d","444c50"][row],top="444c50")
+    for side in (-1,1):
+        tapered_plate(cowl,[(-0.24,0.29),(0.17,0.35),(0.18,0.38),(-0.20,0.34)],
+                      side*0.212,0.009,"bfc4be")
+    return cowl, leg
 
 
 def deck_gear():
@@ -243,15 +246,26 @@ def build():
     scene=bpy.context.scene
     shell, rubber=skiff_hull()
     shelter,glass,helm=pilothouse()
-    legs,cowls=motors()
-    hardware=[rubber,helm,cowls,deck_gear()]
-    aluminum=[shell,shelter,legs]
+    mounts = Part("Transom mounts")
+    hardware=[rubber,helm,deck_gear()]
+    aluminum=[shell,shelter,mounts]
+    for name, y in OUTBOARDS:
+        block(mounts,-3.12,y,0.12,0.27,0.25,0.43,SEAM,0.04)
+        pipe(mounts,(-3.16,y,0.39),(SWIVEL_X,y,SWIVEL_Z),0.075,DARK)
+        pipe(mounts,(SWIVEL_X,y,0.16),(SWIVEL_X,y,0.36),0.063,SEAM)
+        cowl, leg = outboard(name)
+        hardware.append(cowl)
+        aluminum.append(leg)
     palette=make_palette(aluminum+hardware+[glass])
     hull,*rest=finish("Satin marine aluminum",aluminum,palette,0.55,0.40)
     rest+=finish("Marine fittings",hardware,palette,0.14,0.51)
     rest+=finish("Tinted safety glass",[glass],palette,0.08,0.16,0.32)
     for obj in rest:
         obj.parent=hull
+    for name, y in OUTBOARDS:
+        motor = scene.objects[name]
+        motor.location = blender_point((SWIVEL_X,y,SWIVEL_Z))
+        scene.objects[name + " lower unit"].parent = motor
     bpy.ops.export_scene.gltf(filepath=str(ROOT/"assets/models/work_skiff_mid.glb"),
                               export_format="GLB",export_vertex_color="NONE")
 
@@ -265,7 +279,7 @@ def build():
     camera=next(o for o in studio.objects if o.type=="CAMERA")
     key=next(o for o in studio.objects if o.type=="LIGHT")
     target=Vector((0,0.08,0.90))
-    camera.location=target+Vector((10,-5.9,3.8))
+    camera.location=target+Vector((10,7.2,4.8))
     camera.rotation_euler=(target-camera.location).to_track_quat("-Z","Y").to_euler()
     camera.data.ortho_scale=8.9
     scene.camera=camera
