@@ -118,4 +118,3 @@ func _fill_frame(shots: Array[Image], albedo: Image, normal: Image, at: Vector2i
 			else:
 				albedo.set_pixel(at.x + x, at.y + y, Color(avg_c.r, avg_c.g, avg_c.b, 0.0))
 				normal.set_pixel(at.x + x, at.y + y, Color(avg_n.r, avg_n.g, avg_n.b, 0.5))
-
