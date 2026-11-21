@@ -1,7 +1,8 @@
 class_name SettingsPanel
 extends Control
 ## Settings overlay, opened from the title screen or the in-game sidebar.
-## Sound: Master, Music, Radio calls and Interface sounds volume. Changes apply and save as the sliders move.
+## Sound: Master, Music, Radio calls, Interface sounds and Environment sounds volume. Changes apply and save as the sliders move.
+## Display: on/off options (GameSettings.FLAGS).
 
 const PANEL_BG := Color(0.07, 0.11, 0.13, 0.96)
 const DIM := Color(0, 0, 0, 0.45)
@@ -11,7 +12,9 @@ const ACCENT := Color(0.47, 0.86, 0.6)
 
 ## Bus -> label shown.
 const SLIDERS := [["Master", "Master volume"], ["Music", "Music"], ["Radio", "Radio calls"],
-	["Effects", "Interface sounds"]]
+	["Effects", "Interface sounds"], ["Ambience", "Environment sounds"]]
+## Flag -> label shown.
+const TOGGLES := [["floating_costs", "Show running costs over boats as they're paid"]]
 
 var _close: Button
 
@@ -64,6 +67,17 @@ func _init() -> void:
 	col.add_child(section)
 	for item in SLIDERS:
 		col.add_child(_volume_row(item[0], item[1]))
+	var display := _label("DISPLAY", 12, MUTED)
+	display.add_theme_font_override("font", bold)
+	col.add_child(display)
+	for item in TOGGLES:
+		var check := CheckButton.new()
+		check.text = item[1]
+		check.button_pressed = GameSettings.flag(item[0])
+		check.add_theme_font_size_override("font_size", 15)
+		var key: String = item[0]
+		check.toggled.connect(func(on: bool) -> void: GameSettings.set_flag(key, on))
+		col.add_child(check)
 
 	_close = Button.new()
 	_close.text = "Done"

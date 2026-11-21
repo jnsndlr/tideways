@@ -1,7 +1,10 @@
 class_name Terminal
 extends Node3D
 ## One island's ferry terminal. Cars spawn in town, drive to the holding lot, queue
-## in per-route lanes, and board when their ferry is loading. Arriving cars drive
+## in the lanes for their destination, and board a ferry that serves it.
+## The lot's lanes divide among the destinations its boats serve from here. When a
+## destination's lanes are full, its cars may queue in another destination's lane
+## if the next boat to load that lane serves both; otherwise they are turned away. Arriving cars drive
 ## off the pier, out through the exit lane and back into town.
 ## The node's transform is the terminal frame (see Layout).
 
@@ -17,10 +20,12 @@ const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
 var sim: Simulation
 var island: MapData.Island
-var lanes := {}        # route id -> Array[Lane]
-var slip_v := {}       # route id -> lateral offset of that route's slip
-var ramps := {}        # route id -> SlipRamp (none with the classic slip)
-var guides := {}       # route id -> SlipGuides (none with the classic slip)
+var lanes := {}        # destination island id -> Array[Lane] (MapData.NO_ROUTE when idle)
+var slip_v := {}       # route id -> lateral offset of the slip it calls at
+var ramps := {}        # route id -> the SlipRamp of the slip it calls at (none with the classic slip)
+var slip_ramps: Array[SlipRamp] = []   # by slip index (null with the classic slip)
+var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolphins (null for a
+                                        # tie-up slip, and with the classic slip)
 # Which way (+1 / -1 across the slips, the terminal frame's x) the flood tide sets a
 # ferry lying alongside here; the ebb sets her the other way.
 var flood_side := 1.0
@@ -30,6 +35,10 @@ var staging_lanes: Array[Lane] = []
 var _boarding_from: Dictionary[int, Lane] = {}
 var build_remaining := 0.0
 var extra_lane: Lane
+## Lot positions not paved yet, in the order they will be (empty once the lot is full).
+var site_lanes: Array[float] = []
+## Lanes paved since the game began, in order.
+var paved: Array[float] = []
 
 var slots_per_lane := Layout.slots_per_lane()
 var avg_wait := 6.0    # minutes, moving average
@@ -43,21 +52,25 @@ var _spawn_acc := 0.0
 ## Equipment and material staging is on the outer side of the slip next to the
 ## extension. Every service keeps at least one full-width lane and its exit.
 func can_stage_construction() -> bool:
+	if not site_lanes.is_empty():
+		return true   # the crew works from the unpaved ground beside the new lane
 	if island.slips.is_empty() or island.construction_staging_lanes not in [1, 2]:
 		return false
-	var route_lanes: Array = lanes.get(island.slips[0], [])
+	var route_lanes: Array = lanes.get(lane_keys()[0], [])
 	var count := island.construction_staging_lanes
 	return route_lanes.size() > count and route_lanes[count - 1].v <= -Layout.EXIT_CLEAR
 
 
 func buy_holding_lane() -> bool:
-	if island.lane_extension_price <= 0 or work_stage != WorkStage.IDLE or not can_stage_construction():
+	var ready := work_stage == WorkStage.IDLE or work_stage == WorkStage.OPEN and not site_lanes.is_empty()
+	if island.lane_extension_price <= 0 or not ready or not can_stage_construction():
 		return false
 	if sim.available_cash < island.lane_extension_price:
 		return false
-	sim.terminal_spending += island.lane_extension_price
-	for i in island.construction_staging_lanes:
-		staging_lanes.append(lanes[island.slips[0]][i])
+	sim.ledger.spend("purchases", island.lane_extension_price)
+	if site_lanes.is_empty():
+		for i in island.construction_staging_lanes:
+			staging_lanes.append(lanes[lane_keys()[0]][i])
 	build_remaining = BUILD_MINUTES
 	_set_work_stage(WorkStage.DRAINING)
 	return true
@@ -96,7 +109,10 @@ func _advance_construction(delta: float) -> void:
 	build_remaining = maxf(0.0, build_remaining - delta)
 	if build_remaining == 0.0:
 		extra_lane = Lane.new(extension_offset())
-		lanes[island.slips[0]].append(extra_lane)
+		paved.append(extra_lane.v)
+		if not site_lanes.is_empty():
+			site_lanes.pop_front()
+		lanes[lane_keys()[0]].append(extra_lane)
 		staging_lanes.clear()
 		_set_work_stage(WorkStage.OPEN)
 	elif build_remaining <= DEPARTURE_MINUTES and work_stage != WorkStage.LEAVING:
@@ -105,7 +121,10 @@ func _advance_construction(delta: float) -> void:
 		_set_work_stage(WorkStage.PAVING)
 
 
+## Where the next lane goes: the next unpaved lot position, else alongside the lot.
 func extension_offset() -> float:
+	if not site_lanes.is_empty():
+		return site_lanes[0]
 	return -island.lot_half_width - Layout.LANE_WIDTH * 0.5
 
 
@@ -115,23 +134,55 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 	name = isl.name + " Terminal"
 	transform = isl.terminal_xform()
 	flood_side = 1.0 if hash(isl.key if isl.key != "" else str(isl.id)) % 2 == 0 else -1.0
-	var lane_sets := Layout.lane_positions(isl.lot_half_width, isl.slips.size())
 	for i in isl.slips.size():
-		var rid := isl.slips[i]
-		slip_v[rid] = isl.slip_offset(i)
-		if SlipRamp.available():
-			var ramp := SlipRamp.new(slip_v[rid])
+		var ramp: SlipRamp = null
+		if SlipRamp.available() and not isl.slips[i].tie_up:
+			ramp = SlipRamp.new(isl.slip_offset(i))
 			add_child(ramp)
-			ramps[rid] = ramp
-		if SlipGuides.available():
-			var g := SlipGuides.new(slip_v[rid], transform, s.terrain)
+		slip_ramps.append(ramp)
+		var g: SlipGuides = null
+		if SlipGuides.available() and not isl.slips[i].tie_up:
+			g = SlipGuides.new(isl.slip_offset(i), transform, s.terrain)
 			add_child(g)
-			guides[rid] = g
+			g.fit(MapData.Slip.LARGEST_BOAT[isl.slips[i].size])
+		slip_guides.append(g)
+		for rid in isl.slips[i].routes:
+			slip_v[rid] = isl.slip_offset(i)
+			if ramp:
+				ramps[rid] = ramp
+	_build_road_paths()
+
+
+## Divides the lot's lanes among `dests` (island ids, in lot order), once the
+## boats and their schedules are known.
+func build_lanes(dests: Array[int]) -> void:
+	var isl := island
+	lanes.clear()
+	var keys := dests.duplicate()
+	if keys.is_empty():
+		keys.append(MapData.NO_ROUTE)
+	var lane_sets := Layout.lane_positions(isl.lot_half_width, keys.size())
+	if isl.open_lanes > 0:
+		var order := Layout.lane_opening_order(isl.lot_half_width)
+		site_lanes = order.slice(isl.open_lanes)
+		var open := Layout.open_lanes(isl.lot_half_width, isl.open_lanes)
+		lane_sets.clear()
+		var start := 0
+		for i in keys.size():
+			var n := open.size() / keys.size() + (1 if i < open.size() % keys.size() else 0)
+			lane_sets.append(PackedFloat32Array(open.slice(start, start + n)))
+			start += n
+	for i in keys.size():
 		var arr: Array[Lane] = []
 		for v in lane_sets[i]:
 			arr.append(Lane.new(v))
-		lanes[rid] = arr
-	_build_road_paths()
+		lanes[keys[i]] = arr
+
+
+## The wing walls and dolphins of the slip `rid` calls at here (null if none).
+func guides_for(rid: int) -> SlipGuides:
+	var i := island.slip_index(rid)
+	return slip_guides[i] if i >= 0 else null
 
 
 ## Which way across the slips (+1 / -1, the terminal frame's x) the tide sets a docked
@@ -140,11 +191,14 @@ func lie_side() -> float:
 	return flood_side if sim.tide().y > 0.0 else -flood_side
 
 
-## Sizes each slip's guides for the widest ferry its route runs (`widest`: route id ->
-## FerryClass size), as built.
-func fit_slips(widest: Dictionary) -> void:
-	for rid in guides:
-		(guides[rid] as SlipGuides).fit(widest.get(rid, 4))
+## What the lot's lane groups are keyed by, in lot order: each destination served
+## from here, or MapData.NO_ROUTE for the one group of an idle terminal.
+func lane_keys() -> Array[int]:
+	var keys: Array[int] = []
+	keys.assign(lanes.keys())
+	if keys.is_empty():
+		keys.append(MapData.NO_ROUTE)
+	return keys
 
 
 func _build_road_paths() -> void:
@@ -194,12 +248,17 @@ func _park_in_queue(car: Vehicle, lane: Lane, ahead: int) -> void:
 	car.park_in_lane(queue_position(lane.v, ahead, car), atan2(island.dock_dir.x, island.dock_dir.z))
 
 
+## The vehicle a lane's waiting record stands for.
+static func _car(waiting: Lane.WaitingVehicle) -> Vehicle:
+	return instance_from_id(waiting.vehicle_id) as Vehicle
+
+
 ## Moves each car in `lane` up to its place in the queue.
 func _close_up(lane: Lane) -> void:
 	var k := 0
 	var ahead: Vehicle = null
 	for waiting in lane.queue:
-		var c := instance_from_id(waiting.vehicle_id) as Vehicle
+		var c := _car(waiting)
 		_park_in_queue(c, lane, k)
 		c.leader = ahead
 		ahead = c
@@ -216,31 +275,43 @@ func _process(delta: float) -> void:
 	turned_recent *= pow(0.985, delta)
 
 
-func _pick_route() -> int:
+## Whether any route calls at this terminal (an idle slip draws no traffic).
+func has_service() -> bool:
+	for rid in lanes.keys():
+		if MapData.is_route(rid):
+			return true
+	return false
+
+
+## A destination for a new car, weighted by how many people live there.
+func _pick_destination() -> int:
 	var total := 0.0
 	var weights := {}
-	for rid in lanes.keys():
-		var r: MapData.Route = sim.map.routes[rid]
-		var other := sim.map.islands[r.b if r.a == island.id else r.a]
-		weights[rid] = other.population + 600.0
-		total += weights[rid]
+	for dest in lanes.keys():
+		if not MapData.is_route(dest):
+			continue
+		weights[dest] = sim.map.islands[dest].population + 600.0
+		total += weights[dest]
 	var pick := sim.rng.randf() * total
 	for rid in weights.keys():
 		pick -= weights[rid]
 		if pick <= 0.0:
 			return rid
-	return lanes.keys()[0]
+	return weights.keys()[0]
 
 
-func _pick_lane(rid: int, need := 1) -> Lane:
-	return Lane.for_arrival(lanes[rid], staging_lanes, slots_per_lane, need)
+func _pick_lane(key: int, need := 1) -> Lane:
+	return Lane.for_arrival(lanes.get(key, []), staging_lanes, slots_per_lane, need)
 
 
 func _spawn_car() -> void:
-	if lanes.is_empty():
+	if not has_service():
 		return
 	var car := sim.make_vehicle()
-	var lane := _pick_lane(_pick_route(), car.slots)
+	car.dest = _pick_destination()
+	var lane := _pick_lane(car.dest, car.slots)
+	if lane == null:
+		lane = _shared_lane(car.dest, car.slots)
 	if lane == null:
 		turned_recent += 1.0
 		car.queue_free()
@@ -259,7 +330,7 @@ func _spawn_car() -> void:
 
 func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
 	var ahead := lane.queued_slots()
-	car.leader = instance_from_id(lane.queue.back().vehicle_id) as Vehicle if not lane.queue.is_empty() else null
+	car.leader = _car(lane.queue.back()) if not lane.queue.is_empty() else null
 	lane.arrive(car.get_instance_id(), car.slots)
 	car.lane_v = lane.v
 	car.lot_arrival = sim.minutes
@@ -269,6 +340,8 @@ func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
 ## Places some already-waiting cars so the lot isn't empty at the start.
 func prefill() -> void:
 	for rid in lanes.keys():
+		if not MapData.is_route(rid):
+			continue
 		for lane: Lane in lanes[rid]:
 			var want := sim.rng.randi_range(1, slots_per_lane - 2)
 			var k := 0
@@ -281,30 +354,155 @@ func prefill() -> void:
 				car.rotation.y = atan2(island.dock_dir.x, island.dock_dir.z)
 				car.straighten()
 				car.lane_v = lane.v
+				car.dest = rid
 				car.lot_arrival = sim.minutes - sim.rng.randf_range(0.0, 20.0)
 				lane.enqueue(car.get_instance_id(), car.slots)
 				k += car.slots
 
 
-## Give the closing lanes a chance to drain. When their front vehicle is too
-## large for the available deck slots, keep serving other lanes as usual.
-func take_car(rid: int, fits := Callable()) -> Vehicle:
-	var fits_id := Callable()
-	if not fits.is_null():
-		fits_id = func(id: int): return fits.call(instance_from_id(id))
-	var best: Lane
-	if work_stage == WorkStage.DRAINING and rid == island.slips[0]:
-		best = Lane.for_boarding(staging_lanes, fits_id)
-	if best == null:
-		best = Lane.for_boarding(lanes[rid], fits_id)
-	if best == null:
-		return null
+## The longest of `candidates` whose front car fits (`fits`, null for any) and is for one
+## of `serves` (empty for any): Lane.for_boarding's rule.
+func _longest_fitting_lane(candidates: Array, fits: Callable, serves: Array = []) -> Lane:
+	return Lane.for_boarding(candidates, func(id: int) -> bool:
+		var front := instance_from_id(id) as Vehicle
+		return (fits.is_null() or fits.call(front)) and (serves.is_empty() or front.dest in serves))
+
+
+## The next car for a boat serving `serves` (island ids, her stops in order): from
+## the lanes for her first stop first, so those cars park deepest and are first off.
+## A lane whose front car she doesn't serve is blocked to her.
+func board_next(serves: Array[int], fits: Callable) -> Vehicle:
+	for dest in serves:
+		if not lanes.has(dest):
+			continue
+		var best: Lane
+		if work_stage == WorkStage.DRAINING and dest == lane_keys()[0]:
+			best = _longest_fitting_lane(staging_lanes, fits, serves)
+		if best == null:
+			best = _longest_fitting_lane(lanes[dest], fits, serves)
+		if best != null:
+			return _dispatch(best)
+	return null
+
+
+## Whether a boat serving `serves` could still take a waiting car (`fits`).
+func has_waiting(serves: Array[int], fits: Callable) -> bool:
+	for dest in serves:
+		for lane: Lane in lanes.get(dest, []):
+			var front := _car(lane.queue[0]) if lane.queue.size() > 0 else null
+			if front != null and front.dest in serves and fits.call(front):
+				return true
+	return false
+
+
+func _dispatch(best: Lane) -> Vehicle:
 	var car := instance_from_id(best.take_front()) as Vehicle
 	_boarding_from[car.get_instance_id()] = best
 	_close_up(best)
 	avg_wait = lerpf(avg_wait, sim.minutes - car.lot_arrival, 0.1)
 	served_today += 1
 	return car
+
+
+# --- Sharing lanes ------------------------------------------------------------------
+
+## The boat that will next load the lanes for `dest` here: one alongside, then one
+## coming in, then the soonest to sail here.
+func next_loader(dest: int) -> Ferry:
+	var best: Ferry
+	var best_score := INF
+	for f in sim.ferries:
+		if not f.in_service() or dest not in f.serves_next_call_at(self):
+			continue
+		var score: float
+		if f.state != Ferry.State.SAILING and f.here() == self:
+			score = 0.0 if f.state == Ferry.State.LOADING else 1.0
+		elif f.state == Ferry.State.SAILING and f.destination() == self:
+			score = 2.0 + f.path_left() / 1.0e6
+		else:
+			score = 10.0 + f.minutes_until_departure_from(self)
+		if score < best_score:
+			best_score = score
+			best = f
+	return best
+
+
+## A lane of another destination with room, when the next boat to load it also
+## serves `dest` (the sharing rule).
+func _shared_lane(dest: int, need: int) -> Lane:
+	for key in lanes.keys():
+		if key == dest or not MapData.is_route(key):
+			continue
+		var f := next_loader(key)
+		if f == null or dest not in f.serves_next_call_at(self):
+			continue
+		var lane := _pick_lane(key, need)
+		if lane != null:
+			return lane
+	return null
+
+
+## After a boat leaves: cars queued in another destination's lane stay only if the
+## next boat to load that lane serves them. Otherwise they move back to a lane of
+## their own with room, or give up and go home.
+func sort_overflow() -> void:
+	for key in lanes.keys():
+		for lane: Lane in lanes[key]:
+			var loader := next_loader(key)
+			var moved := false
+			for waiting in lane.queue.duplicate():
+				var car := _car(waiting)
+				if car.dest == key or car.dest < 0:
+					continue
+				if loader != null and car.dest in loader.serves_next_call_at(self):
+					continue
+				lane.queue.erase(waiting)
+				moved = true
+				var own := _pick_lane(car.dest, car.slots)
+				if own != null:
+					own.enroute += car.slots
+					car.leader = null
+					car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own))
+				else:
+					turned_recent += 1.0
+					car.leader = null
+					car.drive(_leave_path(car.lane_v), func(c: Vehicle): c.queue_free())
+			if moved:
+				_close_up(lane)
+
+
+## Out of lane `from_v`, round by the exit lane and back in at the tail of `to_v`.
+func _lot_path(from_v: float, to_v: float) -> PackedVector3Array:
+	return PackedVector3Array([
+		_local(from_v, Layout.LANE_HEAD + 6.0),
+		_local(Layout.EXIT_V, Layout.LANE_HEAD + 6.0),
+		_local(Layout.EXIT_V, Layout.LOT_BACK + 2.4),
+		_local(to_v, Layout.LOT_BACK + 4.8),
+	])
+
+
+## Out of lane `from_v` and home along the exit lane.
+func _leave_path(from_v: float) -> PackedVector3Array:
+	var path := PackedVector3Array([
+		_local(from_v, Layout.LANE_HEAD + 6.0),
+		_local(Layout.EXIT_V, Layout.LANE_HEAD + 6.0),
+		_local(Layout.EXIT_V, Layout.LOT_BACK + 1.5),
+	])
+	path.append_array(_outbound[sim.rng.randi() % _outbound.size()])
+	return path
+
+
+## Give the closing lanes a chance to drain. When their front vehicle is too
+## large for the available deck slots, keep serving other lanes as usual.
+func take_car(rid: int, fits := Callable()) -> Vehicle:
+	var best: Lane
+	if work_stage == WorkStage.DRAINING and rid == lane_keys()[0]:
+		best = _longest_fitting_lane(staging_lanes, fits)
+	if best == null:
+		best = _longest_fitting_lane(lanes[rid], fits)
+	if best == null:
+		return null
+	return _dispatch(best)
 
 
 func finish_boarding(car: Vehicle) -> void:
@@ -358,8 +556,8 @@ func queued_for(rid: int) -> int:
 
 func total_queued() -> int:
 	var total := 0
-	for rid in lanes.keys():
-		total += queued_for(rid)
+	for key in lanes.keys():
+		total += queued_for(key)
 	return total
 
 
@@ -381,7 +579,7 @@ func next_departure() -> Array:
 	if sim == null:
 		return [best_min, best_ferry]
 	for f in sim.ferries:
-		if f.term_a != self and f.term_b != self:
+		if not f.calls_at(self):
 			continue
 		var m := f.minutes_until_departure_from(self)
 		if m < best_min:

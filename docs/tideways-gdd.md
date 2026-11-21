@@ -1,6 +1,10 @@
 # Tideways
 
-## Game Design Document (v0.4, 2026-10-31)
+## Game Design Document (v0.5, 2026-11-18)
+
+**Changed in v0.5 (Jon, 2026-11-18):** the opening state, slip sizes and tie-up slips, automatic lane sharing, the fuel model, weekly town growth, what gates expansion, and the [game loop build stages](#game-loop-build-stages). Where v0.5 text differs from older text further down, such as the Phase 1 lists, v0.5 wins.
+
+**Added 2026-11-19 (Jon):** how running costs reach the ledger, the per-boat pace setting and how routing shows it, crew staffing levels with loading inefficiencies, and per-crew experience.
 
 **Reading this design today.** This is the October design baseline. Use the [Linear design index](https://linear.app/tideways/document/tideways-design-index-first-public-ipad-release-1e6bbe392246) for current public iPad release scope and the issues that own later changes. In particular, captain and crew management are included in the public release. The earlier Phase 1 list below describes the first-playable milestone. The opening timetable modes, economy, first expansion and presentation choices are tracked together in [TID-241](https://linear.app/tideways/issue/TID-241).
 
@@ -57,7 +61,9 @@ The core feedback loop is: community growth, travel demand, revenue, fleet and t
 
 ## Game Structure
 
-- **Start:** 2 or maybe 3 terminals, 1 or 2 boats and some money. Other islands are present but not built out or connected.
+- **Start:** $50,000, one size 2 ferry (the Hiyu model) and three terminals with one small slip each: Port Rosario, Madrona Island and Gullrock Island. Nothing is connected until a schedule connects it. The game opens with an example schedule between Port Rosario and Madrona. Other islands are present but not built out. Other opening scenarios can come later.
+- **Any map:** every system works on an authored or a generated region. An opening scenario is data (terminals, boats, cash and example schedule) that either kind of map can supply.
+- **What gates expansion:** money alone gates a new terminal. Research gates upgrades and improvements. Milestones stay recognition. A later idea is a milestone that attracts talent able to sail to harder islands.
 - **Length:** open-ended. A full region should take 20–30 hours.
 - **Direction:** milestones give sessions purpose, such as serving every island or growing a town to a given size. They are recognition, not gates.
 - **Failure:** bankruptcy is the only loss, and the route to it is generous (see Finance).
@@ -80,7 +86,7 @@ At 3x, a year takes about 3.7 hours, so a full region spans about 6–8 game yea
 | Bigger purchase | Every 5–10 minutes | About 15–30 hours | About 150–300 |
 | Visible change | Every 10 minutes | About 30 hours | About 150 |
 
-Towns must therefore evaluate growth at least daily. The prototype's weekly tick is too slow.
+Each week triggers town growth, based on the previous week's service level and improvements (see Towns). **Default:** the growth a town earns appears as small steps spread across the following week, so visible changes keep to the target above.
 
 With 10 towns, 150 visible changes means about 14 per town. Towns need small steps, such as a new house, shop or dock shed, with larger authored stages as milestones. Terminal construction also counts as a visible change.
 
@@ -105,22 +111,31 @@ Developing a terminal site costs money. After that, terminals upgrade one purcha
 | Track | Rule |
 |---|---|
 | Lanes | Start at 3 on a small terminal, then add one at a time. About 10 is a large terminal. |
-| Slips | Add one at a time, up to 3 per terminal for now. |
-| Boat size limit | Upgrade wingwalls and dolphins so larger boats can dock. |
+| Slips | Up to 3 per terminal, added one at a time. Each slip has its own size. |
+| Slip size | Three sizes per slip, upgraded slip by slip, so larger boats can dock. **Default:** small takes boat sizes 1–2, medium 3–4, large 5. |
+| Tie-up slips | Up to 2 per terminal. They load no cars. They park ferries that are not in use, so an idle boat never blocks a working slip. They upgrade through the same three sizes. These replace the earlier "moorings". |
+| Passenger-only dock | A separate purchase built beside the normal slips. It arrives with walk-on passengers. |
 | Amenities | Add one by one for satisfaction and side income. |
-| Moorings | Cheap to build. They hold boats without using a loading ramp. |
 | Truck staging | Extra lanes for commercial traffic. |
 
 - Amenity examples are a coffee shop, restaurant, gift shop, covered waiting area, restrooms, expanded parking, bike storage and tourist information.
-- Lanes split automatically by scheduled capacity, and the player can override the split.
+- A slip belongs to the terminal, not to a route. Slips serve whatever combination of routes the player schedules.
 - When a slip is busy, arriving boats hold offshore.
+
+### Holding lanes
+
+- A terminal divides its lanes among destinations automatically, from the routes scheduled to call there.
+- A boat on a multi-stop route loads from every lane that holds traffic for its stops.
+- **Sharing:** when a destination's lane is full, its traffic can queue in the spare space of another destination's lane, provided the next boat loading that lane serves both destinations.
+- If that next boat does not serve the overflowing destination, the extra traffic is turned away.
+- Example at Madrona: lane 1 holds Port Rosario traffic and fills. The next boat sails to Gullrock and then Port Rosario, and Gullrock traffic only part-fills its lane, so Port Rosario traffic queues behind it. If the next boat sailed to Gullrock and somewhere other than Port Rosario, that traffic would be turned away.
 - **Default:** construction takes game time, stays visible, and the terminal stays open.
 
 ---
 
 ## Routes and Scheduling
 
-Any two docks can be connected. Distance comes naturally from where they are. Players can build whatever network they like, and hub-versus-direct play is not a separate mechanic.
+Any two docks can be connected. A connection exists only because a schedule sails it: there are no built-in links between terminals. Distance comes naturally from where they are. Players can build whatever network they like, and hub-versus-direct play is not a separate mechanic.
 
 A route's running cost comes from:
 
@@ -133,9 +148,11 @@ Scheduling offers three depths, so players can do as much as they enjoy:
 2. **Frequency:** set how often it sails.
 3. **Manual:** build complex multi-leg schedules for each boat.
 
-All three are in Phase 1. Manual scheduling is the largest UI job in that phase, and it must work on touch screens. The prototype is a reference for the logic, not its screens.
+All three are in Phase 1. Frequency and granular control matter from the start, with easy configuration, because the timetable is a large part of running at a profit. Manual scheduling is the largest UI job in that phase, and it must work on touch screens. The [2D scheduling prototype](https://github.com/jnsndlr/tideways-2d-concept) is a starting point for the logic, not its screens.
 
 Schedules show projected fuel and crew cost per day, calculated from the boat's schedule. That makes the timetable a financial tool: players see the cost before a sailing runs.
+
+Each boat's pace sets its leg times. A slower pace visibly lengthens every leg in its schedule, and a faster one shortens them. The schedule shows each boat's pace beside its legs and can change it there. It is the same per-boat setting as on the boat's own panel. Changing it updates the leg times and the projected cost at once, and flags any leg that no longer fits its departure slot instead of quietly pushing the timetable back. **Default:** pace stays per boat; a per-leg override, such as running slow at night, is possible later.
 
 **Default:** players can run separate weekday and weekend schedules, so the weekly rhythm is a real planning choice.
 
@@ -185,7 +202,7 @@ Satisfaction emerges from play.
 
 ## Towns
 
-Each town needs service in several categories. Towns grow by having specific needs met, or more slowly through general surplus capacity.
+Each town needs service in several categories. Towns grow by having specific needs met, or more slowly through general surplus capacity. Growth is decided once a week, from the previous week's service level and improvements.
 
 - **Town card:** shows 3–4 current needs and how well each is being met. Research adds more detail.
 - **Example needs:** commuters want morning and evening capacity, tourists want weekend frequency, and lumber towns want reliable truck space.
@@ -214,14 +231,15 @@ Every boat tracks capacity, fuel efficiency, speed, age, condition, staffing lev
 
 ### Fuel
 
-- Each boat has a fuel level, and tank size varies by class.
-- Boats fill up at any dock when below 10%, if there is money. There are no fuel depots, tank grades or supply chains.
-- Fuel costs the same at every dock.
-- A boat cannot depart unless it has enough fuel to reach its destination.
-- It can always move to an adjoining mooring at the same terminal, if there is one.
-- Warn the player before fuel or money stops a boat.
-
-**Stop time** is the longer of two actions: offload and load, or refuelling. If loading takes less time than refuelling, refuelling sets the length of the stop.
+- At the start, fuel is automatic. The company pays one average price per gallon.
+- A sailing's fuel use comes from speed, distance and boat size. A large boat run fast burns the most.
+- Those are the player's levers: which boat, how fast and how far.
+- **Pace:** each boat has a pace setting: Economy, Service or Full ahead. Burn per mile goes as the square of speed, so big boats run slower for the savings, at the cost of longer crossings. Switching pace immediately shows what a whole trip at that pace costs.
+- **Posting:** fuel and wages are metered as the boat runs and go on the ledger once per trip, when it docks, so each trip's line shows what it actually used. Anything left at midnight is posted then, so each day's lines are whole.
+- **Floating costs:** an option in Settings floats each trip's fuel and crew cost up off the boat as it docks, for players who want to see expenses as they happen.
+- A boat with no fuel money can always move to a tie-up slip at the same terminal, if there is one.
+- Warn the player before money stops a boat.
+- **Later, through research:** the player can run fuel purchasing, buying when the market is good and holding it in storage. Tank levels and refuelling stops belong to that later layer.
 
 ### Laying Up
 
@@ -248,7 +266,13 @@ Failure types include engine, hydraulics, electrical, loading ramp and navigatio
 
 ## Crew
 
-Phase 1 uses one staffing level per boat: lean, adequate or well staffed. Lean costs less, but adds fatigue and risk.
+Phase 1 uses one staffing level per boat: meager, adequate or well staffed. Meager is the Certificate of Inspection (COI) minimum crew, the legal floor. **Default:** adequate is about 1.3× the minimum and well staffed about 1.6×.
+
+Staffing works through loading inefficiencies. A thin crew boards and unloads more slowly and less smoothly, so dwell times stretch and departures slip. Better staffing smooths that out. The inefficiencies feed customer satisfaction and what riders will pay for a ticket: people don't want to sail with an unhappy crew. Meager costs less, but adds fatigue and risk.
+
+### Crew Experience
+
+Each crew carries an experience level, like veteran units in Total War. Experience builds with service. An experienced crew handles random events more gracefully, such as breakdowns, weather, medical calls and near misses, with shorter delays and fewer knock-on problems.
 
 Later phases build on the board's chain:
 
@@ -344,6 +368,46 @@ Saves are local to each platform, with no accounts or cloud management to start.
 - **Performance floor:** M1 iPad at 30+ fps. Desktop targets 60 fps. Phone support does not lower the iPad floor.
 - Use one scalable quality system, with graphics that vary by platform.
 - Test the Mobile renderer early, and reduce polygon counts where needed.
+
+---
+
+## Game Loop Build Stages
+
+The order for building the game loop and progression systems, agreed 2026-11-18. "Stage 3" in a ticket, PR or conversation means the row below. Every stage must work on authored and generated maps.
+
+| Stage | What the player gets | Main work |
+|---|---|---|
+| 1. Company ledger | Start with $50,000. Every sailing costs fuel and crew. A Finances panel shows the day. | One ledger for income and expenses. Fuel is price per gallon × distance × a burn rate that rises with boat size and speed. A per-boat speed setting is the lever. |
+| 2. Opening scenario | Port Rosario, Madrona and Gullrock each have one small slip. One Hiyu. An example schedule connects Port Rosario and Madrona. | A scenario is data: terminals, boat, cash and example schedule, named by island key. No link exists without a schedule, so the simulation owns a minimal schedule from here on. A generated map supplies the same data. |
+| 3. Slips and lanes | Boats share slips, hold offshore when one is busy, and park at tie-up slips. Lanes divide themselves by destination and share when a boat serves both. | Separate slips from routes and give each a size. Add tie-up slips. Automatic lane allocation and the sharing rule under Terminals. |
+| 4. Timetables | Set frequency, build multi-stop schedules by hand, and see the projected daily cost. | The schedule editor, built on the stage 2 schedule. It is also how stage 3 gets tested, so the two are worked together. |
+| 5. Purchase catalogue | Buy lanes, a second and third slip, slip size upgrades and tie-up slips. | One shared path for price, requirement and build time, generalised from the existing lane extension. Research requirements plug in here. |
+| 6. Fleet | Buy and sell boats and assign them to schedules. | Boat prices, and slip size limits on where each boat can call. |
+| 7. New terminals | Develop an undeveloped site and schedule service to it. Only money gates it. | Terminal sites recorded per island in the map data, for both kinds of map. |
+| 8. Towns and research | Weekly growth from last week's service. Research unlocks the upgrades. | A service score per town per week. Research projects that cost money and time. |
+
+Decided in stage 1 (2026-11-19): fuel and wages post to the ledger once per trip, when the boat docks, with any remainder at midnight. Pace is set per boat, and switching it shows a whole trip's cost at the new pace straight away. Floating costs over boats are a Settings option, off by default.
+
+Decided in stage 2 (2026-11-20): the opening scenario is `maps/opening.json`, naming terminals by island key. A schedule is a boat and its stops, shuttled as fast as loading allows until stage 4 adds times. A terminal with no scheduled stop gets one idle slip that draws no traffic, a minimal split of slips from routes ahead of stage 3. Sandbox keeps its planned network with a boat per route, and Play takes `--full-network` for the same.
+
+Later, noted in stage 3 (2026-11-20):
+
+- Manual lane assignment: the player sets how many lanes each destination gets, e.g. 5 lanes for a busy route and 1 for a small one, or a single lane split between two destinations.
+- A terminal upgrades view that shows every upgrade a terminal can take in one place: lanes, slip count, slip sizes, tie-up slips, amenities and the rest. This is the UI for stage 5's purchase catalogue.
+
+Decided in stage 3 (2026-11-20):
+
+- Slips belong to the terminal. A scenario lists each terminal's slips and their sizes, one small slip by default, and the routes calling there share them. A planned network (Sandbox) still gives each route its own large slip.
+- A boat coming in to a slip another boat holds waits offshore, clear of the other route, until the slip is free. The hold point is where the two approaches stop being clear of each other.
+- A terminal's lanes divide evenly among the destinations its boats serve from there. A destination is any later stop the boat reaches before it is back at this terminal, so a through car can board for a stop beyond the next one. Each car has a destination and queues in that destination's lane.
+- Sharing follows the rule under Terminals. "The next boat to load that lane" is a boat alongside, then one coming in, then the soonest due.
+- A schedule of more than two stops runs round them in turn. For example, Port Rosario → Madrona → Gullrock → Madrona runs out and back, as WSF does with Fauntleroy, Vashon and Southworth. At each stop only the cars for that stop drive off.
+- Deck order, first version: a boat boards cars for her first stop first. They park deepest, at the end that opens at that stop, and through cars park behind them. A double-ended boat never turns, so this works without spinning cars on deck.
+- Multi-stop boats are set in the scenario file until the stage 4 editor.
+- The opening terminals start with 2 paved holding lanes on a lot graded for 8. Each lane bought paves the next lot position, working out from the middle, and closes no working lanes while it is built. Once the lot is full, the next lane goes alongside it as before. Sandbox lots start fully paved.
+- Tie-up slips sit along the shore beside the working slips. A scenario lists them per terminal. Laying a boat up (ferry panel) makes her finish her crossing, unload, then move to a free tie-up slip she fits at the first terminal on her route that has one. Her crew is stood down while she lies there, so she costs no wages. Returning to service brings her back to her working slip once it and the water round it are clear. A scenario schedule can start its boat laid up.
+- Overflow cars left in another destination's lane when the shared boat has gone move back to their own lane once it has space, or are turned away.
+- Multi-stop deck order follows Washington State Ferries practice. Cars for the intermediate stop board first and lap the deck to face the end that opens there, with through traffic loaded behind them. Big vehicles and late arrivals back on instead. Large boats can keep through traffic on upper ramps or wings. Small single-deck boats park cars nose-to-nose or tail-to-tail in one lane, so each stop drives off its own end. The simplest of these to build first is still to be chosen.
 
 ---
 

@@ -54,8 +54,8 @@ static func build(towns := 2) -> TinyRegion:
 			r.a = a
 			r.b = b
 			map.routes.append(r)
-			map.islands[a].slips.append(r.id)
-			map.islands[b].slips.append(r.id)
+			map.islands[a].add_route_slip(r.id)
+			map.islands[b].add_route_slip(r.id)
 	for isl in map.islands:
 		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
 	for r in map.routes:

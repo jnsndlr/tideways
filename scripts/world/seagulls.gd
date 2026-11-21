@@ -252,6 +252,14 @@ func _build_pool() -> void:
 
 
 ## Gulls and perches point at each other; let them go with the scene.
+## How far the nearest gull is from `p` (INF with none about), for Ambience.
+func nearest_distance(p: Vector3) -> float:
+	var best := INF
+	for g in _gulls:
+		best = minf(best, g.pos.distance_squared_to(p))
+	return sqrt(best)
+
+
 func _exit_tree() -> void:
 	for g in _gulls:
 		g.perch = null

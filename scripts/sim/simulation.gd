@@ -17,27 +17,33 @@ var minutes := 6.0 * 60.0
 var day := 12
 var terminals := {}             # island id -> Terminal
 var ferries: Array[Ferry] = []
+## How the company started; its schedules are the only links between terminals.
+var scenario: Scenario
 var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
-var terminal_spending := 0.0
+## A boat's running costs went on the ledger (`trip`: as she docked).
+signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
+
+var ledger := CompanyLedger.new()
 var available_cash: float:
-	get: return revenue_total - terminal_spending
-var fares := FareLedger.new()
+	get: return ledger.cash
 var revenue_today: float:
-	get: return fares.revenue_today
+	get: return ledger.revenue_today
 var revenue_total: float:
-	get: return fares.revenue_total
+	get: return ledger.revenue_total
 var cars_today: int:
-	get: return fares.cars_today
+	get: return ledger.cars_today
 var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
 var _tide_phase := 0.0
 
 
-func setup(m: MapData, t: Terrain) -> void:
+## Starts from `sc`, or with no scenario puts a boat on every route of the map.
+func setup(m: MapData, t: Terrain, sc: Scenario = null) -> void:
+	scenario = sc
 	_start(m, t, null)
 
 
@@ -72,21 +78,19 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 			term.setup(self, isl)
 			terminals[isl.id] = term
 	if network == null:
-		var sizes := _ferry_sizes()
-		for i in map.routes.size():
-			var r := map.routes[i]
-			_spawn_ferry("hull-%d" % i, r, FERRY_NAMES[r.id % FERRY_NAMES.size()], sizes[i])
+		if scenario == null:
+			scenario = Scenario.from_network(map, FERRY_NAMES, _ferry_sizes())
+		ledger.cash = scenario.cash
+		_spawn_scheduled()
 	else:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
-	var widest := {}
-	for f in ferries:
-		widest[f.route.id] = maxi(widest.get(f.route.id, 1), f.fc.size)
+	_build_lanes()
 	for term: Terminal in terminals.values():
-		term.fit_slips(widest)
 		term.prefill()
 	for i in ferries.size():
 		ferries[i].start_staggered(i)
+	_tie_up_laid_up()
 	wildlife = Wildlife.new()
 	wildlife.name = "Wildlife"
 	add_child(wildlife)
@@ -95,6 +99,76 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 		marine = MarineTraffic.new()
 	add_child(marine)
 	marine.setup(self)
+
+
+## One boat per schedule. Two stops shuttle; more run round in turn, leg by leg.
+func _spawn_scheduled() -> void:
+	var route_by_pair := {}
+	var island_by_key := {}
+	for isl in map.islands:
+		island_by_key[isl.key] = isl.id
+	for r in map.routes:
+		var a := map.islands[r.a].key
+		var b := map.islands[r.b].key
+		route_by_pair[a + "|" + b] = r
+		route_by_pair[b + "|" + a] = r
+	for schedule in scenario.schedules:
+		var boat := scenario.boat(schedule.boat)
+		var n := schedule.stops.size()
+		var leg_routes: Array[MapData.Route] = []
+		for i in n:
+			var leg: MapData.Route = route_by_pair.get("%s|%s" % [schedule.stops[i], schedule.stops[(i + 1) % n]])
+			if leg != null:
+				leg_routes.append(leg)
+		if boat == null or n < 2 or leg_routes.size() != n:
+			push_warning("Schedule for %s has no boat or a stop with no route" % schedule.boat)
+			continue
+		var route := leg_routes[0]
+		for id in [route.a, route.b]:
+			var isl := map.islands[id]
+			var slip := isl.slips[isl.slip_index(route.id)]
+			if not slip.fits(boat.size):
+				push_warning("%s (size %d) is too big for %s's %s slip" % [boat.name, boat.size, isl.name, slip.size_name()])
+		_spawn_ferry(boat.key, route, boat.name, boat.size)
+		ferries[-1].schedule = schedule
+		var stop_ids: Array[int] = []
+		for key in schedule.stops:
+			stop_ids.append(island_by_key[key])
+		ferries[-1].set_legs(stop_ids, leg_routes)
+
+
+## Each terminal's lanes, divided among the destinations its boats serve from
+## there: first the far ends of its routes in slip order (so a plain shuttle
+## network lays out as before), then anywhere further a boat carries cars to.
+func _build_lanes() -> void:
+	for term: Terminal in terminals.values():
+		var served: Array[int] = []
+		for f in ferries:
+			for i in f.stops.size():
+				if f.stops[i] == term.island.id:
+					for d in f._served_from(i):
+						if d not in served:
+							served.append(d)
+		var dests: Array[int] = []
+		for rid in term.island.route_ids():
+			var r := map.routes[rid]
+			var other := r.b if r.a == term.island.id else r.a
+			if other in served and other not in dests:
+				dests.append(other)
+		for d in served:
+			if d not in dests:
+				dests.append(d)
+		term.build_lanes(dests)
+
+
+## Boats whose schedule starts laid up lie at a tie-up slip at its first stop.
+func _tie_up_laid_up() -> void:
+	for f in ferries:
+		if f.schedule == null or not f.schedule.laid_up:
+			continue
+		var term: Terminal = f.term_a if f.term_a.island.key == f.schedule.stops[0] else f.term_b
+		if not f.start_tied_up(term):
+			push_warning("%s starts laid up but %s has no free tie-up slip for her" % [f.ferry_name, term.island.name])
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
@@ -129,12 +203,24 @@ func _ferry_sizes() -> Array[int]:
 func _process(delta: float) -> void:
 	minutes += delta
 	weather.step(delta)
+	for ferry in ferries:
+		ferry.pay_crew(delta)
 	if minutes >= 24.0 * 60.0:
 		minutes -= 24.0 * 60.0
 		day += 1
-		fares.start_day()
+		for ferry in ferries:
+			ferry.post_costs(false)
+		ledger.start_day()
+		for ferry in ferries:
+			ferry.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
+
+
+func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:
+	ledger.spend("fuel", fuel)
+	ledger.spend("crew", crew)
+	running_costs_posted.emit(ferry, fuel, crew, trip)
 
 
 func make_vehicle(parent: Node3D = null) -> Vehicle:
@@ -146,9 +232,9 @@ func make_vehicle(parent: Node3D = null) -> Vehicle:
 
 func collect_fare(car: Vehicle) -> void:
 	if car.model.is_empty():
-		fares.credit_flat(car.is_truck)
+		ledger.credit_flat(car.is_truck)
 	else:
-		fares.credit_measured(car.length_metres())
+		ledger.credit_measured(car.length_metres())
 
 
 func hour() -> float:

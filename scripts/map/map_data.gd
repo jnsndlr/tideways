@@ -35,8 +35,9 @@ class Island:
 	var has_terminal := false
 	var shore := Vector3.ZERO       # where the pier meets land, y = 0
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
-	var slips: Array[int] = []      # route ids, ordered left → right along lateral()
+	var slips: Array[Slip] = []     # left → right along lateral()
 	var lot_half_width := 36.0
+	var open_lanes := 0             # lanes paved at the start (more are bought); 0: the whole lot
 	# Placed by hand in the layout: used as given instead of searching the coast.
 	var ferry := true               # may get a terminal at all
 	var manual_dock := false
@@ -61,11 +62,49 @@ class Island:
 	func terminal_xform() -> Transform3D:
 		return Transform3D(Basis(lateral(), Vector3.UP, dock_dir), shore)
 
+	## Lateral offset of slip `i`. The working slips sit centred on the lot; tie-up
+	## slips come after them in `slips` and carry on along the shore to the right.
 	func slip_offset(i: int) -> float:
-		return (i - (slips.size() - 1) * 0.5) * Layout.SLIP_SPACING
+		return (i - (working_slips() - 1) * 0.5) * Layout.SLIP_SPACING
 
+	func working_slips() -> int:
+		var n := 0
+		for slip in slips:
+			if not slip.tie_up:
+				n += 1
+		return n
+
+	## Indices into `slips` of the tie-up slips.
+	func tie_ups() -> Array[int]:
+		var out: Array[int] = []
+		for i in slips.size():
+			if slips[i].tie_up:
+				out.append(i)
+		return out
+
+	## Where a hull lies centred at slip `i`, in the world (y = 0).
+	func berth_center(i: int) -> Vector3:
+		return shore + dock_dir * Layout.DOCK_U + lateral() * slip_offset(i)
+
+	## Which slip `route_id` calls at (-1 if it doesn't call here).
 	func slip_index(route_id: int) -> int:
-		return slips.find(route_id)
+		for i in slips.size():
+			if route_id in slips[i].routes:
+				return i
+		return -1
+
+	## Adds a slip of its own for `route_id` (a planned network's way).
+	func add_route_slip(route_id: int, size := 3) -> void:
+		var slip := Slip.new(size)
+		slip.routes.append(route_id)
+		slips.append(slip)
+
+	## The routes calling here, slip by slip from left to right.
+	func route_ids() -> Array[int]:
+		var out: Array[int] = []
+		for slip in slips:
+			out.append_array(slip.routes)
+		return out
 
 	func dock_center(route_id: int) -> Vector3:
 		return shore + dock_dir * Layout.DOCK_U + lateral() * slip_offset(slip_index(route_id))
@@ -208,6 +247,33 @@ class HaulSpot:
 	var big := true                 # room for a sea lion, not just a seal
 
 
+## A berth at a terminal. It belongs to the terminal, not to a route: every
+## route in `routes` docks here, one boat at a time. A slip with no routes is idle.
+## A tie-up slip loads no cars and serves no route: boats out of service park there
+## so they never block a working slip.
+class Slip:
+	const SIZE_NAMES := ["", "small", "medium", "large"]
+	## Each size takes boats up to this FerryClass size (small 1–2, medium 3–4, large 5).
+	const LARGEST_BOAT := [0, 2, 4, 5]
+
+	var size := 1                   # 1 small, 2 medium, 3 large
+	var routes: Array[int] = []
+	var tie_up := false
+
+	func _init(slip_size := 1, is_tie_up := false) -> void:
+		size = clampi(slip_size, 1, 3)
+		tie_up = is_tie_up
+
+	func fits(boat_size: int) -> bool:
+		return boat_size <= LARGEST_BOAT[size]
+
+	func size_name() -> String:
+		return SIZE_NAMES[size]
+
+	static func size_from_name(text: String) -> int:
+		return maxi(SIZE_NAMES.find(text.to_lower()), 1)
+
+
 class Route:
 	var key := ""                   # independent of the runtime array position
 	var id := 0
@@ -221,6 +287,13 @@ var map_seed := 0
 var half_size := 3300.0
 var islands: Array[Island] = []
 var routes: Array[Route] = []
+
+## Lane groups are keyed by route id; an idle terminal's one group by this.
+const NO_ROUTE := -1
+
+
+static func is_route(key: int) -> bool:
+	return key >= 0
 var marinas: Array[Marina] = []
 var quays: Array[FishQuay] = []
 var stations: Array[PilotStation] = []

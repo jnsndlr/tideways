@@ -7,7 +7,7 @@ class_name GameSettings
 
 const PATH := "user://settings.cfg"
 ## Bus name -> default volume.
-const VOLUMES := {"Master": 0.8, "Music": 0.7, "Radio": 0.8, "Effects": 0.7}
+const VOLUMES := {"Master": 0.8, "Music": 0.7, "Radio": 0.8, "Effects": 0.7, "Ambience": 0.7}
 
 static var _cfg: ConfigFile
 
@@ -40,6 +40,22 @@ static func set_volume(bus: String, v: float) -> void:
 	ensure()
 	_cfg.set_value("audio", bus.to_lower(), clampf(v, 0.0, 1.0))
 	_apply(bus)
+	_cfg.save(PATH)
+
+
+## On/off options under [display].
+const FLAGS := {"floating_costs": false}
+
+
+static func flag(key: String) -> bool:
+	ensure()
+	var stored: Variant = _cfg.get_value("display", key, FLAGS[key])
+	return stored if stored is bool else FLAGS[key]
+
+
+static func set_flag(key: String, on: bool) -> void:
+	ensure()
+	_cfg.set_value("display", key, on)
 	_cfg.save(PATH)
 
 
