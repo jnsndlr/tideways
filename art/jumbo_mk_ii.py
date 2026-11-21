@@ -2,6 +2,14 @@
 
 The two vehicle deck plans share a 3781.88 by 742.56 viewBox. Dimensions are
 metres, in the same Y-up frame and vertex-colour palette as the Issaquah.
+
+The game's cars are drawn a third over real size, so the real boat's four-lane
+tunnel won't fit them at her true 27.4 m beam. She is drawn at true size below
+and then stretched STRETCH in length and beam (not height, so her decks keep
+their levels), with her stair casings set further out (CASING_X) so the tunnel
+takes four lanes. Numbers the game wants, after the stretch (model metres):
+tunnel lanes x = +-1.7, +-5.1; wing lanes +-10.3, +-13.3; casings' faces at
++-7.22 and +-9.02; half length 79.1, half beam 15.47.
 """
 import bisect
 import math
@@ -9,7 +17,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 ART = Path(__file__).resolve().parent
 sys.path.insert(0, str(ART))
@@ -23,6 +31,8 @@ UPPER = 5.65
 PAX = 9.30
 SUN = 12.35
 BRIDGE = 15.25
+STRETCH = 1.128   # length and beam, applied to the finished model (build)
+CASING_X = 7.2    # the casings' centres before the stretch (8.12 after)
 
 # Starboard half of Main_Deck_Shape. Sample the Illustrator cubics including
 # the rounded apron nose; the parallel middle runs to z=29.9 m.
@@ -87,15 +97,36 @@ def hull():
                      hub+radial*1.77+tangent*.14, hub+radial*1.32+tangent*.50]
             loft([blade,[p+V(0,0,.15) for p in blade]], "bronze")
         loft([rect(0,-5.5,e*64,.24,1.18,.1), rect(0,.6,e*64.7,.32,1.9,.15)],"hull")
-        for x in [-3.45,0,3.45]:
-            # Edge stripes leave the middle of each through lane clear.
-            if x != 0:
-                box(V(x/2,MAIN+.012,e*32),(0.10,.018,64),"yellow")
+        for x in [-3.4,0,3.4]:
+            # Stripes between the four through lanes (at +-1.7, +-5.1 stretched).
+            box(V(x/STRETCH,MAIN+.012,e*32),(0.10,.018,64),"yellow")
 
 
 def skin(s, z0, z1, bottom, top, color):
     loft([slice_ring(s*(beam(z)-.32),s*(beam(z)-.10),z,bottom(z),top(z))
           for z in stations(z0,z1)],color)
+
+
+def car_port(s, left, right, sill, head):
+    def point(z, y, inset):
+        return V(s*(beam(z)-inset), y, z)
+
+    # Roll the four corners through the full thickness of the shell.
+    radius = .23
+    for z, dz in [(left,1), (right,-1)]:
+        for y, dy in [(sill,1), (head,-1)]:
+            profile = [(z,y)]
+            for k in range(6):
+                angle = k*math.pi/10
+                profile.append((z+dz*radius*(1-math.cos(angle)),
+                                y+dy*radius*(1-math.sin(angle))))
+            loft([[point(u,v,inset) for u,v in profile] for inset in (.10,.32)], "white")
+    mid_z, mid_y = (left+right)/2, (sill+head)/2
+    cyl(point(mid_z,sill,.21), point(mid_z,head,.21), .055,.055,8,"white")
+    cyl(point(left,mid_y,.21), point(right,mid_y,.21), .055,.055,8,"white")
+
+
+FORK_DEPTH = [(55.25,.30),(61.9,.30),(62.5,.40),(63.05,.62),(63.35,.69),(63.65,.69)]
 
 
 def sides():
@@ -104,16 +135,21 @@ def sides():
     for s in [-1,1]:
         bay = s * 40
         for lo, hi, end, color in [(MAIN,4.05,66.6,"green"), (4.05,4.30,61.9,"white"),
-                                   (5.39,6.22,61.9,"white"), (7.54,PAX,61.9,"white")]:
+                                   (5.39,6.22,61.9,"white"), (7.54,PAX-.30,61.9,"white")]:
             spans = [(-end, end)] if lo >= 5.39 else [(-end, bay-3.7), (bay+3.7, end)]
             for start, stop in spans:
                 skin(s,start,stop,lambda z:lo,lambda z:hi,color)
         for lo, hi, last, pitch, pier in [
             (4.30,5.39,43.6,4.0,.36),(6.22,7.54,53.6,4.0,.34)]:
-            for i in range(-int(last/pitch),int(last/pitch)+1):
-                if lo < 5 and abs(i*pitch-bay) < 3.7:
-                    continue
-                skin(s,i*pitch-pier/2,i*pitch+pier/2,lambda z:lo,lambda z:hi,"white")
+            edges = [-last] + [i*pitch for i in range(-int(last/pitch),int(last/pitch)+1)] + [last]
+            for z in edges[1:-1]:
+                if lo >= 5 or abs(z-bay) >= 3.7:
+                    skin(s,z-pier/2,z+pier/2,lambda z:lo,lambda z:hi,"white")
+            for left,right in zip(edges,edges[1:]):
+                left += pier/2 if left != -last else 0
+                right -= pier/2 if right != last else 0
+                if lo >= 5 or right <= bay-3.7 or left >= bay+3.7:
+                    car_port(s,left,right,lo,hi)
             for e in [-1,1]:
                 a,b = sorted([e*last,e*61.9])
                 skin(s,a,b,lambda z:lo,lambda z:hi,"white")
@@ -126,30 +162,50 @@ def sides():
             box(V(s*11.60,MAIN+.12,z),(1.65,.24,.22),"dark")
         # Curved cut-back seen in broadside at each end of the car deck.
         for e in [-1,1]:
-            rim = [(61.9,PAX),(63.6,PAX-.3),(62.7,8.2),(62.8,7.3),
-                   (63.6,5.8),(64.6,4.9),(66.2,4.55),(66.6,4.05),(61.9,4.05)]
-            loft([[V(s*(beam(z)-offset),y,e*z) for z,y in rim] for offset in [.32,.10]],"white")
+            # Trace the return in narrow horizontal strips. A single cap
+            # across this concave, curved plate bridges the notch on export.
+            rim = [(4.05,66.6),(4.18,65.7),(4.43,64.9),(4.9,64.15),
+                   (5.65,63.46),(6.55,63.03),(7.45,62.91),(8.12,63.04),
+                   (8.44,63.29),(8.61,63.65)]
+            def strip(y, tip):
+                zs = [61.9+(tip-61.9)*i/6 for i in range(7)]
+                return ([V(s*(beam(z)-.10),y,e*z) for z in zs] +
+                        [V(s*(beam(z)-.32),y,e*z) for z in reversed(zs)])
+            loft([strip(y,tip) for y,tip in rim],"white")
+            # Close the shoulder against the sloping underside of the fork.
+            shoulder = [(z,depth) for z,depth in FORK_DEPTH if 61.9 <= z <= 63.35]
+            for (a,da),(b,db) in zip(shoulder,shoulder[1:]):
+                for inset in (.10,.32):
+                    q = [V(s*(beam(z)-inset),y,e*z) for z,y in
+                         [(a,8.61),(a,PAX-da),(b,PAX-db),(b,8.61)]]
+                    face(q if (s*e > 0) == (inset == .10) else q[::-1],"white")
 
 
 def decks():
-    # Inner edge of the upper car deck from ramp_north/south in the upper
-    # SVG. The longitudinal section sets the break in slope at z=38.5.
-    # Beyond the outline at z=51, the lower drawing carries the ramp to the apron.
-    inner = [(0,5.5),(38.5,5.5),(43.2,7.65),(51.1,5.5),(59.0,4.45)]
-    outer = [(0,13.12),(32.7,13.10),(43.2,12.4),(49.7,11.10),(51.1,10.60),(59.0,8.25)]
+    # Both ramp kerbs turn with the shell. The broad parking deck narrows
+    # smoothly to a single lane before descending to the apron.
+    def ramp_edges(z):
+        outer = beam(z)-.33
+        blend = min(1,max(0,(z-32.2)/14))
+        blend = blend*blend*(3-2*blend)
+        width = (outer-(CASING_X-.95))*(1-blend) + (beam(59)-.33-4.45)*blend
+        return outer-width,outer
+
     for s in [-1,1]:
         for e in [-1,1]:
-            zs = sorted(set(stations(0,59) + [z for z,_ in inner+outer]))
-            def level(z):
-                return UPPER - (UPPER-MAIN)*max(0,z-38.5)/20.5
-            loft([slice_ring(s*sample(inner,z),s*sample(outer,z),e*z,
-                             level(z)-.16,level(z)) for z in zs],"deckp")
-            rail_loop([V(s*sample(inner,z),level(z),e*z) for z in zs if z >= 38.5],
-                      .74,"steel",closed=False)
+            road, rail = [], []
+            for z in sorted(set(stations(0,59,1) + [32.2,38.5])):
+                y = UPPER - (UPPER-MAIN)*max(0,z-38.5)/20.5
+                inside,outside = ramp_edges(z)
+                road.append(slice_ring(s*inside,s*outside,e*z,y-.16,y))
+                if z >= 38.5:
+                    rail.append(V(s*inside,y,e*z))
+            loft(road,"deckp")
+            rail_loop(rail,.74,"steel",closed=False)
             # The stair/elevator casings split the through lanes from the wings.
-            box(V(s*6.45,(MAIN+PAX)/2,e*16.1),(1.6,PAX-MAIN,32.2),"ceiling")
+            box(V(s*CASING_X,(MAIN+PAX)/2,e*16.1),(1.6,PAX-MAIN,32.2),"ceiling")
             for i in range(10):
-                box(V(s*6.45,MAIN+.15+i*.14,e*(34.6-i*.25)),(1.6,.3+i*.28,.27),"panel")
+                box(V(s*CASING_X,MAIN+.15+i*.14,e*(34.6-i*.25)),(1.6,.3+i*.28,.27),"panel")
         for z in range(-30,31,10):
             for x,y in [(s*10.2,UPPER-.21),(s*10.2,PAX-.31),(s*2.0,PAX-.31)]:
                 box(V(x,y,z),(.22,.08,1.0),"lamp")
@@ -164,63 +220,121 @@ def deck_plate(y, length, inset, thickness, top="deckp"):
     return rings[1]
 
 
-def glazed_house(z, y, height, hw, hd, cut, pitch, slope=0, roof="white", trim=.18):
-    # Windows follow each facet including the slanted corner lights. These
-    # dark panels remain legible at the game camera's normal ferry zoom.
-    base = rect(0,y,z,hw,hd,cut)
-    top = rect(0,y+height,z,hw+slope,hd+slope,cut)
-    # The deck below and the roof plate above already close the house.
-    loft([base,top],"white",caps=False)
-    for i,a in enumerate(base):
-        b = base[(i+1)%len(base)]
-        direction = b-a
-        length = direction.length
-        if length < .65:
-            continue
-        n = V(direction.z,0,-direction.x).normalized()
-        mid = (a+b)*.5
-        if n.dot(mid-V(0,y,z)) < 0:
-            n = -n
-        count = max(1,round(length/pitch))
-        for j in range(count):
-            t = (j+.5)/count
-            low = a.lerp(b,t)
-            high = top[i].lerp(top[(i+1)%len(top)],t)
-            at = low.lerp(high,.54) + n*(abs(slope)*.3+.035)
-            panel(at,n,length/count*.80,height*.46,.035,"glass" if roof=="green" else "window")
-    loft([rect(0,y+height,z,hw+slope+trim,hd+slope+trim,cut),
-          rect(0,y+height+.19,z,hw+slope+trim,hd+slope+trim,cut)],roof)
+def saloon_entrance(a,b,c,d,close_start=False,close_end=False,doors=False):
+    # Return the doorway around the corner to form an open, shaded vestibule.
+    offset = V(-math.copysign(.86,(a.x+b.x)/2),0,-math.copysign(1.05,a.z))
+    h,k = a.lerp(d,.84), b.lerp(c,.84)
+    face([h,d,c,k],"white")
+    face([h,k,k+offset,h+offset],"ceiling")
+    rear = [p+offset for p in (a,b,k,h)]
+    if doors:
+        # A pair of glazed leaves at the back of the sheltered entrance.
+        glazed_facet(*rear,(b-a).length/2,.25,.88,"glass")
+    else:
+        face([rear[0],rear[3],rear[2],rear[1]],"dkwall")
+    if close_start:
+        face([a,h,h+offset,a+offset],"white")
+    if close_end:
+        face([b+offset,k+offset,k,b],"white")
+
+
+def glazed_facet(a,b,c,d,pitch,sill,head,color,slant=0):
+    count = max(1, round((b-a).length/pitch))
+    for k in range(count):
+        left, right = k/count, (k+1)/count
+        lower = [a.lerp(b, t) for t in (left, right)]
+        upper = [d.lerp(c, t) for t in (left, right)]
+        low = [v.lerp(w, sill) for v,w in zip(lower,upper)]
+        high = [v.lerp(w, head) for v,w in zip(lower,upper)]
+        face([lower[0],low[0],low[1],lower[1]], "white")
+        face([high[0],upper[0],upper[1],high[1]], "white")
+        bottom = [0,.10,.90,1]
+        heads = [0, .48 if slant < 0 else .10, .52 if slant > 0 else .90, 1]
+        for i,key in enumerate(("white",color,"white")):
+            face([low[0].lerp(low[1],bottom[i]), high[0].lerp(high[1],heads[i]),
+                  high[0].lerp(high[1],heads[i+1]), low[0].lerp(low[1],bottom[i+1])], key)
+
+
+def solarium(e):
+    z = e*32.4
+    walls = rect(0,SUN,z,7.9,8.05,.85)
+    inside = rect(0,SUN,z,7.76,7.91,.77)
+    rise = V(0,2.57,0)
+    for i,a in enumerate(walls):
+        j = (i+1)%len(walls)
+        b = walls[j]
+        if e*(a.z+b.z)/2 < 25:
+            continue  # Open the inboard end and its two short corner returns.
+        glazed_facet(a,b,b+rise,a+rise,1.9,.31,.77,"window")
+        c,d = inside[i],inside[j]
+        glazed_facet(d,c,c+rise,d+rise,1.9,.31,.77,"window")
+        for outer,inner in ((a,c),(b,d)):
+            if abs(e*outer.z-25.20) < .001:
+                face([outer,inner,inner+rise,outer+rise],"white")
+    loft([rect(0,SUN+2.57,z,8.08,8.23,.85),
+          rect(0,SUN+2.76,z,8.08,8.23,.85)],"white")
+    for x in range(-3,4):
+        for j in range(6):
+            hface(rect(x*2.04,SUN+2.78,e*(25.9+j*2.57),.94,1.185),"glass")
 
 
 def passenger_deck():
-    deck_plate(PAX,55.25,.23,.30)
+    deck_plate(PAX,55.25,.10,.30)
     for e in [-1,1]:
+        rails = []
         # The lookout wings surround the notch above the vehicle entrance.
         for s in [-1,1]:
-            zs = stations(55.25,63.65)
+            zs = sorted(set(stations(55.25,63.65) + [z for z,_ in FORK_DEPTH]))
             inner = lambda z: 3.85 + (z-55.25)*.08
-            loft([slice_ring(s*inner(z),s*(beam(z)-.23),e*z,PAX-.30,PAX)
+            # The folded nose plate deepens over the last metre.
+            loft([slice_ring(s*inner(z),s*(beam(z)-.10),e*z,PAX-sample(FORK_DEPTH,z),PAX)
                   for z in zs],"white",cap_key="white")
             rail = [V(s*(beam(z)-.23),PAX,e*z) for z in zs]
             rail += [V(s*inner(z),PAX,e*z) for z in reversed(zs)]
-            rail_loop(rail,1.0,"green",closed=False)
-        rail_loop([V(-3.85,PAX,e*55.25),V(3.85,PAX,e*55.25)],1.0,"green",closed=False)
+            rails.append(rail)
+        rail_loop(rails[0] + rails[1][::-1],1.0,"green",closed=False)
     # Continuous passenger saloon following the hull taper, with end viewing decks.
     def width(z):
         return beam(z)-.39-max(0,abs(z)-50)*.28
     # The sun-deck plate is the saloon roof. End the walls at its underside
     # so the grey walkway has a single exposed surface all the way around.
-    rings = [outline(y,54.0,width,k) for y,k in [(PAX,1),(SUN-.25,.987)]]
-    loft(rings,"white",caps=False)
-    for s in [-1,1]:
-        for z in stations(-51.1,51.1,2.35):
-            derivative = (width(z+.05)-width(z-.05))/.1
-            n = V(s,0,-derivative).normalized()
-            panel(V(s*(width(z/.993)+.065),PAX+1.48,z),n,1.87,1.22,.05,"window",.14)
-    for e in [-1,1]:
-        for x in stations(-8,8,1.8):
-            panel(V(x,PAX+1.49,e*53.88),V(0,0,e),1.48,1.35,.035,"window")
-    edge = deck_plate(SUN,53.4,.37,.25)
+    # Ease each corner from the tapered side into the flat end wall.
+    side = [(width(z),z) for z in stations(0,51.5,2.35)]
+    start = V(side[-1][0],0,51.5)
+    corner = V(width(54),0,54)
+    end = corner - V(2.5,0,0)
+    for t in (.33,.67,1):
+        pt = start.lerp(corner,t).lerp(corner.lerp(end,t),t)
+        side.append((pt.x,pt.z))
+    starboard = [(x,-z) for x,z in reversed(side[1:])] + side
+    plan = starboard + [(-x,z) for x,z in reversed(starboard)]
+    base = [V(x,PAX,z) for x,z in plan]
+    top = [V(x,SUN-.25,z-math.copysign(max(0,abs(z)-50)*.18,z)) for x,z in plan]
+    for i,a in enumerate(base):
+        j = (i+1)%len(base)
+        b,c,d = base[j],top[j],top[i]
+        z = abs((a.z+b.z)/2)
+        if abs(a.z-b.z) < .001:
+            # Split the forward wall at the two fork landings.
+            for u,v,portal in [(0,.18,True),(.18,.82,False),(.82,1,True)]:
+                wall = a.lerp(b,u),a.lerp(b,v),d.lerp(c,v),d.lerp(c,u)
+                if portal:
+                    saloon_entrance(*wall,close_start=u>0,close_end=v<1,doors=True)
+                else:
+                    glazed_facet(*wall,1.45,.30,.76,"window")
+        elif z > 50:
+            saloon_entrance(a,b,c,d,close_start=abs(a.z)<50,close_end=abs(b.z)<50)
+        elif z > 40:
+            face([a,d,c,b],"white")
+        else:
+            slant = 0
+            if z > 37.5:
+                slant = 1 if abs(b.z)>abs(a.z) else -1
+            glazed_facet(a,b,c,d,2.35,.30,.76,"window",slant)
+    edge = [p + V(0,.25,0) for p in top]
+    loft([top,edge],"white",caps=False)
+    hface(top,"ceiling",False)
+    hface(edge,"deckp")
     # The public walkway has a solid white windbreak around each bridge base.
     for s in [-1, 1]:
         side = [p for p in edge if s*p.x > 0 and abs(p.z) < 41]
@@ -228,12 +342,58 @@ def passenger_deck():
     for e in [-1, 1]:
         end = sorted([p for p in edge if p.x > 0 and e*p.z > 38], key=lambda p: e*p.z)
         path = end + [V(-p.x, p.y, p.z) for p in reversed(end)]
-        rings = []
-        for p in path:
-            height = min(.88, (e*p.z - 38)*.32)
-            inside = V(p.x*.984, p.y, p.z - e*.19)
-            rings.append([p, inside, inside+V(0,height,0), p+V(0,height,0)])
-        loft(rings, "white")
+        windbreak_with_wings(path,e)
+
+
+def windbreak_with_wings(path,e):
+    # Split the top of the windbreak at each plate foot. Both meshes then
+    # share the same two seams across the full thickness of the railing.
+    height = .88
+    rise = BRIDGE-.26-SUN
+    fraction = height/rise
+    foot_z = 42.88+(44.13-42.88)*fraction
+    half_run = .80+(.54-.80)*fraction
+    points = [path[0]]
+    for a,b in zip(path,path[1:]):
+        za,zb = e*a.z,e*b.z
+        cuts = sorted((z for z in (foot_z-half_run,foot_z+half_run)
+                       if min(za,zb)<z<max(za,zb)),reverse=za>zb)
+        points.extend(a.lerp(b,(z-za)/(zb-za)) for z in cuts)
+        points.append(b)
+
+    rail = []
+    for p in points:
+        inside = V(p.x*.984,p.y,p.z-e*.19)
+        up = V(0,min(height,(e*p.z-38)*.32),0)
+        rail.append([p,inside,inside+up,p+up])
+
+    def plate_head(ring):
+        offset = (e*ring[0].z-foot_z)/half_run
+        z = e*(44.13+.54*offset)
+        side = math.copysign(1,ring[0].x)
+        return V(side*12.03,BRIDGE-.26,z), V(side*12.23,BRIDGE-.26,z)
+
+    def surface(vertices):
+        face(vertices[::-1] if e>0 else vertices,"white")
+
+    surface(rail[0][::-1])
+    surface(rail[-1])
+    for a,b in zip(rail,rail[1:]):
+        carries_plate = abs(e*(a[0].z+b[0].z)/2-foot_z)<half_run
+        for i in range(4):
+            if i == 2 and carries_plate:
+                continue
+            j = (i+1)%4
+            surface([a[i],a[j],b[j],b[i]])
+        if carries_plate:
+            ai,ao = plate_head(a)
+            bi,bo = plate_head(b)
+            surface([a[2],ai,bi,b[2]])
+            surface([ao,a[3],b[3],bo])
+            if abs(abs(e*a[0].z-foot_z)-half_run)<.0001:
+                surface([a[3],ao,ai,a[2]])
+            if abs(abs(e*b[0].z-foot_z)-half_run)<.0001:
+                surface([b[2],bi,bo,b[3]])
 
 
 def bridge_ring(half_plan, e, y):
@@ -276,8 +436,6 @@ def pilothouse(e):
         rail_loop(rail, .99, "green", step=1.45, closed=False)
         torus(V(s*10.63,BRIDGE+.55,e*45.79), V(.07*s,0,e), .30,.085,16,6,"orange")
         box(V(s*12.57,BRIDGE+.45,e*44.85), (.16,.90,1.04), "green")
-        cyl(V(s*12.13,SUN,e*44.05), V(s*12.13,BRIDGE-.26,e*44.05),
-            .09,.09,8,"white")
         # The narrow grated ledge below the forward windows follows the bow.
         nose = [V(s*x, BRIDGE-.07, e*z) for x,z in edge[10:]]
         for a,b in zip(nose, nose[1:]):
@@ -338,14 +496,21 @@ def pilothouse(e):
 
 
 def upper_works():
-    glazed_house(0,SUN,2.65,8.4,19.4,2.3,2.5,slope=-.7)
-    glazed_house(0,SUN+2.82,.95,6.9,12.4,1.4,2.2,slope=-.5)
+    base = rect(0,SUN,0,8.4,19.4,2.3)
+    roof = rect(0,SUN+2.82,0,7.7,18.7,2.3)
+    for i,a in enumerate(base):
+        j = (i+1)%len(base)
+        glazed_facet(a,base[j],roof[j],roof[i],2.5,.31,.77,"window")
+    hface(roof,"white")
+    upper = rect(0,SUN+3.96,0,6.4,11.9,1.4)
+    loft([rect(0,SUN+2.82,0,6.9,12.4,1.4),upper],"white",caps=False)
+    hface(upper,"white")
     # Green-based, louvred central stack and raised black rain cap.
     y = SUN+3.96
     for bot,top,hw0,hw1,hd0,hd1,col in [
         (0,.58,3.1,3.0,6.45,6.3,"green"),(.58,4.25,3,2.48,6.3,4.8,"white"),
         (4.25,4.47,2.6,2.6,4.96,4.96,"dark")]:
-        loft([rect(0,y+bot,0,hw0,hd0,.55),rect(0,y+top,0,hw1,hd1,.55)],col)
+        loft([rect(0,y+bot,0,hw0,hd0,.55),rect(0,y+top,0,hw1,hd1,.55)],col,caps=bot>0)
     for e in [-1,1]:
         for i in range(4):
             h=1.05+i*.78
@@ -356,11 +521,7 @@ def upper_works():
     loft([rect(0,y+5.28,0,3.0,5.72,.8),rect(0,y+5.47,0,3.0,5.72,.8)],"dark")
 
     for e in [-1,1]:
-        # Skylights over the solarium, in panels between white roof mullions.
-        glazed_house(e*32.4,SUN,2.57,7.9,8.05,.85,1.9)
-        for x in range(-3,4):
-            for j in range(6):
-                box(V(x*2.04,SUN+2.81,e*(25.9+j*2.57)),(1.88,.075,2.37),"pane")
+        solarium(e)
         pilothouse(e)
         # Fin mast with two forward-facing radar platforms, matching both ends.
         cyl(V(0,SUN+.16,e*53.05),V(0,SUN+3.8,e*60.25),.12,.045,6,"white")
@@ -411,6 +572,20 @@ def stowed_boats(parts):
         parts["fixed"].append(boat)
 
 
+def stretch(parts):
+    # Lengthen and widen everything by STRETCH about the midships waterline,
+    # heights unchanged. The rescue boats keep their size and move with their bays.
+    flat = Matrix.Diagonal((STRETCH, STRETCH, 1.0, 1.0))
+    for objects in parts.values():
+        for ob in objects:
+            if ob.name.startswith("Rescue boat"):
+                ob.location.x *= STRETCH
+                ob.location.y *= STRETCH
+                continue
+            m = ob.matrix_world.copy()
+            ob.data.transform(m.inverted() @ flat @ m)
+
+
 def build():
     # Generate an editable source with deck groups, then a role-batched GLB
     # for Tideways' vertex-colour, night-light and shadow handling.
@@ -426,6 +601,7 @@ def build():
             ob.name = name + " - " + role
             parts.setdefault(role,[]).append(ob)
     stowed_boats(parts)
+    stretch(parts)
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type == "VIEW_3D":
