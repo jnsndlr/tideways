@@ -292,6 +292,8 @@ Each boat has scores for Reliability, Morale, Safety, Service and engineering. I
 
 Each boat has one named captain, with five stats: Seamanship, Leadership, Efficiency, Hospitality and Safety. Personalities such as Old Salt, Mentor or Strict add character. Worse captains can wear a boat faster.
 
+**Shore clearance (planned, noted 2026-11-21).** 150 m off land is the clearance every route tries for. A skilled captain may take a boat closer, down to 100 m or even 50 m, which opens shorter lines through narrow channels. A less confident captain keeps the full 150 m and takes the longer way round where a channel is tight. For example, Ines Halloran can go within 50 m of shore, while Bo Tran keeps 150 m. On a route with plenty of sea room it makes no difference who is in command. On a route that threads close to land, Halloran's crossing is shorter and Bo is better kept on routes with open water. The player sees this in the crossing forecast when choosing a captain. Not built yet: today every route uses the one map-wide clearance.
+
 ### Pay and Events
 
 - Players set pay per role and pick a benefits tier: minimal, standard or excellent.
@@ -415,7 +417,7 @@ Decided in stage 4 (2026-11-21):
 
 - A scenario map plans a route between every pair of its terminals in reach, so a schedule can be edited onto any of them in play. Only routes a schedule sails are in service: they show on the map and draw traffic. This replaces the stage 2 rule that no link exists without a schedule. The rule is now that no service exists without one.
 - The stop editor (ferry panel, Edit stops) lists a boat's stops in turn. A terminal she can't call at next is greyed out with the reason: no route, or a slip too small for her. A new list must keep the terminal she calls at next. She finishes her crossing and takes the new stops there. Cars aboard for a stop she no longer reaches drive off there, and the lanes at every terminal divide again among the new destinations.
-- On the authored map (any scenario), routes have no distance limit. Where land lies between two terminals, the route goes round it in as few straight legs as it can, keeping 0.3 mi off land in open water and tapering in near each terminal. Where no route can keep that much, it keeps 60% of it, then 30%. The clearance and taper are constants in `MapGenerator` to tune by eye. Sandbox's generated networks keep their old rules for now: links within 3,100 m, direct routes only.
+- On the authored map (any scenario), routes have no distance limit. Where land lies between two terminals, the route goes round it in as few straight legs as it can, keeping 150 m off land in open water and tapering in near each terminal (0.3 mi was tried first, but no channel between Madrona, Cypress and Gullrock is wide enough for it). Where no route can keep that much, it keeps 60% of it, then 30%. The clearance and taper are constants in `MapGenerator` to tune by eye. Captains will later vary the clearance (see Captains). Sandbox's generated networks keep their old rules for now: links within 3,100 m, direct routes only.
 - The authored map's routes are planned once and saved per scenario in `maps/routes/`, so Play loads them instead of planning. They are planned again only when the islands, a scenario's terminals or links, or the planner change: `tools/bake_routes.gd`, or automatically on the next desktop run.
 
 ---

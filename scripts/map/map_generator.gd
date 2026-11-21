@@ -31,17 +31,18 @@ const MAX_SPREAD := deg_to_rad(160.0)  # widest arc of neighbours one terminal s
 const MIN_CROSSING := 270.0    # dock to dock, so a ferry has room to line up both ends
 const MAX_DETOUR := 1.6       # route length over the dock-to-dock distance
 const MAX_TURN := deg_to_rad(200.0)    # total heading change along a route
-## How far a route keeps off land in open water (0.3 mi). Near a terminal it
+## How far a route keeps off land in open water (150 m; 0.3 mi was wider than
+## the authored map's channels). Near a terminal it
 ## tapers in: none extra out to CLEARANCE_TAPER_FROM from the dock, then
 ## CLEARANCE_SLOPE metres more per metre further out, up to this.
-const LAND_CLEARANCE := 0.3 * 1609.344
+const LAND_CLEARANCE := 150.0
 const CLEARANCE_TAPER_FROM := 150.0
 const CLEARANCE_SLOPE := 1.0
 ## Where no route keeps the full clearance, these fractions of it are tried in
 ## turn before the old rule (just afloat, 18 m either side).
 const CLEARANCE_STEPS := [1.0, 0.6, 0.3]
 ## Bump when the planner changes, so saved routes are planned again.
-const ROUTE_PLANNER_VERSION := 2
+const ROUTE_PLANNER_VERSION := 3
 
 
 ## A random map: rolls a layout from `map_seed`, then builds it.
@@ -691,11 +692,14 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 			break
 	if c == null:
 		c = _direct_curve(pa, na, pb, nb, route_id, 0.0)
+	# Its own points (not the baked ones), so the curve rebuilt from them bakes
+	# the same and passes the same checks.
 	var flat: Array = []
 	if c != null:
-		for p in c.get_baked_points():
-			flat.append(snappedf(p.x, 0.01))
-			flat.append(snappedf(p.z, 0.01))
+		for i in c.point_count:
+			var p := c.get_point_position(i)
+			flat.append(p.x)
+			flat.append(p.z)
 	_route_memo[key] = flat
 	_memo_dirty = true
 	return _curve_of(flat) if c != null else null
