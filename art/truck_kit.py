@@ -587,13 +587,124 @@ def delivery_wheels(p, front_axle, rear_axle, x):
             poly(rings[0],"under",V(-sx,0,0))
 
 
+def delivery_cab(s):
+    """A medium-duty cab with a crowned hood, swept fenders and wraparound glass."""
+    p = s.p
+    nose = s.zF - .13
+    cowl = s.zF - .26 - p["hood"]
+    back = s.zb = cowl - p["cab"]
+    brow = cowl - .36
+    belt, roof = 1.67, p["roof"]
+    # The grille leads the fender tips. Carry the wheel opening past the hood seam.
+    arch_r = p["r"] + .095
+    heel = s.zfa - arch_r - .045
+    def hood_ring(z):
+        u = min(1, max(0, (nose-z)/(nose-cowl)))
+        crown = 1.30 + .35*u + .075*math.sin(math.pi*u)
+        shoulder = 1.065 + .29*u + .13*math.sin(math.pi*u)
+        width = lerp(1.06, 1.25, min(1, (nose-z)/.40))
+        bottom = arch_bottom(z, .66, (s.zfa,), p["r"], arch_r)
+        aft = max(0, (s.zfa-z)/(s.zfa-heel))
+        shoulder = max(bottom+.16, shoulder-.29*aft*aft)
+        width -= .105*aft*aft
+        sweep = max(0, 1-(nose-z)/.55)
+        points = [(0,crown,0),(.47+.23*u,crown-.018,0),
+                  (.62+.20*u,crown-.095,.03),(.72+.15*u,shoulder+.05,.075),
+                  (width-.09,shoulder,.12),(width,shoulder-.10,.16),
+                  (width,bottom,.16)]
+        half = [V(x,y,z-sweep*setback) for x,y,setback in points]
+        return half + [mx(q) for q in reversed(half[1:])]
+    stations = {nose,nose-.13,nose-.40,cowl,heel}
+    for i in range(9):
+        stations.add(s.zfa + arch_r*math.cos(math.pi*i/8))
+    rings = [hood_ring(z) for z in sorted(stations,reverse=True)]
+    loft(rings, lambda i,j: "under" if j == 6 else "body", caps=False)
+    # Close the curved fascia in strips so the swept lamp faces have real support.
+    front = rings[0]
+    for i in range(6):
+        a,b = front[i:i+2]
+        if abs(a.x-b.x) > .001:
+            poly([a,b,V(b.x,.66,b.z),V(a.x,.66,a.z)], "body", V(0,0,1), True)
+    poly(rings[-1], "body", V(0,0,-1))
+
+    def grille(hw, low, high, depth, key):
+        outline = [(-hw+.07,low), (hw-.07,low), (hw,high-.065), (hw-.05,high),
+                   (-hw+.05,high), (-hw,high-.065)]
+        poly([V(x,y,nose+depth) for x,y in outline], key, V(0,0,1))
+    grille(.574,.69,1.255,.017,"silver")
+    grille(.525,.73,1.211,.024,"trim")
+    for i in range(-6,7):
+        x = i*.074
+        fdecal(nose+.024,x-.011,x+.011,.761,1.183,"grey")
+    for key, outline, offset in (
+            ("gunmetal",[(.62,.735),(1.015,.76),(1.036,.90),(.978,.959),(.69,.934)],.016),
+            ("head",[(.646,.762),(.966,.782),(.979,.886),(.948,.924),(.705,.905)],.025),
+            ("amber",[(.975,.79),(1.007,.795),(1.016,.876),(.987,.89)],.028)):
+        poly([V(x,y,nose-.025-(x-.62)*.285+offset) for x,y in outline],
+             key,V(.30,0,1),True)
+    s.head = V(.813,.845,nose-.064)
+    # A bumper with a recessed lower intake and corners swept back below the lamps.
+    loft([rrect(z,w,.38,top,.045,.04) for z,w,top in
+          ((s.zF,.84,.67),(s.zF-.10,1.12,.69),(s.zF-.23,1.18,.70),
+           (s.zF-.43,1.18,.69))], "gunmetal")
+    fdecal(s.zF,-.50,.50,.445,.558,"trim")
+    fdecal(s.zF+.008,-.125,.125,.415,.502,"plate")
+
+    # The lower door starts over the back of the arch, then drops to the step.
+    hw = 1.075
+    side = [(cowl,belt),(back,belt),(back,.83),(heel-.13,.83),(heel+.06,1.02),(cowl,1.15)]
+    poly([V(hw,y,z) for z,y in side], "body", V(1,0,0), True)
+    poly([V(hw,.83,back),V(-hw,.83,back),V(-hw,belt,back),V(hw,belt,back)],"body",V(0,0,-1))
+    def cabin_ring(y, w, z):
+        half = [V(0,y,z+.045), V(w-.15,y,z), V(w,y,z-.12), V(w,y,back+.065),
+                V(w-.075,y,back)]
+        return half + [mx(q) for q in reversed(half[1:])]
+    lower_front = cabin_ring(1.14, hw, cowl)
+    base = cabin_ring(belt,hw,cowl)
+    for i in (0,1):
+        poly([lower_front[i],lower_front[i+1],base[i+1],base[i]], "body", V(0,0,1), True)
+    top = cabin_ring(roof-.065,hw-.055,brow)
+    loft([base,top,cabin_ring(roof,hw-.12,brow-.035)],"body")
+    # Apply each pane to its own facet, including the windshield's corner returns.
+    def pane(segment, u0, u1, low, high, key, offset):
+        i = segment
+        across = lambda ring,u: lerp(ring[i],ring[i+1],u)
+        out = V(1,0,0) if i == 2 else V(0,0,1)
+        def pt(u,t):
+            return lerp(across(base,u),across(top,u),t)+out*offset
+        poly([pt(u0,low),pt(u1,low),pt(u1,high),pt(u0,high)],key,out,True)
+    for i in (0,1):
+        pane(i,0,1,.025,.98,"trim",.007)
+        pane(i,0,1 if i == 0 else .82,.09,.91,"glass",.013)
+    # Two parked wipers break up the broad pane at close range.
+    def blade(u,t):
+        return lerp(lerp(base[0],base[1],u),lerp(top[0],top[1],u),t) + V(0,0,.018)
+    poly([blade(.09,.13),blade(.83,.18),blade(.83,.198),blade(.09,.148)],
+         "gunmetal", V(0,0,1), True)
+    pane(2,.075,.94,.035,.975,"trim",.007)
+    pane(2,.115,.90,.11,.90,"glass",.015)
+    for sx in (-1,1):
+        for y in (1.77,2.29):
+            bar(V(sx*1.065,y,cowl-.54),V(sx*1.26,y,cowl-.46),.032,.036,"trim")
+        box(V(sx*1.27,2.05,cowl-.46),(.095,.47,.15),"trim")
+        box(V(sx*.96,.69,(back+heel)/2),(.30,.25,heel-back+.10),"gunmetal")
+        for y in (.51,.82):
+            box(V(sx*1.005,y,(back+heel)/2),(.32,.055,heel-back+.12),"silver")
+    sdecal(hw,back+.13,back+.27,1.33,1.43,"trim")
+    for x in (-.87,-.19,0,.19,.87):
+        box(V(x,roof+.018,brow-.15),(.075,.045,.10),"amber")
+
+
 def build_straight(p):
     s = TS(); s.p = p
     PAL["body"] = p["paint"]
     s.zF, s.zR = p["L"] / 2, -p["L"] / 2
     s.zfa = s.zF - p["fo"]
     rear = [s.zfa - p["wb"]] if not p["tandem"] else [s.zfa - p["wb"] + 0.66, s.zfa - p["wb"] - 0.66]
-    md_cab(s)
+    if p["body"] == "box":
+        delivery_cab(s)
+    else:
+        md_cab(s)
     z0 = s.zb - p["body_gap"]
     frame(s, s.zF - 0.3, s.zR + 0.2)
     if p["body"] == "tank":
@@ -608,7 +719,7 @@ def build_straight(p):
         # Door flash ties a randomly painted cab to its fixed cargo body.
         cowl = s.zF - 0.26 - p["hood"]
         for y, thickness, key in ((1.45, .12, ink), (1.59, .035, "silver")):
-            sdecal(p["cab_w"] / 2, s.zb + .22, cowl - .09, y, y + thickness, key)
+            sdecal(1.075, s.zb + .22, cowl - .09, y, y + thickness, key)
         # Recesses on the discs read as steel wheels from the ferry deck.
         for z in (s.zfa, rear[0]):
             for i in range(5):
