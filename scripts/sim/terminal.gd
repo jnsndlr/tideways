@@ -21,6 +21,9 @@ var lanes := {}        # route id -> Array[Lane]
 var slip_v := {}       # route id -> lateral offset of that route's slip
 var ramps := {}        # route id -> SlipRamp (none with the classic slip)
 var guides := {}       # route id -> SlipGuides (none with the classic slip)
+# Which way (+1 / -1 across the slips, the terminal frame's x) the flood tide sets a
+# ferry lying alongside here; the ebb sets her the other way.
+var flood_side := 1.0
 var work_stage := WorkStage.IDLE
 var staging_lanes: Array[Lane] = []
 # Cars dispatched from the terminal may still be driving through their old lane.
@@ -111,6 +114,7 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 	island = isl
 	name = isl.name + " Terminal"
 	transform = isl.terminal_xform()
+	flood_side = 1.0 if hash(isl.key if isl.key != "" else str(isl.id)) % 2 == 0 else -1.0
 	var lane_sets := Layout.lane_positions(isl.lot_half_width, isl.slips.size())
 	for i in isl.slips.size():
 		var rid := isl.slips[i]
@@ -128,6 +132,12 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 			arr.append(Lane.new(v))
 		lanes[rid] = arr
 	_build_road_paths()
+
+
+## Which way across the slips (+1 / -1, the terminal frame's x) the tide sets a docked
+## ferry now: the flood one way, the ebb the other.
+func lie_side() -> float:
+	return flood_side if sim.tide().y > 0.0 else -flood_side
 
 
 ## Sizes each slip's guides for the widest ferry its route runs (`widest`: route id ->

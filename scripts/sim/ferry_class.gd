@@ -378,6 +378,17 @@ func waterline() -> PackedFloat32Array:
 	return _waterline
 
 
+## Her half beam at the waterline `z` along the hull (her frame), 0 past her ends.
+func half_width_at(z: float) -> float:
+	var wl := waterline()
+	var n := wl.size() - 2
+	var f := (z + half_length - wl[0]) / wl[1] * (n - 1)
+	if f < 0.0 or f > n - 1:
+		return 0.0
+	var i := mini(int(f), n - 2)
+	return lerpf(wl[2 + i], wl[3 + i], f - i)
+
+
 func half_seg() -> float:
 	return half_length - hull_radius
 

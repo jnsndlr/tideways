@@ -14,6 +14,11 @@ extends Node3D
 ## models' own animations press them) and they ease there.
 
 const LANTERN := 3.9
+# Each wing wall stands this far clear of the landed end of the widest hull the slip
+# takes, so a landing off the centre of the slip rides it.
+const WALL_CLEAR := 0.3
+const WALL_ANGLES := Vector2i(14, 40)   # the splays (degrees off the centreline) a wall may take
+const WALL_V_MIN := 8.0
 # How quickly the parts ease to their targets (per second).
 const EASE := 2.5
 # How far below the seabed a pile is carried, so it never shows a gap on a slope.
@@ -140,12 +145,12 @@ func _apply() -> void:
 			bushing.set_blend_shape_value(0, w.squish * w.peak)
 
 
-## A wing wall along Layout.WING_WALL on `side`: its face on the line, towards the
-## slip, its piles behind.
+## A wing wall on `side` fitted to the slip (_wall_line): its face on the line,
+## towards the slip, its piles behind.
 func _add_wall(mb: MeshBuilder, side: float) -> void:
-	var ww: Array = Layout.WING_WALL
-	var w0: Vector2 = ww[0]
-	var w1: Vector2 = ww[ww.size() - 1]
+	var line := _wall_line(FerryClass.of(size))
+	var w0: Vector2 = line[0]
+	var w1: Vector2 = line[1]
 	var p0 := Vector3(side * w0.y, 0, w0.x)
 	var p1 := Vector3(side * w1.y, 0, w1.x)
 	var along := (p1 - p0).normalized()
@@ -174,6 +179,49 @@ func _add_wall(mb: MeshBuilder, side: float) -> void:
 		w.full = w.rest + peak[0]
 		w.peak = peak[1]
 		walls.append(w)
+
+
+## The starboard wing wall's face (its ends, u and v off the centreline) fitted to the
+## landed end of a `fc` hull lying straight in the slip, the way slips' wing walls hug
+## their ferries' bows: from Layout.WING_WALL's first u, splayed whichever of
+## WALL_ANGLES follows her outline most closely, WALL_CLEAR off her where it comes
+## nearest, and never in nearer the centreline than WALL_V_MIN (clear of the apron).
+static func _wall_line(fc: FerryClass) -> Array[Vector2]:
+	var u0: float = (Layout.WING_WALL[0] as Vector2).x
+	var length := Layout.WING_LENGTH
+	var end_u := SlipRamp.dock_end(fc.half_length - fc.net_z - 0.35)
+	var hull: Array[Vector2] = []
+	var k := 0.2
+	while k < 30.0:
+		var hw := fc.half_width_at(-fc.half_length + k)
+		if hw > 0.0:
+			hull.append(Vector2(end_u + k, hw))
+		k += 0.5
+	var best: Array[Vector2] = [Vector2(u0, (Layout.WING_WALL[0] as Vector2).y), Layout.WING_WALL[1]]
+	var snuggest := INF
+	for deg in range(WALL_ANGLES.x, WALL_ANGLES.y + 1):
+		var a := deg_to_rad(deg)
+		var dir := Vector2(cos(a), sin(a))
+		var n := Vector2(sin(a), -cos(a))     # towards the centreline
+		var span: Array[Vector2] = []
+		for q in hull:
+			if q.x >= u0 and q.x <= u0 + length * dir.x:
+				span.append(q)
+		if span.is_empty():
+			continue
+		# Clearance of a point is (q - w0).n: its own part plus v0 * cos(a).
+		var nearest := INF
+		for q in span:
+			nearest = minf(nearest, (q - Vector2(u0, 0.0)).dot(n))
+		var v0 := maxf(WALL_V_MIN, (WALL_CLEAR - nearest) / cos(a))
+		var mean := 0.0
+		for q in span:
+			mean += (q - Vector2(u0, v0)).dot(n)
+		mean /= span.size()
+		if mean < snuggest:
+			snuggest = mean
+			best = [Vector2(u0, v0), Vector2(u0, v0) + dir * length]
+	return best
 
 
 ## A dolphin from `glb` whose fender face lies `face` off the centreline on `side` at

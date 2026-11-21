@@ -144,6 +144,17 @@ func _process(_delta: float) -> bool:
 	var ramp: SlipRamp = _term.ramps.get(_f.route.id)
 	print("shot ", path, " ", Ferry.State.keys()[_f.state], " ", _f.status_text(),
 		" span ", ramp._span_t if ramp else -1.0, " apron ", ramp._apron_t if ramp else -1.0)
+	# How far she lies over, and the fenders she presses in (side, u: squish).
+	var guides: SlipGuides = _term.guides.get(_f.route.id)
+	if guides:
+		var pressed := []
+		for fd in guides.fenders:
+			if fd.squish > 0.01:
+				pressed.append("%+d,%.0f:%.2f" % [int(fd.side), fd.u, fd.squish])
+		var walls := []
+		for w in guides.walls:
+			walls.append("%+d:%.2f" % [int(w.side), w.squish])
+		print("  lie %.2f° tide side %+d  fenders %s  walls %s" % [rad_to_deg(_f._lie), int(_term.lie_side()), pressed, walls])
 	_shot += 1
 	if _left_at < 0 and _f.state == Ferry.State.SAILING and _f.here() == _term:
 		_left_at = _shot
