@@ -1,0 +1,47 @@
+[gd_scene format=3]
+
+[ext_resource type="Material" path="res://assets/models/coastal_houses/house_colors.tres" id="Colors"]
+[ext_resource type="PackedScene" path="res://assets/models/coastal_houses/parts/contemporary.glb" id="Shell"]
+[ext_resource type="PackedScene" path="res://assets/models/coastal_houses/parts/single_shed.glb" id="Roof"]
+[ext_resource type="PackedScene" path="res://assets/models/coastal_houses/parts/view_terrace.glb" id="Porch"]
+[ext_resource type="PackedScene" path="res://assets/models/coastal_houses/parts/view_terrace_site.glb" id="LevelSite"]
+
+[node name="contemporary_single_shed_view_terrace" type="Node3D"]
+
+[node name="Shell" parent="." instance=ExtResource("Shell")]
+
+[node name="Roof" parent="." instance=ExtResource("Roof")]
+
+[node name="Porch" parent="." instance=ExtResource("Porch")]
+
+[node name="LevelSite" parent="." instance=ExtResource("LevelSite")]
+
+[node name="KitContemporarySiding" parent="Shell"]
+material_override = ExtResource("Colors")
+
+[node name="KitContemporaryDetails" parent="Shell"]
+material_override = ExtResource("Colors")
+
+[node name="KitContemporaryRoofFinish" parent="Shell"]
+material_override = ExtResource("Colors")
+
+[node name="KitSingleShedSiding" parent="Roof"]
+material_override = ExtResource("Colors")
+
+[node name="KitSingleShedDetails" parent="Roof"]
+material_override = ExtResource("Colors")
+
+[node name="KitSingleShedRoofFinish" parent="Roof"]
+material_override = ExtResource("Colors")
+
+[node name="KitViewTerraceDetails" parent="Porch"]
+material_override = ExtResource("Colors")
+
+[node name="KitViewTerraceSiteDetails" parent="LevelSite"]
+material_override = ExtResource("Colors")
+
+[node name="PorchLight" type="Marker3D" parent="."]
+position = Vector3(-2.3100, 2.4200, 3.2600)
+
+[node name="Entry" type="Marker3D" parent="."]
+position = Vector3(-3.0400, 0.4900, 4.6400)

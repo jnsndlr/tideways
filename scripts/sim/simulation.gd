@@ -196,7 +196,7 @@ func _ferry_sizes() -> Array[int]:
 		if arg.begins_with("--ferry-sizes="):
 			var forced := arg.substr(14).split(",")
 			for i in sizes.size():
-				sizes[i] = clampi(int(forced[i % forced.size()]), 1, 5)
+				sizes[i] = clampi(int(forced[i % forced.size()]), 1, FerryClass.MAX_SIZE)
 	return sizes
 
 

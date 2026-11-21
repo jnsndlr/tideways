@@ -88,6 +88,9 @@ uniform float kelvin_wavelength = 5.5;
 uniform float kelvin_height = 0.2;
 uniform int wake_count = 0;
 uniform vec4 wake_box[16];
+// Eight groups of six trail segments per slot; four wash radii per vec4.
+uniform vec4 wake_group_box[128];
+uniform vec4 wake_group_radius[32];
 uniform vec4 wake_info[16];
 uniform vec4 wake_hull[16];
 uniform vec4 wake_shape[16];
@@ -488,10 +491,14 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 
 		// Reverse thrust: from the outer dolphins in, the forward prop throws the
 		// same churned wash out ahead of the bow, streaming forwards into the slip.
+		// Negative: lying alongside, she pushes ahead to hold herself in, and the
+		// seaward prop's gentler wash streams out astern, away from the slip.
 		float thrust = wake_info[f].w;
-		if (thrust > 0.0) {
-			vec2 bow_p = wake_pts[base].xy;
-			vec2 fdir = normalize(bow_p - wake_pts[base + 1].xy + vec2(1e-5, 0.0));
+		if (thrust != 0.0) {
+			bool aft = thrust < 0.0;
+			thrust = abs(thrust);
+			vec2 bow_p = wake_pts[base + (aft ? 1 : 0)].xy;
+			vec2 fdir = normalize(bow_p - wake_pts[base + (aft ? 0 : 1)].xy + vec2(1e-5, 0.0));
 			vec2 fperp = vec2(-fdir.y, fdir.x);
 			vec2 rel = p - bow_p;
 			float ah = dot(rel, fdir);
@@ -509,7 +516,7 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 				// Fans out into a cone: ~50% wider at the far end than at the bow.
 				float cone = 1.0 + 0.5 * clamp(ah / reach, 0.0, 1.0);
 				prop_wash(hw, abs(fl) / cone, fl < 0.0 ? -1.0 : 1.0, dot(p, fdir) - t * JET_SPEED, max(ah, 0.0), ah,
-						max(ah, 0.0) / JET_AGE, fstr, fperp, -fdir, ride, t, lod, 1.0, JET_VIO, foam, aer, grad);
+						max(ah, 0.0) / JET_AGE, fstr, fperp, -fdir, ride, t, lod, 1.0, aft ? 1.0 : JET_VIO, foam, aer, grad);
 			}
 		}
 
@@ -530,48 +537,63 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 		float c2 = 0.0;
 		int i2 = -1;
 		float r2 = 0.0;
-		for (int i = 0; i < WAKE_PTS - 1; i++) {
-			if (i >= n - 1) {
+		for (int group = 0; group < 8; group++) {
+			int first = group * 6;
+			if (first >= n - 1) {
 				break;
 			}
-			vec2 a = wake_pts[base + i].xy;
-			vec2 ab = wake_pts[base + i + 1].xy - a;
-			vec2 ap = p - a;
-			float raw = dot(ap, ab) / max(dot(ab, ab), 1e-4);
-			float tt = clamp(raw, 0.0, 1.0);
-			vec2 d = ap - ab * tt;
-			float dd = dot(d, d);
-			if (dd < best) {
-				best = dd;
-				bi = i;
-				bt = tt;
-				braw = raw;
-			}
-			// Measured straight across the segment's line rather than to its
-			// nearest point, so neighbouring segments overlap and blend at their
-			// joints, and only reaching a little past its ends. (Measured to the
-			// nearest point, an older, wider segment's rounded end pokes out past
-			// the joint into the next one, leaving a ring of foam at every crumb.)
-			float seg = sqrt(max(dot(ab, ab), 1e-6));
-			float fade = end_fade(raw, seg, hw);
-			if (fade <= 0.0 || wash_str <= 0.0) {
+			int index = f * 8 + group;
+			vec4 bounds = wake_group_box[index];
+			vec2 outside = max(max(bounds.xy - p, p - bounds.zw), vec2(0.0));
+			float lower_sq = dot(outside, outside);
+			float radius = wake_group_radius[index / 4][index % 4];
+			if (radius >= 0.0 && lower_sq > best && lower_sq > radius * radius) {
 				continue;
 			}
-			float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
-			float ts, tage, tspd, ttail;
-			trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
-			float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
-			if (cov > c1) {
-				c2 = c1;
-				i2 = i1;
-				r2 = r1;
-				c1 = cov;
-				i1 = i;
-				r1 = raw;
-			} else if (cov > c2) {
-				c2 = cov;
-				i2 = i;
-				r2 = raw;
+			for (int segment = 0; segment < 6; segment++) {
+				int i = first + segment;
+				if (i >= n - 1) {
+					break;
+				}
+				vec2 a = wake_pts[base + i].xy;
+				vec2 ab = wake_pts[base + i + 1].xy - a;
+				vec2 ap = p - a;
+				float raw = dot(ap, ab) / max(dot(ab, ab), 1e-4);
+				float tt = clamp(raw, 0.0, 1.0);
+				vec2 d = ap - ab * tt;
+				float dd = dot(d, d);
+				if (dd < best) {
+					best = dd;
+					bi = i;
+					bt = tt;
+					braw = raw;
+				}
+				// Measured straight across the segment's line rather than to its
+				// nearest point, so neighbouring segments overlap and blend at their
+				// joints, and only reaching a little past its ends. (Measured to the
+				// nearest point, an older, wider segment's rounded end pokes out past
+				// the joint into the next one, leaving a ring of foam at every crumb.)
+				float seg = sqrt(max(dot(ab, ab), 1e-6));
+				float fade = end_fade(raw, seg, hw);
+				if (fade <= 0.0 || wash_str <= 0.0) {
+					continue;
+				}
+				float lat = abs(ap.x * ab.y - ap.y * ab.x) / seg;
+				float ts, tage, tspd, ttail;
+				trail_at(base, i, n, raw, span, ts, tage, tspd, ttail);
+				float cov = wash_reach(hw, lat, odo - ts, tage, tspd * ttail * wash_str) * fade;
+				if (cov > c1) {
+					c2 = c1;
+					i2 = i1;
+					r2 = r1;
+					c1 = cov;
+					i1 = i;
+					r1 = raw;
+				} else if (cov > c2) {
+					c2 = cov;
+					i2 = i;
+					r2 = raw;
+				}
 			}
 		}
 
@@ -659,6 +681,13 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 		// The hull's outline where the water meets it. fb runs back from its stem.
 		float sc = clamp(hw / 4.2, 0.2, 1.0);
 		float fb = from_bow - shape.x;
+		float fade = hull_len * 0.3 + 6.0 * sc;
+		// Behind the stern, hull foam is zero. Past the bow-wave fade, only
+		// Kelvin crest foam and the prop wash already accumulated can remain.
+		if (along >= 0.0 && fb >= fade) {
+			foam = max(foam, crest_foam);
+			continue;
+		}
 		float stem_w = shape.w;
 		float hull_w;
 		// Distance out from the hull's side (rounded round the stem ahead of it).
@@ -677,7 +706,6 @@ void wakes(vec2 p, float fp, float t, vec2 ride, inout vec2 grad, out float foam
 		// that runs out and back at a steeper angle than the hull flares, so it
 		// leaves the side where the bow meets the parallel body, then spreads,
 		// breaks up into patches and fades: the bow's "moustache".
-		float fade = hull_len * 0.3 + 6.0 * sc;
 		float ridge_x = max(hull_w + 0.3 * sc, stem_w + max(fb, 0.0) * 0.7);
 		float rw = (0.6 + 0.08 * max(fb, 0.0)) * sc;
 		float rn = gnoise(c * vec2(0.8, 0.35) + vec2(3.0, -t * 0.4)) * 0.6 + gnoise(c * vec2(2.2, 1.0) + vec2(t * 0.5, 7.0)) * 0.4 * lod;

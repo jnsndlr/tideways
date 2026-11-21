@@ -103,12 +103,41 @@ var _state_time: float:
 	set(value): voyage.state_time = value
 var _bob_time := 0.0
 var _thrust := 0.0   # forward prop reverse thrust while braking, 0..1
+# Alongside at her slip she pushes ahead on her seaward prop at HOLD_THROTTLE to keep
+# her landing end hard in against the apron, kicking up a little wash astern; it
+# stops as soon as she casts off.
+const HOLD_THROTTLE := 0.1
+var _push := 0.0     # her seaward prop's throttle holding her in, 0..HOLD_THROTTLE
 var _last_pos := Vector3.ZERO
 var _tracking := false
 var _waiting_for: Ferry = null   # holding off a corridor this ferry has reserved
 var _giving_way := false         # (holding in at the dock for _waiting_for to come in)
 var _casting_off := false        # loaded, waiting for the apron to come up
 var _ramp_synced := false
+# Landing and lying alongside (SlipGuides). Coming in, a captain who lands less surely
+# (Captain.landing) may come in a little askew, her landing end off the centre of the
+# slip, and ride a wing wall in, pressing its face back, before she straightens against
+# the apron. Alongside, the tide sets her over to one side and she swings about her
+# landing end until she lies against that side's dolphins, pressing their fenders in.
+# Her pose is _base_xf (where the route puts her) turned _askew about her middle, then
+# swung _lie about her landing end (radians about +Y).
+const LAND_RUN := 40.0               # metres out she starts coming in askew
+const WALL_GIVE := 0.35              # riding this far into a wing wall presses its face right in
+const STRAIGHTEN := 0.6              # per second, straightening against the apron once alongside
+# She lies over as far as it takes to reach the dolphins (a narrow hull in a wide
+# slip, further); this only keeps a freak fit from spinning her round.
+const MAX_LIE := deg_to_rad(15.0)
+const SHORT_LIE := deg_to_rad(1.2)   # a hull too short to reach the dolphins lies over this far
+const LIE_PRESS := 0.2               # how far into the fenders she leans
+const FENDER_GIVE := 0.3             # leaning this far in presses a fender right in
+const LIE_EASE := 0.35               # per second
+var _lie := 0.0
+var _askew := 0.0
+var _base_xf := Transform3D.IDENTITY
+var _landing_side := 0.0             # which way (her x) her landing end comes in off centre; 0 until chosen
+var _landing_askew := 0.0            # how far askew (radians)
+# `--rough-landings`: every landing rides a wing wall in, to see the walls give.
+static var rough_landings := "--rough-landings" in OS.get_cmdline_user_args()
 var _runs := {}                   # "route id|at_a" -> _corridor_runs() for that direction
 # Route curves run between where a 90 m hull's centre lies docked
 # (Layout.DOCK_U); a shorter one docks this much further in at both ends, a
@@ -441,8 +470,11 @@ func _process(delta: float) -> void:
 	_nets[0].visible = not (docked and _minus)
 	_nets[1].visible = not (docked and not _minus)
 	if berth != Berth.WORKING:
+		_let_go_of_slip()
 		_tick_berth(delta)
 		_thrust = move_toward(_thrust, 0.0, delta * 0.4)
+		_push = 0.0
+		wake.hold = false
 		_update_trail(delta)
 		return
 	match state:
@@ -455,6 +487,12 @@ func _process(delta: float) -> void:
 	if state != State.SAILING:
 		# Holds the ferry against the dock for a moment after arriving.
 		_thrust = move_toward(_thrust, 0.0, delta * 0.4)
+		# Then her seaward prop takes up pushing her in as the forward one eases off.
+		_push = move_toward(_push, HOLD_THROTTLE, delta * 0.05)
+	else:
+		_push = 0.0
+	wake.hold = _push > 0.0
+	_update_lie(delta)
 	_update_trail(delta)
 
 
@@ -634,7 +672,7 @@ func _tick_sailing(delta: float) -> void:
 	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
 	var traffic_limit := yield_speed()
-	var wait := _corridor_wait()
+	var wait := minf(_corridor_wait(), _refit_wait())
 	hold = wait
 	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
@@ -688,6 +726,18 @@ func _corridor_runs() -> Array:
 			runs.append([e[0], e[1], [[e[1], e[2]]]])
 	_runs[key] = runs
 	return runs
+
+
+## Distance to go before she must hold off her destination's slip while it is refitted
+## (Terminal.REFIT_HOLD out; INF if it's open, or she was already inside that when it
+## closed, and finishes her call).
+func _refit_wait() -> float:
+	if berth != Berth.WORKING or not destination().slip_closed(route.id):
+		return INF
+	var left := path_left()
+	if left < Terminal.REFIT_HOLD - 5.0:
+		return INF
+	return maxf(0.0, left - Terminal.REFIT_HOLD)
 
 
 ## Distance to go before the next run of corridors another ferry holds part of
@@ -866,7 +916,201 @@ func path_left() -> float:
 ## Positions the ferry at distance s along the route curve. +Z always faces A → B.
 func _place(s: float) -> void:
 	var p := route_point(s)
-	global_transform = Transform3D(Basis(Vector3.UP, _yaw_at(s) + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
+	_base_xf = Transform3D(Basis(Vector3.UP, _yaw_at(s) + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
+	if state == State.SAILING:
+		_come_in(run_length() - traveled)
+	global_transform = _pose()
+
+
+## Her pose: _base_xf turned _askew about her middle and swung _lie about her landing
+## end (the one towards the terminal she is at or last left: -Z if _minus).
+func _pose() -> Transform3D:
+	var xf := _straight_xf()
+	if absf(_lie) < 1e-6:
+		return xf
+	var pivot := Vector3(0, 0, -fc.half_length if _minus else fc.half_length)
+	var turn := Basis(Vector3.UP, _lie)
+	return xf * Transform3D(turn, pivot - turn * pivot)
+
+
+## Her pose before she swings: where the route puts her, turned askew about her middle.
+func _straight_xf() -> Transform3D:
+	if _askew == 0.0:
+		return _base_xf
+	return _base_xf * Transform3D(Basis(Vector3.UP, _askew), Vector3.ZERO)
+
+
+## The last LAND_RUN metres in: she comes in askew as her captain lands her (chosen as
+## she starts in), riding the wing wall on that side in if it's a rough landing.
+func _come_in(rem: float) -> void:
+	var g := destination().guides_for(route.id)
+	if g == null or rem > LAND_RUN:
+		_landing_side = 0.0
+		_askew = 0.0
+		return
+	if _landing_side == 0.0:
+		_choose_landing(g)
+	_askew = _landing_askew * (1.0 - smoothstep(LAND_RUN - 10.0, LAND_RUN, rem))
+	_press_walls(g, true)
+
+
+## Which way her landing end comes in off centre and how far askew: a clean landing
+## clear of the wing walls, or (as likely as her captain is unsure, 1 - Captain.landing)
+## one that rides the wall that side up to WALL_GIVE in.
+func _choose_landing(g: SlipGuides) -> void:
+	_landing_side = 1.0 if randf() < 0.5 else -1.0
+	_landing_askew = 0.0
+	# Lying at the dock: how far clear of that wall she is straight, and how much
+	# nearer a degree askew brings her (turning her landing end, +Z if _minus coming
+	# in, towards that side).
+	var s_end := _route_s(run_length())
+	var p := route_point(s_end)
+	var docked := Transform3D(Basis(Vector3.UP, _yaw_at(s_end) + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
+	var wall := _wall_for(g, docked, _landing_side)
+	if wall < 0:
+		return
+	var probe := _landing_side * (1.0 if _minus else -1.0) * deg_to_rad(1.0)
+	var straight := _wall_pens(g, docked, true)[wall]
+	var turned := _wall_pens(g, docked * Transform3D(Basis(Vector3.UP, probe), Vector3.ZERO), true)[wall]
+	if straight == -INF or turned <= straight:
+		return
+	var per := (turned - straight) / probe
+	if rough_landings or randf() > captain.landing:
+		_landing_askew = (randf_range(0.3, 1.0) * WALL_GIVE - straight) / per
+	else:
+		_landing_askew = randf() * 0.4 * (1.0 - captain.landing) * maxf(-straight, 0.0) / per
+
+
+## The index in g.walls of the wing wall on her `side` (her x), posed `xf`.
+func _wall_for(g: SlipGuides, xf: Transform3D, side: float) -> int:
+	var across := (g.global_basis.inverse() * (xf.basis * Vector3(side, 0, 0))).x
+	for i in g.walls.size():
+		if signf(g.walls[i].side) == signf(across):
+			return i
+	return -1
+
+
+## How far (m, negative for clear of it) her landing end reaches into each of the
+## slip's wing walls, posed `xf`; `coming_in` picks the end she lands with under way
+## (away from the terminal she left) rather than the one she lies docked with.
+func _wall_pens(g: SlipGuides, xf: Transform3D, coming_in: bool) -> Array[float]:
+	var to_slip := g.global_transform.affine_inverse() * xf
+	var plus_end := _minus if coming_in else not _minus
+	var end_z := fc.half_length if plus_end else -fc.half_length
+	var inward := -signf(end_z)
+	var out: Array[float] = []
+	for w in g.walls:
+		var along := w.b - w.a
+		var length := along.length()
+		along /= length
+		var n := Vector3(along.z, 0, -along.x)
+		if n.x * w.side > 0.0:
+			n = -n
+		var most := -INF
+		for k: float in [0.3, 1.5, 3.0, 5.0, 8.0, 12.0, 16.0, 22.0]:
+			var z := end_z + inward * k
+			var hw := fc.half_width_at(z)
+			if hw <= 0.0:
+				continue
+			for sx: float in [-1.0, 1.0]:
+				var q := to_slip * Vector3(sx * hw, 0, z)
+				var t := (q - w.a).dot(along)
+				if t >= 0.0 and t <= length:
+					most = maxf(most, -(q - w.a).dot(n))
+		out.append(most)
+	return out
+
+
+## Presses each wing wall in as far as she reaches into it.
+func _press_walls(g: SlipGuides, coming_in: bool) -> void:
+	var pens := _wall_pens(g, _straight_xf(), coming_in)
+	for i in g.walls.size():
+		g.walls[i].target = clampf(pens[i] / WALL_GIVE, 0.0, 1.0)
+
+
+## Alongside: straightens her against the apron if she came in askew, eases her over
+## towards the side the tide sets her and presses in the fenders she leans on. Casting
+## off, eases her straight again as she pulls away.
+func _update_lie(delta: float) -> void:
+	var g := here().guides_for(route.id)
+	var docked := g != null and state != State.SAILING
+	var target := _lie_target(g) if docked else 0.0
+	var straightening := docked and _askew != 0.0
+	if absf(target - _lie) < 1e-6 and not straightening:
+		return
+	_lie = lerpf(_lie, target, minf(1.0, delta * LIE_EASE))
+	if straightening:
+		_askew = move_toward(_askew, 0.0, maxf(deg_to_rad(0.05), absf(_askew)) * delta * STRAIGHTEN)
+		_press_walls(g, false)
+	if state != State.SAILING:
+		global_transform = _pose()
+	if g:
+		_press(g)
+	if absf(_lie) < 1e-5 and target == 0.0:
+		_lie = 0.0
+		# Straight again and pulling away: let every fender out.
+		for f in (g.fenders if g else []):
+			f.target = 0.0
+
+
+## Straight and square again, with nothing pressed, as she leaves her working slip
+## for a tie-up.
+func _let_go_of_slip() -> void:
+	if _lie == 0.0 and _askew == 0.0:
+		return
+	_lie = 0.0
+	_askew = 0.0
+	var g := here().guides_for(route.id)
+	if g:
+		for f in g.fenders:
+			f.target = 0.0
+		for w in g.walls:
+			w.target = 0.0
+
+
+## A fender's face (`f`) in her unswung frame: x across her (signed), z along her.
+func _fender_local(g: SlipGuides, f: SlipGuides.Fender) -> Vector3:
+	return _straight_xf().affine_inverse() * (g.global_transform * Vector3(f.side * f.face, 0.0, f.u))
+
+
+## How far she swings to lie against the dolphins on the side the tide sets her: until
+## the first fender that side she reaches has her LIE_PRESS into it.
+func _lie_target(g: SlipGuides) -> float:
+	var sea := 1.0 if _minus else -1.0
+	var pivot_z := -sea * fc.half_length
+	# The tide's side of the slip, as a side of her.
+	var across := _base_xf.basis.inverse() * (g.global_basis * Vector3.RIGHT)
+	var side := signf(across.x) * here().lie_side()
+	var best := INF
+	for f in g.fenders:
+		var at := _fender_local(g, f)
+		var arm := at.z - pivot_z
+		if signf(at.x) != side or arm * sea < 6.0:
+			continue
+		var hb := fc.half_width_at(at.z)
+		if hb <= 0.0:
+			continue
+		var reach := maxf(0.0, absf(at.x) + LIE_PRESS - hb)
+		var turn := asin(clampf(side * reach / arm, -1.0, 1.0))
+		if absf(turn) < absf(best):
+			best = turn
+	if best == INF:
+		return side * sea * SHORT_LIE
+	return clampf(best, -MAX_LIE, MAX_LIE)
+
+
+## Presses in each fender as far as her side, swung _lie, reaches into it.
+func _press(g: SlipGuides) -> void:
+	var sea := 1.0 if _minus else -1.0
+	var pivot_z := -sea * fc.half_length
+	for f in g.fenders:
+		var at := _fender_local(g, f)
+		var hb := fc.half_width_at(at.z)
+		var into := 0.0
+		if hb > 0.0 and (at.z - pivot_z) * sea > 0.0:
+			var dx := (at.z - pivot_z) * sin(_lie)
+			into = hb + signf(at.x) * dx - absf(at.x)
+		f.target = clampf(into / FENDER_GIVE, 0.0, 1.0)
 
 
 ## The curve is a polyline of ~6 m chords, so its own direction turns in kinks
@@ -933,7 +1177,10 @@ func _update_trail(delta: float) -> void:
 	# heading still points the way it arrived, which would put the first crumb at
 	# the wrong end of the hull and fold the trail back on itself. The stern
 	# props ease off while the forward prop brakes.
-	wake.update(delta, global_position, fwd if moving else Vector3.ZERO, speed * delta,
+	# Alongside she only swings about her landing end as she lies over, which mustn't
+	# turn her wake round: she keeps the heading she came in on.
+	var under_way := moving and state == State.SAILING
+	wake.update(delta, global_position, fwd if under_way else Vector3.ZERO, speed * delta,
 			speed / fc.cruise * (1.0 - 0.6 * _thrust), state == State.SAILING and moving)
 	_blow_nets(moved / delta if moving and delta > 0.0 else Vector3.ZERO, delta)
 
@@ -962,6 +1209,11 @@ func front_thrust() -> float:
 	return _thrust
 
 
+## Her seaward prop's throttle pushing her in against the apron, alongside.
+func stern_push() -> float:
+	return _push
+
+
 func load_count() -> int:
 	return aboard.size() + _boarding
 
@@ -986,6 +1238,8 @@ func status_text() -> String:
 
 
 func _service_text() -> String:
+	if state == State.SAILING and speed < 0.6 and _refit_wait() < 30.0:
+		return "Holding off %s while her slip is refitted" % destination().island.name
 	if state == State.SAILING and speed < 0.6 and _waiting_for:
 		if _giving_way:
 			return "Holding in for %s to come in" % _waiting_for.ferry_name
@@ -1143,7 +1397,7 @@ func can_lay_up() -> bool:
 ## A tie-up slip at `term` she fits and no other boat holds (-1 if none).
 func free_tie_up(term: Terminal) -> int:
 	for i in term.island.tie_ups():
-		if not term.island.slips[i].fits(fc.size):
+		if not term.island.slips[i].fits(fc.size) or term.tie_up_closed(i):
 			continue
 		var taken := false
 		for f in sim.ferries:

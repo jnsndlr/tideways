@@ -39,6 +39,8 @@ var _args := {}
 ## Frame caps: the sim is slow-paced, so 60 fps is plenty, and nobody is watching
 ## when the window is in the background. Headless runs (soak tests) stay uncapped.
 const MAX_FPS := 60
+# By path, so the editor resolves it even before its class list catches up.
+const RefitCrew := preload("res://scripts/world/slip_refit_crew.gd")
 const BACKGROUND_FPS := 15
 ## Benchmarks render flat out regardless of focus.
 var uncapped := false
@@ -106,6 +108,10 @@ func _ready() -> void:
 	# main thread.
 	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario))
 	for terminal: Terminal in sim.terminals.values():
+		if RefitCrew.available():
+			var crew := RefitCrew.new()
+			terminal.add_child(crew)
+			crew.setup(terminal)
 		if terminal.island.lane_extension_price > 0:
 			var extension := HoldingLaneView.new()
 			terminal.add_child(extension)
@@ -134,6 +140,10 @@ func _ready() -> void:
 	lights.setup(sim, rig, day_cycle, fixed_lights)
 	var gulls := Seagulls.new()
 	add_child(gulls)
+	for terminal: Terminal in sim.terminals.values():
+		for g in terminal.slip_guides:
+			if g:
+				g.add_perches(builder.gull_perches, builder.eagle_perches)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"

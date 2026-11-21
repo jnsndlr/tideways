@@ -5,7 +5,7 @@
 #                           [--only=name,name] [--first-frame] [--keep-frames]
 #   tools/teaser_capture.sh --out=DIR --recut      (just encodes and cuts what's in DIR,
 #                           after changing the times in its shots.txt: name in length)
-# Anything else after the options goes to the game (for example --ferry-sizes=4,4,2).
+# Anything else after the options goes to the game (for example --ferry-sizes=3,3,2).
 set -e
 
 godot=/Applications/Godot.app/Contents/MacOS/Godot
@@ -35,7 +35,7 @@ mkdir -p "$out"
 out=${out:A}
 
 (( recut )) || "$godot" --path "$repo" --resolution "$size" --fixed-fps "$fps" --disable-vsync \
-	--script tools/teaser_capture.gd -- --seed="$seed" --out="$out" --fps="$fps" --ferry-sizes=4 "${rest[@]}"
+	--script tools/teaser_capture.gd -- --seed="$seed" --out="$out" --fps="$fps" --ferry-sizes=3 "${rest[@]}"
 
 (( stills )) && exit 0
 

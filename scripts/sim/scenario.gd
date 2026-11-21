@@ -64,7 +64,7 @@ static func load_file(path: String) -> Scenario:
 		var boat := Boat.new()
 		boat.key = str(b["key"])
 		boat.name = str(b.get("name", boat.key))
-		boat.size = clampi(int(b.get("size", 2)), 1, 5)
+		boat.size = clampi(int(b.get("size", 2)), 1, FerryClass.MAX_SIZE)
 		s.fleet.append(boat)
 	for sc in data.get("schedules", []):
 		var schedule := Schedule.new()

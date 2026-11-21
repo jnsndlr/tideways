@@ -20,6 +20,7 @@ const SLOT := 7.8               # spacing between queued cars
 const SLIP_SPACING := 60.0
 const FERRY_HALF := 45.0
 const DOCK_U := PIER_END + FERRY_HALF + 0.4  # centre of a 90 m hull docked (route ends)
+const CHANNEL_BUOY_U := PIER_END + 138.0     # each slip's pair of channel buoys
 # Each slip's wing walls (u, v of the starboard one's ends, mirrored to port): one
 # straight wall either side, splayed WING_ANGLE off the centreline, that takes
 # any size of hull's end.
@@ -32,6 +33,51 @@ const WING_WALL := [Vector2(PIER_END + 0.9, 9.0),
 # lines ferries up coming in.
 const DOLPHIN_INNER := Vector3(PIER_END + 51.0, 17.7, 3.15)
 const DOLPHIN_OUTER := Vector3(PIER_END + 87.0, 20.7, 4.05)
+# The modelled dolphins (SlipGuides) stand where each slip's size puts them (the
+# widest hull it takes, as FerryClass sizes go): the inner pair in along her sides
+# (slip_inner_u), and funnelled out to sea, so that hull,
+# swung LIE_SWING about her landed end, lies against the inner and outer dolphins on
+# that side at once. Coming in she meets the wing walls first. SLIP_FACE_MAX is about
+# the widest outer face (an Issaquah's); DOLPHIN_DEPTH how far a dolphin reaches behind
+# its face.
+const LIE_SWING := deg_to_rad(2.0)
+const INNER_REACH := 0.55
+const SLIP_FACE_MAX := 20.7
+const DOLPHIN_DEPTH := 5.8
+
+
+## Where along the slip (u) a slip of `size`'s inner dolphins stand: INNER_REACH of the
+## way down its widest hull from her landed end, where her sides run full, but never
+## further out than DOLPHIN_INNER (the big boats' slips).
+static func slip_inner_u(size: int) -> float:
+	var fc := FerryClass.of(size)
+	var end_u := SlipRamp.dock_end(fc.half_length - fc.net_z - 0.35)
+	return minf(DOLPHIN_INNER.x, end_u + INNER_REACH * 2.0 * fc.half_length)
+
+
+## Lateral offset of the fender face of a slip of `size`'s dolphin at `u` along it: on
+## the side of its widest hull, landed and swung LIE_SWING about her landed end (past
+## her far end, on the line her side makes). A slip takes every boat from the one
+## after the next slip size down's largest up to `size`, so the face clears the
+## widest of them there (the medium slip's Issaquah stands wider than its Evergreen).
+static func slip_face_v(size: int, u: float) -> float:
+	var smallest := 1
+	for largest: int in MapData.Slip.LARGEST_BOAT:
+		if largest < size:
+			smallest = maxi(smallest, largest + 1)
+	var v := -INF
+	for s in range(smallest, size + 1):
+		v = maxf(v, _hull_face_v(s, u))
+	return v
+
+
+static func _hull_face_v(size: int, u: float) -> float:
+	var fc := FerryClass.of(size)
+	var arm := u - SlipRamp.dock_end(fc.half_length - fc.net_z - 0.35)
+	var hw := fc.half_width_at(-fc.half_length + arm)
+	if hw <= 0.0:
+		hw = fc.half_beam
+	return hw * cos(LIE_SWING) + arm * sin(LIE_SWING)
 const DECK_Y := LOT_Y
 
 # Marina frame, like a terminal's: origin where the pier meets the shore, +Z ("u")

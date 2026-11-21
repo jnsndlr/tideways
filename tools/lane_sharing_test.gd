@@ -61,14 +61,16 @@ func _process(_delta: float) -> bool:
 	# No sharing at Madrona; sharing where Hiyu serves both.
 	for key in madrona.lanes.keys():
 		for lane: Terminal.Lane in madrona.lanes[key]:
-			for car in lane.queue:
+			for waiting in lane.queue:
+				var car := instance_from_id(waiting.vehicle_id) as Vehicle
 				if car.dest == key:
 					continue
 				return _fail("%s traffic queued in the %s lane at Madrona" % [sim.map.islands[car.dest].name, sim.map.islands[key].name])
 	for t: Terminal in [rosario, gullrock]:
 		for key in t.lanes.keys():
 			for lane: Terminal.Lane in t.lanes[key]:
-				for car in lane.queue:
+				for waiting in lane.queue:
+					var car := instance_from_id(waiting.vehicle_id) as Vehicle
 					if car.dest == key or shared_ok:
 						continue
 					print("Day %d %s: %s traffic sharing the %s lane at %s" % [sim.day, sim.clock_text(), sim.map.islands[car.dest].name, sim.map.islands[key].name, t.island.name])

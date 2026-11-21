@@ -74,7 +74,7 @@ func read(saved_json: String, map: MapData) -> String:
 		if not _valid_key(record.get("route")) or not route_by_key.has(record.route):
 			return "Ferry %s references an unknown route" % record.key
 		var size = record.get("size")
-		if not record.get("name") is String or not size is float or size != floor(size) or size < 1 or size > 5:
+		if not record.get("name") is String or not size is float or size != floor(size) or size < 1 or size > FerryClass.MAX_SIZE:
 			return "Invalid name or size for ferry %s" % record.key
 		var hull := Assignment.new()
 		hull.key = record.key

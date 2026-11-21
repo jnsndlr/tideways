@@ -9,3 +9,8 @@
 *.p8
 *.p12
 *.mobileprovision
+
+# Godot extracts glb-embedded textures next to the model on import
+assets/models/buoys/*.png
+assets/models/work_skiff_mid_*.png
+__pycache__/

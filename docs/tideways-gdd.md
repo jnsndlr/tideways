@@ -130,6 +130,8 @@ Developing a terminal site costs money. After that, terminals upgrade one purcha
 - If that next boat does not serve the overflowing destination, the extra traffic is turned away.
 - Example at Madrona: lane 1 holds Port Rosario traffic and fills. The next boat sails to Gullrock and then Port Rosario, and Gullrock traffic only part-fills its lane, so Port Rosario traffic queues behind it. If the next boat sailed to Gullrock and somewhere other than Port Rosario, that traffic would be turned away.
 - **Default:** construction takes game time, stays visible, and the terminal stays open.
+- **Slip size upgrades take that slip out of service** (decided 2026-11-20, TID-44). A pusher brings a crane scow into the closed slip and the crew drives new dolphins and wing walls sized for the bigger boats. Boats on their way hold offshore until the slip reopens, and cars keep queueing. Building another slip first keeps the service running, so it is a tradeoff, not a penalty.
+- A docked boat lies over against the dolphins on whichever side the tide sets her, and changes side when the tide turns. A less sure captain sometimes rides a wing wall in on landing.
 
 ---
 

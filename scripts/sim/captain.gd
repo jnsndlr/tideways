@@ -14,6 +14,8 @@ var name := ""
 var strength := ""    # a few words for the HUD
 var sea := 1.0        # times the class's cruise speed in open water
 var harbour := 1.0    # times the approach speed and braking coming in to the slip
+var landing := 1.0    # how surely she lands centred in the slip (0..1); the rest of the
+                      # time she comes in off centre and rides a wing wall in
 
 static var _roster: Array[Captain] = []
 
@@ -21,19 +23,20 @@ static var _roster: Array[Captain] = []
 static func roster() -> Array[Captain]:
 	if _roster.is_empty():
 		_roster = [
-			_make("halloran", "Ines Halloran", "Fast in open water, careful into the slip", 1.12, 0.9),
-			_make("tran", "Bo Tran", "Quick, sure dockings, easy pace at sea", 0.92, 1.3),
+			_make("halloran", "Ines Halloran", "Fast in open water, careful into the slip", 1.12, 0.9, 0.5),
+			_make("tran", "Bo Tran", "Quick, sure dockings, easy pace at sea", 0.92, 1.3, 0.9),
 		]
 	return _roster
 
 
-static func _make(i: String, n: String, s: String, sea_f: float, harbour_f: float) -> Captain:
+static func _make(i: String, n: String, s: String, sea_f: float, harbour_f: float, land_f: float) -> Captain:
 	var c := Captain.new()
 	c.id = i
 	c.name = n
 	c.strength = s
 	c.sea = sea_f
 	c.harbour = harbour_f
+	c.landing = land_f
 	return c
 
 

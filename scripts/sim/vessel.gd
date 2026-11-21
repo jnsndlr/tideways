@@ -175,6 +175,11 @@ func front_thrust() -> float:
 	return 0.0
 
 
+## Ahead throttle (0..1) held lying alongside, pushing her in: wash astern of her.
+func stern_push() -> float:
+	return 0.0
+
+
 # --- Helm hooks (for vessels steering their own way; see Helm) ---------------------
 
 func helm_yaw() -> float:
