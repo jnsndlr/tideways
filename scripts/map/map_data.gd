@@ -253,8 +253,8 @@ class HaulSpot:
 ## so they never block a working slip.
 class Slip:
 	const SIZE_NAMES := ["", "small", "medium", "large"]
-	## Each size takes boats up to this FerryClass size (small 1–2, medium 3–4, large 5–6).
-	const LARGEST_BOAT := [0, 2, 4, 6]
+	## Each size takes boats up to this FerryClass size (small 1–2, medium 3–4, large 5).
+	const LARGEST_BOAT := [0, 2, 4, 5]
 
 	var size := 1                   # 1 small, 2 medium, 3 large
 	var routes: Array[int] = []

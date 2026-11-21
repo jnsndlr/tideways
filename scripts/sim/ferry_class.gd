@@ -1,6 +1,6 @@
 class_name FerryClass
 extends RefCounted
-## The six sizes of double-ended car ferry, smallest (1) to largest (6): lanes and
+## The five sizes of double-ended car ferry, smallest (1) to largest (5): lanes and
 ## rows of cars, hull, speed, and where the fittings (masthead and side lights,
 ## deck lamps, lit windows, gull perches) sit in the hull's frame, shared by
 ## Models' hull and lights and by Seagulls. Size 1 is Skagit County's M/V Guemes,
@@ -13,15 +13,16 @@ extends RefCounted
 ## between the stair casings and a lane each side under the passenger cabins, a
 ## bridge over the tunnel carrying the double-ended pilothouse (`--classic-ferry`
 ## keeps the code-built portal boat after her); 3 to 5 carry their passenger
-## decks over the cars. Size 4 is the WSF Evergreen State class, from the mid-poly
+## decks over the cars. Size 3 is the WSF Evergreen State class, from the mid-poly
 ## model (art/ferry_mid.py, real scale, shown at MID_SCALE to match the game's cars):
 ## a two-lane tunnel between the stair casings and a lane in each wing, the wing
-## lanes turning in to the apron's opening at the ends. Size 5 is the WSF Issaquah
+## lanes turning in to the apron's opening at the ends. Size 4 is the WSF Issaquah
 ## class (art/issaquah_mid.py, likewise), widened, WSF's first boat with two levels of
-## cars: a tunnel of three lanes for trucks and vans, and each side two lanes on the
+## cars: a tunnel of two lanes for trucks and vans, and each side two lanes on the
 ## main deck under a tween deck of two more, reached up a single-lane ramp in the
 ## hull's rounded corner at either end.
-## Size 6 is the Jumbo Mk II, available to authored fleets and --ferry-sizes.
+## Size 5 is the WSF Jumbo Mk II class (art/jumbo_mk_ii.py, likewise), the biggest:
+## the Issaquah's two levels of cars on a longer hull.
 ## +Z and -Z ends are identical.
 
 const LANE_SPACING := 4.5
@@ -29,15 +30,15 @@ const ROW_SPACING := 7.5
 # Side-house ferries' house and stack top heights.
 const OPEN_DECK_Y := 3.0
 const BULWARK_TOP := 5.7
-# Full ferries' deck heights (as the size-4 boat was first built).
+# Full ferries' deck heights (as the size-3 boat was first built, when it was size 4).
 const MAST_TOP := 27.6
 const SIDELIGHT_Y := 20.94
 
-# The mid-poly Evergreen State (size 4): modelled in real metres, shown at MID_SCALE
+# The mid-poly Evergreen State (size 3): modelled in real metres, shown at MID_SCALE
 # so she matches the game's cars and trucks (drawn at Models.LEGACY_SCALE, a third
 # again over real; 1.0 once they're true size), dropped MID_DROP so her car deck
 # (2.85 m up in the model) lies at Layout.DECK_Y. `--classic-ferry` or a missing model keeps
-# the code-built size 4.
+# the code-built size 3.
 const MID_GLB := "res://assets/models/ferry_mid.glb"
 const MID_SCALE := 1.26
 const MID_CAR_DECK := 2.85  # her car deck above the waterline (art/ferry_mid.py CAR_DECK)
@@ -59,7 +60,7 @@ const HIYU_CAR_DECK := 2.5  # art/hiyu_mid.py CAR_DECK
 const HIYU_DROP := HIYU_CAR_DECK * MID_SCALE - Layout.DECK_Y
 static var hiyu_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(HIYU_GLB)
 
-# The mid-poly Issaquah (size 5), shown and dropped like the Evergreen State (her car
+# The mid-poly Issaquah (size 4), shown and dropped like the Evergreen State (her car
 # deck's at the same height). Her tween decks (MEZ_TOP up) hold two lanes a side over
 # |z| < ISQ_MEZ_Z, their outer lane ramping down to the main deck at ISQ_RAMP_Z.
 const ISQ_GLB := "res://assets/models/issaquah_mid.glb"
@@ -67,16 +68,22 @@ const ISQ_CAR_DECK := 2.85     # art/issaquah_mid.py CAR_DECK
 const ISQ_DROP := ISQ_CAR_DECK * MID_SCALE - Layout.DECK_Y
 const ISQ_LIFT := 1.4          # her upper works over the Evergreen's (issaquah_mid.py LIFT)
 const ISQ_MEZ_TOP := 5.9
-const ISQ_MEZ_Z := 27.0
-const ISQ_RAMP_Z := 42.0
-const ISQ_RAMP_TOP_X := 11.65  # the ramp lane's centre at its top, and at its foot
-const ISQ_RAMP_FOOT_X := 8.9
-const ISQ_RAMP_EDGE := Vector2(10.0, 7.4)  # its inner edge at its top and at its foot
-const ISQ_APRON_Z := 45.1      # GREEN_Z - 0.3
+const ISQ_STRETCH_Z := 5.95   # her midbody drawn longer each end (issaquah_mid.py STRETCH_Z)
+const ISQ_MEZ_Z := 27.0 + ISQ_STRETCH_Z
+const ISQ_RAMP_Z := 42.0 + ISQ_STRETCH_Z
+const ISQ_RAMP_TOP_X := 9.9    # the ramp lane's centre at its top, and at its foot
+const ISQ_RAMP_FOOT_X := 7.15
+const ISQ_RAMP_EDGE := Vector2(8.25, 5.65)  # its inner edge at its top and at its foot
+const ISQ_APRON_Z := 45.1 + ISQ_STRETCH_Z  # GREEN_Z - 0.3
 static var issaquah_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(ISQ_GLB)
 
+# The mid-poly Jumbo Mk II (size 5), shown and dropped like the Evergreen State. Her
+# model is the real boat stretched JUMBO_STRETCH in length and beam so her tunnel
+# takes four lanes of the game's oversized cars (art/jumbo_mk_ii.py STRETCH);
+# _jumbo() takes points on the real boat's plans into the hull's frame.
 const JUMBO_GLB := "res://assets/models/jumbo_mk_ii.glb"
-const MAX_SIZE := 6
+const JUMBO_STRETCH := 1.128
+const MAX_SIZE := 5
 static var jumbo_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(JUMBO_GLB)
 
 # The rescue boat (art/rib_mid.py -> RIB_GLB), a sub model shared by the mid-poly
@@ -86,16 +93,15 @@ static var jumbo_model := not "--classic-ferry" in OS.get_cmdline_user_args() an
 const RIB_GLB := "res://assets/models/rib_mid.glb"
 const MID_RIBS := [[Vector3(7.2, 7.3 + 0.78, -34.6), 0.0]]
 const HIYU_RIBS := [[Vector3(6.6, 8.1 + 0.78, -4.0), PI]]
-const ISQ_RIBS := [[Vector3(7.6, 7.3 + 1.4 + 0.78, -37.0), 0.0]]
+const ISQ_RIBS := [[Vector3(5.85, 7.3 + 1.4 + 0.78, -37.0 - ISQ_STRETCH_Z), 0.0]]
 
 # size: [lanes, rows, half length, half beam, cruise, label]
 const TABLE := {
 	1: [2, 5, 25.5, 8.7, 19.5, "Open-deck ferry"],
 	2: [3, 6, 31.5, 11.7, 22.5, "Small ferry"],
-	3: [3, 8, 40.5, 10.5, 25.5, "Mid-size ferry"],
-	4: [4, 9, 45.0, 12.6, 27.0, "Ferry"],
-	5: [4, 12, 57.0, 12.9, 28.5, "Jumbo ferry"],
-	6: [5, 20, 70.13 * MID_SCALE, 13.716 * MID_SCALE, 30.0, "Jumbo Mk II class"],
+	3: [4, 9, 45.0, 12.6, 27.0, "Ferry"],
+	4: [4, 12, 57.0, 12.9, 28.5, "Large ferry"],
+	5: [5, 20, 70.13 * JUMBO_STRETCH * MID_SCALE, 13.716 * JUMBO_STRETCH * MID_SCALE, 30.0, "Jumbo Mk II class"],
 }
 
 # size: [crew, gallons burnt per nautical mile at service speed]. The map's
@@ -104,10 +110,9 @@ const TABLE := {
 const RUNNING := {
 	1: [3, 20.0],
 	2: [4, 32.0],
-	3: [6, 56.0],
-	4: [9, 88.0],
-	5: [12, 128.0],
-	6: [15, 160.0],
+	3: [9, 88.0],
+	4: [12, 128.0],
+	5: [15, 160.0],
 }
 
 static var _cache := {}
@@ -124,11 +129,11 @@ var crew := 9
 var burn := 11.0                   # gallons per nautical mile at service speed (RUNNING)
 var open_deck := false
 var portal := false
-var evergreen := false             # the mid-poly Evergreen State (size 4, `mid`)
+var evergreen := false             # the mid-poly Evergreen State (size 3, `mid`)
 var guemes := false                # the mid-poly M/V Guemes (size 1, `small`)
 var hiyu := false                  # the mid-poly M/V Hiyu (size 2, `hiyu_model`)
-var issaquah := false              # the mid-poly Issaquah class (size 5, `issaquah_model`)
-var jumbo := false                 # Tacoma-style size 6, at the same main-deck height as Issaquah
+var issaquah := false              # the mid-poly Issaquah class (size 4, `issaquah_model`)
+var jumbo := false                 # the mid-poly Jumbo Mk II class (size 5, `jumbo_model`)
 var ribs: Array = []               # her rescue boats ([model-metre origin, yaw], see MID_RIBS)
 # Slots no car may take (index row * lanes + lane): the Guemes' engine room box.
 var blocked := PackedInt32Array()
@@ -253,12 +258,12 @@ func _init(s: int) -> void:
 	open_deck = s == 1 and not guemes
 	hiyu = s == 2 and hiyu_model
 	portal = s == 2 and not hiyu
-	evergreen = s == 4 and mid
-	issaquah = s == 5 and issaquah_model
-	jumbo = s == MAX_SIZE and jumbo_model
+	evergreen = s == 3 and mid
+	issaquah = s == 4 and issaquah_model
+	jumbo = s == 5 and jumbo_model
 	if jumbo:
-		lanes = 11
-		rows = 22
+		lanes = 12
+		rows = 25
 	if guemes:
 		lanes = 3
 		rows = 5
@@ -279,10 +284,10 @@ func _init(s: int) -> void:
 		label = "Evergreen State class"
 		capacity = lanes * rows
 	if issaquah:
-		lanes = 11
-		rows = 14
-		half_length = 50.0 * MID_SCALE
-		half_beam = 13.95 * MID_SCALE
+		lanes = 10
+		rows = 16
+		half_length = (50.0 + ISQ_STRETCH_Z) * MID_SCALE
+		half_beam = 12.2 * MID_SCALE
 		label = "Issaquah class"
 	end_z = half_length - 3.0
 	for i in rows:
@@ -324,8 +329,8 @@ func _init(s: int) -> void:
 		end_in = 7.5
 		_lay_out_issaquah()
 	elif jumbo:
-		chamfer = 27.5
-		end_in = 12.0
+		chamfer = 27.5 * JUMBO_STRETCH
+		end_in = 12.0 * JUMBO_STRETCH
 		_lay_out_jumbo()
 	else:
 		for i in lanes:
@@ -430,7 +435,7 @@ func _lay_out_full() -> void:
 	sun_half = 0.4 * l
 	wheel_z = sun_half + 4.2
 	wheel_half_w = 0.5 * b
-	if size >= 5:
+	if size >= 4:
 		funnels = PackedFloat32Array([-0.45 * sun_half, 0.45 * sun_half])
 		lifeboats = PackedFloat32Array([-0.7 * sun_half, -0.26 * sun_half, 0.26 * sun_half, 0.7 * sun_half])
 	else:
@@ -549,8 +554,8 @@ static func _isq(x: float, y: float, z: float) -> Vector3:
 
 ## The Issaquah model's half beam at the deck at |z| (art/issaquah_mid.py deck_x).
 static func _isq_beam(z: float) -> float:
-	var t := clampf((absf(z) - 26.0) / 23.15, 0.0, 1.0)
-	return 13.6 * pow(maxf(0.0, 1.0 - pow(t, 2.3)), 1.0 / 2.3)
+	var t := clampf((absf(z) - 26.0 - ISQ_STRETCH_Z) / 23.15, 0.0, 1.0)
+	return 11.85 * pow(maxf(0.0, 1.0 - pow(t, 2.3)), 1.0 / 2.3)
 
 
 ## The inner edge (|x|, model metres) of the Issaquah's ramp at |z|, or 0 off it.
@@ -559,15 +564,21 @@ static func _isq_ramp_edge(z: float) -> float:
 	return lerpf(ISQ_RAMP_EDGE.x, ISQ_RAMP_EDGE.y, t) if t >= 0.0 and t <= 1.0 else 0.0
 
 
-## Both two-level ferries have four wing lanes on each deck and three tall
-## through lanes. Positions are port to starboard, with upper lanes at either end.
-func _two_level_lanes(inner: float, outer: float, upper_height: float) -> void:
+## Both two-level ferries have two wing lanes each side on each deck and tall
+## through lanes between (`tunnel`, model metres). Positions are port to starboard,
+## the upper lanes at either end.
+func _two_level_lanes(inner: float, outer: float, upper_height: float,
+		tunnel: Array = [-3.5, 0.0, 3.5]) -> void:
 	var k := MID_SCALE
-	for x: float in [-outer, -inner, -outer, -inner, -3.5, 0.0, 3.5, inner, outer, inner, outer]:
+	var n := tunnel.size()
+	for x: float in [-outer, -inner, -outer, -inner] + tunnel + [inner, outer, inner, outer]:
 		cols.append(x * k)
-	tall = PackedInt32Array([4, 5, 6])
-	low = PackedInt32Array([0, 1, 2, 3, 7, 8, 9, 10])
-	upper = PackedInt32Array([0, 1, 9, 10])
+	for c in cols.size():
+		if c >= 4 and c < 4 + n:
+			tall.append(c)
+		else:
+			low.append(c)
+	upper = PackedInt32Array([0, 1, n + 6, n + 7])
 	upper_y = Layout.DECK_Y + (upper_height - MID_CAR_DECK) * k
 	for c in lanes:
 		lane_y.append(upper_y if upper.has(c) else Layout.DECK_Y)
@@ -577,73 +588,82 @@ func _lay_out_issaquah() -> void:
 	ribs = ISQ_RIBS
 	var k := MID_SCALE
 	var l := ISQ_LIFT
-	_two_level_lanes(8.4, 11.6, ISQ_MEZ_TOP)
+	_two_level_lanes(6.65, 9.85, ISQ_MEZ_TOP, [-1.75, 1.75])
 	ramp_top = Vector2(ISQ_RAMP_TOP_X * k, ISQ_MEZ_Z * k)
 	ramp_foot = Vector2(ISQ_RAMP_FOOT_X * k, ISQ_RAMP_Z * k)
 	wing_out_z = ISQ_MEZ_Z * k
-	# The opening: between the casing's outer face (6.8) and the ramp's inner edge,
+	# The opening: between the casing's outer face (5.05) and the ramp's inner edge,
 	# its middle, until clear of the casing's end; then in toward the throat.
-	for z: float in [30.0, 32.5]:
-		wing_via.append(Vector2((6.8 + _isq_ramp_edge(z)) * 0.5 * k, z * k))
-	wing_via.append(Vector2(6.6 * k, 35.5 * k))
+	var d := ISQ_STRETCH_Z
+	for z: float in [30.0 + d, 32.5 + d]:
+		wing_via.append(Vector2((5.05 + _isq_ramp_edge(z)) * 0.5 * k, z * k))
+	wing_via.append(Vector2(4.85 * k, (35.5 + d) * k))
 	# The wings' rows, both decks: those under the tween deck's flat (past it the
 	# ramps come down).
 	for r in rows:
 		if absf(row_z[r]) > ramp_top.y - 0.5 * ROW_SPACING:
 			for c in low:
 				blocked.append(r * lanes + c)
-	throat_x = 5.4 * k
+	throat_x = 3.65 * k
 	turn_z = row_z[0] + 1.0 * Models.LEGACY_SCALE
 	net_z = ISQ_APRON_Z * k
 	net_half_w = (_isq_beam(ISQ_APRON_Z) - 0.36) * k
-	var cab := 13.1  # the cabin's half width (issaquah_mid.py cabin_dims)
+	var cab := 11.35  # the cabin's half width (issaquah_mid.py cabin_dims)
 	for e: float in [-1.0, 1.0]:
-		lanterns.append(_isq(0, 21.95 + l, e * 24.3))
+		lanterns.append(_isq(0, 21.95 + l, e * (24.3 + d)))
 		for x: float in [-1.0, 1.0]:
-			sidelights.append([_isq(x * 5.02, 12.1 + l, e * 27.0), x, e])
+			sidelights.append([_isq(x * 4.27, 12.1 + l, e * (27.0 + d)), x, e])
 	# Lights filling the car deck: down the tunnel, over the tween decks, and under
 	# them over the main deck's wing lanes.
-	for z: float in [-38.0, -27.0, -16.0, -5.0, 5.0, 16.0, 27.0, 38.0]:
+	for z: float in [-43.4, -31.0, -18.6, -6.2, 6.2, 18.6, 31.0, 43.4]:
 		deck_lights.append(_isq(0, 6.3 + l, z))
-	for z: float in [-24.0, -12.0, 0.0, 12.0, 24.0]:
-		for x: float in [-10.0, 10.0]:
+	for z: float in [-28.0, -14.0, 0.0, 14.0, 28.0]:
+		for x: float in [-8.25, 8.25]:
 			deck_lights.append(_isq(x, 6.4 + l, z))
 			deck_lights.append(_isq(x, ISQ_MEZ_TOP - 0.7, z))
 	# The cabin's sides stop at the vestibules (issaquah_mid.py vestibules): walled on
 	# their outboard side, a chamfer across the corner and their front, windows in each.
 	for x: float in [-1.0, 1.0]:
-		var z := -24.34
-		while z <= 24.35:
+		for i in 15:
+			var z := -(24.34 + d) + i * (24.34 + d) / 7.0
 			windows.append([_isq(x * (cab + 0.05), 9.03 + l, z), 0.9, 2.2, Vector3(x, 0, 0)])
-			z += 4.26
 	for e: float in [-1.0, 1.0]:
-		for x: float in [-4.5, -1.5, 1.5, 4.5]:
-			windows.append([_isq(x, 9.03 + l, e * 30.6), 0.9, 2.2, Vector3(0, 0, e)])
+		for x: float in [-3.6, -1.2, 1.2, 3.6]:
+			windows.append([_isq(x, 9.03 + l, e * (30.6 + d)), 0.9, 2.2, Vector3(0, 0, e)])
 		for x: float in [-1.0, 1.0]:
-			windows.append([_isq(x * 8.0, 9.03 + l, e * 30.27), 1.0, 1.25, Vector3(0, 0, e)])
-			for vz: float in [25.63, 27.23]:
-				windows.append([_isq(x * 13.2, 9.03 + l, e * vz), 1.0, 1.25, Vector3(x, 0, 0)])
-			windows.append([_isq(x * 12.06, 9.03 + l, e * 29.12), 1.1, 1.25, Vector3(x, 0, e).normalized()])
+			windows.append([_isq(x * 6.25, 9.03 + l, e * (30.27 + d)), 1.0, 1.25, Vector3(0, 0, e)])
+			for vz: float in [25.63 + d, 27.23 + d]:
+				windows.append([_isq(x * 11.45, 9.03 + l, e * vz), 1.0, 1.25, Vector3(x, 0, 0)])
+			windows.append([_isq(x * 10.31, 9.03 + l, e * (29.12 + d)), 1.1, 1.25, Vector3(x, 0, e).normalized()])
 	for e: float in [-1.0, 1.0]:
-		perches.append([_isq(-4.9, 14.02 + l, e * 25.8), _isq(4.9, 14.02 + l, e * 25.8), 1.9 * k])
-		perches.append([_isq(0, 13.06 + l, e * 6.6), _isq(0, 13.06 + l, e * 22.4), 4.4 * k])
-		perches.append([_isq(-5.9, 8.32 + l, e * 32.65), _isq(5.9, 8.32 + l, e * 32.65), 0.0])
+		perches.append([_isq(-4.15, 14.02 + l, e * (25.8 + d)), _isq(4.15, 14.02 + l, e * (25.8 + d)), 1.9 * k])
+		perches.append([_isq(0, 13.06 + l, e * 6.6), _isq(0, 13.06 + l, e * (22.4 + d)), 4.4 * k])
+		perches.append([_isq(-4.15, 8.32 + l, e * (32.65 + d)), _isq(4.15, 8.32 + l, e * (32.65 + d)), 0.0])
 		for x: float in [-1.0, 1.0]:
-			perches.append([_isq(x * (_isq_beam(33.0) + 0.05), 8.32 + l, e * 33.0),
-				_isq(x * (_isq_beam(42.0) + 0.05), 8.32 + l, e * 42.0), 0.0])
+			perches.append([_isq(x * (_isq_beam(33.0 + d) + 0.05), 8.32 + l, e * (33.0 + d)),
+				_isq(x * (_isq_beam(42.0 + d) + 0.05), 8.32 + l, e * (42.0 + d)), 0.0])
 	for x: float in [-1.0, 1.0]:
-		perches.append([_isq(x * (cab + 0.05), 11.8 + l, -29.5), _isq(x * (cab + 0.05), 11.8 + l, 29.5), 0.0])
-		perches.append([_isq(x * 5.0, 14.82 + l, -0.6), _isq(x * 5.0, 14.82 + l, 0.6), 0.0])
+		perches.append([_isq(x * (cab + 0.05), 11.8 + l, -29.5 - d), _isq(x * (cab + 0.05), 11.8 + l, 29.5 + d), 0.0])
+		perches.append([_isq(x * 4.25, 14.82 + l, -0.6), _isq(x * 4.25, 14.82 + l, 0.6), 0.0])
 
 
 ## Vehicle deck and bridge stations in art/jumbo_mk_ii.py, in model metres.
+## A point on the real Jumbo Mk II's plans (metres, waterline at 0) in the hull's
+## frame, stretched as her model is.
+static func _jumbo(x: float, y: float, z: float) -> Vector3:
+	return _mid(x * JUMBO_STRETCH, y, z * JUMBO_STRETCH)
+
+
 func _lay_out_jumbo() -> void:
-	var k := MID_SCALE
-	_two_level_lanes(8.85, 11.7, 5.65)
+	var k := MID_SCALE * JUMBO_STRETCH
+	# Lanes are placed on the stretched model (art/jumbo_mk_ii.py): four through the
+	# tunnel, 3.4 m apart, between casings faced at 7.22; two in each wing. The rest
+	# of her plan is the real boat's (in k, stretched with her).
+	_two_level_lanes(10.3, 13.3, 5.65, [-5.1, -1.7, 1.7, 5.1])
 	ramp_top = Vector2(10.85, 38.5) * k
 	ramp_foot = Vector2(6.35, 59.0) * k
 	wing_out_z = 32.2 * k
-	wing_via = PackedVector2Array([Vector2(8.8, 35.6) * k, Vector2(5.4, 42.0) * k,
+	wing_via = PackedVector2Array([Vector2(9.0, 35.6) * k, Vector2(5.4, 42.0) * k,
 		Vector2(4.2, 50.0) * k])
 	throat_x = 3.6 * k
 	end_z = 65.9 * k
@@ -657,18 +677,18 @@ func _lay_out_jumbo() -> void:
 				blocked.append(r * lanes + c)
 
 	for e: float in [-1.0, 1.0]:
-		lanterns.append(_mid(0, 26.65, e * 43.8))
-		perches.append([_mid(-4.4, 18.10, e * 48.2), _mid(4.4, 18.10, e * 48.2), 2.8 * k])
+		lanterns.append(_jumbo(0, 26.65, e * 43.8))
+		perches.append([_jumbo(-4.4, 18.10, e * 48.2), _jumbo(4.4, 18.10, e * 48.2), 2.8 * MID_SCALE])
 		for side: float in [-1.0, 1.0]:
-			sidelights.append([_mid(side * 12.65, 15.72, e * 44.85), side, e])
+			sidelights.append([_jumbo(side * 12.65, 15.72, e * 44.85), side, e])
 		for x: float in [-6.0, 0.0, 6.0]:
-			windows.append([_mid(x, 10.79, e * 53.88), 0.9, 2.2, Vector3(0, 0, e)])
+			windows.append([_jumbo(x, 10.79, e * 53.88), 0.9, 2.2, Vector3(0, 0, e)])
 	for z in range(-30, 31, 10):
-		deck_lights.append(_mid(0, 8.6, z))
+		deck_lights.append(_jumbo(0, 8.6, z))
 		for side: float in [-1.0, 1.0]:
-			deck_lights.append(_mid(side * 10.2, 5.20, z))
-			deck_lights.append(_mid(side * 10.2, 8.6, z))
-			windows.append([_mid(side * 13.4, 10.79, z), 0.9, 2.2, Vector3(side, 0, 0)])
+			deck_lights.append(_jumbo(side * 10.2, 5.20, z))
+			deck_lights.append(_jumbo(side * 10.2, 8.6, z))
+			windows.append([_jumbo(side * 13.4, 10.79, z), 0.9, 2.2, Vector3(side, 0, 0)])
 
 
 ## A point in the Guemes model (metres, waterline at 0) in the hull's frame.

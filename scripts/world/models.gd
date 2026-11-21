@@ -1850,7 +1850,7 @@ static func ferry_lights(fc: FerryClass) -> ArrayMesh:
 				var floor := FerryClass.ISQ_CAR_DECK
 				var ax := absf(c.x)
 				var az := absf(c.z)
-				if c.y > 6.0 and ax > 6.8:
+				if c.y > 6.0 and ax > 5.05:
 					if az < FerryClass.ISQ_MEZ_Z:
 						floor = FerryClass.ISQ_MEZ_TOP
 					elif ax > FerryClass._isq_ramp_edge(az) and FerryClass._isq_ramp_edge(az) > 0.0:

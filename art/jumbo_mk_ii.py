@@ -22,7 +22,7 @@ from mathutils import Matrix, Vector
 ART = Path(__file__).resolve().parent
 sys.path.insert(0, str(ART))
 from issaquah_mid import (V, box, cyl, face, finish_meshes, hface, loft, model_collection,
-                          panel, rail_loop, rect, torus)
+                          life_ring, panel, rail_loop, rect, torus)
 
 HALF_LENGTH = 70.13
 HALF_BEAM = 13.716
@@ -434,7 +434,7 @@ def pilothouse(e):
     for s in [-1, 1]:
         rail = [V(s*p.x,p.y,p.z) for p in floor[:11]]
         rail_loop(rail, .99, "green", step=1.45, closed=False)
-        torus(V(s*10.63,BRIDGE+.55,e*45.79), V(.07*s,0,e), .30,.085,16,6,"orange")
+        life_ring(V(s*10.63,BRIDGE+.55,e*45.79), V(.07*s,0,e))
         box(V(s*12.57,BRIDGE+.45,e*44.85), (.16,.90,1.04), "green")
         # The narrow grated ledge below the forward windows follows the bow.
         nose = [V(s*x, BRIDGE-.07, e*z) for x,z in edge[10:]]
@@ -534,7 +534,7 @@ def upper_works():
             box(V(0,h+.66,mz+e*1.3),(2.65,.15,.27),"white")
         cyl(V(0,24.7,mz),V(0,26.65,mz),.12,.065,8,"white")
         for s in [-1,1]:
-            torus(V(s*(beam(36)-.47),SUN+.61,e*36),V(s,0,0),.39,.095,12,5,"orange")
+            life_ring(V(s*(beam(36)-.47),SUN+.61,e*36), V(s,0,0))
 
 
 def stowed_boats(parts):

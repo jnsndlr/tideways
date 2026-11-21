@@ -215,6 +215,36 @@ def torus(c, ax, R, r, n1, n2, key):
             face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
 
 
+def life_ring(c, ax):
+    """A SOLAS life ring hung on a rail: centre c, its face toward ax (horizontal). An
+    orange ring of round section with four white reflective bands on the diagonals, and
+    the grab line festooned round its outside, seized to it top, bottom and sides."""
+    R, r, n1, n2 = 0.32, 0.075, 24, 8
+    ax = Vector((ax.x, 0.0, ax.z)).normalized()
+    up, w = UP, ax.cross(UP).normalized()
+    at = lambda a, rad: c + (up * math.cos(a) + w * math.sin(a)) * rad
+    rings = []
+    for i in range(n1):
+        a = math.tau * i / n1
+        d = up * math.cos(a) + w * math.sin(a)
+        rings.append([c + d * (R + r * math.cos(math.tau * k / n2)) + ax * (r * math.sin(math.tau * k / n2)) for k in range(n2)])
+    for i in range(n1):
+        a, b = rings[i], rings[(i + 1) % n1]
+        ca = at(math.tau * (i + 0.5) / n1, R)
+        key = "white" if i % 6 == 2 else "orange"   # the bands, centred on 45, 135...
+        for k in range(n2):
+            q = [a[k], a[(k + 1) % n2], b[(k + 1) % n2], b[k]]
+            face(q if normal(q).dot(centre(q) - ca) > 0 else q[::-1], key)
+    # The grab line: four festoons hanging a little clear between the seizings.
+    for j in range(4):
+        a0 = j * math.pi / 2
+        path = [at(a0 + t * math.pi / 2, R + r + 0.012 + 0.05 * math.sin(t * math.pi)) for t in (k / 8 for k in range(9))]
+        tube(path, 0.012, 4, "white")
+        # The seizing: a short white wrap round the ring's section.
+        tdir = (up * -math.sin(a0) + w * math.cos(a0)).normalized()
+        cyl(at(a0, R) - tdir * 0.025, at(a0, R) + tdir * 0.025, r + 0.012, r + 0.012, 8, "white")
+
+
 def panel(c, n, w, h, d, key):
     """A flat box standing on a wall: centre `c` on its face, `n` the wall's outward
     (horizontal) normal, `w` along the wall, `h` tall, `d` proud of it."""
@@ -547,12 +577,12 @@ def machinery():
         cyl(V(sx, top + 0.38, zc), V(sx, CAR_DECK + 7.85, zc), 0.15, 0.13, 8, "black")
         box_between(V(sx, CAR_DECK + 7.85, zc), V(sx, CAR_DECK + 7.95, zc + e * 0.3), 0.3, "black")
         cyl(V(sx, top + 1.5, zc), V(cx - s * 0.55, top + 0.9, zc), 0.03, 0.03, 4, "steel")
-        torus(V(s * (x_in - 0.03), CAR_DECK + 1.5, zc), V(1, 0, 0), 0.3, 0.07, 10, 4, "white")
+        life_ring(V(s * (x_in - 0.03), CAR_DECK + 1.5, zc), V(1, 0, 0))
     # A lifebuoy on each of the other corners' panels, inboard.
     for s, e in ((1, 1), (-1, -1)):
         z = e * 13.2
         n = side_normal(s, z)
-        torus(V(s * deck_x(z), CAR_DECK + 1.5, z) - n * 0.22, n, 0.3, 0.07, 10, 4, "orange")
+        life_ring(V(s * deck_x(z), CAR_DECK + 1.5, z) - n * 0.22, n)
 
 
 def build():
@@ -576,7 +606,7 @@ def build():
 
 
 built = build()
-_glb = os.path.normpath(os.path.join(os.path.dirname(bpy.data.filepath) or "/Users/jon/Documents/GitHub/lowpoly/art",
+_glb = os.path.normpath(os.path.join(os.path.dirname(bpy.data.filepath) or "/Users/jon/Documents/GitHub/tideways/art",
                                      "..", "assets", "models", "guemes_mid.glb"))
 for o in bpy.data.objects: o.select_set(o in built)
 bpy.ops.export_scene.gltf(filepath=_glb, export_format="GLB", use_selection=True,
