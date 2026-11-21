@@ -132,6 +132,9 @@ func _ready() -> void:
 	lights.setup(sim, rig, day_cycle, fixed_lights)
 	var gulls := Seagulls.new()
 	add_child(gulls)
+	for terminal: Terminal in sim.terminals.values():
+		for g: SlipGuides in terminal.guides.values():
+			g.add_perches(builder.gull_perches, builder.eagle_perches)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
 	eagles = Eagles.new()
 	add_child(eagles)

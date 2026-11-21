@@ -42,26 +42,65 @@ static func baked(path: String) -> MeshBuilder:
 	var builder := MeshBuilder.new()
 	var root := (load(path) as PackedScene).instantiate()
 	for node: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
-		var xf := Transform3D.IDENTITY
-		var n: Node = node
-		while n != root and n is Node3D:
-			xf = (n as Node3D).transform * xf
-			n = n.get_parent()
-		var part := MeshBuilder.new()
-		for surface in node.mesh.get_surface_count():
-			var mat := node.get_active_material(surface)
-			var paint := Color(0.94, 0.95, 0.94)
-			if mat is BaseMaterial3D:
-				paint = (mat as BaseMaterial3D).albedo_color
-			var start := part.colors.size()
-			_append_surface(part, node.mesh, surface)
-			for i in range(start, part.colors.size()):
-				if part.colors[i].a < 0.0:
-					part.colors[i] = paint
-		Models._append_part(builder, part, xf)
+		Models._append_part(builder, painted(node), relative_xform(node, root))
 	root.free()
 	_libraries[key] = builder
 	return builder
+
+
+## `node`'s transform in `ancestor`'s frame.
+static func relative_xform(node: Node, ancestor: Node) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var n := node
+	while n != ancestor and n is Node3D:
+		xf = (n as Node3D).transform * xf
+		n = n.get_parent()
+	return xf
+
+
+## A mesh instance's triangles in its own frame, each surface without vertex colours
+## painted its material's albedo.
+static func painted(node: MeshInstance3D) -> MeshBuilder:
+	var part := MeshBuilder.new()
+	for surface in node.mesh.get_surface_count():
+		var start := part.colors.size()
+		_append_surface(part, node.mesh, surface)
+		var paint := _paint(node, surface)
+		for i in range(start, part.colors.size()):
+			if part.colors[i].a < 0.0:
+				part.colors[i] = paint
+	return part
+
+
+## A copy of a mesh instance's mesh for the vertex-colour material, keeping its
+## indices, normals and blend shapes, each surface painted its material's albedo
+## (for live parts that deform, such as fenders that compress).
+static func painted_live(node: MeshInstance3D) -> ArrayMesh:
+	var src := node.mesh as ArrayMesh
+	var mesh := ArrayMesh.new()
+	mesh.blend_shape_mode = src.blend_shape_mode
+	for b in src.get_blend_shape_count():
+		mesh.add_blend_shape(src.get_blend_shape_name(b))
+	for surface in src.get_surface_count():
+		var arrays := src.surface_get_arrays(surface)
+		var n: int = (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		var colors := PackedColorArray()
+		colors.resize(n)
+		colors.fill(_paint(node, surface))
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_TANGENT] = null
+		var shapes := src.surface_get_blend_shape_arrays(surface)
+		for s in shapes:
+			s[Mesh.ARRAY_TANGENT] = null
+			s[Mesh.ARRAY_COLOR] = null
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, shapes)
+		mesh.surface_set_material(surface, Models.vc_material())
+	return mesh
+
+
+static func _paint(node: MeshInstance3D, surface: int) -> Color:
+	var mat := node.get_active_material(surface)
+	return (mat as BaseMaterial3D).albedo_color if mat is BaseMaterial3D else Color(0.94, 0.95, 0.94)
 
 
 ## The animated wildlife shaders need the original indices, UVs and smooth normals.

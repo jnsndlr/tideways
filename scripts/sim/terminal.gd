@@ -20,6 +20,7 @@ var island: MapData.Island
 var lanes := {}        # route id -> Array[Lane]
 var slip_v := {}       # route id -> lateral offset of that route's slip
 var ramps := {}        # route id -> SlipRamp (none with the classic slip)
+var guides := {}       # route id -> SlipGuides (none with the classic slip)
 var work_stage := WorkStage.IDLE
 var staging_lanes: Array[Lane] = []
 # Cars dispatched from the terminal may still be driving through their old lane.
@@ -118,11 +119,22 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 			var ramp := SlipRamp.new(slip_v[rid])
 			add_child(ramp)
 			ramps[rid] = ramp
+		if SlipGuides.available():
+			var g := SlipGuides.new(slip_v[rid], transform, s.terrain)
+			add_child(g)
+			guides[rid] = g
 		var arr: Array[Lane] = []
 		for v in lane_sets[i]:
 			arr.append(Lane.new(v))
 		lanes[rid] = arr
 	_build_road_paths()
+
+
+## Sizes each slip's guides for the widest ferry its route runs (`widest`: route id ->
+## FerryClass size), as built.
+func fit_slips(widest: Dictionary) -> void:
+	for rid in guides:
+		(guides[rid] as SlipGuides).fit(widest.get(rid, 4))
 
 
 func _build_road_paths() -> void:

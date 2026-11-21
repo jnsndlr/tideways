@@ -32,6 +32,20 @@ const WING_WALL := [Vector2(PIER_END + 0.9, 9.0),
 # lines ferries up coming in.
 const DOLPHIN_INNER := Vector3(PIER_END + 51.0, 17.7, 3.15)
 const DOLPHIN_OUTER := Vector3(PIER_END + 87.0, 20.7, 4.05)
+# The modelled dolphins (SlipGuides) stand where each slip's size puts them: the
+# inner pair's fender faces SLIP_CLEAR outside the side of the widest hull the slip
+# takes (its size, as FerryClass sizes go), the outer pair's OUTER_FLARE further
+# out to gather ferries in. SLIP_FACE_MAX is the widest of them (an Issaquah's
+# 17.58 m half beam); DOLPHIN_DEPTH how far a dolphin reaches behind its face.
+const SLIP_CLEAR := 0.6
+const OUTER_FLARE := 2.1
+const SLIP_FACE_MAX := 17.6 + SLIP_CLEAR
+const DOLPHIN_DEPTH := 5.8
+
+
+## Lateral offset of a slip's inner dolphins' fender faces, for a slip of `size`.
+static func slip_face_v(size: int) -> float:
+	return FerryClass.of(size).half_beam + SLIP_CLEAR
 const DECK_Y := LOT_Y
 
 # Marina frame, like a terminal's: origin where the pier meets the shore, +Z ("u")

@@ -79,7 +79,11 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	else:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
+	var widest := {}
+	for f in ferries:
+		widest[f.route.id] = maxi(widest.get(f.route.id, 1), f.fc.size)
 	for term: Terminal in terminals.values():
+		term.fit_slips(widest)
 		term.prefill()
 	for i in ferries.size():
 		ferries[i].start_staggered(i)
