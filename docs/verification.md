@@ -33,6 +33,17 @@ The vehicle-overlap diagnostic reports proximity, including known contacts; a ze
 
 `tools/frame_cost.gd` shows where the time goes, system by system, in about two minutes. Differences under about 0.5 ms are noise. Both run headless and draw nothing, so they cover scripts and scene updates only. Rendering cost needs a device and `tools/perf_probe.gd`.
 
+### Measure frame pacing on an iPad
+
+With the development build installed, use Xcode's device identifier and its bundle ID. Each invocation relaunches that app, loads seed 123, waits for a fresh player-camera capture and records a Game Performance Overview trace. The app returns to its menu after recording. Use a new output directory for each run. `BUILD_REF` records the source commit supplied by the tester.
+
+    BUILD_REF="$BUILT_COMMIT" bash tools/capture_ipad_frames.sh "$DEVICE" "$BUNDLE_ID" grass /tmp/grass-run-1
+    BUILD_REF="$BUILT_COMMIT" bash tools/capture_ipad_frames.sh "$DEVICE" "$BUNDLE_ID" terminal /tmp/terminal-run-1
+
+`grass` and `terminal` are paused 20-second views. `follow` follows the first ferry at normal speed for 90 seconds. The optional fifth argument selects the game executable name if it differs from `Tideways`. Repeat both builds on each iPad, reverse their order for the second pair and give them comparable time to cool. Inspect `camera.png` to confirm the view. Report the device, OS, build, camera, run order and thermal state alongside the times.
+
+`frames.csv` gives the frame-weighted mean interval, its equivalent FPS and GPU active time for each process, Metal layer and thermal state. The first two seconds of the trace are excluded. Windows crossing thermal boundaries have their own row. The trace contains system-wide Instruments data and can stay on the profiling Mac. To recalculate an existing single-run trace, use `python3 tools/ipad_frame_report.py /path/to/game.trace`.
+
 The road and marine traffic diagnostics also run nightly on main, and on demand from the Actions tab.
 
 

@@ -30,7 +30,7 @@ func check_drain(staging_count: int) -> String:
 	var fitting := Vehicle.new()
 	rig.slots = 3
 	# A car was sent toward the ferry before the player opened the purchase UI.
-	first.queue.append(dispatched)
+	first.enqueue(dispatched.get_instance_id(), dispatched.slots)
 	term.take_car(0)
 	first.enroute = rig.slots
 	if not term.buy_holding_lane() or term.buy_holding_lane():
@@ -42,8 +42,8 @@ func check_drain(staging_count: int) -> String:
 	if term.work_stage != Terminal.WorkStage.DRAINING:
 		return "Crew entered before the inbound rig cleared"
 	first.enroute -= rig.slots
-	first.queue.append(rig)
-	active.queue.append(fitting)
+	first.enqueue(rig.get_instance_id(), rig.slots)
+	active.enqueue(fitting.get_instance_id(), fitting.slots)
 	term._advance_construction(20)
 	if term.work_stage != Terminal.WorkStage.DRAINING:
 		return "Crew entered an occupied queue"
@@ -125,8 +125,8 @@ func _process(_dt: float) -> bool:
 			return fail("Terminal did not keep boarding while its new lane was built")
 		if terminal.capacity() != original_capacity + terminal.slots_per_lane or terminal.buy_holding_lane():
 			return fail("Expansion exceeded the site limit")
-		for vehicle: Vehicle in terminal.extra_lane.queue:
-			observed[vehicle.get_instance_id()] = true
+		for waiting in terminal.extra_lane.queue:
+			observed[waiting.vehicle_id] = true
 		for ferry: Ferry in game.sim.ferries:
 			for car: Vehicle in ferry.aboard:
 				if observed.has(car.get_instance_id()):
