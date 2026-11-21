@@ -14,7 +14,7 @@ palette = {
     "Reflection": "55869a", "Cedar": "a56d45", "Honey": "d89b5b",
     "Vermilion": "c55245", "Brass": "efb85d", "Mint": "418e89",
     "Signal": "bd342e", "Lagoon": "238f9b", "Marigold": "efb830", "Pearl": "e5e3db",
-    "Dock": "ac865e", "Pile": "776351", "Slate": "415269", "Water": "477f8c",
+    "DeepTeal": "214853", "Lamplight": "ffc656", "TileRed": "cf4229", "Petal": "e9519c", "Aqua": "10aeb8", "Zinc": "8fa4b4", "Dock": "ac865e", "Pile": "776351", "Slate": "415269", "Water": "477f8c",
     "Patina": "367f82", "Leaf": "48735a", "Bloom": "d97980",
 }
 mats = {}
@@ -27,6 +27,14 @@ for name, rgb in palette.items():
     shader.inputs["Base Color"].default_value = mat.diffuse_color
     shader.inputs["Roughness"].default_value = .36 if name in ("Glass", "Reflection") else .77
     mats[name] = mat
+
+for name in ["Lamplight","Zinc"]:
+    bsdf=mats[name].node_tree.nodes.get("Principled BSDF")
+    if name=="Lamplight":
+        bsdf.inputs["Emission Color"].default_value=(1,.46,.06,1)
+        bsdf.inputs["Emission Strength"].default_value=2.6
+    else:
+        bsdf.inputs["Metallic"].default_value=.42
 
 parts = []
 
@@ -345,8 +353,8 @@ def dining_pier():
         box(0,-5.92+i*.24,-.09,14,.233,.18,"Honey" if i%6==0 else "Dock")
     for y in [-5.86,-3.43,.04,3.82]:
         box(0,y,-.38,14,.33,.42,"Cedar")
-        for x in [-6.78,-3.46,0,3.46,6.78]:
-            box(x,y,-4.68,.35,.38,9.2,"Pile")
+        for x in [-6.78,-4.52,-2.26,0,2.26,4.52,6.78]:
+            box(x,y,-4.68,.46,.46,9.2,"Pile")
     for x in [-6.80,0,6.80]:
         box(x,-1.0,-.42,.29,10.03,.44,"Cedar")
     # Rail posts, square caps, and vertical pickets around the terrace.
@@ -374,6 +382,12 @@ def rail_flowers(x):
     planter(x,-5.83)
     for obj in parts[start:]:
         obj.location.z+=.67
+    for j in range(13):
+        dx=(j%7-3)*.172
+        dy=(j//7-.5)*.22
+        z=1.74+.10*cos(j*2.5)
+        cone(x+dx,-5.83+dy,z,.19,.14,.23,"Leaf",7)
+        cone(x+dx-.04,-5.87+dy,z+.12,.105,.075,.12,"Petal" if j%3 else "Bloom",7)
 
 
 def pendant(x,y,top,drop):
@@ -381,32 +395,113 @@ def pendant(x,y,top,drop):
     cone(x,y,top-drop-.09,.105,.052,.18,"Brass",8)
 
 
+def globe(x,y,z,r=.095):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=10,ring_count=6,location=(x,y,z))
+    obj=painted(bpy.context.object,"Lamplight")
+    obj.scale=(r,r,r*1.23)
+
+
+def dining_chair(x,y,angle):
+    start=len(parts)
+    box(0,0,.49,.42,.44,.09,"Marigold")
+    for dx in [-.17,.17]:
+        for dy in [-.17,.17]:
+            height=.96 if dy>0 else .47
+            rod((dx*1.2,dy*1.22,.02),(dx,dy,height),.055,"Honey")
+    for z in [.75,.90]:
+        box(0,.18,z,.43,.065,.095,"Marigold")
+    for obj in parts[start:]:
+        p=obj.location.copy()
+        obj.location.x=x+p.x*cos(angle)-p.y*sin(angle)
+        obj.location.y=y+p.x*sin(angle)+p.y*cos(angle)
+        obj.rotation_euler=(Matrix.Rotation(angle,3,'Z') @ obj.rotation_euler.to_matrix()).to_euler()
+
+
 def dining_tables(xs,fabric):
     for x in xs:
-        start=len(parts)
-        patio_table(x,-4.53,fabric)
-        # The land version stands on a raised sidewalk.
-        for obj in parts[start:]:
-            obj.location.z-=.28
+        y=-4.67
+        cone(x,y,.46,.13,.085,.92,"Cedar")
+        cone(x,y,.93,.62,.62,.085,"Honey")
+        cone(x,y,1.84,.035,.035,1.82,"Brass")
+        cone(x,y,2.79,1.27,.055,.41,fabric,10)
+        cone(x,y,3.04,.06,.03,.10,"Brass")
+        for a in [-1.18,1.18,3.14]:
+            dining_chair(x+.81*sin(a),y+.81*cos(a),-a)
+
+
+def dining_room(w,d,h,paint):
+    # Open glazed bays reveal the back wall, booths and hanging fixtures in both renderers.
+    box(0,0,.10,w,d,.20,"Dock")
+    box(0,d/2,h/2,w,.19,h,paint)
+    box(0,d/2-.15,2.0,w-.28,.10,2.94,"DeepTeal")
+    for x in [-w*.32,0,w*.32]:
+        box(x,d/2-.23,2.28,2.04,.07,1.48,"Glass")
+        box(x,d/2-.28,2.28,.07,.06,1.48,"Cream")
+        box(x,d/2-.30,2.64,2.04,.05,.075,"Cream")
+    for x in [-w/2,w/2]:
+        box(x,0,.48,.17,d,.94,paint)
+        for y in [-d/2,-d*.25,0,d*.25,d/2]:
+            box(x,y,h/2,.14,.15,h,"Ivory")
+        for z in [.94,h-.78,h-.06]:
+            box(x,0,z,.17,d,.12,"Ivory")
+    box(0,0,h-.05,w,d,.10,"Cedar")
+    box(0,-d/2,.25,w,.15,.50,paint)
+    for x in [-w/2,-w*.31,-w*.13,w*.13,w*.31,w/2]:
+        box(x,-d/2,h/2,.15,.19,h,"Ivory")
+    for z in [.49,h-.67,h-.06]:
+        box(0,-d/2,z,w,.17,.13,"Ivory")
+    for x in [-w*.34,0,w*.34]:
+        box(x,.88,.57,1.85,.68,.72,"Marine")
+        box(x,1.22,1.04,1.85,.14,.62,"Patina")
+        box(x,.06,.68,.18,.22,.96,"Ink")
+        box(x,.06,1.13,1.71,.85,.09,"Honey")
+        for dx in [-.56,.56]:
+            cone(x+dx,.06,1.23,.095,.075,.14,"Ivory")
+        for y in [-1.05,1.10]:
+            box(x,y,h-.28,.025,.025,.45,"Ink")
+            cone(x,y,h-.57,.17,.055,.16,"Honey")
+            globe(x,y,h-.68)
+    # Shallow blue transom panes catch sky above the clear view into each booth.
+    for a,b in zip([-.50,-.31,-.13,.13,.31],[-.31,-.13,.13,.31,.50]):
+        box(w*(a+b)/2,-d/2+.06,h-.38,w*(b-a)-.13,.045,.46,"Reflection")
+    for x in [-w/2,w/2]:
+        for j in range(4):
+            box(x,(-.375+j*.25)*d,h-.41,.05,d*.25-.15,.54,"Reflection")
+    # Recessed glass double doors with brass pulls.
+    for x in [-.45,.45]:
+        box(x,-d/2+.05,1.46,.86,.10,2.55,"Marine")
+        box(x,-d/2-.02,1.65,.70,.035,1.80,"Glass")
+        box(x*.36,-d/2-.07,1.27,.045,.06,.33,"Brass")
+
+
+def deck_lamp(x,y,z):
+    rod((x,y,z),(x,y-.14,z+.31),.055,"Ink")
+    rod((x,y-.14,z+.31),(x,y-.41,z+.31),.055,"Ink")
+    rod((x,y-.41,z+.31),(x,y-.46,z+.15),.055,"Ink")
+    cone(x,y-.46,z+.11,.16,.05,.12,"Ink")
+    globe(x,y-.46,z+.01,.092)
 
 
 def sea_glass_grill():
     dining_pier()
     w,d=9.50,5.70
-    shell(w,d,3.33,"Pearl")
-    shopfront(w,d)
-    gable(w,d,3.35,2.60,"Lagoon","Glass",standing_seams=True)
+    dining_room(w,d,3.33,"Pearl")
+    gable(w,d,3.35,2.60,"Aqua","DeepTeal",standing_seams=True)
     for x in [-3.14,-1.55,0,1.55,3.14]:
         rise=2.60*(1-abs(x)/(w/2))
         box(x,-d/2-.064,3.35+rise/2,.12,.14,rise,"Ivory")
     box(0,-d/2-.09,3.37,w,.18,.16,"Ivory")
     for x in [-2.35,-.75,.75,2.35]:
-        pendant(x,-2.97,5.88-abs(x)*.55,.44)
+        top=5.88-abs(x)*.55
+        pendant(x,-2.97,top,.44)
+        globe(x,-3.00,top-.62,.088)
     for x,y in [(-2.9,1.3),(1.8,1.1),(3.45,.40)]:
         z=5.95-abs(x)*2.60/(w/2)
-        cone(x,y,z+.25,.17,.17,.74,"Oyster")
-        cone(x,y,z+.62,.24,.23,.18,"Ink")
-    dining_tables([-4.54,-1.12,2.48],"Lagoon")
+        cone(x,y,z+.25,.21,.21,.74,"Zinc")
+        cone(x,y,z+.62,.27,.27,.24,"Zinc")
+    dining_tables([-5.05,-1.55,2.15],"Aqua")
+    for x in [-4.72,4.72]:
+        deck_lamp(x,-2.88,3.09)
     for x in [4.53,6.00]:
         rail_flowers(x)
 
@@ -442,8 +537,16 @@ def crab_pot(x,y,z):
 def red_net_kitchen():
     dining_pier()
     w,d=11.50,5.50
-    shell(w,d,3.61,"Signal")
-    shopfront(w,d)
+    dining_room(w,d,3.61,"TileRed")
+    # Red clapboard spandrels, end piers and white lintels frame the dining bays.
+    for x in [-4.47,4.24]:
+        width=2.54 if x<0 else 3.00
+        box(x,-2.80,3.20,width,.15,.80,"TileRed")
+        for z in [2.98,3.20,3.42]:
+            box(x,-2.89,z,width,.06,.045,"Signal")
+        box(x,-2.91,2.78,width+.11,.15,.13,"Ivory")
+    for x in [-5.54,5.54]:
+        box(x,-2.81,1.78,.42,.22,3.54,"TileRed")
     # A broad transverse roof behind the projecting entrance gable.
     start=len(parts)
     gable(d,w,3.63,1.71,"Slate","Signal",standing_seams=True)
@@ -452,13 +555,21 @@ def red_net_kitchen():
         x,y,_=obj.location
         obj.location.x,obj.location.y=-y,x
         obj.rotation_euler=(turn @ obj.rotation_euler.to_matrix()).to_euler()
-    box(-.75,-2.88,1.84,5.45,.93,3.68,"Signal")
+    for x in [-3.28,1.78]:
+        box(x,-2.88,1.84,.43,.93,3.68,"TileRed")
+        for h in range(1,15):
+            box(x,-3.35,h*.24,.43,.05,.045,"Signal")
+        deck_lamp(x,-3.35,3.12)
+    for x in [-5.12,4.76]:
+        deck_lamp(x,-2.83,3.39)
+    for x in [-2.82,1.32]:
+        box(x,-3.35,1.85,.15,.14,3.70,"Ivory")
     start=len(parts)
     gable(5.45,3.53,3.70,2.05,"Slate","Signal",standing_seams=True)
     for obj in parts[start:]:
         obj.location.x-=.75
         obj.location.y-=1.58
-    window(-.75,-3.39,2.07,3.65,2.84)
+    box(-.75,-3.38,3.04,4.21,.16,.16,"Ivory")
     # Double doors in the central bay; matching glazed transom under the peak.
     for x in [-1.19,-.31]:
         box(x,-3.55,1.38,.85,.10,2.34,"Marine")
@@ -475,18 +586,29 @@ def red_net_kitchen():
         rod((-.75,-3.46,5.03),(-.75+side*1.74,-3.46,3.96),.15,"Ivory")
     box(-.75,-3.46,3.68,3.65,.14,.12,"Ivory")
     for x in [-1.50,-.75,0]:
-        pendant(x,-3.52,4.87-.61*abs(x+.75),.31)
-    box(3.38,.49,5.18,.66,.68,2.06,"Signal")
-    box(3.38,.49,6.22,.78,.80,.12,"Ivory")
-    box(3.38,.49,6.40,.57,.59,.29,"Ink")
-    box(3.38,.49,6.59,.80,.82,.11,"Slate")
-    dining_tables([-4.82,-2.03,3.85],"Marigold")
+        top=4.87-.61*abs(x+.75)
+        pendant(x,-3.52,top,.31)
+        globe(x,-3.54,top-.51,.09)
+    box(3.38,.49,5.48,.66,.68,2.66,"Signal")
+    box(3.38,.49,6.82,.78,.80,.12,"Ivory")
+    box(3.38,.49,7.00,.57,.59,.29,"Ink")
+    box(3.38,.49,7.19,.80,.82,.11,"Slate")
+    for dx in [-.32,.32]:
+        box(3.38+dx,.13,5.83,.07,.08,2.02,"Cream")
+    for row in range(10):
+        box(3.38,.132,4.87+row*.18,.56,.018,.022,"Cedar")
+    dining_tables([-5.12,-2.14,3.91],"Marigold")
     for x in [.72,5.95]:
         rail_flowers(x)
     life_ring(-2.21,-6.05,.51)
-    for x in [4.17,5.25]:
-        crab_pot(x,-5.28,0)
-    crab_pot(4.74,-5.28,.66)
+    # A low gear shelf hangs outside the rail, above the water.
+    box(3.10,-6.45,-.52,3.46,1.10,.16,"Dock")
+    for x in [1.73,4.47]:
+        rod((x,-5.79,-1.06),(x,-6.83,-.60),.12,"Pile")
+    for x in [2.02,3.10,4.18]:
+        crab_pot(x,-6.49,-.43)
+    for x in [2.56,3.64]:
+        crab_pot(x,-6.49,.23)
 
 
 def export(name, build, offset):
@@ -514,11 +636,13 @@ if restaurants:
     lineup = [("sea_glass_grill", sea_glass_grill, -8.6), ("red_net_kitchen", red_net_kitchen, 8.6)]
 for name,build,x in lineup:
     export(name,build,(x,0,0))
+    if restaurants:
+        bpy.context.object.rotation_euler.z = -.25 if name=="sea_glass_grill" else .17
 
 scene=bpy.context.scene
 def aim(obj,target):
     obj.rotation_euler=(Vector(target)-obj.location).to_track_quat('-Z','Y').to_euler()
-bpy.ops.object.camera_add(location=(13,-48,16 if pair or restaurants else 22))
+bpy.ops.object.camera_add(location=(13,-48,8 if restaurants else 16 if pair else 22))
 camera=bpy.context.object
 aim(camera,(0,-.5,2.1 if restaurants else 3.65 if pair else 2.6))
 camera.data.type='ORTHO'
@@ -535,7 +659,7 @@ light.data.energy=14500
 light.data.shape='DISK'
 light.data.size=15
 aim(light,(0,0,0))
-box(0,0,-1.75 if restaurants else -.16,90,90,.3,"Water" if restaurants else "Oyster")
+box(0,0,-1.75 if restaurants else -.16,420 if restaurants else 90,420 if restaurants else 90,.3,"Water" if restaurants else "Oyster")
 if restaurants:
     water=mats["Water"].node_tree
     surface=water.nodes.get("Principled BSDF")
@@ -550,7 +674,10 @@ if restaurants:
     bump.inputs["Distance"].default_value=.06
     water.links.new(ripple.outputs["Fac"],bump.inputs["Height"])
     water.links.new(bump.outputs["Normal"],surface.inputs["Normal"])
-scene.render.resolution_x=1600
+if restaurants:
+    scene.view_settings.view_transform="AgX"
+    scene.view_settings.exposure=.55
+scene.render.resolution_x=1800 if restaurants else 1600
 scene.render.resolution_y=680 if restaurants else 730 if pair else 590
 scene.render.resolution_percentage=100
 scene.render.filepath=str(ROOT/'art'/f'{study}_preview.png')
