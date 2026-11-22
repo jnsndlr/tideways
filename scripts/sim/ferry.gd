@@ -170,6 +170,14 @@ var _inset := 0.0
 var _yaws := PackedFloat32Array()
 const YAW_PAD := 120.0
 const YAW_EASE := 16.0      # m, each of the two box filters (so a turn eases in over ~32 m)
+# Lanes: two boats on one route pass each other mid-crossing, each keeping to her
+# own starboard lane off the line joining the docks (see lane_offset_on).
+const LANE_GAP := 50.0      # m, kept between two of the biggest hulls on opposite lanes
+const LANE_OUT := 60.0      # m out of the slip on the centreline before she eases over
+const LANE_EASE := 320.0    # m over which she eases onto her lane
+const LANE_SHIFT := 1.0 / 30.0   # of her lane per game minute, moving over when her route becomes shared (or stops being)
+static var _lane_w := -1.0
+var _lane_k := 0.0          # how far out on her lane she keeps (1 on a route she shares, 0 alone)
 
 
 func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
@@ -363,6 +371,7 @@ func _take_leg() -> void:
 		for e in run[2]:
 			if e[1].owner == self:
 				e[1].owner = null
+	var old := route
 	route = next
 	term_a = sim.terminals[route.a]
 	term_b = sim.terminals[route.b]
@@ -371,6 +380,9 @@ func _take_leg() -> void:
 	_build_yaws()
 	_forecasts.clear()
 	_place(_dock_s())
+	# Off a route she no longer sails (new stops): its water is no longer shared with her.
+	if old not in legs:
+		sim.marine.refresh_corridors()
 	# And she holds the new route's water round it, as she would have docking.
 	for run in _corridor_runs():
 		if run[0] <= 3.0 and _run_blocks_dock(run, at_a):
@@ -775,7 +787,12 @@ func _tick_sailing(delta: float) -> void:
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
 	var was := traveled
-	voyage.advance(delta, speed, run_length())
+	# Onto her lane (or back to the centreline) gently when her route has just
+	# become shared (or stopped being).
+	_lane_k = move_toward(_lane_k, 1.0 if sim.marine.shared(route) else 0.0, delta * LANE_SHIFT)
+	# `traveled` counts along the centreline; out on her lane round a bend she has
+	# further (or less far) to go, at the same speed through the water.
+	voyage.advance(delta, speed / _lane_stretch(_route_s(traveled)), run_length())
 	_burn(traveled - was)
 	_place(_route_s(traveled))
 	_bob_time += delta
@@ -845,8 +862,11 @@ func _corridor_wait() -> float:
 	if traveled < 1.5 and _blocked_at_dock():
 		return 0.0
 	for run in _corridor_runs():
+		# (Not the water round the slip she is coming in to, if lying there she will
+		# be in another route's way: she keeps that when she docks, _dock_corridors.)
+		var keep := _kept_docked(run)
 		for e in run[2]:
-			if traveled > e[0] and e[1].owner == self:
+			if traveled > e[0] and e[1].owner == self and not keep:
 				e[1].owner = null
 		if traveled > run[1]:
 			continue
@@ -891,7 +911,7 @@ func _blocked_at_dock() -> bool:
 func _arriving_through(run: Array) -> Ferry:
 	for e in run[2]:
 		var c: MarineTraffic.Corridor = e[1]
-		for f: Ferry in c.ferry.values():
+		for f: Ferry in c.boats:
 			if f == self or f.state != State.SAILING or f.destination() != here() or f._waiting_for == self:
 				continue
 			var to_go := f.distance_to(c)
@@ -969,13 +989,39 @@ func claim_corridors_at_start() -> void:
 		return
 
 
+## After the corridors were found afresh (a boat took new stops): forgets the
+## runs she had worked out, and takes what she would hold now if it is free:
+## docked, the water round her slip that is in the way of others; under way,
+## the run she is in.
+func reclaim_corridors() -> void:
+	_runs.clear()
+	if berth != Berth.WORKING:
+		return
+	for run in _corridor_runs():
+		if state != State.SAILING:
+			if run[0] <= 3.0 and _run_blocks_dock(run, at_a) and _run_holder(run, 0.0) == null:
+				for e in run[2]:
+					if e[1].owner == null:
+						e[1].owner = self
+		elif traveled >= run[0] and traveled <= run[1] and _run_holder(run, traveled) == null:
+			for e in run[2]:
+				if traveled <= e[0]:
+					e[1].owner = self
+
+
+## Whether `run` reaches the slip she is sailing to and, lying there, she will be
+## in another route's way: she keeps it from coming in until she leaves again.
+func _kept_docked(run: Array) -> bool:
+	return run[1] >= run_length() - 3.0 and _run_blocks_dock(run, not at_a)
+
+
 ## Docking: if another route runs so close past this slip that the docked ferry
 ## is in its way, keeps the run of corridors round it (and takes back any of it
 ## that it passed coming in and are free), so nothing comes by until it has left
 ## again. Frees the rest.
 func _dock_corridors() -> void:
 	for run in _corridor_runs():
-		var keep: bool = run[1] >= run_length() - 3.0 and _run_blocks_dock(run, not at_a)
+		var keep := _kept_docked(run)
 		for e in run[2]:
 			if keep:
 				# (Never from another ferry: one that has taken a corridor this one
@@ -1001,7 +1047,7 @@ func ahead(d: float) -> Vector2:
 	# Docked, `traveled` still counts the last crossing but at_a has flipped.
 	if state != State.SAILING:
 		return pos2()
-	var p := route_point(_route_s(minf(traveled + d, run_length())))
+	var p := lane_pose_on(route, _route_s(minf(traveled + d, run_length())), at_a, _lane_k)
 	return Vector2(p.x, p.z)
 
 
@@ -1011,8 +1057,10 @@ func path_left() -> float:
 
 ## Positions the ferry at distance s along the route curve. +Z always faces A → B.
 func _place(s: float) -> void:
-	var p := route_point(s)
-	_base_xf = Transform3D(Basis(Vector3.UP, _yaw_at(s) + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
+	if state != State.SAILING and sim and sim.marine:
+		_lane_k = 1.0 if sim.marine.shared(route) else 0.0
+	var p := lane_pose_on(route, s, at_a, _lane_k)
+	_base_xf = Transform3D(Basis(Vector3.UP, p.w + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
 	if state == State.SAILING:
 		_come_in(run_length() - traveled)
 	global_transform = _pose()
@@ -1214,23 +1262,28 @@ func _press(g: SlipGuides) -> void:
 ## filter over the (unwrapped) chord headings give a turn rate that ramps up,
 ## holds steady round the arc and ramps down again, as under helm.
 func _build_yaws() -> void:
-	if _yaw_cache.has(route.id):
-		_yaws = _yaw_cache[route.id]
-		return
-	var n := int(ceil(route.length + 2.0 * YAW_PAD)) + 1
+	_yaws = _yaws_of(route)
+
+
+## Her smoothed heading every metre along route `r` (A → B), cached per route.
+func _yaws_of(r: MapData.Route) -> PackedFloat32Array:
+	if _yaw_cache.has(r.id):
+		return _yaw_cache[r.id]
+	var n := int(ceil(r.length + 2.0 * YAW_PAD)) + 1
 	var raw := PackedFloat32Array()
 	raw.resize(n)
 	var prev := 0.0
 	for i in n:
 		var s := i - YAW_PAD
-		var d := route_point(s + 0.5) - route_point(s - 0.5)
+		var d := route_point_on(r, s + 0.5) - route_point_on(r, s - 0.5)
 		var y := atan2(d.x, d.z) if Vector2(d.x, d.z).length_squared() > 1e-8 else prev
 		if i > 0:
 			y = prev + angle_difference(prev, y)
 		raw[i] = y
 		prev = y
-	_yaws = _box(_box(raw, int(YAW_EASE)), int(YAW_EASE))
-	_yaw_cache[route.id] = _yaws
+	var ys := _box(_box(raw, int(YAW_EASE)), int(YAW_EASE))
+	_yaw_cache[r.id] = ys
+	return ys
 
 
 static func _box(a: PackedFloat32Array, w: int) -> PackedFloat32Array:
@@ -1248,9 +1301,72 @@ static func _box(a: PackedFloat32Array, w: int) -> PackedFloat32Array:
 
 
 func _yaw_at(s: float) -> float:
-	var f := clampf(s + YAW_PAD, 0.0, _yaws.size() - 1.001)
+	return _yaw_in(_yaws, s)
+
+
+static func _yaw_in(ys: PackedFloat32Array, s: float) -> float:
+	var f := clampf(s + YAW_PAD, 0.0, ys.size() - 1.001)
 	var i := int(f)
-	return lerpf(_yaws[i], _yaws[i + 1], f - i)
+	return lerpf(ys[i], ys[i + 1], f - i)
+
+
+## The width of her lane off the route's centreline, at `s` along route `r`, as
+## (offset to starboard sailing A → B, its rate per metre of s). Nothing for
+## LANE_OUT out of each slip, then she eases over (smoothstep) across lane_ease()
+## onto her lane, LANE_WIDTH off the centreline, and back again coming in.
+static func lane_offset_on(r: MapData.Route, s: float) -> Vector2:
+	var ease := lane_ease(r.length)
+	if ease < 1.0:
+		return Vector2.ZERO
+	var w := minf(lane_width(), ease * 0.3)
+	var u := minf(s, r.length - s)
+	var x := clampf((u - LANE_OUT) / ease, 0.0, 1.0)
+	var slope := w * 6.0 * x * (1.0 - x) / ease
+	return Vector2(w * x * x * (3.0 - 2.0 * x), slope if s < r.length * 0.5 else -slope)
+
+
+## How far she takes to ease over onto her lane on a route `length` long (less on
+## a short crossing, so she is on her lane for a good part of it).
+static func lane_ease(length: float) -> float:
+	return clampf((length * 0.5 - LANE_OUT) * 0.75, 0.0, LANE_EASE)
+
+
+## Centreline to the middle of a lane: two of the biggest hulls on opposite lanes
+## keep LANE_GAP between them.
+static func lane_width() -> float:
+	if _lane_w < 0.0:
+		var biggest := 0.0
+		for size: int in FerryClass.TABLE:
+			biggest = maxf(biggest, FerryClass.of(size).hull_radius)
+		_lane_w = LANE_GAP * 0.5 + biggest + 1.0
+	return _lane_w
+
+
+## How much further she goes on her lane than along the centreline, about `s`.
+func _lane_stretch(s: float) -> float:
+	if lane_offset_on(route, s).x * _lane_k < 0.5:
+		return 1.0
+	var a := lane_pose_on(route, s - 3.0, at_a, _lane_k)
+	var b := lane_pose_on(route, s + 3.0, at_a, _lane_k)
+	return clampf(Vector2(b.x - a.x, b.z - a.z).length() / 6.0, 0.5, 2.0)
+
+
+## Where her hull's centre lies at `s` along route `r` on the lane for sailing
+## A → B (`toward_b`) or B → A, and her heading there (yaw, facing A → B). Only
+## on a route two boats share: alone, she sails the centreline.
+## `k`: how far out on it (0 the centreline, 1 her lane).
+func lane_pose_on(r: MapData.Route, s: float, toward_b: bool, k := 1.0) -> Vector4:
+	var ys := _yaws if r == route else _yaws_of(r)
+	var theta := _yaw_in(ys, s)
+	var c := route_point_on(r, s)
+	if k <= 0.0:
+		return Vector4(c.x, c.y, c.z, theta)
+	var lo := lane_offset_on(r, s) * k
+	var side := 1.0 if toward_b else -1.0
+	var o := lo.x * side
+	# Starboard of A → B: her heading turned a quarter to the right.
+	var p := c + Vector3(-cos(theta), 0.0, sin(theta)) * o
+	return Vector4(p.x, p.y, p.z, theta - atan(lo.y * side))
 
 
 func _update_trail(delta: float) -> void:
