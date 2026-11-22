@@ -7,6 +7,9 @@ extends Control
 ## a thread, then the screen stays up over the new scene until it has built its
 ## world, and fades out.
 
+signal load_failed(message: String)
+
+const LAYER_NAME := "RegionLoading"
 const SKY_TOP := Color(0.05, 0.09, 0.11)
 const SKY_GLOW := Color(0.86, 0.56, 0.4)
 const SEA_FAR := Color(0.2, 0.3, 0.34)
@@ -38,6 +41,8 @@ const TIPS := [
 enum Phase { LOADING, ENTERING, FADING }
 
 var _path := ""
+var _requested := false
+var _source_id := 0
 var _phase := Phase.LOADING
 var _t := 0.0
 ## The ferry eases toward _ceiling and never falls behind _floor.
@@ -51,17 +56,23 @@ var _caption: Label
 
 
 ## Covers the screen, loads `path` and switches to it.
-static func open(tree: SceneTree, path: String, caption: String) -> void:
+static func open(tree: SceneTree, path: String, caption: String) -> LoadingScreen:
+	if tree.root.has_node(LAYER_NAME):
+		return null
 	var layer := CanvasLayer.new()
+	layer.name = LAYER_NAME
 	layer.layer = 100
 	layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	var screen := LoadingScreen.new()
 	screen._path = path
+	if tree.current_scene:
+		screen._source_id = tree.current_scene.get_instance_id()
 	layer.add_child(screen)
 	tree.root.add_child(layer)
 	screen._caption.text = caption
 	Music.set_mood(tree, Music.Mood.FULL)
 	RadioChatter.on_loading(tree)
+	return screen
 
 
 func _init() -> void:
@@ -75,7 +86,15 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	ResourceLoader.load_threaded_request(_path)
+	if ResourceLoader.exists(_path):
+		_requested = ResourceLoader.load_threaded_request(_path, "PackedScene") == OK
+
+
+func _exit_tree() -> void:
+	# Godot has no cancellation for a threaded resource request. Collect an
+	# outstanding read before engine shutdown tears down its dependencies.
+	if _requested:
+		ResourceLoader.load_threaded_get(_path)
 
 
 func _build_text() -> void:
@@ -118,25 +137,45 @@ func _process(delta: float) -> void:
 	_t += d
 	match _phase:
 		Phase.LOADING:
+			if not _requested:
+				_fail()
+				return
 			var progress := []
 			var status := ResourceLoader.load_threaded_get_status(_path, progress)
 			_ceiling = FILE_SHARE
 			if not progress.is_empty():
 				_floor = progress[0] * FILE_SHARE
+			if status == ResourceLoader.THREAD_LOAD_FAILED:
+				# Balance the request even on failure so a retry reads the resource anew.
+				ResourceLoader.load_threaded_get(_path)
+				_requested = false
+				_fail()
+				return
+			if status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+				_requested = false
+				_fail()
+				return
 			if status == ResourceLoader.THREAD_LOAD_LOADED and _t > MIN_TIME:
-				var packed: PackedScene = ResourceLoader.load_threaded_get(_path)
+				var packed := ResourceLoader.load_threaded_get(_path) as PackedScene
+				_requested = false
+				var source := get_tree().current_scene
+				if (source.get_instance_id() if source else 0) != _source_id:
+					get_parent().queue_free()
+					return
+				if packed == null or not packed.can_instantiate():
+					_fail()
+					return
 				_scene = packed.instantiate()
-				# Scenes that can build over several frames (sandbox.gd) report their stages.
+				if _scene == null:
+					_fail()
+					return
 				if "async_build" in _scene:
 					_scene.async_build = true
-				# If the destination exits before the fade, its overlay must
-				# release the menu along with it.
 				_scene.tree_exiting.connect(get_parent().queue_free, CONNECT_ONE_SHOT)
-				get_tree().change_scene_to_node(_scene)
-				_enter()
-			elif status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
-				push_error("Loading %s failed; falling back to a blocking load." % _path)
-				get_tree().change_scene_to_file(_path)
+				if get_tree().change_scene_to_node(_scene) != OK:
+					_scene.free()
+					_fail()
+					return
 				_enter()
 		Phase.ENTERING:
 			_frames += 1
@@ -160,6 +199,13 @@ func _process(delta: float) -> void:
 	var aim := maxf(_floor, _shown + (_ceiling - _shown) * (1.0 - exp(-d * CREEP_RATE)))
 	_shown = move_toward(_shown, aim, d * CROSSING_SPEED)
 	queue_redraw()
+
+
+func _fail() -> void:
+	set_process(false)
+	push_warning("Could not load region scene %s" % _path)
+	get_parent().queue_free()
+	load_failed.emit("Couldn’t load the region. Try again or choose another region.")
 
 
 func _enter() -> void:

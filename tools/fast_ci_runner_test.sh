@@ -16,6 +16,10 @@ for arg in "$@"; do
   esac
 done
 case "$OUTCOME" in
+  unrelated-load-error)
+    if [[ " $* " == *" tools/region_load_recovery_test.gd "* ]]; then
+      echo 'ERROR: Failed loading resource: res://scenes/main_map.tscn.'
+    fi ;;
   early-exit) exit 0 ;;
   script-error) printf '\033[31mSCRIPT ERROR: Assertion failed.\033[0m\n' ;;
   one-leak) echo 'WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).' ;;
@@ -34,7 +38,7 @@ if ! diff -u <(printf '%s\n' tools/*_test.gd | LC_ALL=C sort) <(LC_ALL=C sort -u
   echo "Every tools/*_test.gd should run in the fast or traffic suite." >&2
   exit 1
 fi
-for outcome in early-exit script-error one-leak multiple-leaks process-failure; do
+for outcome in unrelated-load-error early-exit script-error one-leak multiple-leaks process-failure; do
   if OUTCOME="$outcome" GODOT_BIN="$fixture/engine" bash tools/fast_ci.sh > "$fixture/result" 2>&1; then
     echo "Runner accepted $outcome" >&2
     exit 1
