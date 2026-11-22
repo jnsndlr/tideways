@@ -15,6 +15,7 @@ var terrain: Terrain
 var rng := RandomNumberGenerator.new()
 var minutes := 6.0 * 60.0
 var day := 12
+var slip_guide_parts := SlipGuides.MeshParts.new()
 var terminals := {}             # island id -> Terminal
 var ferries: Array[Ferry] = []
 ## How the company started; its schedules are the only links between terminals.
