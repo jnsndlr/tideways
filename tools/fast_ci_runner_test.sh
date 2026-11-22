@@ -18,7 +18,9 @@ done
 case "$OUTCOME" in
   early-exit) exit 0 ;;
   script-error) printf '\033[31mSCRIPT ERROR: Assertion failed.\033[0m\n' ;;
-  leaked) echo 'WARNING: 1 ObjectDB instances were leaked at exit' ;;
+  one-leak) echo 'WARNING: 1 ObjectDB instance was leaked at exit (run with `--verbose` for details).' ;;
+  multiple-leaks) echo 'WARNING: 2 ObjectDB instances were leaked at exit (run with `--verbose` for details).' ;;
+  pass) echo 'WARNING: Cannot schedule Test ferry: no suitable slip for this leg' ;;
   process-failure) echo 'TEST PASSED'; exit 5 ;;
 esac
 echo 'TEST PASSED'
@@ -32,7 +34,7 @@ if ! diff -u <(printf '%s\n' tools/*_test.gd | LC_ALL=C sort) <(LC_ALL=C sort -u
   echo "Every tools/*_test.gd should run in the fast or traffic suite." >&2
   exit 1
 fi
-for outcome in early-exit script-error leaked process-failure; do
+for outcome in early-exit script-error one-leak multiple-leaks process-failure; do
   if OUTCOME="$outcome" GODOT_BIN="$fixture/engine" bash tools/fast_ci.sh > "$fixture/result" 2>&1; then
     echo "Runner accepted $outcome" >&2
     exit 1
