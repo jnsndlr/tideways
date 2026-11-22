@@ -987,7 +987,9 @@ func claim_corridors_at_start() -> void:
 				if at <= e[0]:
 					e[1].owner = self
 			return
-		if state != State.SAILING:
+		var was := traveled
+		var turned := state != State.SAILING
+		if turned:
 			at_a = not at_a
 			state = State.SAILING
 			_state_time = 0.0
@@ -999,7 +1001,11 @@ func claim_corridors_at_start() -> void:
 		traveled = maxf(at - fc.half_length, 0.0)
 		speed = 0.0
 		_place(_route_s(traveled))
-		claim_corridors_at_start()
+		# Try again from where she fell back to, unless she couldn't fall back any
+		# further (a run held by another boat starts at her route's very start):
+		# then she waits where she is.
+		if turned or traveled < was - 0.5:
+			claim_corridors_at_start()
 		return
 
 
