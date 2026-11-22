@@ -15,6 +15,7 @@ static var map_seed := 0
 
 var map: MapData
 var terrain: Terrain
+var _building_backdrop: Backdrop
 var builder: WorldBuilder
 var sim: Simulation
 ## How the company starts (null: a boat on every planned route).
@@ -79,7 +80,7 @@ func _ready() -> void:
 	terrain = gen.terrain
 	_setup_environment()
 	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
-	# before assembling the world and starting the threaded backdrop.
+	# before assembling the world and backdrop.
 	if async_build:
 		Models.tree_variants(false)
 		Models.tree_variants(true)
@@ -90,8 +91,15 @@ func _ready() -> void:
 	if world == null:
 		return
 	# Finish the backdrop while its tree meshes are still off the live render tree.
+	build_from = build_to
+	build_to = 0.855
 	var backdrop := Backdrop.new()
-	await _stage(0.855, true, func(): backdrop.setup(terrain, builder))
+	_building_backdrop = backdrop
+	var backdrop_ready := await backdrop.setup(terrain, builder, get_tree().process_frame if async_build else Signal())
+	_building_backdrop = null
+	if not backdrop_ready:
+		world.free()
+		return
 	add_child(world)
 	add_child(backdrop)
 	route_overlay = builder.route_overlay
@@ -208,6 +216,11 @@ func _stage(to: float, threaded: bool, work: Callable, worker: Thread = null) ->
 
 
 func _exit_tree() -> void:
+	if _building_backdrop != null:
+		# Let setup unwind before disposing of the node receiving cancel_build.
+		var pending := _building_backdrop
+		pending.cancel_build()
+		pending.free()
 	if builder != null:
 		builder.cancel_build()
 	if _generation_thread != null and _generation_thread.is_started():
