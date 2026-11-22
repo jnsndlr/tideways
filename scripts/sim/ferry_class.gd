@@ -117,11 +117,11 @@ const RUNNING := {
 
 # size: what she costs new from the yard (Simulation.buy_ferry). Rebalance them here.
 const PRICES := {
-	1: 24000,
-	2: 40000,
-	3: 75000,
-	4: 120000,
-	5: 180000,
+	1: 30000,
+	2: 50000,
+	3: 100000,
+	4: 200000,
+	5: 350000,
 }
 
 static var _cache := {}

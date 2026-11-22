@@ -1,8 +1,9 @@
 extends SceneTree
-## Stage 6, the fleet, on the opening: buys a size 1 boat for delivery to
-## Gullrock (its slip is the only one no schedule calls at, and the opening has no
-## tie-up slips), watches the tug bring her in, gives her Gullrock – Madrona, waits
-## for her to sail, lays her up and sells her for 80% of her price.
+## Stage 6, the fleet, on the opening. Buys a size 1 boat: the tug brings her to
+## Port Rosario's tie-up. Buys a second (with cash topped up) while that tie-up is
+## spoken for: she goes to Gullrock's slip, the one no schedule calls at. Gives
+## the first Port Rosario – Madrona, waits for her to sail, lays her up (back in
+## the tie-up), sells her for 80% of her price and watches a tug tow her away.
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tools/fleet_purchase_test.gd
 
@@ -10,10 +11,12 @@ var main: Node
 var frames := 0
 var phase := 0
 var boat: Ferry
+var second: Ferry
+var rosario: Terminal
 var gullrock: Terminal
 var madrona: Terminal
 var _cash := 0.0
-var _sailed := 0
+var _mark := 0
 
 
 func _initialize() -> void:
@@ -36,78 +39,75 @@ func _process(_delta: float) -> bool:
 	if frames < 5 or main.get("sim") == null or not main.built:
 		return false
 	var sim: Simulation = main.sim
+	if frames > 80000:
+		return _fail("Gave up in phase %d" % phase)
 	match phase:
 		0:
 			Engine.time_scale = 8.0
 			for term: Terminal in sim.terminals.values():
-				if term.town.key.begins_with("island-7"):
+				if term.town.key.begins_with("island-1"):
+					rosario = term
+				elif term.town.key.begins_with("island-7"):
 					gullrock = term
 				elif term.town.key.begins_with("island-2"):
 					madrona = term
-			if gullrock == null or madrona == null:
-				return _fail("No Gullrock or Madrona terminal in the opening")
-			var big := sim.purchase_problem(3, gullrock)
-			if big == "":
-				return _fail("A size 3 boat could be delivered to Gullrock's small slip")
-			_log(sim, "Size 3 at Gullrock: %s" % big)
-			for term: Terminal in sim.terminals.values():
-				if term != gullrock and sim.purchase_problem(1, term) == "":
-					return _fail("%s has no free slip, but a boat could be delivered there" % term.town.name)
+			if sim.purchase_problem(3) == "":
+				return _fail("A size 3 boat ($100,000) could be bought with $50,000")
 			_cash = sim.available_cash
-			var lanes_before := sim._lane_destinations(gullrock)
-			boat = sim.buy_ferry(1, gullrock)
+			var lanes_before := sim._lane_destinations(rosario)
+			boat = sim.buy_ferry(1)
 			if boat == null:
-				return _fail("Couldn't buy a size 1 boat for Gullrock: %s" % sim.purchase_problem(1, gullrock))
+				return _fail("Couldn't buy a size 1 boat: %s" % sim.purchase_problem(1))
 			var price := FerryClass.of(1).price()
 			if not is_equal_approx(sim.available_cash, _cash - price) or not is_equal_approx(sim.ledger.today["purchases"], price):
 				return _fail("Buying her didn't charge %d to purchases" % price)
+			if boat.here() != rosario or not rosario.town.slips[boat.tie_up].tie_up:
+				return _fail("Not bound for Port Rosario's tie-up but %s slip %d" % [boat.here().town.name, boat.tie_up])
 			if boat.berth != Ferry.Berth.DELIVERING or boat.tow == null or boat.in_service():
 				return _fail("She isn't under tow: %s" % boat.status_text())
-			if boat.route.in_service:
-				return _fail("Her delivery route is in service before she has stops")
-			if lanes_before != (sim._lane_destinations(gullrock)):
-				return _fail("Gullrock's lanes changed for a boat with no stops")
-			_log(sim, "Bought %s (%s) for $%d, %.0f min out: %s" % [boat.ferry_name, boat.fc.label, price, boat.tow.minutes_left(), boat.status_text()])
+			if lanes_before != sim._lane_destinations(rosario):
+				return _fail("Port Rosario's lanes changed for a boat with no stops")
+			_log(sim, "Bought %s for $%d, %.0f min out: %s" % [boat.ferry_name, price, boat.tow.minutes_left(), boat.status_text()])
+			sim.ledger.cash += price
+			second = sim.buy_ferry(1)
+			if second == null or second.here() != gullrock or gullrock.town.slips[second.tie_up].tie_up:
+				return _fail("The second boat isn't bound for Gullrock's idle slip")
+			_log(sim, "Bought %s: %s" % [second.ferry_name, second.status_text()])
 			phase = 1
 		1:
-			if boat.berth == Ferry.Berth.DELIVERING:
+			if boat.berth == Ferry.Berth.DELIVERING or second.berth == Ferry.Berth.DELIVERING:
 				if boat.crew_today > 0.0:
 					return _fail("Paid crew under tow")
-				return _timeout(sim)
-			if boat.berth != Ferry.Berth.TIED_UP:
-				return _fail("Delivered into the wrong state: %s" % boat.status_text())
-			var isl := gullrock.town
-			var off := boat.global_position.distance_to(isl.berth_center(boat.tie_up))
-			_log(sim, "%s delivered, %.1f m off the slip's centre: %s" % [boat.ferry_name, off, boat.status_text()])
-			if boat.here() != gullrock or off > boat.fc.half_length:
-				return _fail("Not lying in Gullrock's slip")
-			# Another boat can't be given Gullrock while she lies in its only slip.
-			var hiyu := sim.ferries[0]
-			var ids: Array[int] = [hiyu.next_dock().town.id, gullrock.town.id]
-			if sim.stops_problem(hiyu, ids) == "":
-				return _fail("Hiyu could be scheduled into the slip she lies in")
-			var stops: Array[int] = [gullrock.town.id, madrona.town.id]
+				return false
+			for f: Ferry in [boat, second]:
+				var off := f.global_position.distance_to(f.here().town.berth_center(f.tie_up))
+				_log(sim, "%s delivered, %.1f m off the slip's centre: %s" % [f.ferry_name, off, f.status_text()])
+				if f.berth != Ferry.Berth.TIED_UP or off > f.fc.half_length:
+					return _fail("%s isn't lying where she was brought" % f.ferry_name)
+			if sim.occupant(gullrock, second.tie_up, null) != second:
+				return _fail("Gullrock's slip isn't held by the boat lying in it")
+			var stops: Array[int] = [rosario.town.id, madrona.town.id]
 			var why := sim.stops_problem(boat, stops)
 			if why != "" or not sim.reschedule(boat, stops):
-				return _fail("Couldn't give her Gullrock – Madrona: " + why)
+				return _fail("Couldn't give her Port Rosario – Madrona: " + why)
 			if not boat.assigned or not boat.return_requested:
 				return _fail("Her first stops didn't send her back into service")
-			if madrona.town.id not in sim._lane_destinations(gullrock):
-				return _fail("Gullrock's lanes don't serve Madrona")
-			_log(sim, "Given Gullrock – Madrona: %s" % boat.status_text())
+			_log(sim, "Given Port Rosario – Madrona: %s" % boat.status_text())
 			phase = 2
 		2:
 			if boat.berth == Ferry.Berth.WORKING and boat.state == Ferry.State.SAILING:
-				_sailed += 1
 				_log(sim, "%s sailing: %s" % [boat.ferry_name, boat.status_text()])
 				if not boat.route.in_service:
 					return _fail("Her route isn't in service while she sails it")
 				boat.request_lay_up()
 				phase = 3
-			return _timeout(sim)
 		3:
+			if boat.can_sell() != (boat.berth == Ferry.Berth.TIED_UP and not boat.return_requested):
+				return _fail("Sellable while not laid up: %s" % boat.status_text())
 			if boat.berth == Ferry.Berth.TIED_UP:
 				_log(sim, "Laid up at %s: %s" % [boat.here().town.name, boat.status_text()])
+				if not boat.here().town.slips[boat.tie_up].tie_up:
+					return _fail("Laid up in a working slip with Port Rosario's tie-up free")
 				boat.post_costs(false)   # (her running costs to date, which the sale posts first)
 				_cash = sim.available_cash
 				var value := boat.resale_value()
@@ -120,23 +120,19 @@ func _process(_delta: float) -> bool:
 					return _fail("Still in the fleet after the sale")
 				if sim.available_cash < _cash + value - 0.01 or sim.ledger.today["sales"] < value:
 					return _fail("The sale didn't credit $%d to sales" % value)
-				_log(sim, "Sold for $%d" % value)
+				if sim.tows.is_empty():
+					return _fail("No tug came for her")
+				_log(sim, "Sold for $%d: %s" % [value, boat.status_text()])
 				phase = 4
-				_cash = frames
-			elif boat.berth == Ferry.Berth.WORKING and boat.in_service() == false and boat.can_sell():
-				return _fail("Sellable while working")
-			return _timeout(sim)
 		4:
-			# A while on, with her gone, to catch anything still holding on to her.
-			if frames > _cash + 300:
-				if sim.ferries[0].state == Ferry.State.SAILING or sim.ferries[0].trips > 0:
-					print("TEST PASSED")
-					quit(0)
-					return true
-	return false
-
-
-func _timeout(sim: Simulation) -> bool:
-	if frames > 60000:
-		return _fail("Gave up in phase %d: %s" % [phase, boat.status_text() if is_instance_valid(boat) else "sold"])
+			# Towed away and gone, with nothing holding on to her.
+			if not is_instance_valid(boat) and sim.tows.is_empty():
+				_log(sim, "Towed away; the tug has gone")
+				_mark = frames
+				phase = 5
+		5:
+			if frames > _mark + 300:
+				print("TEST PASSED")
+				quit(0)
+				return true
 	return false

@@ -1,7 +1,7 @@
 extends SceneTree
 ## Screenshots of buying a boat (stage 6): the fleet panel's buy flow, the tug
-## towing her in, the tug alongside on her hip, her lying delivered, and her
-## ferry panel. Needs a window (not --headless).
+## towing her in, dropping back along her side, pushing her into Port Rosario's
+## tie-up, her lying delivered, then sold and towed away. Needs a window (not --headless).
 ##
 ##   godot --path . --script tools/fleet_purchase_shot.gd -- --out=/tmp
 
@@ -9,7 +9,7 @@ var main: Node
 var frames := 0
 var out := "."
 var boat: Ferry
-var _hip_shot := false
+var _shots := {}
 var _done_at := -1
 
 
@@ -22,6 +22,9 @@ func _initialize() -> void:
 
 
 func _shot(name: String) -> void:
+	if _shots.has(name):
+		return
+	_shots[name] = true
 	var path := "%s/fleet_%s.png" % [out, name]
 	root.get_viewport().get_texture().get_image().save_png(path)
 	print("Saved " + path)
@@ -41,29 +44,34 @@ func _process(_delta: float) -> bool:
 	elif frames == 50:
 		_shot("buy")
 	elif frames == 55:
-		var gull: Terminal
-		for t: Terminal in sim.terminals.values():
-			if t.town.key.begins_with("island-7"):
-				gull = t
-		panel._buy(1, gull)
+		panel._buy(1)
 		hud._on_sidebar("fleet")
 		boat = sim.ferries[-1]
-		Engine.time_scale = 6.0
+		Engine.time_scale = 8.0
 	elif frames == 90:
-		hud.rig.target_dist = 260.0
+		hud.rig.target_dist = 300.0
 	elif frames == 160:
 		_shot("towing")
-	elif boat and boat.tow and not _hip_shot and boat.tow.path.length - boat.tow.s < 200.0:
-		_hip_shot = true
-		Engine.time_scale = 1.0
-		_shot("hip")
-	elif boat and boat.berth == Ferry.Berth.TIED_UP and _done_at < 0:
+	if boat and is_instance_valid(boat) and boat.tow and boat.tow.phase == DeliveryTow.Phase.TOWING:
+		var rem := boat.tow.path.length - boat.tow.s
+		if rem < 700.0:
+			Engine.time_scale = 2.0
+		if rem < 470.0:
+			_shot("dropping_back")
+		if rem < 220.0:
+			_shot("pushing")
+		if rem < 40.0:
+			_shot("pushing_in")
+	if boat and is_instance_valid(boat) and boat.berth == Ferry.Berth.TIED_UP and _done_at < 0 and boat.tow == null:
 		_done_at = frames
-	elif _done_at > 0 and frames == _done_at + 20:
+	if _done_at > 0 and frames == _done_at + 60:
 		_shot("delivered")
-	elif _done_at > 0 and frames == _done_at + 300:
-		_shot("tug_leaving")
+		Engine.time_scale = 8.0
+		sim.sell_ferry(boat)
+		hud.select_vessel(sim.tows[-1])
+	if _done_at > 0 and boat and is_instance_valid(boat) and boat.tow and boat.tow.phase == DeliveryTow.Phase.PULLING and boat.tow.s > 60.0:
+		_shot("towed_away")
 		quit(0)
-	if frames > 20000:
+	if frames > 30000:
 		quit(1)
 	return false

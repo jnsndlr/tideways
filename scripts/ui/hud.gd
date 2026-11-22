@@ -1119,12 +1119,13 @@ func _build_fleet_panel() -> void:
 	_fleet_panel.buy_requested.connect(_buy_ferry)
 
 
-## Buys a boat of `size` for delivery to `term`, and follows her in under tow.
-func _buy_ferry(size: int, term: Terminal) -> void:
-	var f := sim.buy_ferry(size, term)
+## Buys a boat of `size`, and follows her in under tow.
+func _buy_ferry(size: int) -> void:
+	var f := sim.buy_ferry(size)
 	if f == null:
-		show_toast("COULDN'T BUY HER", sim.purchase_problem(size, term), 5.0)
+		show_toast("COULDN'T BUY HER", sim.purchase_problem(size), 5.0)
 		return
+	var term := f.here()
 	select_ferry(f)
 	show_toast("%s BOUGHT" % f.ferry_name.to_upper(), "%s for %s. A tug is towing her in to %s, about %s." % [
 		f.fc.label, "$" + fmt_int(f.fc.price()), term.town.name, _hours_text(f.tow.minutes_left())], 8.0)
@@ -1148,8 +1149,9 @@ func _sell_selected() -> void:
 		return
 	var value := f.resale_value()
 	var nm := f.ferry_name
+	var share := roundi(value * 100.0 / f.fc.price())
 	if sim.sell_ferry(f):
-		show_toast("%s SOLD" % nm.to_upper(), "For %s, %d%% of her price new." % ["$" + fmt_int(value), roundi(value * 100.0 / f.fc.price())], 6.0)
+		show_toast("%s SOLD" % nm.to_upper(), "For %s, %d%% of her price new. A tug is coming to tow her away." % ["$" + fmt_int(value), share], 6.0)
 
 
 # --- Floating running costs ----------------------------------------------------------

@@ -1,45 +1,61 @@
 class_name DeliveryTow
 extends Vessel
 ## A tug bringing a boat bought in play (Simulation.buy_ferry) in from the open
-## channel to the slip she will lie at, laid up until the player gives her stops.
-## She is towed astern on a hawser most of the way. For the last few hundred
-## metres the tug comes round onto her hip, alongside, and the two go in together
-## (towing on the hip, the usual way to dock a dead ship). Then the tug casts off
-## and goes back out the way it came.
+## channel to the slip she will lie in, laid up until the player gives her stops,
+## or taking a sold one away out to sea (Simulation.sell_ferry).
+##
+## Bringing one in, it tows her on a hawser most of the way. Short of the
+## terminal it lets go, drops back along her side and comes in under her stern,
+## then pushes her straight into the slip, clear of the dolphins either side. If
+## a working boat is at that slip or coming in to it, the tow holds off until it
+## has gone. Taking one away, the tug comes in, turns off her outer end, takes
+## her on the hawser and pulls her out and away.
 ##
 ## It has the escort tug's hull (VesselTypes.tugs); it is its own simple mover,
 ## not a ShipTender, since it follows one fixed path and has no station to keep.
 
-enum Phase { TOWING, LEAVING }
+enum Phase { TOWING, LEAVING, FETCHING, TURNING, PULLING }
 
 ## Tow speed as a share of the tug's cruise.
 const TOW_PACE := 0.8
 ## Hawser: this much water between the tug's stern and her bow.
 const HAWSER := 40.0
-## Approach: the last legs run straight in along the terminal's axis from this far
-## out, and the tug is alongside from HIP_AT out.
+## Approach: the last legs run straight in along the terminal's axis from this far out.
 const APPROACH_FAR := 260.0
 const APPROACH_NEAR := 120.0
-const HIP_FROM := 340.0
-const HIP_AT := 170.0
+## Bringing her in, by distance she has to go: the tug lets go of the hawser and
+## comes alongside from LET_GO to ALONGSIDE, drops back along her side to ASTERN,
+## and is in under her stern, pushing, by PUSHING.
+const LET_GO := 620.0
+const ALONGSIDE := 520.0
+const ASTERN := 420.0
+const PUSHING := 330.0
+## The tow holds off here until the slip is clear, then commits to it.
+const COMMIT_AT := LET_GO + 60.0
 ## Where the tow starts: beyond the map's edge, in the haze.
 const EDGE_OUT := 240.0
 const RUN_IN := 300.0
+## How fast the tug swings round on its own (rad per game minute).
+const TURN_RATE := 0.6
 
 var sim: Simulation
 var ferry: Ferry
+var outbound := false        # taking a sold boat away
 var phase := Phase.TOWING
-var path: NavPath
-var s := 0.0                 # the ferry's centre along `path`
+## Bringing her in: the tow is past COMMIT_AT and the slip is hers (Simulation.occupant).
+## Taking her away: until she is well clear of the slip.
+var committed := false
+var waiting := false         # holding off for a working boat to clear her slip
+var path: NavPath            # in from the sea to the berth
+var s := 0.0                 # the ferry's centre along `path` (or, outbound, along `_out`)
+var _out: NavPath            # out from the berth to the sea
 var _berth := Vector3.ZERO
 var _dock_yaw := 0.0
 var _flip := 0.0             # 0 or PI: which end of the (double-ended) ferry leads
-var _side := 1.0             # which side of her the tug comes alongside
-var _back: NavPath           # the tug's way back out
+var _side := 1.0             # which side of her the tug drops back along
+var _back: NavPath           # the tug's own way (out after delivering, in to fetch her)
 var _bob := 0.0
-var _yaw := 0.0              # the tug's heading, eased round as it leaves
-## How fast the tug swings round once it has cast off (rad per game minute).
-const TURN_RATE := 0.6
+var _yaw := 0.0
 
 
 ## The way in from the sea to `berth` (world, y = 0) at a terminal whose dock
@@ -83,37 +99,66 @@ static func plan(s: Simulation, berth: Vector3, out: Vector3, half_beam: float) 
 	return best
 
 
-func setup(s: Simulation, f: Ferry, pts: PackedVector2Array) -> void:
+## `pts`: the way in from the sea to where she lies (plan). `away`: she is sold,
+## lying there, and is taken out along it the other way.
+func setup(s: Simulation, f: Ferry, pts: PackedVector2Array, away := false) -> void:
 	sim = s
 	ferry = f
-	vessel_name = "Tug " + ["Comox", "Skookum", "Tillicum", "Swiftsure"][s.ferries.size() % 4]
+	outbound = away
+	vessel_name = "Tug " + ["Comox", "Skookum", "Tillicum", "Swiftsure"][(s.ferries.size() + s.tows.size()) % 4]
 	name = vessel_name
 	apply_spec(VesselTypes.tugs()[0], 0)
 	path = NavPath.new(pts)
+	var rev := pts.duplicate()
+	rev.reverse()
+	_out = NavPath.new(rev)
 	f.tow = self
-	consort = f
-	f.consort = self
-	# Lying where she will lie: that is the pose she ends in.
+	# Lying where she will lie (or lies): the pose she ends (or starts) in.
 	_berth = f.global_position
 	_dock_yaw = _yaw_of(Vector2(f.global_basis.z.x, f.global_basis.z.z))
-	var end_yaw := _yaw_of(path.tangent(path.length, 20.0))
-	_flip = PI if absf(angle_difference(end_yaw, _dock_yaw)) > PI * 0.5 else 0.0
-	# Alongside on the side with more water (away from the other slips).
-	var town := f.here().town
-	var lat := town.lateral()
+	var lead_yaw := _yaw_of(path.tangent(path.length, 20.0)) if not away else _yaw_of(_out.tangent(0.0, 20.0))
+	_flip = PI if absf(angle_difference(lead_yaw, _dock_yaw)) > PI * 0.5 else 0.0
+	# Drops back along her on the side with more water (away from the other slips).
+	var lat := f.here().town.lateral()
 	var deep := func(k: float) -> float:
 		var p := _berth + lat * k * (f.fc.half_beam + 30.0)
 		return s.terrain.height_at(p.x, p.z)
 	_side = 1.0 if deep.call(1.0) <= deep.call(-1.0) else -1.0
 	_bob = randf() * TAU
-	_place(0.0)
+	if away:
+		# In from the sea to the hawser's length off her outer end.
+		phase = Phase.FETCHING
+		committed = true
+		_back = NavPath.new(_trim(pts, _gap()))
+		_set_pose(_back.sample(0.0), _yaw_of(_back.tangent(0.0, 20.0)), 0.0)
+	else:
+		consort = f
+		f.consort = self
+		_place(0.0)
+
+
+## `pts` cut short `cut` metres before its end.
+static func _trim(pts: PackedVector2Array, cut: float) -> PackedVector2Array:
+	var p := NavPath.new(pts)
+	var out := PackedVector2Array()
+	var keep := p.length - cut
+	for i in pts.size():
+		if p.cum[i] < keep:
+			out.append(pts[i])
+	out.append(p.sample(keep))
+	return out
 
 
 static func _yaw_of(d: Vector2) -> float:
 	return atan2(d.x, d.y)
 
 
-## Game minutes until she is alongside where she'll lie.
+## Her centre to the tug's centre, on the hawser.
+func _gap() -> float:
+	return ferry.fc.half_length + HAWSER + half_seg + hull_radius
+
+
+## Game minutes until she is in where she'll lie.
 func minutes_left() -> float:
 	if phase != Phase.TOWING:
 		return 0.0
@@ -126,33 +171,71 @@ func _tow_speed() -> float:
 
 func _process(delta: float) -> void:
 	_bob += delta
-	if phase == Phase.TOWING:
-		if not is_instance_valid(ferry):
-			_leave()
-			return
-		var rem := path.length - s
-		speed = _tow_speed() * clampf(rem / 180.0, 0.25, 1.0)
-		s = minf(s + speed * delta, path.length)
-		_place(delta)
-		if s >= path.length - 0.01:
-			ferry.end_delivery()
-			sim.ferry_delivered.emit(ferry)
-			_leave()
-		return
-	speed = move_toward(speed, cruise, delta * 2.0)
-	s += speed * delta
-	var p := _back.sample(minf(s, _back.length))
-	var t := _back.tangent(minf(s, _back.length), 20.0)
-	var want := _yaw_of(t)
-	_yaw += clampf(angle_difference(_yaw, want), -TURN_RATE * delta, TURN_RATE * delta)
-	_set_pose(p, _yaw, delta)
-	if s >= _back.length:
-		sim.marine.remove(self)
-		queue_free()
+	if phase != Phase.LEAVING and not is_instance_valid(ferry):
+		_leave()
+	match phase:
+		Phase.TOWING:
+			_tick_towing(delta)
+		Phase.LEAVING:
+			speed = move_toward(speed, cruise, delta * 2.0)
+			s += speed * delta
+			_follow(_back, delta)
+			if s >= _back.length:
+				_done()
+		Phase.FETCHING:
+			speed = move_toward(speed, cruise * clampf((_back.length - s) / 120.0, 0.2, 1.0), delta * 2.0)
+			s = minf(s + speed * delta, _back.length)
+			_follow(_back, delta)
+			if s >= _back.length - 0.01:
+				phase = Phase.TURNING
+				speed = 0.0
+		Phase.TURNING:
+			var want := _yaw_of(_out.tangent(_gap(), 20.0))
+			_set_pose(pos2(), _yaw + clampf(angle_difference(_yaw, want), -TURN_RATE * delta, TURN_RATE * delta), delta)
+			if absf(angle_difference(_yaw, want)) < 0.02:
+				phase = Phase.PULLING
+				consort = ferry
+				ferry.consort = self
+				s = 0.0
+		Phase.PULLING:
+			speed = move_toward(speed, _tow_speed(), delta * 0.5)
+			s += speed * delta
+			committed = s < Terminal.REFIT_HOLD
+			var p := _out.sample(s)
+			var t := _out.tangent(s, 20.0)
+			var yaw := lerp_angle(_dock_yaw, _yaw_of(t) + _flip, smoothstep(0.0, 200.0, s))
+			ferry.global_transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, 0.0, p.y))
+			ferry.speed = speed
+			var lead := s + _gap()
+			_set_pose(_out.sample(lead), _yaw_of(_out.tangent(lead, 20.0)), delta)
+			if lead >= _out.length:
+				ferry.queue_free()
+				ferry = null
+				_done()
 
 
-## Puts her `s` along the path and the tug ahead of her on the hawser, or on her
-## hip for the last stretch.
+func _tick_towing(delta: float) -> void:
+	var rem := path.length - s
+	waiting = false
+	if not committed and rem <= COMMIT_AT:
+		var term := ferry.here()
+		var slip := ferry.tie_up
+		if not term.town.slips[slip].tie_up and sim.slip_busy(term, slip, Terminal.REFIT_HOLD + 200.0):
+			waiting = true
+		else:
+			committed = true
+	var want := 0.0 if waiting else _tow_speed() * (0.6 if rem < LET_GO else 1.0) * clampf(rem / 180.0, 0.25, 1.0)
+	speed = move_toward(speed, want, delta * 1.5)
+	s = minf(s + speed * delta, path.length)
+	_place(delta)
+	if s >= path.length - 0.01:
+		ferry.end_delivery()
+		sim.ferry_delivered.emit(ferry)
+		_leave()
+
+
+## Puts her `s` along the path, and the tug where it is working her: ahead on
+## the hawser, then round her side to under her stern, pushing.
 func _place(delta: float) -> void:
 	var rem := path.length - s
 	var p := path.sample(s)
@@ -160,13 +243,30 @@ func _place(delta: float) -> void:
 	var yaw := lerp_angle(_yaw_of(t) + _flip, _dock_yaw, smoothstep(220.0, 30.0, rem))
 	ferry.global_transform = Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, 0.0, p.y))
 	ferry.speed = speed
-	var lead_s := s + ferry.fc.half_length + HAWSER + half_seg + hull_radius
+	var lead_s := s + _gap()
 	var lead := path.sample(minf(lead_s, path.length))
 	var lead_yaw := _yaw_of(path.tangent(minf(lead_s, path.length), 20.0))
-	var across := Vector2(cos(yaw), -sin(yaw))   # her starboard (+x) in the world
-	var hip := p + across * _side * (ferry.fc.half_beam + hull_radius + 2.0)
-	var k := smoothstep(HIP_FROM, HIP_AT, rem)
-	_set_pose(lead.lerp(hip, k), lerp_angle(lead_yaw, _yaw_of(t), k), delta)
+	# Her frame along the way she is going: `t` ahead, `right` to starboard.
+	var right := Vector2(t.y, -t.x)
+	var w := _side * (ferry.fc.half_beam + hull_radius + 4.0)
+	var astern := -(ferry.fc.half_length + half_seg + hull_radius + 1.0)
+	var at: Vector2
+	if rem > LET_GO:
+		at = lead
+	elif rem > ALONGSIDE:
+		at = lead.lerp(p + t * _gap() + right * w, smoothstep(LET_GO, ALONGSIDE, rem))
+	elif rem > ASTERN:
+		at = p + t * lerpf(_gap(), astern, smoothstep(ALONGSIDE, ASTERN, rem)) + right * w
+	else:
+		at = p + t * astern + right * lerpf(w, 0.0, smoothstep(ASTERN, PUSHING, rem))
+	var tug_yaw := lerp_angle(lead_yaw, _yaw_of(t), smoothstep(LET_GO, ALONGSIDE, rem))
+	_set_pose(at, tug_yaw, delta)
+
+
+func _follow(p: NavPath, delta: float) -> void:
+	var at := minf(s, p.length)
+	var want := _yaw_of(p.tangent(at, 20.0))
+	_set_pose(p.sample(at), _yaw + clampf(angle_difference(_yaw, want), -TURN_RATE * delta, TURN_RATE * delta), delta)
 
 
 func _set_pose(p: Vector2, yaw: float, delta: float) -> void:
@@ -179,21 +279,21 @@ func _set_pose(p: Vector2, yaw: float, delta: float) -> void:
 		wake.update(delta, global_position, fwd, global_position.distance_to(was), clampf(speed / cruise, 0.0, 1.0), speed > 0.3)
 
 
-## Casts off and heads back out the way it came.
+## Done with her: backs off her outer end, swings round and heads out.
 func _leave() -> void:
 	phase = Phase.LEAVING
+	committed = false
+	waiting = false
 	consort = null
 	if is_instance_valid(ferry):
 		ferry.consort = null
 		ferry.tow = null
 	var pts := PackedVector2Array([pos2()])
-	var out := heading2() * -1.0
+	var out := -heading2()
 	if is_instance_valid(ferry):
 		var d := ferry.here().town.dock_dir
 		out = Vector2(d.x, d.z)
-		# Backs off clear of her first, then swings round and heads out.
-		var away := (pos2() - ferry.pos2()).normalized()
-		pts.append(pos2() + away * 25.0 + out * 20.0)
+	pts.append(pos2() + out * 40.0)
 	pts.append(pos2() + out * APPROACH_NEAR)
 	var raw := path.pts
 	for i in range(raw.size() - 3, -1, -1):
@@ -203,27 +303,45 @@ func _leave() -> void:
 	speed = 0.0
 
 
+func _done() -> void:
+	sim.tows.erase(self)
+	sim.marine.remove(self)
+	queue_free()
+
+
 func wants_to_move() -> bool:
-	return true
+	return phase != Phase.TURNING and not waiting
 
 
 func ahead(d: float) -> Vector2:
-	if phase == Phase.LEAVING:
-		return _back.sample(minf(s + d, _back.length))
-	var lead_s := s + ferry.fc.half_length + HAWSER + half_seg + hull_radius if is_instance_valid(ferry) else s
-	return path.sample(minf(lead_s + d, path.length))
+	match phase:
+		Phase.LEAVING, Phase.FETCHING:
+			return _back.sample(minf(s + d, _back.length))
+		Phase.PULLING:
+			return _out.sample(s + _gap() + d)
+		Phase.TOWING:
+			if path.length - s > LET_GO:
+				return path.sample(minf(s + _gap() + d, path.length))
+	return pos2()
 
 
 func path_left() -> float:
-	return (_back.length - s) if phase == Phase.LEAVING else path.length - s
+	match phase:
+		Phase.LEAVING, Phase.FETCHING:
+			return _back.length - s
+		Phase.PULLING:
+			return _out.length - s - _gap()
+		Phase.TOWING:
+			return path.length - s
+	return 0.0
 
 
 func road() -> Road:
-	return Road.RESTRICTED
+	return Road.RESTRICTED if phase in [Phase.TOWING, Phase.PULLING] else Road.POWER
 
 
 func restricted_text() -> String:
-	return "towing " + ferry.ferry_name if phase == Phase.TOWING and is_instance_valid(ferry) else ""
+	return "towing " + ferry.ferry_name if phase in [Phase.TOWING, Phase.PULLING] and is_instance_valid(ferry) else ""
 
 
 func kind_text() -> String:
@@ -234,6 +352,15 @@ func status_text() -> String:
 	var holding := holding_text()
 	if holding != "":
 		return holding
-	if phase == Phase.TOWING and is_instance_valid(ferry):
-		return "Towing %s in to %s" % [ferry.ferry_name, ferry.here().town.name]
-	return "Heading back out to sea"
+	if not is_instance_valid(ferry) or phase == Phase.LEAVING:
+		return "Heading back out to sea"
+	match phase:
+		Phase.FETCHING, Phase.TURNING:
+			return "Coming for %s, sold" % ferry.ferry_name
+		Phase.PULLING:
+			return "Towing %s away, sold" % ferry.ferry_name
+	if waiting:
+		return "Holding off %s with %s until the slip is clear" % [ferry.here().town.name, ferry.ferry_name]
+	if path.length - s < ASTERN:
+		return "Pushing %s in to %s" % [ferry.ferry_name, ferry.here().town.name]
+	return "Towing %s in to %s" % [ferry.ferry_name, ferry.here().town.name]

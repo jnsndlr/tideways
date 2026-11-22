@@ -83,8 +83,10 @@ func _process(_delta: float) -> bool:
 		print("Actual at %s: fuel $%.2f, crew $%.2f" % [sim.clock_text(), fuel, crew])
 		if absf(fuel - _plan.fuel) > _plan.fuel * 0.02:
 			return _fail("Fuel $%.2f is off the projected $%.2f" % [fuel, _plan.fuel])
-		if absf(crew - _plan.crew) > _plan.crew * 0.01:
-			return _fail("Crew $%.2f is off the projected $%.2f" % [crew, _plan.crew])
+		# (She started the day at her slip, not brought back from the tie-up overnight.)
+		var expect: float = _plan.crew - _plan.morning_crew
+		if absf(crew - expect) > expect * 0.01:
+			return _fail("Crew $%.2f is off the projected $%.2f" % [crew, expect])
 		print("TEST PASSED")
 		quit(0)
 		return true

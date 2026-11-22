@@ -126,7 +126,8 @@ var condition := 1.0
 ## False for a boat bought in play until she is first given stops: her stops are
 ## only a placeholder (the route she was delivered on) and draw no service.
 var assigned := true
-var tow: DeliveryTow             # bringing her in while berth is DELIVERING
+var tow: DeliveryTow             # bringing her in (or, sold, away) while berth is DELIVERING
+var _lying_in_slip: Ferry        # the boat lying in the slip she is holding off
 var lay_up_requested := false     # tie up once she has unloaded at a terminal with a free tie-up slip
 var return_requested := false     # back into service once her working slip is free
 var tie_up := -1                  # index into here().town.slips while laid up
@@ -824,7 +825,7 @@ func _tick_sailing(delta: float) -> void:
 	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
 	var traffic_limit := yield_speed()
-	var wait := minf(_corridor_wait(), _refit_wait())
+	var wait := minf(minf(_corridor_wait(), _refit_wait()), _occupied_wait())
 	hold = wait
 	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
@@ -883,6 +884,23 @@ func _corridor_runs() -> Array:
 			runs.append([e[0], e[1], [[e[1], e[2]]]])
 	_runs[key] = runs
 	return runs
+
+
+## Distance to go before she must hold off her destination's slip while another
+## boat lies laid up in it, or is being towed in or out of it (Simulation.occupant):
+## Terminal.REFIT_HOLD out, or where she is if she's already inside that. INF if
+## the slip is clear, or she is all but alongside.
+func _occupied_wait() -> float:
+	_lying_in_slip = null
+	if berth != Berth.WORKING:
+		return INF
+	var dest := destination()
+	var o := sim.occupant(dest, dest.town.slip_index(route.id), self)
+	var left := path_left()
+	if o == null or left < 60.0:
+		return INF
+	_lying_in_slip = o
+	return maxf(0.0, left - Terminal.REFIT_HOLD)
 
 
 ## Distance to go before she must hold off her destination's slip while it is refitted
@@ -1487,6 +1505,10 @@ func kind_text() -> String:
 func status_text() -> String:
 	match berth:
 		Berth.DELIVERING:
+			if tow and tow.outbound:
+				return "Sold · under tow out to sea"
+			if tow and tow.waiting:
+				return "Under tow · holding off %s until the slip is clear" % here().town.name
 			return "Under tow to %s · ~%d min" % [here().town.name, ceili(tow.minutes_left())] if tow else "Under tow"
 		Berth.TO_TIE_UP:
 			return "Moving to the tie-up slip at " + here().town.name
@@ -1506,6 +1528,8 @@ func status_text() -> String:
 
 
 func _service_text() -> String:
+	if state == State.SAILING and speed < 0.6 and _lying_in_slip:
+		return "Holding off %s · %s lies in her slip" % [destination().town.name, _lying_in_slip.ferry_name]
 	if state == State.SAILING and speed < 0.6 and _refit_wait() < 30.0:
 		return "Holding off %s while her slip is refitted" % destination().town.name
 	if state == State.SAILING and speed < 0.6 and _waiting_for:
@@ -1649,8 +1673,28 @@ func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	for i in ids.size():
 		round_fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
 	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
+	# Overnight at a tie-up (GAP_TIE_UP): her crew move her over after the last
+	# sailing, and come on early enough to bring her back before the first.
+	var night := _overnight_shift(ids, times, o)
+	var morning := maxf(0.0, MAX_DWELL + GAP_MARGIN + night - CREW_CALL) if night > 0.0 else 0.0
+	span += night + morning
 	var hours := minf(span, Timetable.DAY) / 60.0
-	return {"fuel": round_fuel * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
+	return {"fuel": round_fuel * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
+			"morning_crew": morning / 60.0 * crew_per_hour()}
+
+
+## Minutes moving to the tie-up at her first stop after the day's last sailing,
+## if the night is long enough to lie there (GAP_TIE_UP) and one is free; 0 if not.
+func _overnight_shift(ids: Array[int], times: Array[int], o: Array[float]) -> float:
+	if not sim.terminals.has(ids[0]):
+		return 0.0
+	var term: Terminal = sim.terminals[ids[0]]
+	var tie := free_tie_up(term)
+	if tie < 0 or Timetable.DAY - float(times.max() - times.min()) - shift_tail(o) < GAP_TIE_UP:
+		return 0.0
+	var r := sim.route_between(ids[0], ids[1 % ids.size()])
+	var town := term.town
+	return shift_minutes(shift_length(absf(town.slip_offset(tie) - town.slip_offset(town.slip_index(r.id)))))
 
 
 ## daily_cost of the timetable she runs now (or is taking at her next call).
@@ -1819,20 +1863,24 @@ func can_sell() -> bool:
 	return berth == Berth.TIED_UP and not between_sailings() and not return_requested
 
 
-## Whether one of her stops has somewhere free to lay her up (lay_up_slip).
+## She can always be laid up: in a free tie-up slip if one of her stops has one,
+## else in her own slip where she unloads next (lay_up_slip).
 func can_lay_up() -> bool:
-	for id in stops:
-		if sim.terminals.has(id) and lay_up_slip(sim.terminals[id]) >= 0:
-			return true
-	return false
+	return true
 
 
-## Where at `term` she can lie out of service: a free tie-up slip she fits, else
-## a working slip she fits that no other boat's stops call at (stage 6: a
-## terminal with no tie-up can still take a boat out of service). -1 if neither.
+## Where at `term` she lies up: a free tie-up slip she fits, else, when none of
+## her stops has one, the working slip she is in (stage 6: a laid-up boat in a
+## working slip keeps others off it, which is the player's choice). -1 to sail on.
 func lay_up_slip(term: Terminal) -> int:
 	var i := free_tie_up(term)
-	return i if i >= 0 else idle_slip(term, fc.size, self)
+	if i >= 0:
+		return i
+	for id in stops:
+		if sim.terminals.has(id) and free_tie_up(sim.terminals[id]) >= 0:
+			return -1   # (one further on has a tie-up: she goes there)
+	var mine := term.town.slip_index(route.id)
+	return mine if sim.occupant(term, mine, self) == null else -1
 
 
 ## A working slip at `term` that takes a boat of `size`, isn't being refitted,

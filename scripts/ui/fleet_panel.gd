@@ -1,12 +1,12 @@
 class_name FleetPanel
 extends PanelContainer
 ## Shows the current fleet, and buys boats: pick a class (price and running
-## costs), then where the tug delivers her (Simulation.buy_ferry). The HUD owns
-## selection and camera follow.
+## costs), then buy her. A tug delivers her to a free tie-up, or failing that an
+## open slip (Simulation.delivery_slip). The HUD owns selection and camera follow.
 
 signal ferry_selected(ferry: Ferry)
-## The player bought a boat of `size` for delivery to `term`.
-signal buy_requested(size: int, term: Terminal)
+## The player bought a boat of `size`.
+signal buy_requested(size: int)
 
 var sim: Simulation
 var _list := VBoxContainer.new()
@@ -14,10 +14,9 @@ var _displayed: Array[Ferry] = []
 var _buy_button := Button.new()
 var _buy_box := VBoxContainer.new()
 var _classes := VBoxContainer.new()
-var _where := VBoxContainer.new()
+var _confirm := Button.new()
 var _where_title := Label.new()
 var _size := 0                 # the class picked (0: none yet)
-var _where_shown := ""         # what the delivery list was built for
 
 
 func setup(title: Label, s: Simulation = null) -> void:
@@ -54,7 +53,10 @@ func setup(title: Label, s: Simulation = null) -> void:
 	_where_title.add_theme_font_size_override("font_size", 11)
 	_where_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_buy_box.add_child(_where_title)
-	_buy_box.add_child(_where)
+	_confirm.focus_mode = Control.FOCUS_NONE
+	_confirm.custom_minimum_size.y = 48
+	_confirm.pressed.connect(func(): _buy(_size))
+	_buy_box.add_child(_confirm)
 	hide()
 
 
@@ -62,13 +64,11 @@ func _toggle_buy() -> void:
 	_buy_box.visible = not _buy_box.visible
 	_buy_button.text = "Close" if _buy_box.visible else "Buy a boat"
 	_size = 0
-	_where_shown = ""
 	_refresh_buy()
 
 
 func _pick(size: int) -> void:
 	_size = size
-	_where_shown = ""
 	_refresh_buy()
 
 
@@ -88,42 +88,29 @@ func _refresh_buy() -> void:
 		var b := _classes.get_child(i) as Button
 		b.text = class_text(i + 1)
 		b.set_pressed_no_signal(i + 1 == _size)
+	_confirm.visible = _size != 0
 	if _size == 0:
-		_where_title.text = "Pick a class. A tug tows her in to a free slip at the terminal you pick, where she lies laid up until you give her stops."
-		_clear_where()
+		_where_title.text = "Pick a class. A tug tows her in to a free tie-up, or an open slip if there's none, where she lies laid up until you give her stops."
 		return
-	_where_title.text = "DELIVER HER TO"
-	# Rebuilt when what can be picked changes (cash, slips, terminals).
-	var problems := []
-	for term: Terminal in sim.terminals.values():
-		problems.append([term, sim.purchase_problem(_size, term)])
-	var key := str(_size) + "|" + ",".join(problems.map(func(p): return "%d:%s" % [p[0].town.id, p[1]]))
-	if key == _where_shown:
-		return
-	_where_shown = key
-	_clear_where()
-	for p in problems:
-		var term: Terminal = p[0]
-		var why: String = p[1]
-		var b := Button.new()
-		b.focus_mode = Control.FOCUS_NONE
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size.y = 44
-		b.add_theme_font_size_override("font_size", 12)
-		b.text = "%s · buy for %s" % [term.town.name, "$" + Hud.fmt_int(FerryClass.of(_size).price())] if why == "" else "%s · %s" % [term.town.name, why]
-		b.disabled = why != ""
-		b.pressed.connect(_buy.bind(_size, term))
-		_where.add_child(b)
+	var why := sim.purchase_problem(_size)
+	var where := sim.delivery_slip(_size)
+	if where.is_empty():
+		_where_title.text = "No free slip she fits."
+	else:
+		var term: Terminal = where[0]
+		var slip: int = where[1]
+		if term.town.slips[slip].tie_up:
+			_where_title.text = "Delivered to the tie-up at %s." % term.town.name
+		elif Ferry.idle_slip(term, _size) == slip:
+			_where_title.text = "No tie-up free: delivered to the slip at %s." % term.town.name
+		else:
+			_where_title.text = "No tie-up free: delivered to the slip at %s. Boats that call there hold off until you give her stops." % term.town.name
+	_confirm.text = "Buy for %s" % ("$" + Hud.fmt_int(FerryClass.of(_size).price())) if why == "" else why
+	_confirm.disabled = why != ""
 
 
-func _clear_where() -> void:
-	for c in _where.get_children():
-		_where.remove_child(c)
-		c.queue_free()
-
-
-func _buy(size: int, term: Terminal) -> void:
-	buy_requested.emit(size, term)
+func _buy(size: int) -> void:
+	buy_requested.emit(size)
 	_buy_box.visible = false
 	_buy_button.text = "Buy a boat"
 	_size = 0
