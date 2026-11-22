@@ -129,6 +129,9 @@ func _process(delta: float) -> void:
 				# Scenes that can build over several frames (sandbox.gd) report their stages.
 				if "async_build" in _scene:
 					_scene.async_build = true
+				# If the destination exits before the fade, its overlay must
+				# release the menu along with it.
+				_scene.tree_exiting.connect(get_parent().queue_free, CONNECT_ONE_SHOT)
 				get_tree().change_scene_to_node(_scene)
 				_enter()
 			elif status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:

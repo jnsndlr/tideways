@@ -17,9 +17,35 @@ func run() -> void:
 			push_error("Expected to interrupt region generation before the world build.")
 			quit(1)
 			return
+		await create_timer(0.1).timeout
+		if current_scene.build_to != 0.3:
+			push_error("Generation finished before interruption.")
+			quit(1)
+			return
 		if attempt == 0:
+			var overlay: CanvasLayer
+			for layer in root.get_children():
+				if layer is CanvasLayer and layer.get_child_count() > 0 and layer.get_child(0) is LoadingScreen:
+					overlay = layer
+					break
+			if overlay == null:
+				push_error("Expected an active loading overlay.")
+				quit(1)
+				return
+			var start := Time.get_ticks_msec()
 			change_scene_to_file(Scenes.MENU)
 			await scene_changed
+			await process_frame
+			if is_instance_valid(overlay):
+				push_error("Cancelled loading screen still covers the menu.")
+				quit(1)
+				return
+			var elapsed := Time.get_ticks_msec() - start
+			print("Interrupted generation returned to Menu in %d ms" % elapsed)
+			if elapsed > 1000:
+				push_error("Menu waited over a second for region generation.")
+				quit(1)
+				return
 			if current_scene.scene_file_path != Scenes.MENU:
 				push_error("Interrupted generation did not return to the menu.")
 				quit(1)

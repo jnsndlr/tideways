@@ -52,6 +52,7 @@ var uncapped := false
 var async_build := false
 ## Data workers are joined before the scene releases their inputs.
 var _data_thread: Thread
+var _generating: MapGenerator
 var _building_charts: MarineCharts
 var _setup_frames := BuildFrameBudget.new()
 ## The stage being built runs from build_from to build_to (0..1 of the whole
@@ -72,7 +73,9 @@ func _ready() -> void:
 	var gen := MapGenerator.new()
 	# Stage ends are measured shares of the build (main map, threaded: ~4.1 s generate,
 	# ~5.6 s world, ~1.3 s sea charts, ~0.6 s simulation, ~2.1 s backdrop).
+	_generating = gen
 	await _data_stage(0.3, _generation_job(gen))
+	_generating = null
 	if not is_inside_tree():
 		return
 	map = gen.map
@@ -239,6 +242,8 @@ func _exit_tree() -> void:
 		pending.free()
 	if builder != null:
 		builder.cancel_build()
+	if _generating != null:
+		_generating.cancel()
 	if _building_charts != null:
 		_building_charts.cancel()
 	if _data_thread != null and _data_thread.is_started():
