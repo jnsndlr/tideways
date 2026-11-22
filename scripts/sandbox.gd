@@ -50,8 +50,9 @@ var uncapped := false
 ## several frames, the heavy parts on a worker thread, so the loading screen keeps
 ## animating. Left off, _ready builds everything at once (tools rely on that).
 var async_build := false
-## Generation only uses region data, so it can finish while the scene exits.
-var _generation_thread: Thread
+## Data workers are joined before the scene releases their inputs.
+var _data_thread: Thread
+var _building_charts: MarineCharts
 ## The stage being built runs from build_from to build_to (0..1 of the whole
 ## build); the loading screen sails the ferry between them.
 var build_from := 0.0
@@ -70,10 +71,7 @@ func _ready() -> void:
 	var gen := MapGenerator.new()
 	# Stage ends are measured shares of the build (main map, threaded: ~4.1 s generate,
 	# ~5.6 s world, ~1.3 s sea charts, ~0.6 s simulation, ~2.1 s backdrop).
-	if async_build:
-		_generation_thread = Thread.new()
-	await _stage(0.3, true, _generation_job(gen), _generation_thread)
-	_generation_thread = null
+	await _stage(0.3, true, _generation_job(gen))
 	if not is_inside_tree():
 		return
 	map = gen.map
@@ -113,18 +111,19 @@ func _ready() -> void:
 	rig.bounds = map.half_size * 0.8
 	add_child(rig)
 	_setup_dof()
+	var charts := MarineCharts.new(map, terrain)
+	_building_charts = charts
+	await _stage(0.95, true, charts.build)
+	_building_charts = null
+	if not is_inside_tree():
+		return
 	sim = Simulation.new()
 	sim.name = "Simulation"
-	# Marine traffic's charts (nav grid, fishing grounds, anchorages) are pure data.
-	sim.map = map
-	sim.terrain = terrain
-	sim.marine = MarineTraffic.new()
-	await _stage(0.95, true, func(): sim.marine.prepare(sim))
 	sim.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
-	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario))
+	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario, charts))
 	for terminal: Terminal in sim.terminals.values():
 		if RefitCrew.available():
 			var crew := RefitCrew.new()
@@ -195,7 +194,7 @@ func _ready() -> void:
 ## Runs one stage of the world build. With async_build, `work` runs on a worker
 ## thread (`threaded`) or on the main thread after a frame has been drawn, and the
 ## progress window moves on to end at `to`. Without it, `work` just runs.
-func _stage(to: float, threaded: bool, work: Callable, worker: Thread = null) -> void:
+func _stage(to: float, threaded: bool, work: Callable) -> void:
 	if not async_build:
 		work.call()
 		return
@@ -205,14 +204,17 @@ func _stage(to: float, threaded: bool, work: Callable, worker: Thread = null) ->
 		await get_tree().process_frame
 		work.call()
 		return
-	var thread := worker if worker != null else Thread.new()
+	var thread := Thread.new()
+	_data_thread = thread
 	if thread.start(work) != OK:
+		_data_thread = null
 		work.call()
 		return
 	while thread.is_alive():
 		await get_tree().process_frame
 	if thread.is_started():
 		thread.wait_to_finish()
+	_data_thread = null
 
 
 func _exit_tree() -> void:
@@ -223,8 +225,10 @@ func _exit_tree() -> void:
 		pending.free()
 	if builder != null:
 		builder.cancel_build()
-	if _generation_thread != null and _generation_thread.is_started():
-		_generation_thread.wait_to_finish()
+	if _building_charts != null:
+		_building_charts.cancel()
+	if _data_thread != null and _data_thread.is_started():
+		_data_thread.wait_to_finish()
 
 
 ## The wildlife group whose animal is nearest `screen` (and showing), if any.

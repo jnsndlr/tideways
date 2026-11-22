@@ -42,9 +42,9 @@ var _tide_phase := 0.0
 
 
 ## Starts from `sc`, or with no scenario puts a boat on every route of the map.
-func setup(m: MapData, t: Terrain, sc: Scenario = null) -> void:
+func setup(m: MapData, t: Terrain, sc: Scenario = null, charts: MarineCharts = null) -> void:
 	scenario = sc
-	_start(m, t, null)
+	_start(m, t, null, charts)
 
 
 ## Restore just the fleet and route identities into a fresh simulation.
@@ -60,7 +60,7 @@ func setup_from_network(m: MapData, t: Terrain, saved_json: String) -> String:
 	return ""
 
 
-func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
+func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineCharts = null) -> void:
 	map = m
 	terrain = t
 	rng.seed = m.map_seed + 99
@@ -98,7 +98,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	if marine == null:
 		marine = MarineTraffic.new()
 	add_child(marine)
-	marine.setup(self)
+	marine.setup(self, charts)
 
 
 ## One boat per schedule. Two stops shuttle; more run round in turn, leg by leg.
