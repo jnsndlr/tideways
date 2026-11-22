@@ -204,6 +204,9 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 func stops_changed(_f: Ferry) -> void:
 	for term: Terminal in terminals.values():
 		term.relane(_lane_destinations(term))
+	# And the water she shares with other boats is found afresh for her new routes.
+	if marine:
+		marine.refresh_corridors()
 	_mark_routes_in_service()
 
 
