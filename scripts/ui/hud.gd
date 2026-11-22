@@ -945,7 +945,7 @@ func _refresh_panels() -> void:
 					_tie_up_refit_button.disabled = sim.available_cash < price
 					offer_tie_up_refit = true
 			rows.append(["Lanes", _lanes_text(term)])
-			if isl.lane_extension_price > 0:
+			if isl.lane_extension_price > 0 and term.has_service():
 				var destination := sim.map.islands[term.lane_keys()[0]].name
 				rows.append(["Extra lane to", destination])
 				var building := term.build_remaining > 0.0 or term.work_stage == Terminal.WorkStage.DRAINING

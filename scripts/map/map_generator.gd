@@ -711,7 +711,7 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 	var key := "%.1f,%.1f,%.3f,%.3f|%.1f,%.1f,%.3f,%.3f|%d" % [pa.x, pa.z, na.x, na.z, pb.x, pb.z, nb.x, nb.z, route_id]
 	if _route_memo.has(key):
 		return _curve_of(_route_memo[key])
-	if _scenario == null:
+	if _scenario == null and not _locked:
 		# A generated network (Sandbox) keeps to direct routes, as before.
 		return _direct_curve(pa, na, pb, nb, route_id, 0.0)
 	var c: Curve3D = null

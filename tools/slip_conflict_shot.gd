@@ -4,7 +4,7 @@ extends SceneTree
 ## the Hiyu is there and one clear of her, then the Heron's ferry panel once
 ## applied. Needs a window (not --headless).
 ##
-##   godot --path . --script tools/slip_conflict_shot.gd -- --out=/tmp
+##   godot --path . --script tools/slip_conflict_shot.gd -- --scenario=two_boats --out=/tmp
 
 var main: Node
 var frames := 0

@@ -1,12 +1,11 @@
 extends SceneTree
-## Stage 4 stop editor: the one-boat scenario (the opening without the Heron,
-## whose Gullrock–Madrona route this puts the Hiyu on) has routes planned
-## between all its terminals, only Port Rosario–Madrona in service. Hiyu is put on Port Rosario →
+## Stage 4 stop editor: the opening scenario has routes planned between all its
+## terminals, only Port Rosario–Madrona in service. Hiyu is put on Port Rosario →
 ## Madrona → Gullrock → Madrona while she runs. She must take the new stops at her
 ## next call, keep her hull steady through the switch, reach Gullrock, and the
 ## lanes at Madrona must divide between Port Rosario and Gullrock.
 ##
-##   godot --headless --path . --fixed-fps 30 --script tools/schedule_edit_test.gd -- --scenario=one_boat
+##   godot --headless --path . --fixed-fps 30 --script tools/schedule_edit_test.gd
 
 var main: Node
 var frames := 0

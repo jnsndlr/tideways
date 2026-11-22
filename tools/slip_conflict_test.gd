@@ -1,12 +1,13 @@
 extends SceneTree
-## Stage 4, two boats: the opening scenario's size 2 Hiyu and size 1 Heron
+## Stage 4, two boats: maps/two_boats.json, the opening with a size 1 Heron
+## on Gullrock–Madrona as well as the size 2 Hiyu. They
 ## share one terminal's one slip. Both are put on routes that start away from
 ## it, and the Heron is timed to come in there halfway through the Hiyu's call.
 ## The stop editor must warn about it on that sailing without disabling Apply,
 ## the warning must go once the Heron is moved clear, and in play the Heron
 ## must really hold offshore there for the Hiyu.
 ##
-##   godot --headless --path . --fixed-fps 30 --script tools/slip_conflict_test.gd
+##   godot --headless --path . --fixed-fps 30 --script tools/slip_conflict_test.gd -- --scenario=two_boats
 
 var main: Node
 var frames := 0
@@ -38,7 +39,7 @@ func _process(_delta: float) -> bool:
 		return false
 	var sim: Simulation = main.sim
 	if sim.ferries.size() != 2:
-		return _fail("The opening scenario should run two boats, not %d" % sim.ferries.size())
+		return _fail("The two-boats scenario should run two boats, not %d" % sim.ferries.size())
 	var hiyu := sim.ferries[0]
 	var heron := sim.ferries[1]
 	if frames == 5:

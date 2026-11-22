@@ -7,11 +7,9 @@
 		{"key": "island-7", "name": "Gullrock Island", "lanes": 2}
 	],
 	"fleet": [
-		{"key": "hull-0", "name": "Hiyu", "size": 2},
-		{"key": "hull-1", "name": "Heron", "size": 1}
+		{"key": "hull-0", "name": "Hiyu", "size": 2}
 	],
 	"schedules": [
-		{"boat": "hull-0", "stops": ["island-1", "island-2"]},
-		{"boat": "hull-1", "stops": ["island-7", "island-2"]}
+		{"boat": "hull-0", "stops": ["island-1", "island-2"]}
 	]
 }

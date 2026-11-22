@@ -83,6 +83,9 @@ func can_stage_construction() -> bool:
 
 
 func buy_holding_lane() -> bool:
+	# An idle terminal (no boat scheduled to call) has nobody to queue in a new lane.
+	if not has_service():
+		return false
 	var ready := work_stage == WorkStage.IDLE or work_stage == WorkStage.OPEN and not site_lanes.is_empty()
 	if island.lane_extension_price <= 0 or not ready or not can_stage_construction():
 		return false

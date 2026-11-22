@@ -28,7 +28,10 @@ func _check(sim: Simulation, hud: Hud) -> String:
 	if sim.ledger.cash != 50000.0 or sim.terminals.size() != 3 or sim.ferries.size() != 1:
 		return "Play needs $50,000, three terminals and one ferry at startup"
 	var ferry := sim.ferries[0]
-	if ferry.ferry_name != "Hiyu" or ferry.fc.size != 2 or sim.map.routes.size() != 1:
+	# Routes between the other terminals are planned for the stop editor (stage 4)
+	# but only Hiyu's is in service.
+	var in_service := sim.map.routes.filter(func(r): return r.in_service).size()
+	if ferry.ferry_name != "Hiyu" or ferry.fc.size != 2 or in_service != 1:
 		return "The opening needs the size-2 Hiyu on a single route"
 	var keys := [ferry.term_a.island.key, ferry.term_b.island.key]
 	if not keys.has("island-1") or not keys.has("island-2"):
