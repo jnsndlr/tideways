@@ -17,6 +17,7 @@ var gullrock: Terminal
 var madrona: Terminal
 var _cash := 0.0
 var _mark := 0
+var _bought_at := 0.0
 
 
 func _initialize() -> void:
@@ -54,6 +55,7 @@ func _process(_delta: float) -> bool:
 			if sim.purchase_problem(3) == "":
 				return _fail("A size 3 boat ($100,000) could be bought with $50,000")
 			_cash = sim.available_cash
+			_bought_at = sim.abs_minutes()
 			var lanes_before := sim._lane_destinations(rosario)
 			boat = sim.buy_ferry(1)
 			if boat == null:
@@ -75,6 +77,12 @@ func _process(_delta: float) -> bool:
 			_log(sim, "Bought %s: %s" % [second.ferry_name, second.status_text()])
 			phase = 1
 		1:
+			for f: Ferry in [boat, second]:
+				if f.berth == Ferry.Berth.TIED_UP and not f.has_meta("in_at"):
+					f.set_meta("in_at", sim.abs_minutes())
+					_log(sim, "%s in, %.0f min after she was bought" % [f.ferry_name, sim.abs_minutes() - _bought_at])
+					if sim.abs_minutes() - _bought_at > 180.0 or sim.abs_minutes() - _bought_at < 120.0:
+						return _fail("Delivery took %.0f min, not 2–3 hours" % (sim.abs_minutes() - _bought_at))
 			if boat.berth == Ferry.Berth.DELIVERING or second.berth == Ferry.Berth.DELIVERING:
 				if boat.crew_today > 0.0:
 					return _fail("Paid crew under tow")

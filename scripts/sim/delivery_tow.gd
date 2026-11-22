@@ -35,6 +35,10 @@ const COMMIT_AT := LET_GO + 60.0
 ## Where the tow starts: beyond the map's edge, in the haze.
 const EDGE_OUT := 240.0
 const RUN_IN := 300.0
+## Bringing one in, the tow starts no further out than this many game minutes
+## at full tow speed (it joins the way in partway along). With the slower
+## approach and push in, delivery takes 2–3 hours.
+const MAX_TOW_MINUTES := 95.0
 ## How fast the tug swings round on its own (rad per game minute).
 const TURN_RATE := 0.6
 
@@ -134,6 +138,7 @@ func setup(s: Simulation, f: Ferry, pts: PackedVector2Array, away := false) -> v
 	else:
 		consort = f
 		f.consort = self
+		self.s = maxf(0.0, path.length - MAX_TOW_MINUTES * _tow_speed())
 		_place(0.0)
 
 
@@ -162,7 +167,15 @@ func _gap() -> float:
 func minutes_left() -> float:
 	if phase != Phase.TOWING:
 		return 0.0
-	return (path.length - s) / maxf(_tow_speed(), 0.1)
+	# At the speeds _tick_towing sets, 10 m at a time.
+	var v := maxf(_tow_speed(), 0.1)
+	var t := 0.0
+	var rem := path.length - s
+	while rem > 0.0:
+		var step := minf(rem, 10.0)
+		t += step / (v * (0.6 if rem < LET_GO else 1.0) * clampf(rem / 180.0, 0.25, 1.0))
+		rem -= step
+	return t
 
 
 func _tow_speed() -> float:
