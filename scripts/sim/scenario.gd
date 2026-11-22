@@ -41,6 +41,9 @@ var slips := {}
 var tie_ups := {}
 ## Island key -> holding lanes paved at the start (the rest of the lot is bought lane by lane).
 var lanes := {}
+## Island key -> which of its locked dock sites (MapData.Island.dock_sites) the
+## terminal stands at; 0 unless listed ("dock": 1).
+var docks := {}
 var fleet: Array[Boat] = []
 var schedules: Array[Schedule] = []
 
@@ -66,6 +69,8 @@ static func load_file(path: String) -> Scenario:
 			ties.append(MapData.Slip.size_from_name(str(slip.get("size", "small")) if slip is Dictionary else str(slip)))
 		s.tie_ups[key] = ties
 		s.lanes[key] = int(t.get("lanes", 0)) if t is Dictionary else 0
+		if t is Dictionary and t.has("dock"):
+			s.docks[key] = int(t["dock"])
 	for b in data.get("fleet", []):
 		var boat := Boat.new()
 		boat.key = str(b["key"])
@@ -108,6 +113,11 @@ static func from_network(map: MapData, names: Array, sizes: Array[int]) -> Scena
 		schedule.stops = [map.islands[r.a].key, map.islands[r.b].key]
 		s.schedules.append(schedule)
 	return s
+
+
+## Which dock site the terminal at island `key` stands at.
+func dock_site(key: String) -> int:
+	return int(docks.get(key, 0))
 
 
 ## The slip sizes for the terminal at `key`: one small slip unless listed.

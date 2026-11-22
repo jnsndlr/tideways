@@ -42,6 +42,10 @@ var _info_grid: GridContainer
 ## The left-hand menu (COMPANY … SETTINGS); the island editor sits its toggle below it.
 var sidebar: PanelContainer
 var _lane_button := Button.new()
+## Buys the shown locked dock site on an island with no terminal yet (main map).
+var _dock_button := Button.new()
+var _site_button := Button.new()
+var _site_pick := 0
 var _refit_button := Button.new()
 var _tie_up_refit_button := Button.new()
 var _service_button := Button.new()
@@ -443,7 +447,10 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 func select_island(isl: MapData.Island, focus: bool) -> void:
 	_reset_selection()
 	selected_island = isl
-	if focus:
+	_site_pick = 0
+	if focus and not isl.has_terminal and not isl.dock_sites.is_empty() and main.has_method("buy_dock"):
+		_focus_site()
+	elif focus:
 		rig.focus_on(isl.town_center, 390.0)
 	_refresh_panels()
 
@@ -582,6 +589,17 @@ func _build_info_panel() -> void:
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
+	_site_button.focus_mode = Control.FOCUS_NONE
+	_site_button.custom_minimum_size.y = 40
+	_site_button.pressed.connect(func():
+		if selected_island:
+			_site_pick = (_site_pick + 1) % selected_island.dock_sites.size()
+			_focus_site()
+			_refresh_panels())
+	v.add_child(_site_button)
+	_dock_button.custom_minimum_size.y = 48
+	_dock_button.pressed.connect(_buy_dock)
+	v.add_child(_dock_button)
 	_refit_button.custom_minimum_size.y = 48
 	_refit_button.pressed.connect(_buy_refit)
 	v.add_child(_refit_button)
@@ -698,6 +716,21 @@ func _buy_refit(tie_up := false) -> void:
 		_refresh_panels()
 
 
+## Builds a terminal at the shown dock site (the main map rebuilds round it).
+func _buy_dock() -> void:
+	if selected_island == null or not main.has_method("buy_dock"):
+		return
+	main.buy_dock(selected_island, _site_pick)
+
+
+## Frames the shown dock site with the town it would serve.
+func _focus_site() -> void:
+	var site: MapData.DockSite = selected_island.dock_sites[_site_pick]
+	var town := selected_island.town_center
+	var t := Vector3(town.x, 0.0, town.z)
+	rig.focus_on(site.shore.lerp(t, 0.3), clampf(site.shore.distance_to(t) * 1.7, 520.0, 1600.0))
+
+
 func _buy_lane() -> void:
 	if selected_island == null:
 		return
@@ -741,6 +774,7 @@ func _refresh_panels() -> void:
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
 	var offer_lane := false
+	var offer_dock := false
 	var offer_refit := false
 	var offer_tie_up_refit := false
 	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
@@ -841,6 +875,23 @@ func _refresh_panels() -> void:
 		]
 		rows.append(["Wildlife draw", _draw_text(isl)])
 		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(isl))])
+		if not term and main.has_method("buy_dock"):
+			if isl.dock_sites.is_empty():
+				rows.append(["Dock sites", "None: no terminal can be built here"])
+			else:
+				_site_pick = clampi(_site_pick, 0, isl.dock_sites.size() - 1)
+				var site := isl.dock_sites[_site_pick]
+				var tier: Dictionary = MapLayout.DOCK_TIERS[site.tier]
+				rows.append(["Dock sites", "%d locked" % isl.dock_sites.size()])
+				rows.append(["Site %d" % (_site_pick + 1), "%s · %s" % [tier["name"], fmt_money(site.price())]])
+				rows.append(["Available cash", fmt_money(sim.available_cash)])
+				_dock_button.text = "Build terminal at site %d · %s" % [_site_pick + 1, fmt_money(site.price())]
+				_dock_button.disabled = sim.available_cash < site.price()
+				_site_button.text = "Show next site (%d of %d)" % [_site_pick + 1, isl.dock_sites.size()]
+				_site_button.visible = isl.dock_sites.size() > 1
+				offer_dock = true
+		elif term and isl.dock_sites.size() > 1:
+			rows.append(["Other dock sites", "%d (one terminal per island for now)" % (isl.dock_sites.size() - 1)])
 		if term:
 			rows.append(["Vehicles waiting", str(term.total_queued())])
 			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
@@ -914,6 +965,11 @@ func _refresh_panels() -> void:
 		if term:
 			_update_terminal_bar(term)
 	_lane_button.visible = offer_lane
+	_dock_button.visible = offer_dock
+	if not offer_dock:
+		_site_button.visible = false
+	if main.has_method("show_dock_sites"):
+		main.show_dock_sites(selected_island if offer_dock else null, _site_pick)
 	_refit_button.visible = offer_refit
 	_tie_up_refit_button.visible = offer_tie_up_refit
 	_pace_row.visible = selected_ferry != null

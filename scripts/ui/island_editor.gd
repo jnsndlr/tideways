@@ -5,7 +5,8 @@ extends CanvasLayer
 ## again straight away. Towns, trees, docks and routes go stale meanwhile and are
 ## hidden; Apply rebuilds the whole map around the new islands. Save writes
 ## MapLayout.MAIN_STORY, Copy / Paste move the layout as JSON. Place dock then a
-## click by the shore sets that island's ferry dock by hand (Auto hands it back).
+## click by the shore locks a ferry dock there (an island can have several; one
+## with none never gets a terminal). Each has a tier, its price to build in play.
 
 const WIDTH := 372
 const RESTAMP_DELAY := 0.18
@@ -61,11 +62,15 @@ var _timer: Timer
 var _rng := RandomNumberGenerator.new()
 var _dock_info: Label
 var _dock_btn: Button
-var _auto_btn: Button
+var _move_btn: Button
+var _del_btn: Button
+var _dock_pick: OptionButton
+var _tier: OptionButton
+var _dock := 0             # the selected island's selected dock
 var _ferry: CheckBox
 var _facing: HSlider
 var _facing_val: Label
-var _placing := false
+var _placing := -1        # -1 off, 0 adding a dock, 1 moving the selected one
 var _dock_dirty := false   # a dock moved since the last build
 var _marker: Node3D
 
@@ -135,7 +140,7 @@ func open(k := 0) -> void:
 
 func close() -> void:
 	_panel.visible = false
-	_set_placing(false)
+	_set_placing(-1)
 	_marker.visible = false
 	_toggle.text = "ISLANDS  (I)"
 	main.hud.visible = true
@@ -361,6 +366,8 @@ func _refresh_picker() -> void:
 func _select(k: int, focus := true) -> void:
 	if main.layout.islands.is_empty():
 		return
+	if k != selected:
+		_dock = 0
 	selected = k
 	_picker.select(k)
 	_sync()
@@ -400,7 +407,7 @@ func _on_ground_clicked(screen: Vector2) -> void:
 	var d := cam.project_ray_normal(screen)
 	if d.y > -0.01:
 		return
-	if _placing:
+	if _placing >= 0:
 		var w := o + d * (-o.y / d.y)
 		_place_dock(Vector2(w.x, w.z))
 		return
@@ -410,23 +417,35 @@ func _on_ground_clicked(screen: Vector2) -> void:
 		_select(k, false)
 
 
-# --- Ferry dock -------------------------------------------------------------------
+# --- Ferry docks ------------------------------------------------------------------
 
 func _build_dock_section(v: VBoxContainer) -> void:
-	v.add_child(_label("FERRY DOCK", 12, Hud.ACCENT))
-	_ferry = CheckBox.new()
-	_ferry.text = "Ferry terminal"
-	_ferry.tooltip_text = "Off: no dock or routes here until one is built in game."
-	_ferry.toggled.connect(func(on):
-		if _syncing:
-			return
-		_spec().ferry = on
-		_set_placing(false)
-		_dock_changed())
-	v.add_child(_ferry)
+	v.add_child(_label("FERRY DOCKS", 12, Hud.ACCENT))
 	_dock_info = _label("", 12, Hud.MUTED)
 	_dock_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(_dock_info)
+	var pick := HBoxContainer.new()
+	_dock_pick = OptionButton.new()
+	_dock_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dock_pick.item_selected.connect(func(i):
+		if _syncing:
+			return
+		_dock = i
+		_set_placing(false)
+		_sync_dock())
+	pick.add_child(_dock_pick)
+	_tier = OptionButton.new()
+	for t in MapLayout.DOCK_TIER_ORDER:
+		_tier.add_item("%s · $%s" % [MapLayout.DOCK_TIERS[t]["name"], String.num_int64(MapLayout.dock_price(t))])
+	_tier.tooltip_text = "What this site costs to build in play (MapLayout.DOCK_TIERS)."
+	_tier.item_selected.connect(func(i):
+		var d := _cur_dock()
+		if _syncing or d == null:
+			return
+		d.tier = MapLayout.DOCK_TIER_ORDER[i]
+		_dock_changed())
+	pick.add_child(_tier)
+	v.add_child(pick)
 	var row := HBoxContainer.new()
 	row.add_child(_fixed_label("Facing", 108))
 	_facing = HSlider.new()
@@ -439,62 +458,116 @@ func _build_dock_section(v: VBoxContainer) -> void:
 	_facing_val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_facing.value_changed.connect(func(x):
 		_facing_val.text = "%d°" % int(x)
-		if _syncing or not _spec().dock:
+		var d := _cur_dock()
+		if _syncing or d == null:
 			return
-		_spec().dock_angle = x
+		# Turned in place: the pier meets the shore again along its new heading.
+		var s := _spec()
+		var dir := Vector2.from_angle(deg_to_rad(x))
+		var shore := MapGenerator.snap_shore(main.terrain, s.dock_at(d), dir)
+		var nd := s.dock_from_world(Vector2(shore.x, shore.z), x, d.tier)
+		d.u = nd.u
+		d.v = nd.v
+		d.facing = nd.facing
 		_dock_changed())
 	row.add_child(_facing)
 	row.add_child(_facing_val)
 	v.add_child(row)
-	_dock_btn = _button("📍 Place dock", func(): _set_placing(not _placing))
-	_auto_btn = _button("Auto", _auto_dock)
-	_row_buttons(v, [], [_auto_btn, _dock_btn])
-	_dock_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dock_btn = _button("📍 Add dock", func(): _set_placing(0 if _placing != 0 else -1))
+	_move_btn = _button("Move", func(): _set_placing(1 if _placing != 1 else -1))
+	_del_btn = _button("Remove", _remove_dock)
+	_row_buttons(v, [], [_dock_btn, _move_btn, _del_btn])
+	_ferry = CheckBox.new()
+	_ferry.text = "Terminal in the full network"
+	_ferry.tooltip_text = "With --full-network (no scenario), build a terminal at this island's first dock."
+	_ferry.toggled.connect(func(on):
+		if _syncing:
+			return
+		_spec().ferry = on
+		_dock_changed())
+	v.add_child(_ferry)
+
+
+func _cur_dock() -> MapLayout.DockSpec:
+	var s := _spec()
+	return s.docks[_dock] if _dock >= 0 and _dock < s.docks.size() else null
 
 
 func _sync_dock() -> void:
 	var s := _spec()
+	_dock = clampi(_dock, 0, s.docks.size() - 1) if not s.docks.is_empty() else -1
 	_ferry.button_pressed = s.ferry
-	_dock_btn.disabled = not s.ferry
-	_auto_btn.disabled = not s.ferry
-	_facing.editable = s.ferry and s.dock
-	if not s.ferry:
+	_dock_pick.clear()
+	for i in s.docks.size():
+		_dock_pick.add_item("Dock %d%s" % [i + 1, "  ⚠" if not _on_shore(s, s.docks[i]) else ""])
+	if s.docks.is_empty():
+		_dock_pick.add_item("No docks")
+	_dock_pick.select(maxi(_dock, 0))
+	_dock_pick.disabled = s.docks.is_empty()
+	var d := _cur_dock()
+	_tier.disabled = d == null
+	_facing.editable = d != null
+	_move_btn.disabled = d == null
+	_del_btn.disabled = d == null
+	if d == null:
 		_facing_val.text = "—"
-		_dock_info.text = "No ferry terminal: no dock or routes here. Apply to rebuild."
-		_update_marker()
-		return
-	_facing.value = s.dock_angle
-	_facing_val.text = "%d°" % int(s.dock_angle) if s.dock else "auto"
-	if s.dock:
-		_dock_info.text = "Placed by hand at %d, %d. Apply to rebuild the routes." % [int(s.dock_x), int(s.dock_z)]
-		var id := _first_id() + selected
-		if not _stale and not _dock_dirty and id < main.map.islands.size() and not main.map.islands[id].has_terminal:
-			_dock_info.text += " No route could use it last build: face it towards a neighbour."
+		_dock_info.text = "No dock locked here, so no terminal can ever be built on this island. Add dock, then click by the shore."
 	else:
-		_dock_info.text = "Auto: the map picks a spot facing its neighbours. Place dock, then click by the shore."
+		var heading := fposmod(rad_to_deg(s.dock_heading(d).angle()), 360.0)
+		_facing.value = roundf(heading)
+		_facing_val.text = "%d°" % int(roundf(heading))
+		_tier.select(MapLayout.DOCK_TIER_ORDER.find(d.tier))
+		var at := s.dock_at(d)
+		_dock_info.text = "%d dock%s locked here; a terminal can only be built at one. Dock %d is at %d, %d and moves with the island." % [
+			s.docks.size(), "" if s.docks.size() == 1 else "s", _dock + 1, int(at.x), int(at.y)]
+		if not _on_shore(s, d):
+			_dock_info.text += " ⚠ It no longer meets the shore: Move it."
+		if _dock_dirty or _stale:
+			_dock_info.text += " Apply to rebuild the routes."
 	_update_marker()
 
 
-func _set_placing(on: bool) -> void:
-	_placing = on
+## The pier meets the shore: land just behind it, water just ahead.
+func _on_shore(s: MapLayout.IslandSpec, d: MapLayout.DockSpec) -> bool:
+	var at := s.dock_at(d)
+	var dir := s.dock_heading(d)
+	var behind := at - dir * 6.0
+	var ahead := at + dir * 6.0
+	return main.terrain.height_at(behind.x, behind.y) >= 0.9 and main.terrain.height_at(ahead.x, ahead.y) < 0.9
+
+
+## -1 off, 0 adding a dock, 1 moving the selected one.
+func _set_placing(mode: int) -> void:
+	_placing = mode
 	if _dock_btn:
-		_dock_btn.text = "Click the shore… (cancel)" if on else "📍 Place dock"
+		_dock_btn.text = "Click the shore… (cancel)" if mode == 0 else "📍 Add dock"
+		_move_btn.text = "Click… (cancel)" if mode == 1 else "Move"
 
 
 func _place_dock(at: Vector2) -> void:
 	var s := _spec()
 	var dir := MapGenerator.seaward(main.terrain, at)
-	s.dock = true
-	s.dock_x = snappedf(at.x, 1.0)
-	s.dock_z = snappedf(at.y, 1.0)
-	s.dock_angle = roundf(fposmod(rad_to_deg(dir.angle()), 360.0))
-	_set_placing(false)
+	var heading := roundf(fposmod(rad_to_deg(dir.angle()), 360.0))
+	dir = Vector2.from_angle(deg_to_rad(heading))
+	var shore := MapGenerator.snap_shore(main.terrain, at, dir)
+	var old := _cur_dock()
+	var d := s.dock_from_world(Vector2(shore.x, shore.z), heading, old.tier if old and _placing == 1 else "standard")
+	if _placing == 1 and old:
+		s.docks[_dock] = d
+	else:
+		s.docks.append(d)
+		_dock = s.docks.size() - 1
+	_set_placing(-1)
 	_dock_changed()
 
 
-func _auto_dock() -> void:
-	_set_placing(false)
-	_spec().dock = false
+func _remove_dock() -> void:
+	_set_placing(-1)
+	var s := _spec()
+	if _cur_dock() == null:
+		return
+	s.docks.remove_at(_dock)
+	_dock = mini(_dock, s.docks.size() - 1)
 	_dock_changed()
 
 
@@ -506,13 +579,19 @@ func _dock_changed() -> void:
 	_mark_unsaved()
 
 
-## A pole where the pier meets the shore and a bar out along it, for the selected
-## island's hand-placed dock.
+## A pole where each pier meets the shore and a bar out along it: the selected
+## dock orange, the island's others white.
 func _build_marker() -> void:
 	_marker = Node3D.new()
+	_marker.visible = false
+	add_child(_marker)
+
+
+func _marker_for(color: Color) -> Node3D:
+	var n := Node3D.new()
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = Color(1.0, 0.45, 0.1)
+	mat.albedo_color = color
 	var pole := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
 	cm.top_radius = 6.0
@@ -521,27 +600,32 @@ func _build_marker() -> void:
 	pole.mesh = cm
 	pole.position = Vector3(0, 45, 0)
 	pole.material_override = mat
-	_marker.add_child(pole)
+	n.add_child(pole)
 	var bar := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(10, 6, Layout.DOCK_U + 60.0)
 	bar.mesh = bm
 	bar.position = Vector3(0, 6, bm.size.z * 0.5)
 	bar.material_override = mat
-	_marker.add_child(bar)
-	_marker.visible = false
-	add_child(_marker)
+	n.add_child(bar)
+	return n
 
 
 func _update_marker() -> void:
+	for c in _marker.get_children():
+		c.queue_free()
 	var s := _spec()
-	_marker.visible = is_open() and s.dock and s.ferry
+	_marker.visible = is_open()
 	if not _marker.visible:
 		return
-	var dir := Vector2.from_angle(deg_to_rad(s.dock_angle))
-	var shore := MapGenerator.snap_shore(main.terrain, Vector2(s.dock_x, s.dock_z), dir)
-	var d3 := Vector3(dir.x, 0.0, dir.y)
-	_marker.global_transform = Transform3D(Basis(Vector3.UP.cross(d3), Vector3.UP, d3), shore)
+	for i in s.docks.size():
+		var d := s.docks[i]
+		var m := _marker_for(Color(1.0, 0.45, 0.1) if i == _dock else Color(0.95, 0.95, 0.9))
+		var dir := s.dock_heading(d)
+		var at := s.dock_at(d)
+		var d3 := Vector3(dir.x, 0.0, dir.y)
+		m.transform = Transform3D(Basis(Vector3.UP.cross(d3), Vector3.UP, d3), Vector3(at.x, 0.0, at.y))
+		_marker.add_child(m)
 
 
 # --- Editing ----------------------------------------------------------------------

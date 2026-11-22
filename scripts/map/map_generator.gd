@@ -14,6 +14,9 @@ var _route_samples := PackedVector3Array()
 var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route ids, lateral min, lateral max]
 ## When set, terminals and links come from it instead of being planned.
 var _scenario: Scenario
+## The layout's docks are locked by hand (MapLayout.locked_docks): terminals go
+## only at those, never at a spot picked to face the links.
+var _locked := false
 ## Where routes planned for this layout and scenario are kept (empty: plan every
 ## time). Planning round islands is slow, and the authored map never changes
 ## unless its islands are moved, so Play loads its routes from here; a stale or
@@ -55,6 +58,7 @@ func generate(map_seed: int) -> MapData:
 ## `scenario`, only its terminals are built and only its scheduled stops linked.
 func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
 	_scenario = scenario
+	_locked = layout.locked_docks()
 	_load_route_memo(layout)
 	var map_seed := layout.world_seed
 	rng.seed = map_seed
@@ -125,9 +129,16 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 	isl.fields = spec.fields
 	isl.mainland_port = spec.mainland
 	isl.ferry = spec.ferry
-	isl.manual_dock = spec.dock
-	isl.manual_at = Vector2(spec.dock_x, spec.dock_z)
-	isl.manual_dir = Vector2.from_angle(deg_to_rad(spec.dock_angle))
+	isl.dock_sites.clear()
+	for d in spec.docks:
+		var site := MapData.DockSite.new()
+		site.key = "%s/%d" % [isl.key, isl.dock_sites.size()]
+		var at := spec.dock_at(d)
+		var dir := spec.dock_heading(d)
+		site.shore = Vector3(at.x, 0.0, at.y)
+		site.dir = Vector3(dir.x, 0.0, dir.y)
+		site.tier = d.tier
+		isl.dock_sites.append(site)
 
 
 static func stamp_of(isl: MapData.Island) -> Terrain.Stamp:
@@ -281,6 +292,19 @@ static func _fits(lay: MapLayout, spec: MapLayout.IslandSpec, c: Vector2, reach:
 	return true
 
 
+## Where `o`'s terminal stands and every dock site locked on it, built or not,
+## as [shore, dir, built]: islets, marinas, quays and beaches keep clear of them
+## all, so buying a site in play finds it as it was left.
+func _dock_spots(o: MapData.Island) -> Array:
+	var out := []
+	if o.has_terminal:
+		out.append([o.shore, o.dock_dir, true])
+	for i in o.dock_sites.size():
+		if not (o.has_terminal and i == o.site):
+			out.append([o.dock_sites[i].shore, o.dock_sites[i].dir, false])
+	return out
+
+
 func _main_islands() -> Array[MapData.Island]:
 	var out: Array[MapData.Island] = []
 	for isl in map.islands:
@@ -303,8 +327,13 @@ static func _find(parent: Array, i: int) -> int:
 func _plan_routes() -> void:
 	var mains: Array[MapData.Island] = []
 	for isl in _main_islands():
-		if (_scenario.terminals.has(isl.key) if _scenario else isl.ferry):
-			mains.append(isl)
+		if not (_scenario.terminals.has(isl.key) if _scenario else isl.ferry):
+			continue
+		if _locked and isl.dock_sites.is_empty():
+			if _scenario:
+				push_warning("%s (%s) has no dock placed in the layout, so no terminal" % [isl.name, isl.key])
+			continue
+		mains.append(isl)
 	var banned := {}
 	while true:
 		var bad := _try_routes(mains, banned)
@@ -382,13 +411,15 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 				desired[isl.id] = (near.center - isl.center).normalized() if near else Vector2.ZERO
 	var taken: Array[Vector3] = []
 	for isl in mains:
-		if desired.has(isl.id) and isl.manual_dock:
-			isl.shore = snap_shore(terrain, isl.manual_at, isl.manual_dir)
-			isl.dock_dir = Vector3(isl.manual_dir.x, 0.0, isl.manual_dir.y)
+		if desired.has(isl.id) and _locked:
+			# Locked by hand: exactly where it was placed, whatever the links.
+			isl.site = clampi(_scenario.dock_site(isl.key) if _scenario else 0, 0, isl.dock_sites.size() - 1)
+			isl.shore = isl.dock_sites[isl.site].shore
+			isl.dock_dir = isl.dock_sites[isl.site].dir
 			isl.has_terminal = true
 			taken.append(isl.dock_dir)
 	for isl in mains:
-		if desired.has(isl.id) and not isl.manual_dock:
+		if desired.has(isl.id) and not _locked:
 			var dir: Vector2 = desired[isl.id]
 			if dir.length() < 0.1:
 				dir = -isl.center if isl.center.length() > 3.0 else Vector2.RIGHT
@@ -949,8 +980,10 @@ func _place_islets() -> void:
 			if c.distance_to(o.center) < r + reach + 30.0:
 				ok = false
 				break
-			if o.has_terminal and c.distance_to(Vector2(o.shore.x, o.shore.z)) < r + 150.0:
-				ok = false
+			for sp in _dock_spots(o):
+				if c.distance_to(Vector2(sp[0].x, sp[0].z)) < r + 150.0:
+					ok = false
+			if not ok:
 				break
 		if ok:
 			for p in _route_samples:
@@ -1016,8 +1049,9 @@ func _marina_site(isl: MapData.Island, n3: Vector3) -> Variant:
 				return null
 	var reach := s3 + n3 * Layout.MARINA_APPROACH_U
 	for o in map.islands:
-		if o.has_terminal and (s3.distance_to(o.shore) < 240.0 or reach.distance_to(o.shore + o.dock_dir * 120.0) < 240.0):
-			return null
+		for sp in _dock_spots(o):
+			if s3.distance_to(sp[0]) < 240.0 or reach.distance_to(sp[0] + sp[1] * 120.0) < 240.0:
+				return null
 	for m in map.marinas:
 		if s3.distance_to(m.shore) < 180.0:
 			return null
@@ -1101,8 +1135,9 @@ func _quay_site(isl: MapData.Island, n3: Vector3, marina_gap := 180.0) -> Varian
 			v += 18.0
 	var reach := s3 + n3 * Layout.QUAY_LANE_U
 	for o in map.islands:
-		if o.has_terminal and (s3.distance_to(o.shore) < 180.0 or reach.distance_to(o.shore + o.dock_dir * 120.0) < 195.0):
-			return null
+		for sp in _dock_spots(o):
+			if s3.distance_to(sp[0]) < 180.0 or reach.distance_to(sp[0] + sp[1] * 120.0) < 195.0:
+				return null
 	for m in map.marinas:
 		if s3.distance_to(m.shore) < marina_gap or reach.distance_to(m.at(Layout.MARINA_APPROACH_U, 0.0)) < marina_gap - 15.0:
 			return null
@@ -1230,8 +1265,9 @@ func _try_beach(at: Vector3, out: Vector3, half_w: float, r: RandomNumberGenerat
 	if absf(s3.x) > bound or absf(s3.z) > bound:
 		return false
 	for o in map.islands:
-		if o.has_terminal and s3.distance_to(o.shore) < (o.lot_half_width + 24.0 + half_w if beside else 260.0):
-			return false
+		for sp in _dock_spots(o):
+			if s3.distance_to(sp[0]) < (o.lot_half_width + 24.0 + half_w if beside and sp[2] else 260.0):
+				return false
 	for m in map.marinas:
 		if s3.distance_to(m.shore) < (Layout.MARINA_HEAD_HALF + 30.0 + half_w if beside else 170.0):
 			return false
@@ -1353,8 +1389,9 @@ func _haul_clear(p: Vector3, gap: float) -> bool:
 	if absf(p.x) > bound or absf(p.z) > bound:
 		return false
 	for o in map.islands:
-		if o.has_terminal and p.distance_to(o.shore) < 270.0:
-			return false
+		for sp in _dock_spots(o):
+			if p.distance_to(sp[0]) < 270.0:
+				return false
 	for m in map.marinas:
 		if p.distance_to(m.shore) < 135.0 or p.distance_to(m.at(Layout.MARINA_APPROACH_U, 0.0)) < 120.0:
 			return false
@@ -1569,7 +1606,7 @@ func _memo_key(layout: MapLayout) -> String:
 
 ## Writes newly planned routes back, on desktop builds only (a device can't write res://).
 func _save_route_memo() -> void:
-	if route_cache_path.is_empty() or not _memo_dirty or not OS.has_feature("editor"):
+	if route_cache_path.is_empty() or not _memo_dirty or not (OS.has_feature("editor") or route_cache_path.begins_with("user://")):
 		return
 	var key: String = _route_memo.get("__key", "")
 	var routes := _route_memo.duplicate()

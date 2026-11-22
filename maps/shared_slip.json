@@ -3,7 +3,7 @@
 	"cash": 50000,
 	"terminals": [
 		{"key": "island-1", "name": "Port Rosario", "lanes": 2, "slips": ["small"]},
-		{"key": "island-2", "name": "Madrona Island", "lanes": 2, "slips": ["small"], "tie_ups": ["small"]},
+		{"key": "island-2", "dock": 1, "name": "Madrona Island", "lanes": 2, "slips": ["small"], "tie_ups": ["small"]},
 		{"key": "island-7", "name": "Gullrock Island", "lanes": 2, "slips": ["small"]}
 	],
 	"fleet": [

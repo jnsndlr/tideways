@@ -20,10 +20,14 @@
 			"pinned": true,
 			"mainland": true,
 			"ferry": true,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": -275.823,
+					"v": 764.781,
+					"facing": 109.8321,
+					"tier": "standard"
+				}
+			]
 		},
 		{
 			"name": "Madrona Island",
@@ -43,10 +47,20 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": true,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 1145.445,
+					"v": -386.828,
+					"facing": 341.3397,
+					"tier": "standard"
+				},
+				{
+					"u": 228.821,
+					"v": -585.366,
+					"facing": 291.3506,
+					"tier": "standard"
+				}
+			]
 		},
 		{
 			"name": "Cypress Island",
@@ -66,10 +80,14 @@
 			"pinned": false,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 611.99,
+					"v": 149.556,
+					"facing": 13.7326,
+					"tier": "standard"
+				}
+			]
 		},
 		{
 			"name": "Juniper Island",
@@ -88,11 +106,7 @@
 			"fields": 0.65,
 			"pinned": true,
 			"mainland": false,
-			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"ferry": false
 		},
 		{
 			"name": "Bracken Island",
@@ -111,11 +125,7 @@
 			"fields": 0.61,
 			"pinned": true,
 			"mainland": false,
-			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"ferry": false
 		},
 		{
 			"name": "Kestrel Island",
@@ -135,10 +145,14 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
-			"dock": true,
-			"dock_x": 942.0,
-			"dock_z": -365.0,
-			"dock_angle": 3.0
+			"docks": [
+				{
+					"u": 108.963,
+					"v": -2779.295,
+					"facing": 259.495,
+					"tier": "standard"
+				}
+			]
 		},
 		{
 			"name": "Gullrock Island",
@@ -158,10 +172,14 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": true,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 283.083,
+					"v": -270.438,
+					"facing": 281.9312,
+					"tier": "standard"
+				}
+			]
 		},
 		{
 			"name": "San Vela Island",
@@ -180,11 +198,7 @@
 			"fields": 0.5,
 			"pinned": true,
 			"mainland": false,
-			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"ferry": false
 		},
 		{
 			"name": "Cordero Landing",
@@ -203,11 +217,7 @@
 			"fields": 0.45,
 			"pinned": false,
 			"mainland": false,
-			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"ferry": false
 		},
 		{
 			"name": "Eagle Island",
@@ -226,11 +236,7 @@
 			"fields": 0.32,
 			"pinned": true,
 			"mainland": false,
-			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"ferry": false
 		}
 	]
 }
