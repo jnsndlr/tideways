@@ -60,6 +60,14 @@ const PLAN_CAR_GAP := 0.8
 ## the lane and the apron to drive), and the apron starts up APRON_LIFT before.
 const BOARD_CLOSE := 8.0
 const APRON_LIFT := 2.0
+## A timed boat back at her first stop with at least this long until her next
+## sailing moves to a free tie-up slip there, if she fits one, so the working
+## slip is free for other boats. Her crew stay on unless it is overnight.
+const GAP_TIE_UP := 150.0
+## She leaves the tie-up in time to be back at her working slip this long
+## before boarding opens (MAX_DWELL before she is due).
+const GAP_MARGIN := 5.0
+var _gap_due := -1.0         # tied up between sailings until she is due then (game minute); -1 otherwise
 ## Her +Z end faces the current route's B → A rather than A → B (she came onto
 ## this leg from one running the other way; a double-ended ferry never turns).
 var _rev := false
@@ -616,8 +624,20 @@ func _tick_unloading(delta: float) -> void:
 			here().unloading_ferry = null
 		if lay_up_requested and free_tie_up(here()) >= 0:
 			_begin_tie_up()
+		elif _wants_gap_tie_up():
+			_gap_due = due()
+			_begin_tie_up()
 		else:
 			_begin_loading()
+
+
+## Whether, just unloaded at her first stop, her next sailing is far enough off
+## (GAP_TIE_UP) to lie at a free tie-up slip here until then.
+func _wants_gap_tie_up() -> bool:
+	if timetable.is_empty() or call != 0 or not aboard.is_empty() or not next_stops.is_empty():
+		return false
+	var d := due()
+	return d >= 0.0 and d - sim.abs_minutes() >= GAP_TIE_UP and free_tie_up(here()) >= 0
 
 
 ## Outbound vehicles cross the boarding approaches before joining the central
@@ -1461,6 +1481,8 @@ func status_text() -> String:
 		Berth.TIED_UP:
 			if return_requested:
 				return "Tied up at %s · waiting for her slip" % here().island.name
+			if between_sailings():
+				return "Tied up at %s until her %s sailing" % [here().island.name, Timetable.text(int(round(fmod(_gap_due, Timetable.DAY))))]
 			return "Tied up at " + here().island.name
 		Berth.TO_WORKING:
 			return "Returning to service at " + here().island.name
@@ -1528,10 +1550,13 @@ func best_captain() -> Captain:
 
 
 func minutes_until_departure_from(term: Terminal) -> float:
-	if berth != Berth.WORKING or lay_up_requested:
-		return INF
 	var crossing := crossing_minutes()
 	var turnaround := 16.0
+	if between_sailings() and not lay_up_requested:
+		var m := maxf(_gap_due - sim.abs_minutes(), 0.0)
+		return m if here() == term else m + crossing + turnaround
+	if berth != Berth.WORKING or lay_up_requested:
+		return INF
 	match state:
 		State.LOADING:
 			var m := maxf(MIN_DWELL + 2.0 - _state_time, 0.0)
@@ -1670,9 +1695,16 @@ func due() -> float:
 ## due back and unloaded after the day's last sailing (shift_tail; later if she
 ## ran late) until shortly before the day's first sailing.
 func off_shift() -> bool:
-	if timetable.is_empty() or state != State.LOADING or call != 0 or _boarding > 0:
+	if timetable.is_empty() or call != 0:
 		return false
-	var d := due()
+	# (or at a tie-up between sailings, from when she is tied up)
+	var d := _gap_due
+	if d < 0.0:
+		if berth != Berth.WORKING or state != State.LOADING or _boarding > 0:
+			return false
+		d = due()
+	elif berth != Berth.TIED_UP:
+		return false
 	if d < 0.0 or int(round(fmod(d, Timetable.DAY))) != timetable[0]:
 		return false
 	var now := sim.abs_minutes()
@@ -1731,7 +1763,7 @@ func crew_per_hour() -> float:
 ## lies at a tie-up or overnight between timetabled days (off_shift); `minutes`
 ## of game time.
 func pay_crew(minutes: float) -> void:
-	if berth == Berth.TIED_UP or off_shift():
+	if berth == Berth.TIED_UP and not between_sailings() or off_shift():
 		return
 	_crew_owed += crew_per_hour() * minutes / 60.0
 
@@ -1790,6 +1822,7 @@ func free_tie_up(term: Terminal) -> int:
 ## unloads, and ties up at the first terminal of her route with a free tie-up slip.
 func request_lay_up() -> void:
 	return_requested = false
+	_gap_due = -1.0   # tied up between sailings: she stays there
 	if berth == Berth.WORKING:
 		lay_up_requested = true
 
@@ -1804,7 +1837,13 @@ func request_return() -> void:
 
 
 func in_service() -> bool:
-	return berth == Berth.WORKING and not lay_up_requested
+	return (berth == Berth.WORKING or between_sailings()) and not lay_up_requested
+
+
+## At or moving to or from a tie-up slip between timed sailings (GAP_TIE_UP),
+## rather than laid up.
+func between_sailings() -> bool:
+	return _gap_due >= 0.0
 
 
 ## Starts the game already lying at a tie-up slip at `term` (one end of her route).
@@ -1883,6 +1922,8 @@ func _begin_tie_up() -> void:
 func _tick_berth(delta: float) -> void:
 	match berth:
 		Berth.TIED_UP:
+			if _gap_due >= 0.0 and sim.abs_minutes() >= _gap_due - MAX_DWELL - GAP_MARGIN - shift_minutes(_shift_length(tie_up)):
+				return_requested = true
 			if return_requested and not _shift_blocked(true):
 				return_requested = false
 				berth = Berth.TO_WORKING
@@ -1920,10 +1961,37 @@ func _tick_berth(delta: float) -> void:
 						e[1].owner = null
 		else:
 			berth = Berth.WORKING
+			_gap_due = -1.0
 			_place(_dock_s())
 			if _ramp(here()):
 				_ramp(here()).land()
 			_begin_loading()
+
+
+## Length of the way between her working slip and slip `i` at the terminal she is at.
+func _shift_length(i: int) -> float:
+	var path := _shift_path(_tie_up_point(i), _tie_up_point(here().island.slip_index(route.id)))
+	var length := 0.0
+	for k in range(1, path.size()):
+		length += path[k].distance_to(path[k - 1])
+	return length
+
+
+## About how far she goes between two slips `apart` metres apart along the shore
+## (_shift_path: out, along, and in again).
+static func shift_length(apart: float) -> float:
+	return 2.0 * SHIFT_OUT + apart
+
+
+## Game minutes to move `length` metres between slips at her pace (as _follow_shift does).
+func shift_minutes(length: float) -> float:
+	var top := cruise_speed() * SHIFT_PACE
+	var s := 0.0
+	var t := 0.0
+	while s < length - 0.01 and t < 600.0:
+		s += minf(top, maxf(0.15 * top, minf(s, length - s) * 0.08 + 0.15 * top)) * 0.25
+		t += 0.25
+	return t
 
 
 ## Moves her along `_shift`, easing off at each end. True once she is there.

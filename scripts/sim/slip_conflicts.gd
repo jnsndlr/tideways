@@ -34,14 +34,33 @@ static func windows(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Arr
 			var isl := sim.map.islands[ids[i]]
 			var r := sim.route_between(ids[i], ids[(i + 1) % n])
 			var start := prev + o[n] - dwell if i == 0 else t + o[i] - dwell
-			out.append({"island": ids[i], "slip": isl.slip_index(r.id), "start": start, "end": t + o[i], "sailing": k})
+			var slip := isl.slip_index(r.id)
+			var tie := _tie_up_for(f, isl, t - start - f.planned_unload()) if i == 0 else -1
+			if tie >= 0:
+				# Between sailings she lies at a tie-up (Ferry.GAP_TIE_UP), and the slip
+				# is free from when she has moved off it until she is back.
+				var move := f.shift_minutes(Ferry.shift_length(absf(isl.slip_offset(tie) - isl.slip_offset(slip))))
+				out.append({"island": ids[i], "slip": slip, "start": start, "end": start + f.planned_unload() + move * 0.5, "sailing": k})
+				start = t - Ferry.MAX_DWELL - Ferry.GAP_MARGIN - move * 0.5
+			out.append({"island": ids[i], "slip": slip, "start": start, "end": t + o[i], "sailing": k})
 	return out
+
+
+## The tie-up slip at `isl` she goes to in a gap of `gap` minutes between
+## unloading and her next sailing there (Ferry.GAP_TIE_UP), or -1.
+static func _tie_up_for(f: Ferry, isl: MapData.Island, gap: float) -> int:
+	if gap < Ferry.GAP_TIE_UP:
+		return -1
+	for i in isl.tie_ups():
+		if isl.slips[i].fits(f.fc.size):
+			return i
+	return -1
 
 
 ## The plan another boat is on: the stops and times she runs, or will from her
 ## next call. Null if she has no timetable or is laid up.
 static func plan_of(f: Ferry) -> Dictionary:
-	if f.berth != Ferry.Berth.WORKING or f.lay_up_requested:
+	if not f.in_service():
 		return {}
 	var pending := not f.next_stops.is_empty()
 	var ids: Array[int] = f.next_stops if pending else f.stops
