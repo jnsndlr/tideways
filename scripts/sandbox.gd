@@ -49,6 +49,8 @@ var uncapped := false
 ## several frames, the heavy parts on a worker thread, so the loading screen keeps
 ## animating. Left off, _ready builds everything at once (tools rely on that).
 var async_build := false
+## Generation only uses region data, so it can finish while the scene exits.
+var _generation_thread: Thread
 ## The stage being built runs from build_from to build_to (0..1 of the whole
 ## build); the loading screen sails the ferry between them.
 var build_from := 0.0
@@ -67,9 +69,14 @@ func _ready() -> void:
 	var gen := MapGenerator.new()
 	# Stage ends are measured shares of the build (main map, threaded: ~4.1 s generate,
 	# ~5.6 s world, ~1.3 s sea charts, ~0.6 s simulation, ~2.1 s backdrop).
-	await _stage(0.3, true, func():
-		map = _generate(gen)
-		terrain = gen.terrain)
+	if async_build:
+		_generation_thread = Thread.new()
+	await _stage(0.3, true, _generation_job(gen), _generation_thread)
+	_generation_thread = null
+	if not is_inside_tree():
+		return
+	map = gen.map
+	terrain = gen.terrain
 	_setup_environment()
 	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
 	# on the rendering thread before the worker starts placing instances.
@@ -177,7 +184,7 @@ func _ready() -> void:
 ## Runs one stage of the world build. With async_build, `work` runs on a worker
 ## thread (`threaded`) or on the main thread after a frame has been drawn, and the
 ## progress window moves on to end at `to`. Without it, `work` just runs.
-func _stage(to: float, threaded: bool, work: Callable) -> void:
+func _stage(to: float, threaded: bool, work: Callable, worker: Thread = null) -> void:
 	if not async_build:
 		work.call()
 		return
@@ -187,13 +194,19 @@ func _stage(to: float, threaded: bool, work: Callable) -> void:
 		await get_tree().process_frame
 		work.call()
 		return
-	var thread := Thread.new()
+	var thread := worker if worker != null else Thread.new()
 	if thread.start(work) != OK:
 		work.call()
 		return
 	while thread.is_alive():
 		await get_tree().process_frame
-	thread.wait_to_finish()
+	if thread.is_started():
+		thread.wait_to_finish()
+
+
+func _exit_tree() -> void:
+	if _generation_thread != null and _generation_thread.is_started():
+		_generation_thread.wait_to_finish()
 
 
 ## The wildlife group whose animal is nearest `screen` (and showing), if any.
@@ -205,10 +218,10 @@ func pick_wildlife(screen: Vector2, cam: Camera3D) -> Wildlife.Visit:
 
 
 ## The map to build: a random one from the seed (--seed=N, or a new one each time).
-func _generate(gen: MapGenerator) -> MapData:
+func _generation_job(gen: MapGenerator) -> Callable:
 	if map_seed == 0:
 		map_seed = int(_args["seed"]) if _args.has("seed") else randi_range(1, 99999)
-	return gen.generate(map_seed)
+	return gen.generate.bind(map_seed)
 
 
 ## The HUD's opening toast: [title, body].

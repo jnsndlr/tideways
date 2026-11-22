@@ -20,7 +20,7 @@ static var _carry := {}
 var editor: IslandEditor
 
 
-func _generate(gen: MapGenerator) -> MapData:
+func _generation_job(gen: MapGenerator) -> Callable:
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
 		if layout == null:
@@ -31,11 +31,13 @@ func _generate(gen: MapGenerator) -> MapData:
 	if not _args.has("full-network"):
 		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else Scenario.OPENING
 		scenario = Scenario.load_file(file)
-	return gen.generate_from(layout, scenario)
+	return gen.generate_from.bind(layout, scenario)
 
 
 func _ready() -> void:
 	await super._ready()
+	if not built:
+		return
 	editor = IslandEditor.new()
 	add_child(editor)
 	editor.setup(self)
