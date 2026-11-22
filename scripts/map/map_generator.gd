@@ -1548,6 +1548,12 @@ func _layout_towns() -> void:
 		# Out past where the houses thin out (world_builder's town spread).
 		var town_r := sqrt(isl.population / 90.0) * 9.0
 		terrain.smooth_town(isl.town_center, town_r * 1.4 + 20.0, 45.0)
+	# Cut a shoulder for the ticket lanes after locating the towns. Keep hillside
+	# terrain below the outer booth and taper the cut back into the access road.
+	for isl in _main_islands():
+		if isl.has_terminal:
+			terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - Layout.TICKET_FAN_LENGTH,
+				Layout.LOT_BACK, -18.5, 5.5, Layout.LOT_Y - 0.15, 12.0)
 	terrain.apply_flats()  # the ferry lots stay exactly level
 	for isl in _main_islands():
 		if isl.has_terminal:

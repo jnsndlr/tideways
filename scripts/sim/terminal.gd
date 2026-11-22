@@ -362,7 +362,15 @@ func _build_road_paths() -> void:
 		var inbound := b.duplicate()
 		inbound.reverse()
 		inbound.append_array(to_lot)
-		_inbound.append(_keep_right(inbound))
+		var road_path := _keep_right(inbound)
+		var entrance := to_lot[-1]
+		var length := (entrance - to_lot[0]).dot(island.dock_dir)
+		for v: float in Layout.TICKET_LANES:
+			var ticket_path := road_path.duplicate()
+			for j in to_lot.size():
+				var inland := (entrance - to_lot[j]).dot(island.dock_dir)
+				ticket_path[b.size() + j] += island.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
+			_inbound.append(ticket_path)
 		var outbound := island.road_main_a.duplicate()
 		outbound.append_array(b)
 		_outbound.append(_keep_right(outbound))
@@ -468,7 +476,7 @@ func _spawn_car() -> void:
 		return
 	lane.enroute += car.slots
 	var path := _inbound[sim.rng.randi() % _inbound.size()].duplicate()
-	path.append(_local(-Layout.EXIT_V, Layout.LOT_BACK + 2.4))
+	path.append(_local(to_local(path[-1]).x, Layout.LOT_BACK + 2.4))
 	path.append(_local(lane.v, Layout.LOT_BACK + 4.8))
 	car.position = path[0]
 	if path.size() > 1:
