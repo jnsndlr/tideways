@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tools/ui_test_driver.gd"
 ## Exercise the menu and ferry inspector with the project's normal canvas scaling.
 
 const LANDSCAPE_SIZES := [Vector2i(1366, 1024), Vector2i(1133, 744)]
@@ -6,38 +6,6 @@ const LANDSCAPE_SIZES := [Vector2i(1366, 1024), Vector2i(1133, 744)]
 
 func _initialize() -> void:
 	run.call_deferred()
-
-
-func press(label: String, prefix := false) -> bool:
-	# Fleet rows and inspector controls are laid out after their panel is shown.
-	await process_frame
-	await process_frame
-	for button: Button in root.find_children("*", "Button", true, false):
-		if not button.is_visible_in_tree():
-			continue
-		if button.text != label and button.tooltip_text != label and not (prefix and button.text.begins_with(label)):
-			continue
-		return click_control(button, button.size * 0.5, label)
-	return fail("Missing visible button: " + label)
-
-
-func click_control(control: Control, local_point: Vector2, label: String) -> bool:
-	var point := control.get_global_transform_with_canvas() * local_point
-	if not root.get_visible_rect().has_point(point):
-		return fail("%s is outside the viewport at %s" % [label, point])
-	var move := InputEventMouseMotion.new()
-	move.position = point
-	root.push_input(move, true)
-	var hit := root.gui_get_hovered_control()
-	if hit != control and (hit == null or not control.is_ancestor_of(hit)):
-		return fail("%s at %s is blocked by %s" % [label, point, hit.get_path() if hit else "no control"])
-	for down: bool in [true, false]:
-		var click := InputEventMouseButton.new()
-		click.position = point
-		click.button_index = MOUSE_BUTTON_LEFT
-		click.pressed = down
-		root.push_input(click, true)
-	return true
 
 
 func key(code: Key) -> void:
@@ -48,11 +16,6 @@ func key(code: Key) -> void:
 	root.push_input(event)
 	event.pressed = false
 	root.push_input(event)
-
-
-func fail(message: String) -> bool:
-	push_error("Ferry UI at %s: %s" % [root.size, message])
-	return false
 
 
 func run() -> void:
@@ -67,30 +30,13 @@ func run() -> void:
 	quit(0)
 
 
-## The loading screen is still over the game (it fades out once the world is built).
-func _loading() -> bool:
-	for c in root.get_children():
-		if c is CanvasLayer and c.get_child_count() > 0 and c.get_child(0) is LoadingScreen:
-			return true
-	return false
-
-
 func exercise_layout() -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
 	if not await press("Settings") or not await press("Done"):
 		return false
-	if not await press("Sandbox"):
+	if not await enter_game("Sandbox", Scenes.SANDBOX):
 		return false
-	# The menu goes through the loading screen first. Bound the wait even if the
-	# control is disconnected.
-	var deadline := Time.get_ticks_msec() + 90000
-	while Time.get_ticks_msec() < deadline:
-		await process_frame
-		if current_scene != null and current_scene.scene_file_path == Scenes.SANDBOX and not _loading():
-			break
-	if current_scene == null or current_scene.scene_file_path != Scenes.SANDBOX or not current_scene.built or _loading():
-		return fail("Sandbox button did not navigate")
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
 	if not await press("FLEET") or not await press(boat.ferry_name, true):
