@@ -41,6 +41,8 @@ const TIE_UP_WORK := 200.0    # and on a tie-up (4 h)
 # then eases back onto its old line over up to REAIM_BLEND.
 const REAIM_HOLD := 150.0
 const REAIM_BLEND := 500.0
+# A boat leaving a slip keeps it until she is this far out (m).
+const SLIP_LEAVE_CLEAR := 200.0
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
@@ -335,8 +337,16 @@ func new_slip_v(tie_up: bool) -> float:
 	var tie_side := 1.0
 	if counts[0] > 0 and counts[1] > 0 and sums[1] / counts[1] < sums[0] / counts[0]:
 		tie_side = -1.0
-	var right := hi + Layout.SLIP_SPACING
-	var left := lo - Layout.SLIP_SPACING
+	# Tie-ups go side by side; a slip next to a working slip keeps a slip spacing.
+	var lo_tie := false
+	var hi_tie := false
+	for i in town.slips.size():
+		if is_equal_approx(town.slip_offset(i), lo):
+			lo_tie = town.slips[i].tie_up
+		if is_equal_approx(town.slip_offset(i), hi):
+			hi_tie = town.slips[i].tie_up
+	var right := hi + (Layout.TIE_UP_SPACING if tie_up and hi_tie else Layout.SLIP_SPACING)
+	var left := lo - (Layout.TIE_UP_SPACING if tie_up and lo_tie else Layout.SLIP_SPACING)
 	var first := right if tie_up == (tie_side > 0.0) else left
 	for v: float in [first, left if first == right else right]:
 		if _water_clear(v, not tie_up):
@@ -344,8 +354,9 @@ func new_slip_v(tie_up: bool) -> float:
 	return NAN
 
 
-## Whether a slip at `v` would have deep water off its pier, out past its dolphins
-## (and with `approach`, a boat's straight run in), clear of every other dock's slips.
+## Whether a slip at `v` would have deep water off its pier: out past its dolphins
+## and a boat's straight run in for a working slip (`approach`), or for a tie-up just
+## where a boat lies. And clear of every other dock's slips.
 func _water_clear(v: float, approach: bool) -> bool:
 	var terrain := sim.terrain
 	if terrain == null:
@@ -353,10 +364,11 @@ func _water_clear(v: float, approach: bool) -> bool:
 	# Its pier meets the shore about where the lot's does.
 	if terrain.height_v(_at(v, Layout.LOT_FRONT)) < -6.0:
 		return false
-	var reach := Layout.CHANNEL_BUOY_U + (REAIM_HOLD + 120.0 if approach else 20.0)
+	var reach := Layout.CHANNEL_BUOY_U + REAIM_HOLD + 120.0 if approach else Layout.DOCK_U + Layout.FERRY_HALF
+	var half := 15.0 if approach else 10.0
 	var u := Layout.PIER_END + 12.0
 	while u < reach:
-		for dv: float in [-15.0, 0.0, 15.0]:
+		for dv: float in [-half, 0.0, half]:
 			if terrain.height_v(_at(v + dv, u)) > -3.6:
 				return false
 		u += 9.0
@@ -386,7 +398,7 @@ func _open_slip(i: int) -> void:
 	if SlipRamp.available() and not slip.tie_up:
 		slip_ramps[i] = SlipRamp.new(v)
 		add_child(slip_ramps[i])
-	if SlipGuides.available():
+	if SlipGuides.available() and not slip.tie_up:
 		slip_guides[i] = SlipGuides.new(v, transform, sim.terrain)
 		add_child(slip_guides[i])
 		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[slip.size])
@@ -426,7 +438,7 @@ func spread_routes() -> void:
 				continue
 			var side := _departure_side(g)
 			for i in working:
-				if i == at or calls[i] + 1 >= calls[at] or not _group_fits(g, i) or _closed_for_good(i):
+				if i == at or calls[i] + 1 >= calls[at] or not _group_fits(g, i) or slip_shut(i):
 					continue
 				# The emptiest slip, on the side the route heads off to.
 				var score: float = calls[i] * 10.0 - side * signf(town.slip_offset(i) - town.slip_offset(at))
@@ -446,7 +458,7 @@ func spread_routes() -> void:
 
 
 ## Whether slip `i` is closed for a refit (not a new slip whose crew is leaving).
-func _closed_for_good(i: int) -> bool:
+func slip_shut(i: int) -> bool:
 	return refit_stage != RefitStage.NONE and i == refit_slip and not (refit_new and refit_stage == RefitStage.LEAVING)
 
 
@@ -649,7 +661,7 @@ func _refit_slip_clear() -> bool:
 				return false
 		return true
 	for f in sim.ferries:
-		if f.berth != Ferry.Berth.WORKING or town.slip_index(f.route.id) != refit_slip:
+		if f.berth != Ferry.Berth.WORKING or f.slip_at(self) != refit_slip:
 			continue
 		if f.state != Ferry.State.SAILING and f.here() == self:
 			return false
@@ -678,7 +690,8 @@ func setup(s: Simulation, isl: MapData.Town) -> void:
 			add_child(ramp)
 		slip_ramps.append(ramp)
 		var g: SlipGuides = null
-		if SlipGuides.available():
+		# (A tie-up's dolphins are shared with its neighbours: WorldBuilder._build_tie_up.)
+		if SlipGuides.available() and not isl.slips[i].tie_up:
 			g = SlipGuides.new(isl.slip_offset(i), transform, s.terrain)
 			add_child(g)
 			g.fit(MapData.Slip.LARGEST_BOAT[isl.slips[i].size])
@@ -743,8 +756,34 @@ func relane(dests: Array[int]) -> void:
 
 ## The wing walls and dolphins of the slip `rid` calls at here (null if none).
 func guides_for(rid: int) -> SlipGuides:
-	var i := town.slip_index(rid)
-	return slip_guides[i] if i >= 0 else null
+	return guides_at(town.slip_index(rid))
+
+
+## Slip `i`'s wing walls and dolphins (null if none).
+func guides_at(i: int) -> SlipGuides:
+	return slip_guides[i] if i >= 0 and i < slip_guides.size() else null
+
+
+## The boat using working slip `i` here other than `f`: alongside, leaving and not yet
+## clear, or coming in to it ahead of `f`. Null if it is free for her.
+func slip_user(i: int, f: Ferry) -> Ferry:
+	var left := f.path_left() if f.state == Ferry.State.SAILING and f.destination() == self else INF
+	for g in sim.ferries:
+		if g == f or g.slip_at(self) != i:
+			continue
+		if g.berth == Ferry.Berth.TO_WORKING and g.here() == self:
+			return g
+		if g.berth != Ferry.Berth.WORKING:
+			continue
+		if g.state != Ferry.State.SAILING:
+			if g.here() == self:
+				return g
+		elif g.here() == self:
+			if g.traveled < SLIP_LEAVE_CLEAR:
+				return g
+		elif g.destination() == self and g.path_left() < left:
+			return g
+	return null
 
 
 ## Which way across the slips (+1 / -1, the terminal frame's x) the tide sets a docked
@@ -1097,8 +1136,9 @@ func finish_boarding(car: Vehicle) -> void:
 	_boarding_from.erase(car.get_instance_id())
 
 
-func boarding_path(car: Vehicle, rid: int) -> PackedVector3Array:
-	var sv: float = slip_v[rid]
+## The way from `car`'s lane onto a boat at slip `i`.
+func boarding_path(car: Vehicle, i: int) -> PackedVector3Array:
+	var sv := town.slip_offset(i)
 	# Approach from opposite sides of the lot in parallel before converging on
 	# the boarding lane. Leave room at the curb and for unloading.
 	var entrance := sv + (-4.5 if car.lane_v < sv - 3.0 else -0.6)
@@ -1107,20 +1147,21 @@ func boarding_path(car: Vehicle, rid: int) -> PackedVector3Array:
 		_local(entrance, Layout.LOT_FRONT + 1.5),
 		_local(entrance, SlipRamp.HINGE_U),
 	])
-	if ramps.has(rid):
+	if slip_ramps[i]:
 		# Up the span to its tip, a little above the ferry's deck (the apron slopes down onto it).
-		var ramp: SlipRamp = ramps[rid]
+		var ramp := slip_ramps[i]
 		path.append(to_global(ramp.crossing(-3.0)[1]))
 	else:
 		path.append(_local(sv - 3.0, Layout.PIER_END))
 	return path
 
 
-func exit_path(rid: int) -> PackedVector3Array:
-	var sv: float = slip_v[rid]
+## The way off a boat at slip `i`, out of the lot and home.
+func exit_path(i: int) -> PackedVector3Array:
+	var sv := town.slip_offset(i)
 	var path := PackedVector3Array()
-	if ramps.has(rid):
-		var ramp: SlipRamp = ramps[rid]
+	if slip_ramps[i]:
+		var ramp := slip_ramps[i]
 		var over := ramp.crossing(3.0)
 		path.append(to_global(over[1]))
 		path.append(to_global(over[0]))

@@ -143,7 +143,7 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 	glows.xform = mb.xform
 	var v := town.slip_offset(i)
 	if town.slips[i].tie_up:
-		_build_tie_up(mb, v)
+		_build_tie_up(mb, town, i)
 	else:
 		_build_slip(mb, v)
 		_forecourt(mb, town.lot_half_width, v)
@@ -638,7 +638,7 @@ func _terminal_for(isl: MapData.Town) -> void:
 
 	for i in isl.slips.size():
 		if isl.slips[i].tie_up:
-			_build_tie_up(mb, isl.slip_offset(i))
+			_build_tie_up(mb, isl, i)
 		else:
 			_build_slip(mb, isl.slip_offset(i))
 
@@ -782,9 +782,12 @@ func _build_slip(mb: MeshBuilder, v: float) -> void:
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
 
 
-## A tie-up slip: dolphins and fendered wing walls to lie against, and a
-## catwalk out from the shore for the crew, but no transfer span (it loads no cars).
-func _build_tie_up(mb: MeshBuilder, v: float) -> void:
+## A tie-up slip: a catwalk out from the shore for the crew, and a pair of dolphins
+## either side to lie against, but no transfer span (it loads no cars). Tie-ups lie
+## side by side (Layout.TIE_UP_SPACING, as at Eagle Harbor), so neighbours share the
+## dolphins between them: tie-up `i` leaves out a side an earlier one has built.
+func _build_tie_up(mb: MeshBuilder, isl: MapData.Town, i: int) -> void:
+	var v := isl.slip_offset(i)
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
 	var lf := Layout.LOT_FRONT
@@ -794,21 +797,20 @@ func _build_tie_up(mb: MeshBuilder, v: float) -> void:
 		for side: float in [-1.2, 1.2]:
 			mb.box(Vector3(v + side, -4.2, u), Vector3(0.6, 12.6, 0.6), Models.WOOD)
 		u += 6.0
-	# The modelled wing walls and dolphins are the slip's own live part (SlipGuides),
-	# fitted to its size and refitted with it, as a working slip's are.
-	if SlipGuides.available():
-		return
+	# A fendered head across the catwalk's end, where her end lies.
+	mb.box(Vector3(v, ly - 0.6, pe), Vector3(12.0, 1.2, 2.4), CONCRETE)
+	mb.box(Vector3(v, ly - 1.8, pe + 1.4), Vector3(10.0, 3.0, 0.5), Models.HULL_DARK)
 	for side: float in [-1.0, 1.0]:
-		var ww: Array = Layout.WING_WALL
-		for k in ww.size() - 1:
-			var w0: Vector2 = ww[k]
-			var w1: Vector2 = ww[k + 1]
-			_wing_wall(mb, Vector2(w0.x, v + side * w0.y), Vector2(w1.x, v + side * w1.y), side)
-		var inner := Layout.DOLPHIN_INNER
-		var inner_cap := _dolphin(mb, Vector3(v + side * inner.y, 0, inner.x), inner.z, 6)
+		var dv := v + side * Layout.TIE_UP_SPACING * 0.5
+		var shared := false
+		for j in i:
+			if isl.slips[j].tie_up and absf(isl.slip_offset(j) - side * Layout.TIE_UP_SPACING * 0.5 - dv) < 1.0:
+				shared = true
+		if shared:
+			continue
+		var inner_cap := _dolphin(mb, Vector3(dv, 0, pe + 22.0), 2.4, 6)
 		eagle_perches.append(Eagles.Perch.new(mb.xform * inner_cap, Eagles.Kind.DOLPHIN))
-		var outer := Layout.DOLPHIN_OUTER
-		var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8)
+		var cap := _dolphin(mb, Vector3(dv, 0, pe + 62.0), 3.15, 8)
 		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
 		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
 		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)

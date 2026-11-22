@@ -94,7 +94,10 @@ class Town:
 		for slip in slips:
 			if not slip.tie_up:
 				working += 1
-		return (i - (working - 1) * 0.5) * Layout.SLIP_SPACING
+		if not slips[i].tie_up or i < working:
+			return (i - (working - 1) * 0.5) * Layout.SLIP_SPACING
+		# Tie-ups: the first a slip spacing on from the last working slip, then side by side.
+		return (working - 1) * 0.5 * Layout.SLIP_SPACING + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
 
 	## Pins every slip where it lies now, so adding one moves none of the others.
 	func freeze_slip_offsets() -> void:

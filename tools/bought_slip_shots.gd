@@ -1,5 +1,5 @@
 extends SceneTree
-## Port Rosario in the opening scenario with a second working slip and a tie-up
+## Port Rosario in the opening scenario with a second working slip and two tie-ups
 ## bought and built (stage 5), seen from offshore. For checking by eye.
 ##   godot --path . --script tools/bought_slip_shots.gd -- --out=DIR [--yaw=RAD] [--dist=M]
 
@@ -60,6 +60,14 @@ func _process(_delta: float) -> bool:
 			_step = 2
 			_wait = 30
 		2:
+			_term.refit_remaining = 0.01
+			_step = 5
+			_wait = 30
+		5:
+			_build(TerminalUpgrade.Kind.TIE_UP)
+			_step = 6
+			_wait = 30
+		6:
 			_term.refit_remaining = 0.01
 			_step = 3
 			_wait = 60

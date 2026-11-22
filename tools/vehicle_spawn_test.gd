@@ -130,7 +130,11 @@ func check_boarding_approaches() -> void:
 	terminal.rotation.y = 1.1
 	terminal.position = Vector3(45, 0, 80)
 	var slip := 30.0
-	terminal.slip_v[0] = slip
+	terminal.town = MapData.Town.new()
+	var berth := MapData.Slip.new()
+	berth.v = slip
+	terminal.town.slips.append(berth)
+	terminal.slip_ramps.append(null)
 	var car := Vehicle.new()
 	var widest := 0.0
 	for data: Dictionary in VehicleData.VARIANTS.values():
@@ -139,7 +143,7 @@ func check_boarding_approaches() -> void:
 		if mid:
 			var ramp := SlipRamp.new(slip)
 			terminal.add_child(ramp)
-			terminal.ramps[0] = ramp
+			terminal.slip_ramps[0] = ramp
 		car.lane_v = slip - 18
 		var left := terminal.boarding_path(car, 0)
 		car.lane_v = slip + 18
