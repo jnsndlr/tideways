@@ -94,9 +94,14 @@ class DockSpec:
 	var v := 0.0
 	var facing := 0.0      # degrees, relative to the island's angle
 	var tier := "standard"
+	## The town this dock serves; its terminal takes the town's name (TID-319).
+	var town := ""
 
 	func to_dict() -> Dictionary:
-		return {"u": snappedf(u, 0.001), "v": snappedf(v, 0.001), "facing": snappedf(facing, 0.0001), "tier": tier}
+		var d := {"u": snappedf(u, 0.001), "v": snappedf(v, 0.001), "facing": snappedf(facing, 0.0001), "tier": tier}
+		if not town.is_empty():
+			d["town"] = town
+		return d
 
 	static func from_dict(d: Dictionary) -> DockSpec:
 		var s := DockSpec.new()
@@ -104,6 +109,7 @@ class DockSpec:
 		s.v = float(d.get("v", 0.0))
 		s.facing = float(d.get("facing", 0.0))
 		s.tier = str(d.get("tier", "standard"))
+		s.town = str(d.get("town", ""))
 		if not DOCK_TIERS.has(s.tier):
 			s.tier = "standard"
 		return s

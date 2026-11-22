@@ -65,6 +65,7 @@ var _dock_btn: Button
 var _move_btn: Button
 var _del_btn: Button
 var _dock_pick: OptionButton
+var _town_name: LineEdit
 var _tier: OptionButton
 var _dock := 0             # the selected island's selected dock
 var _ferry: CheckBox
@@ -446,6 +447,23 @@ func _build_dock_section(v: VBoxContainer) -> void:
 		_dock_changed())
 	pick.add_child(_tier)
 	v.add_child(pick)
+	var town_row := HBoxContainer.new()
+	town_row.add_child(_fixed_label("Town", 108))
+	_town_name = LineEdit.new()
+	_town_name.placeholder_text = "Name the town this dock serves"
+	_town_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_town_name.tooltip_text = "Each dock serves its own town; the terminal takes its name."
+	_town_name.text_changed.connect(func(t):
+		var d := _cur_dock()
+		if _syncing or d == null:
+			return
+		d.town = t.strip_edges()
+		_mark_unsaved()
+		_syncing = true
+		_dock_pick.set_item_text(_dock, _dock_label(_spec(), _dock))
+		_syncing = false)
+	town_row.add_child(_town_name)
+	v.add_child(town_row)
 	var row := HBoxContainer.new()
 	row.add_child(_fixed_label("Facing", 108))
 	_facing = HSlider.new()
@@ -499,13 +517,16 @@ func _sync_dock() -> void:
 	_ferry.button_pressed = s.ferry
 	_dock_pick.clear()
 	for i in s.docks.size():
-		_dock_pick.add_item("Dock %d%s" % [i + 1, "  ⚠" if not _on_shore(s, s.docks[i]) else ""])
+		_dock_pick.add_item(_dock_label(s, i))
 	if s.docks.is_empty():
 		_dock_pick.add_item("No docks")
 	_dock_pick.select(maxi(_dock, 0))
 	_dock_pick.disabled = s.docks.is_empty()
 	var d := _cur_dock()
 	_tier.disabled = d == null
+	_town_name.editable = d != null
+	if _town_name.text != (d.town if d else ""):
+		_town_name.text = d.town if d else ""
 	_facing.editable = d != null
 	_move_btn.disabled = d == null
 	_del_btn.disabled = d == null
@@ -518,13 +539,20 @@ func _sync_dock() -> void:
 		_facing_val.text = "%d°" % int(roundf(heading))
 		_tier.select(MapLayout.DOCK_TIER_ORDER.find(d.tier))
 		var at := s.dock_at(d)
-		_dock_info.text = "%d dock%s locked here; a terminal can only be built at one. Dock %d is at %d, %d and moves with the island." % [
+		_dock_info.text = "%d dock%s locked here, each with its own town and terminal. Dock %d is at %d, %d and moves with the island." % [
 			s.docks.size(), "" if s.docks.size() == 1 else "s", _dock + 1, int(at.x), int(at.y)]
+		if d.town.is_empty():
+			_dock_info.text += " Its town has no name yet."
 		if not _on_shore(s, d):
 			_dock_info.text += " ⚠ It no longer meets the shore: Move it."
 		if _dock_dirty or _stale:
 			_dock_info.text += " Apply to rebuild the routes."
 	_update_marker()
+
+
+func _dock_label(s: MapLayout.IslandSpec, i: int) -> String:
+	var d := s.docks[i]
+	return "%d · %s%s" % [i + 1, d.town if not d.town.is_empty() else "unnamed town", "  ⚠" if not _on_shore(s, d) else ""]
 
 
 ## The pier meets the shore: land just behind it, water just ahead.
@@ -553,6 +581,7 @@ func _place_dock(at: Vector2) -> void:
 	var old := _cur_dock()
 	var d := s.dock_from_world(Vector2(shore.x, shore.z), heading, old.tier if old and _placing == 1 else "standard")
 	if _placing == 1 and old:
+		d.town = old.town
 		s.docks[_dock] = d
 	else:
 		s.docks.append(d)
