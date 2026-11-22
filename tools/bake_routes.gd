@@ -6,7 +6,7 @@ extends SceneTree
 ##
 ##   godot --headless --path . --script tools/bake_routes.gd [-- --force]
 
-const SCENARIOS := ["opening", "shared_slip", "lane_sharing"]   # --full-network plans as Sandbox does
+const SCENARIOS := ["opening", "one_boat", "shared_slip", "lane_sharing"]   # --full-network plans as Sandbox does
 
 
 func _initialize() -> void:
