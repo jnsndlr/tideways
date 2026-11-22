@@ -24,6 +24,11 @@ static var _clock := []
 static var _bought := {}
 ## Pins on the shown island's locked dock sites.
 var _site_pins: Node3D
+## A scenario file for the next Play instead of the opening (the menu's Mission
+## trial sets it; "" plays the opening).
+static var scenario_path := ""
+## Which scenario's routes the rebuild after buying a site starts from.
+static var _plan := "opening"
 
 var editor: IslandEditor
 
@@ -40,11 +45,13 @@ func _generate(gen: MapGenerator) -> MapData:
 	if _company:
 		scenario = _company
 		_company = null
-		plan = "opening"
+		plan = _plan
 	elif not _args.has("full-network"):
-		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else Scenario.OPENING
+		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else (
+			scenario_path if scenario_path != "" else Scenario.OPENING)
 		scenario = Scenario.load_file(file)
 		plan = file.get_file().get_basename()
+		_plan = plan
 	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
 	if not unsaved and _bought.is_empty():
 		gen.route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
@@ -84,6 +91,10 @@ func _ready() -> void:
 		_clock = []
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
+	if scenario and scenario.mission:
+		var panel := MissionPanel.new()
+		hud.root.add_child(panel)
+		panel.setup(self, scenario.mission)
 
 
 ## Builds a terminal at `isl`'s locked dock site `k`: pays for it, then rebuilds
@@ -103,6 +114,8 @@ func buy_dock(isl: MapData.Island, k: int) -> void:
 	sc.tie_ups[isl.key] = []
 	sc.lanes[isl.key] = 2
 	_bought[isl.key] = k
+	if sc.mission:
+		sc.mission.carried_before = sc.mission.carried(sim)
 	_company = sc
 	_clock = [sim.day, sim.minutes]
 	hud.show_toast("NEW TERMINAL", "Building %s's terminal at site %d. Planning its routes…" % [isl.name, k + 1], 4.0)

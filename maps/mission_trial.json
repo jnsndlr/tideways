@@ -1,0 +1,28 @@
+{
+	"name": "Mission trial",
+	"cash": 50000,
+	"mission": {
+		"title": "South to Cypress",
+		"brief": "Cypress Island has been asking for a ferry. Keep Hiyu and Heron running, build a terminal at Cypress's dock site and put a boat on it.",
+		"days": 5,
+		"goals": [
+			{"kind": "carried", "target": 250},
+			{"kind": "terminal", "island": "island-3"},
+			{"kind": "serve", "island": "island-3"},
+			{"kind": "cash", "target": 60000, "label": "Grow cash to $60.0K"}
+		]
+	},
+	"terminals": [
+		{"key": "island-1", "name": "Port Rosario", "lanes": 2},
+		{"key": "island-2", "name": "Madrona Island", "lanes": 2},
+		{"key": "island-7", "name": "Gullrock Island", "lanes": 2}
+	],
+	"fleet": [
+		{"key": "hull-0", "name": "Hiyu", "size": 2},
+		{"key": "hull-1", "name": "Heron", "size": 1}
+	],
+	"schedules": [
+		{"boat": "hull-0", "stops": ["island-1", "island-2"]},
+		{"boat": "hull-1", "stops": ["island-7", "island-2"]}
+	]
+}

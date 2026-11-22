@@ -1,5 +1,5 @@
 extends Control
-## Title screen: Play (the main map), Sandbox (the procedural test map) or Quit.
+## Title screen: Play (the main map), Mission trial (a scenario with goals), Sandbox (the procedural test map) or Quit.
 ##
 ## Debug args after `--` skip the menu so the existing command-line workflow keeps
 ## working: `--main` opens the main map, any other arg (e.g. --seed=123) the sandbox.
@@ -9,6 +9,10 @@ const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
 
+
+## A scenario with goals to try missions out on (not used by any test).
+const MISSION_TRIAL := "res://maps/mission_trial.json"
+const MainMapScript := preload("res://scripts/main_map.gd")
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
@@ -51,7 +55,8 @@ func _build() -> void:
 	gap.custom_minimum_size.y = 28
 	col.add_child(gap)
 
-	var play := _button(col, "Play", func(): _start(Scenes.MAIN_MAP, "Setting out for the islands"))
+	var play := _button(col, "Play", func(): _play(""))
+	_button(col, "Mission trial", func(): _play(MISSION_TRIAL, "Reading the mission brief"))
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
 	_button(col, "Quit", func(): get_tree().quit())
@@ -59,6 +64,12 @@ func _build() -> void:
 	Music.set_mood(get_tree(), Music.Mood.FULL)
 	RadioChatter.on_menu(get_tree())
 	UiSounds.install(get_tree())
+
+
+## Play the main map from `scenario` ("" for the opening).
+func _play(scenario: String, caption := "Setting out for the islands") -> void:
+	MainMapScript.scenario_path = scenario
+	_start(Scenes.MAIN_MAP, caption)
 
 
 func _start(path: String, caption: String) -> void:

@@ -45,6 +45,8 @@ var lanes := {}
 ## terminal stands at; 0 unless listed ("dock": 1).
 var docks := {}
 var fleet: Array[Boat] = []
+## Goals for a trial mission (the scenario's "mission" block), or null.
+var mission: Mission
 var schedules: Array[Schedule] = []
 
 
@@ -71,6 +73,8 @@ static func load_file(path: String) -> Scenario:
 		s.lanes[key] = int(t.get("lanes", 0)) if t is Dictionary else 0
 		if t is Dictionary and t.has("dock"):
 			s.docks[key] = int(t["dock"])
+	if data.get("mission") is Dictionary:
+		s.mission = Mission.from_dict(data["mission"])
 	for b in data.get("fleet", []):
 		var boat := Boat.new()
 		boat.key = str(b["key"])
