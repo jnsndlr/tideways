@@ -79,17 +79,20 @@ func _ready() -> void:
 	terrain = gen.terrain
 	_setup_environment()
 	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
-	# on the rendering thread before the worker starts placing instances.
+	# before assembling the world and starting the threaded backdrop.
 	if async_build:
 		Models.tree_variants(false)
 		Models.tree_variants(true)
 	builder = WorldBuilder.new(map, terrain)
-	var world := []  # lambdas capture locals by value; the array carries the result out
-	await _stage(0.71, true, func(): world.append(builder.build()))
+	build_from = build_to
+	build_to = 0.71
+	var world := await builder.build(get_tree().process_frame if async_build else Signal())
+	if world == null:
+		return
 	# Finish the backdrop while its tree meshes are still off the live render tree.
 	var backdrop := Backdrop.new()
 	await _stage(0.855, true, func(): backdrop.setup(terrain, builder))
-	add_child(world[0])
+	add_child(world)
 	add_child(backdrop)
 	route_overlay = builder.route_overlay
 	tree_shadows = builder.tree_shadows
@@ -205,6 +208,8 @@ func _stage(to: float, threaded: bool, work: Callable, worker: Thread = null) ->
 
 
 func _exit_tree() -> void:
+	if builder != null:
+		builder.cancel_build()
 	if _generation_thread != null and _generation_thread.is_started():
 		_generation_thread.wait_to_finish()
 

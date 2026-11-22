@@ -38,6 +38,12 @@ const MULTIMESH_TILE := 192.0
 const EAGLE_SHORE := 45.0
 const EAGLE_CELL := 27.0
 
+signal _resume_build
+## Leave room for the loading screen in a 60 Hz frame. Check between batches.
+const BUILD_SLICE_USEC := 10000
+var _deadline := 0
+var _cancelled := false
+
 var map: MapData
 var terrain: Terrain
 var rng := RandomNumberGenerator.new()
@@ -89,26 +95,49 @@ func _init(m: MapData, t: Terrain) -> void:
 	rng.seed = m.map_seed * 31 + 7
 
 
-func build() -> Node3D:
+## Construct engine resources on the main thread. With a frame signal the build
+## yields between batches and returns null if the loading scene exits.
+func build(frame: Signal = Signal()) -> Node3D:
+	_cancelled = false
 	root = Node3D.new()
 	root.name = "World"
-	# Towns before the ground mesh: each building grades its own level lot.
-	_build_water()
-	_build_terminals()
-	_build_marinas()
-	_build_quays()
-	_build_roads()
-	_build_towns()
-	_build_terrain()
-	_build_lighthouses()
-	_build_haul_outs()
-	_build_vegetation()
-	_build_shore_rocks()
-	_build_route_overlay()
-	_clear_grass_where_blocked()
+	if not frame.is_null():
+		frame.connect(_advance_build)
+		_deadline = Time.get_ticks_usec() + BUILD_SLICE_USEC
+	# Towns grade their lots before terrain tiles read the heights.
+	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_quays,
+			_build_roads, _build_towns, _build_terrain, _build_lighthouses, _build_haul_outs,
+			_build_vegetation, _build_shore_rocks, _build_route_overlay, _clear_grass_where_blocked]:
+		if not await _can_continue():
+			break
+		await part.call()
+	if not frame.is_null():
+		frame.disconnect(_advance_build)
+		_deadline = 0
+	if _cancelled:
+		root.free()
+		root = null
+		return null
 	night_lights = _add_mesh(glows.commit(), "NightLights", false)
 	night_lights.visible = false
 	return root
+
+
+func _advance_build() -> void:
+	_deadline = Time.get_ticks_usec() + BUILD_SLICE_USEC
+	_resume_build.emit()
+
+
+func _can_continue() -> bool:
+	if not _cancelled and _deadline > 0 and Time.get_ticks_usec() >= _deadline:
+		await _resume_build
+	return not _cancelled
+
+
+func cancel_build() -> void:
+	if _deadline > 0:
+		_cancelled = true
+		_resume_build.emit()
 
 
 func _add_mesh(mesh: Mesh, node_name: String, shadows := true) -> MeshInstance3D:
@@ -127,6 +156,8 @@ func _add_mesh(mesh: Mesh, node_name: String, shadows := true) -> MeshInstance3D
 ## Trees shared out among Models.tree_variants by where they stand, one set of tiles
 ## per variant.
 func _forest(variants: Array, xforms: Array[Transform3D], colors: Array[Color], node_name: String) -> void:
+	if _cancelled:
+		return
 	var xs: Array = []
 	var cs: Array = []
 	for v in variants:
@@ -137,13 +168,13 @@ func _forest(variants: Array, xforms: Array[Transform3D], colors: Array[Color], 
 		xs[v].append(xforms[i])
 		cs[v].append(colors[i])
 	for v in variants.size():
-		_multimesh(variants[v][0], xs[v], cs[v], "%s%d" % [node_name, v], variants[v])
+		await _multimesh(variants[v][0], xs[v], cs[v], "%s%d" % [node_name, v], variants[v])
 
 
 ## Instances batched in tiles for culling. With a tree `variant` (Models.tree_variants),
 ## each tile draws its levels of detail at their distances (Models.tree_lod_levels).
 func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], node_name: String, variant: Array = []) -> void:
-	if xforms.is_empty():
+	if _cancelled or xforms.is_empty():
 		return
 	var tiles := {}
 	for i in xforms.size():
@@ -157,6 +188,8 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 	root.add_child(group)
 	var levels: Array = Models.tree_lod_levels(variant) if not variant.is_empty() else [[mesh, 0.0, 0.0]]
 	for key: Vector2i in tiles:
+		if not await _can_continue():
+			return
 		var idx: Array = tiles[key]
 		# Each level gets its own MultiMesh, filled afresh: duplicate() copies the
 		# instance buffer, which the headless renderer hands back empty.
@@ -263,6 +296,8 @@ func _build_terrain() -> void:
 	ground_rgba.resize((n + 1) * (n + 1) * 4)
 	for tj in range(0, n, TERRAIN_TILE):
 		for ti in range(0, n, TERRAIN_TILE):
+			if not await _can_continue():
+				return
 			_terrain_tile_node(ti / TERRAIN_TILE, tj / TERRAIN_TILE)
 
 	var floor_mesh := PlaneMesh.new()
@@ -518,6 +553,8 @@ func _build_water() -> void:
 
 func _build_terminals() -> void:
 	for isl in map.islands:
+		if not await _can_continue():
+			return
 		if not isl.has_terminal:
 			continue
 		var mb := MeshBuilder.new()
@@ -798,6 +835,8 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 		tops.append(top)
 	var best := {}
 	for xf in pines:
+		if not await _can_continue():
+			return
 		var o := xf.origin
 		var lowest := INF
 		var away := 0.0
@@ -881,6 +920,8 @@ func _build_towns() -> void:
 		var kit_name: String = Models.KIT_HOUSES[k]
 		var coats := 1 if kit_name.begins_with("contemporary") else 2
 		for c in coats:
+			if not await _can_continue():
+				return
 			var n := kit_names.size()
 			if coats == 1:
 				variants.append(Models.kit_house(kit_name))
@@ -890,6 +931,8 @@ func _build_towns() -> void:
 	var houses := kit_names.size()
 	var shop_plans: Array[Rect2] = []
 	for i in SHOP_FILES.size():
+		if not await _can_continue():
+			return
 		var path := "res://assets/models/coastal_shops/%s.glb" % SHOP_FILES[i]
 		var mb := MeshBuilder.new()
 		Models._append_part(mb, ModelParts.baked(path), Transform3D.IDENTITY)
@@ -915,6 +958,8 @@ func _build_towns() -> void:
 		var town_r := sqrt(isl.population / 90.0) * 9.0
 		var spacing := 16.5
 		for b in range(-8, 9):
+			if not await _can_continue():
+				return
 			for a in range(-8, 9):
 				if isl.has_terminal and (a == 0 or b == 0):
 					continue  # the streets
@@ -973,7 +1018,7 @@ func _build_towns() -> void:
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
 		var group_name: String = "Houses%d" % i if i < houses else SHOP_FILES[i - houses]
-		_multimesh(variants[i], xforms, no_colors, group_name)
+		await _multimesh(variants[i], xforms, no_colors, group_name)
 
 
 ## The highest (x), lowest (y) and mean (z) ground under `plan` (house frame x, z)
@@ -1087,6 +1132,8 @@ func _build_vegetation() -> void:
 	var hs := terrain.half_size - 9.0
 	var z := -hs
 	while z < hs:
+		if not await _can_continue():
+			return
 		var x := -hs
 		while x < hs:
 			var px := x + rng.randf_range(-4.2, 4.2)
@@ -1134,18 +1181,20 @@ func _build_vegetation() -> void:
 				var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s * rng.randf_range(0.8, 1.4), s, s) * Models.LEGACY_SCALE)
 				rocks.append(Transform3D(basis, Vector3(px, h, pz)))
 		z += step
-	_eagle_trees(pines)
+	await _eagle_trees(pines)
 	for list: Array[Transform3D] in [pines, rounds]:
 		for xf in list:
+			if not await _can_continue():
+				return
 			_add_tree_cell(xf.origin)
 	for c in edge_cards:
 		_add_tree_cell(c)
 	Models.card_material().set_shader_parameter("map_half", terrain.half_size)
 	Models.card_material(true).set_shader_parameter("map_half", terrain.half_size)
-	_forest(Models.tree_variants(false), pines, pine_cols, "Pines")
-	_forest(Models.tree_variants(true), rounds, round_cols, "RoundTrees")
+	await _forest(Models.tree_variants(false), pines, pine_cols, "Pines")
+	await _forest(Models.tree_variants(true), rounds, round_cols, "RoundTrees")
 	var no_colors: Array[Color] = []
-	_multimesh(Models.rock(), rocks, no_colors, "Rocks")
+	await _multimesh(Models.rock(), rocks, no_colors, "Rocks")
 
 
 ## Rock along the shores: big faceted blocks stacked into the steep faces, turned
@@ -1171,6 +1220,8 @@ func _build_shore_rocks() -> void:
 	lift_side = ceili(hs * 2.0 / LIFT_CELL)
 	grass_lift.resize(lift_side * lift_side)
 	for j in range(4, vn - 4):
+		if not await _can_continue():
+			return
 		for i in range(4, vn - 4):
 			var h := terrain.h_grid[j * vn + i]
 			if h < -4.0 or h > 45.0:
@@ -1227,8 +1278,8 @@ func _build_shore_rocks() -> void:
 		var c: Array[Transform3D] = cliffs[i]
 		var bo: Array[Transform3D] = boulders[i]
 		count += c.size() + bo.size()
-		_multimesh(cliff_kit[i], c, no_colors, "ShoreCliffs%d" % i)
-		_multimesh(boulder_kit[i], bo, no_colors, "ShoreBoulders%d" % i)
+		await _multimesh(cliff_kit[i], c, no_colors, "ShoreCliffs%d" % i)
+		await _multimesh(boulder_kit[i], bo, no_colors, "ShoreBoulders%d" % i)
 	print("Shore rocks: %d pieces (%d ms)" % [count, Time.get_ticks_msec() - t0])
 
 
@@ -1306,6 +1357,8 @@ func _build_marinas() -> void:
 	var plank := Color(0.56, 0.46, 0.34)
 	var float_col := Color(0.66, 0.6, 0.5)
 	for m in map.marinas:
+		if not await _can_continue():
+			return
 		var mb := MeshBuilder.new()
 		mb.xform = m.xform()
 		glows.xform = mb.xform
@@ -1357,6 +1410,8 @@ func _build_quays() -> void:
 	var steel := Color(0.35, 0.36, 0.38)
 	var r := RandomNumberGenerator.new()
 	for q in map.wharves():
+		if not await _can_continue():
+			return
 		var fish := q is MapData.FishQuay
 		r.seed = map.map_seed * 13 + q.id + (0 if fish else 7919)
 		var mb := MeshBuilder.new()
