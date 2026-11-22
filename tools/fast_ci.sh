@@ -61,6 +61,7 @@ check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
 check model-parts test --script tools/model_parts_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
+check touch-edit test --fixed-fps 30 --script tools/touch_edit_test.gd
 check sandbox smoke --fixed-fps 30 --quit-after 120 res://scenes/sandbox.tscn -- --seed=123
 check holding-lane test --fixed-fps 30 --script tools/holding_lane_test.gd -- --seed=123
 check wake-bounds test --script tools/wake_bounds_test.gd

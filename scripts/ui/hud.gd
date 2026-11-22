@@ -583,7 +583,7 @@ func _build_info_panel() -> void:
 	v.add_child(_service_button)
 	_stops_button.text = "Edit stops"
 	_stops_button.focus_mode = Control.FOCUS_NONE
-	_stops_button.custom_minimum_size.y = 44
+	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
 	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
 	v.add_child(_stops_button)
 	_lane_button.custom_minimum_size.y = 48
@@ -1251,8 +1251,11 @@ func _build_toast() -> void:
 	_toast.offset_bottom = -262
 	_toast.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	# A finger meant for the panel under it goes through.
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_toast)
 	var v := VBoxContainer.new()
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_toast.add_child(v)
 	_toast_title = _label("", 15, TEXT, true)
 	_toast_body = _label("", 13, MUTED)

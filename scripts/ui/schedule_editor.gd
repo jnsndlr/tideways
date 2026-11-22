@@ -8,6 +8,17 @@ extends PanelContainer
 ## her first stop. A time she can't make (Ferry.plan_offsets) can't be set.
 ## Her pace is drafted here too, and below the sailings is what the draft should
 ## cost a day (Ferry.daily_cost) beside what her timetable now costs.
+##
+## Built for touch as well as a mouse (TID-23): every control is a filled button
+## at least TAP high, nothing needs hover or a right click, a stepper held down
+## repeats, and the sailings list scrolls by dragging anywhere on it. On a tall
+## screen (an iPad in portrait) the whole editor is drawn larger.
+
+const TAP := 52.0 ## least height of anything to tap (about 44 pt on an iPad in landscape)
+const HOLD_DELAY := 0.4 ## seconds a stepper is held before it repeats
+const REPEAT := 0.09 ## seconds between repeats while held
+const DRAG_SLOP := 10.0 ## a press that moves this far is a drag, not a tap
+const LIST_MAX := 330.0 ## tallest the sailings list grows before it scrolls
 
 var sim: Simulation
 var ferry: Ferry
@@ -31,6 +42,16 @@ var _sailings := VBoxContainer.new()
 var _sailings_scroll := ScrollContainer.new()
 var _add_sailing: Button
 var _apply: Button
+var _fill: StyleBoxFlat
+var _fill_hover: StyleBoxFlat
+## The stepper being held: {time, step, t, repeating}, or empty.
+var _hold := {}
+## Where a press on the sailings list began (INF if it didn't), and its scroll then.
+var _press_at := Vector2.INF
+var _press_scroll := 0
+## Whether the current (or last) press became a drag of the list; a drag never taps.
+var _dragging := false
+var _scroll_to_end := false
 
 
 ## `make_label(text, size, color, bold)` builds a label in the HUD's fonts.
@@ -39,10 +60,16 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	_make_label = make_label
 	anchor_left = 0.5
 	anchor_right = 0.5
-	offset_left = -190
-	offset_right = 190
+	offset_left = -220
+	offset_right = 220
 	offset_top = 96
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_fill = StyleBoxFlat.new()
+	_fill.bg_color = Color(1, 1, 1, 0.07)
+	_fill.set_corner_radius_all(6)
+	_fill.set_content_margin_all(6)
+	_fill_hover = _fill.duplicate()
+	_fill_hover.bg_color = Color(1, 1, 1, 0.12)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 6)
 	add_child(column)
@@ -79,26 +106,29 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	_mode_timed.toggle_mode = true
 	_mode_timed.pressed.connect(_set_timed.bind(true))
 	modes.add_child(_mode_timed)
-	_round_note = make_label.call("", 12, Hud.MUTED, false)
+	_round_note = make_label.call("", 13, Hud.MUTED, false)
 	_round_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_round_note)
 	_sailings.add_theme_constant_override("separation", 4)
 	_sailings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_sailings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# Dragging is ours (_input), so it works over the buttons too; this stops
+	# Godot's own touch dragging from scrolling the list a second time.
+	_sailings_scroll.scroll_deadzone = 1 << 20
 	_sailings_scroll.add_child(_sailings)
 	column.add_child(_sailings_scroll)
 	_add_sailing = _button("Add a sailing")
 	_add_sailing.pressed.connect(_on_add_sailing)
 	column.add_child(_add_sailing)
 	column.add_child(paces)
-	_cost = make_label.call("", 13, Hud.TEXT, true)
+	_cost = make_label.call("", 14, Hud.TEXT, true)
 	_cost.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_cost)
-	_cost_change = make_label.call("", 12, Hud.MUTED, false)
+	_cost_change = make_label.call("", 13, Hud.MUTED, false)
 	_cost_change.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_cost_change)
 	column.add_child(HSeparator.new())
-	_problem = make_label.call("", 12, FinancePanel.LOSS, false)
+	_problem = make_label.call("", 13, FinancePanel.LOSS, false)
 	_problem.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_problem)
 	var row := HBoxContainer.new()
@@ -113,6 +143,12 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	hide()
 
 
+func _ready() -> void:
+	get_viewport().size_changed.connect(func(): if visible: _fit())
+	# Grows from its top centre, wherever its width settles.
+	resized.connect(func(): pivot_offset = Vector2(size.x * 0.5, 0.0))
+
+
 func open(f: Ferry) -> void:
 	ferry = f
 	_draft.assign(f.next_stops if not f.next_stops.is_empty() else f.stops)
@@ -123,13 +159,23 @@ func open(f: Ferry) -> void:
 	show()
 
 
-func _button(text: String) -> Button:
+func _button(text: String, width := 0.0) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, 44)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(width, TAP)
+	b.add_theme_stylebox_override("normal", _fill)
+	b.add_theme_stylebox_override("hover", _fill_hover)
+	if width == 0.0:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return b
+
+
+## Frees `box`'s children now, so its size is right before the next _fit.
+static func _clear(box: Node) -> void:
+	for c in box.get_children():
+		box.remove_child(c)
+		c.queue_free()
 
 
 func _name(id: int) -> String:
@@ -138,18 +184,15 @@ func _name(id: int) -> String:
 
 func _rebuild() -> void:
 	_title.text = "STOPS · " + ferry.ferry_name.to_upper()
-	for c in _stops.get_children() + _adds.get_children():
-		c.queue_free()
+	_clear(_stops)
+	_clear(_adds)
 	for i in _draft.size():
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
-		var label: Label = _make_label.call("%d.  %s" % [i + 1, _name(_draft[i])], 15, Hud.TEXT, true)
+		var label: Label = _make_label.call("%d.  %s" % [i + 1, _name(_draft[i])], 16, Hud.TEXT, true)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(label)
-		var drop := Button.new()
-		drop.text = "Remove"
-		drop.focus_mode = Control.FOCUS_NONE
-		drop.custom_minimum_size = Vector2(88, 40)
+		var drop := _button("Remove", 104)
 		drop.pressed.connect(_on_drop.bind(i))
 		row.add_child(drop)
 		_stops.add_child(row)
@@ -163,7 +206,9 @@ func _rebuild() -> void:
 		b.pressed.connect(_on_add.bind(id))
 		_adds.add_child(b)
 	var problem := sim.stops_problem(ferry, _draft)
-	var offsets: Array[float] = ferry.plan_offsets(_draft, _pace) if problem == "" else []
+	var offsets: Array[float] = []
+	if problem == "":
+		offsets = ferry.plan_offsets(_draft, _pace)
 	_rebuild_timetable(offsets)
 	_rebuild_cost(offsets)
 	if problem == "" and _timed and _times.is_empty():
@@ -178,13 +223,13 @@ func _rebuild() -> void:
 	_apply.text = "Apply"
 	if problem == "" and not unchanged:
 		_apply.text = "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().island.id)
+	_fit.call_deferred()
 
 
 ## The sailings, each with its time at every stop and steppers to move it.
 ## A move or a new sailing that would leave her too little time is disabled.
 func _rebuild_timetable(offsets: Array[float]) -> void:
-	for c in _sailings.get_children():
-		c.queue_free()
+	_clear(_sailings)
 	_mode_auto.set_pressed_no_signal(not _timed)
 	_mode_timed.set_pressed_no_signal(_timed)
 	var have_round := not offsets.is_empty()
@@ -206,35 +251,30 @@ func _rebuild_timetable(offsets: Array[float]) -> void:
 		var box := VBoxContainer.new()
 		box.add_theme_constant_override("separation", 2)
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 4)
+		row.add_theme_constant_override("separation", 6)
 		var colour: Color = FinancePanel.LOSS if red[k] else Hud.TEXT
-		var time: Label = _make_label.call(Timetable.text(_times[k]), 15, colour, true)
+		var time: Label = _make_label.call(Timetable.text(_times[k]), 18, colour, true)
 		time.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(time)
 		for step: int in [-15, -5, 5, 15]:
-			var b := Button.new()
-			b.text = "%+d" % step
-			b.focus_mode = Control.FOCUS_NONE
-			b.custom_minimum_size = Vector2(44, 40)
+			var b := _button("%+d" % step, 56)
+			b.name = "Step%+d" % step
 			b.disabled = not _allowed(_moved(k, step), round_min, red)
-			b.pressed.connect(_on_step.bind(k, step))
+			# A tap steps once when it lifts; held, it repeats (_process).
+			b.button_down.connect(_on_step_down.bind(k, step))
 			row.add_child(b)
-		var drop := Button.new()
-		drop.text = "✕"
-		drop.focus_mode = Control.FOCUS_NONE
-		drop.custom_minimum_size = Vector2(40, 40)
+		var drop := _button("✕", TAP)
+		drop.name = "DropSailing"
 		drop.pressed.connect(_on_drop_sailing.bind(k))
 		row.add_child(drop)
 		box.add_child(row)
 		var calls: Array[String] = []
 		for i in range(1, _draft.size()):
 			calls.append("%s %s" % [_name(_draft[i]), Timetable.text(_times[k] + offsets[i])])
-		var sub: Label = _make_label.call(" · ".join(calls), 11, colour if red[k] else Hud.MUTED, false)
+		var sub: Label = _make_label.call(" · ".join(calls), 12, colour if red[k] else Hud.MUTED, false)
 		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		box.add_child(sub)
 		_sailings.add_child(box)
-	_sailings_scroll.custom_minimum_size.y = minf(_times.size() * 64.0, 260.0)
-	_fit.call_deferred()
 	var next := _next_sailing(round_min)
 	_add_sailing.disabled = next < 0 or not _allowed(_times + [next], round_min, red)
 	_add_sailing.text = "Add a sailing at %s" % Timetable.text(next) if not _add_sailing.disabled else "No room for another sailing"
@@ -284,12 +324,72 @@ func _set_timed(on: bool) -> void:
 	_rebuild()
 
 
-func _on_step(k: int, step: int) -> void:
-	_times.assign(_moved(k, step))
+func _on_step_down(k: int, step: int) -> void:
+	_hold = {"time": _times[k], "step": step, "t": 0.0, "repeating": false}
+
+
+## Moves the held sailing one step, if that is allowed; false if it isn't.
+func _step_held() -> bool:
+	var k := _times.find(_hold.time)
+	var offsets := ferry.plan_offsets(_draft, _pace)
+	if k < 0 or offsets.is_empty():
+		return false
+	var moved := _moved(k, _hold.step)
+	if not _allowed(moved, offsets[-1], Timetable.too_soon(_times, offsets[-1])):
+		return false
+	_times.assign(moved)
+	_hold.time += _hold.step
 	_rebuild()
+	return true
+
+
+func _process(delta: float) -> void:
+	if _hold.is_empty():
+		return
+	if not visible:
+		_hold.clear()
+		return
+	_hold.t += delta
+	var due: float = REPEAT if _hold.repeating else HOLD_DELAY
+	if _hold.t < due:
+		return
+	_hold.t -= due
+	_hold.repeating = true
+	if not _step_held():
+		_hold.clear()
+
+
+## Presses and drags reach the editor here before its buttons see them. Touch
+## arrives as emulated mouse events (Godot's default), so one path serves both.
+func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	var mb := event as InputEventMouseButton
+	if mb and mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.pressed:
+			_dragging = false
+			var on_list := _sailings_scroll.is_visible_in_tree() and _sailings_scroll.get_global_rect().has_point(mb.position)
+			_press_at = mb.position if on_list else Vector2.INF
+			_press_scroll = _sailings_scroll.scroll_vertical
+		else:
+			if not _hold.is_empty() and not _hold.repeating and not _dragging:
+				_step_held()
+			_hold.clear()
+			_press_at = Vector2.INF
+		return
+	var mm := event as InputEventMouseMotion
+	if mm and _press_at != Vector2.INF and mm.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		var dy := mm.position.y - _press_at.y
+		if not _dragging and absf(dy) > DRAG_SLOP * scale.y:
+			_dragging = true
+			_hold.clear()
+		if _dragging:
+			_sailings_scroll.scroll_vertical = _press_scroll - roundi(dy / scale.y)
 
 
 func _on_drop_sailing(k: int) -> void:
+	if _dragging:
+		return
 	_times.remove_at(k)
 	_rebuild()
 
@@ -300,6 +400,7 @@ func _on_add_sailing() -> void:
 	if t >= 0:
 		_times.append(t)
 		_times.sort()
+		_scroll_to_end = true
 	_rebuild()
 
 
@@ -349,13 +450,34 @@ func _on_apply() -> void:
 		ferry.set_pace(was)
 
 
-## Shortens the sailings list so the editor (Apply included) stays on screen.
+## Draws the editor larger on a tall screen, then shortens the sailings list so
+## it (Apply included) stays on screen; if it still doesn't fit, draws it a
+## little smaller. Runs again when the screen turns.
 func _fit() -> void:
-	var over := offset_top + get_combined_minimum_size().y + 12.0 - get_viewport_rect().size.y
-	if over > 0.0:
-		_sailings_scroll.custom_minimum_size.y = maxf(_sailings_scroll.custom_minimum_size.y - over, 64.0)
+	var view := get_viewport_rect().size
+	var room := view.y - offset_top - 12.0
+	var s := clampf(view.y / 1600.0, 1.0, 1.4)
+	var shown := _sailings_scroll.visible
+	var want := minf(_sailings.get_combined_minimum_size().y, LIST_MAX) if shown else 0.0
+	var list := want
+	var need := get_combined_minimum_size().y + want
+	if shown:
+		need -= _sailings_scroll.custom_minimum_size.y
+	if need * s > room:
+		list = maxf(want - (need - room / s), TAP + 20.0)
+		need -= want - list
+	if need * s > room:
+		s = maxf(room / need, 0.8)
+	_sailings_scroll.custom_minimum_size.y = list
+	scale = Vector2(s, s)
 	# (it grows back to its minimum height, which is now what it needs)
+	offset_left = -220
+	offset_right = 220
 	offset_bottom = offset_top
+	if _scroll_to_end:
+		_scroll_to_end = false
+		await get_tree().process_frame
+		_sailings_scroll.scroll_vertical = int(_sailings_scroll.get_v_scroll_bar().max_value)
 
 
 func _set_pace(p: int) -> void:
