@@ -481,10 +481,10 @@ func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: A
 	for i in mains.size():
 		index[mains[i].key] = i
 	var linked := {}
-	for pair in _scenario.links():
+	for pair in _scenario.dock_links():
 		if index.has(pair[0]) and index.has(pair[1]):
 			linked[Vector2i(mini(index[pair[0]], index[pair[1]]), maxi(index[pair[0]], index[pair[1]]))] = true
-	for pair in _scenario.links():
+	for pair in _scenario.dock_links():
 		if not (index.has(pair[0]) and index.has(pair[1])):
 			push_warning("Scenario links %s and %s, which are not both its terminals" % [pair[0], pair[1]])
 			continue
@@ -1560,9 +1560,9 @@ func _load_route_memo(layout: MapLayout) -> void:
 
 
 ## What the saved routes depend on: the islands, the scenario's terminals, slips
-## and links (which set where the docks face), and the planner itself.
+## and dock links (which set where the docks face), and the planner itself.
 func _memo_key(layout: MapLayout) -> String:
-	var sc := [] if _scenario == null else [_scenario.terminals, _scenario.slips, _scenario.tie_ups, Array(_scenario.links()).map(func(l): return Array(l))]
+	var sc := [] if _scenario == null else [_scenario.terminals, _scenario.slips, _scenario.tie_ups, Array(_scenario.dock_links()).map(func(l): return Array(l))]
 	var parts := [ROUTE_PLANNER_VERSION, LAND_CLEARANCE, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, CLEARANCE_STEPS, layout.to_json(), sc]
 	return str(hash(JSON.stringify(parts)))
 

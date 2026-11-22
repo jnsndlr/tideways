@@ -31,6 +31,8 @@ var _sailings := VBoxContainer.new()
 var _sailings_scroll := ScrollContainer.new()
 var _add_sailing: Button
 var _apply: Button
+## Where her draft and another boat's timetable want one slip at once (SlipConflicts).
+var _clash_note: Label
 
 
 ## `make_label(text, size, color, bold)` builds a label in the HUD's fonts.
@@ -90,6 +92,9 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	_add_sailing = _button("Add a sailing")
 	_add_sailing.pressed.connect(_on_add_sailing)
 	column.add_child(_add_sailing)
+	_clash_note = make_label.call("", 12, SlipConflicts.WARN, false)
+	_clash_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_clash_note)
 	column.add_child(paces)
 	_cost = make_label.call("", 13, Hud.TEXT, true)
 	_cost.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -165,6 +170,7 @@ func _rebuild() -> void:
 	var problem := sim.stops_problem(ferry, _draft)
 	var offsets: Array[float] = ferry.plan_offsets(_draft, _pace) if problem == "" else []
 	_rebuild_timetable(offsets)
+	_rebuild_clashes(offsets)
 	_rebuild_cost(offsets)
 	if problem == "" and _timed and _times.is_empty():
 		problem = "Add a sailing, or let her sail as loading allows"
@@ -405,3 +411,31 @@ func _rebuild_cost(offsets: Array[float]) -> void:
 static func _hours(h: float) -> String:
 	var m := roundi(h * 60.0)
 	return "%d:%02d" % [m / 60, m % 60]
+
+
+# --- Slip clashes with the other boats (stage 4, slice 4) ---------------------------
+
+## Warns, under the sailings and on each one it touches, where the draft and
+## another boat's timetable want one slip at once. Never blocks Apply.
+func _rebuild_clashes(offsets: Array[float]) -> void:
+	_clash_note.text = ""
+	_clash_note.visible = false
+	if offsets.is_empty() or not _timed or _times.is_empty():
+		return
+	var result := SlipConflicts.check(ferry, _draft, _times, _pace)
+	var lines := SlipConflicts.summary(ferry, result)
+	_clash_note.text = "\n".join(lines)
+	_clash_note.visible = not lines.is_empty()
+	var boxes := _sailings.get_children().filter(func(c): return not c.is_queued_for_deletion())
+	for k in mini(boxes.size(), _times.size()):
+		var clashes := SlipConflicts.on_sailing(result, k)
+		if clashes.is_empty():
+			continue
+		var text: Array[String] = []
+		for c in clashes:
+			text.append(SlipConflicts.clash_text(sim, c))
+		var note: Label = _make_label.call("\n".join(text), 11, SlipConflicts.WARN, false)
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		boxes[k].add_child(note)
+		# (room in the list for the note; _fit shortens it again if off screen)
+		_sailings_scroll.custom_minimum_size.y += 16.0 * text.size()

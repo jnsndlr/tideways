@@ -3,9 +3,9 @@ extends RefCounted
 ## How a company starts: its cash, the terminals it owns, its boats and the
 ## schedules they run. Islands are named by their region key (MapData.Island.key).
 ## No service exists without a schedule. The map generator plans a route between
-## every pair of terminals in reach, but only the scheduled ones (`links()`) shape
-## where the docks face and are in service; the stop editor can put a boat on the
-## rest. Each terminal
+## every pair of terminals in reach, but only the scheduled ones (`links()`) are
+## in service, and only those whose schedules shape the docks (`dock_links()`)
+## set where the docks face; the stop editor can put a boat on the rest. Each terminal
 ## has the slips listed for it (one small slip if none are), and the routes
 ## calling there share them; a slip no route uses is idle.
 ## A generated map with no scenario plans its own network; `from_network` then
@@ -29,6 +29,10 @@ class Schedule:
 	## Minutes after midnight she leaves the first stop (Timetable); empty: as
 	## soon as she has loaded. In the file: "departures": ["6:30", "18:05"].
 	var departures: Array[int] = []
+	## Whether her stops turn the docks to face each other at map generation.
+	## False ("shapes_docks": false): she uses the docks as they face, like a
+	## route given to a boat in the stop editor (until docks are placed by hand).
+	var shapes_docks := true
 
 
 var name := ""
@@ -78,6 +82,7 @@ static func load_file(path: String) -> Scenario:
 		for stop in sc.get("stops", []):
 			schedule.stops.append(str(stop))
 		schedule.laid_up = bool(sc.get("laid_up", false))
+		schedule.shapes_docks = bool(sc.get("shapes_docks", true))
 		for t in sc.get("departures", []):
 			var m := Timetable.parse(str(t))
 			if m < 0:
@@ -119,9 +124,21 @@ func slip_sizes(key: String) -> Array[int]:
 
 ## The pairs of island keys the schedules sail between, each once.
 func links() -> Array[PackedStringArray]:
+	return _links(false)
+
+
+## links() of the schedules that turn the docks (Schedule.shapes_docks); the map
+## generator faces the docks along these and plans the rest as candidates.
+func dock_links() -> Array[PackedStringArray]:
+	return _links(true)
+
+
+func _links(docks_only: bool) -> Array[PackedStringArray]:
 	var out: Array[PackedStringArray] = []
 	var seen := {}
 	for schedule in schedules:
+		if docks_only and not schedule.shapes_docks:
+			continue
 		var n := schedule.stops.size()
 		for i in (n if n > 2 else n - 1):
 			var a := schedule.stops[i]
