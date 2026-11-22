@@ -87,8 +87,8 @@ func check_build() -> void:
 	var map := region.map
 	expect(map.islands.size() == 2 and map.routes.size() == 1, "Two towns and one route expected")
 	var route := map.routes[0]
-	var a := map.islands[route.a]
-	var b := map.islands[route.b]
+	var a := map.towns[route.a]
+	var b := map.towns[route.b]
 	expect(route.curve.sample_baked(0.0).distance_to(a.dock_center(route.id)) < 1.0, "Route should start at the first town's dock")
 	expect(route.curve.sample_baked(route.length).distance_to(b.dock_center(route.id)) < 1.0, "Route should end at the second town's dock")
 	expect(route.length > 270.0, "The crossing should leave a ferry room to line up at both ends; got %d m" % roundi(route.length))
@@ -192,7 +192,7 @@ func tick_crossing() -> void:
 		expect(ferry.aboard.size() == left_with.size(), "Cars aboard changed mid-crossing")
 	elif sailed and not docked and ferry.state != Ferry.State.SAILING:
 		docked = true
-		var far := region.map.islands[ferry.route.b]
+		var far := region.map.towns[ferry.route.b]
 		expect(ferry.trips == 1 and ferry.here() == sim.terminals[far.id], "The ferry should dock at the far town after one crossing")
 		var off := ferry.global_position.distance_to(far.dock_center(ferry.route.id))
 		expect(off < 60.0, "The ferry docked %d m from the far slip" % roundi(off))

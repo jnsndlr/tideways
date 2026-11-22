@@ -54,6 +54,8 @@ var route_overlay: MeshInstance3D
 var water_material: ShaderMaterial
 var night_lights: MeshInstance3D
 var glows := GlowBuilder.new()
+## Terminals not open yet: town id -> [hidden node, its lights (MeshInstance3D)].
+var _sites := {}
 
 ## Places seagulls can sit (where the feet go, in world space).
 var gull_perches: Array[Seagulls.Perch] = []
@@ -108,7 +110,26 @@ func build() -> Node3D:
 	_clear_grass_where_blocked()
 	night_lights = _add_mesh(glows.commit(), "NightLights", false)
 	night_lights.visible = false
+	# Hidden sites' lights hang under the night lights, so they follow the day.
+	for id in _sites:
+		var site_glows: GlowBuilder = _sites[id][1]
+		var mi := MeshInstance3D.new()
+		mi.name = map.towns[id].name + " Lights"
+		mi.mesh = site_glows.commit() if not site_glows.is_empty() else null
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visible = false
+		night_lights.add_child(mi)
+		_sites[id][1] = mi
 	return root
+
+
+## Shows the terminal built hidden at `town`'s dock site, now it has opened.
+func show_terminal(town: MapData.Town) -> void:
+	if not _sites.has(town.id):
+		return
+	for node: Node3D in _sites[town.id]:
+		node.visible = true
+	_sites.erase(town.id)
 
 
 func _add_mesh(mesh: Mesh, node_name: String, shadows := true) -> MeshInstance3D:
@@ -240,8 +261,10 @@ func _block(p: Vector3, radius: float) -> void:
 
 
 ## A perch along a → b, `spread` either side of it (see Seagulls.Perch).
+## None on a terminal not open yet (it's hidden).
 func _perch(a: Vector3, b: Vector3, spread: float, kind: int) -> void:
-	gull_perches.append(Seagulls.Perch.new(a, b, spread, kind))
+	if root.visible:
+		gull_perches.append(Seagulls.Perch.new(a, b, spread, kind))
 
 
 func _is_blocked(x: float, z: float) -> bool:
@@ -516,97 +539,118 @@ func _build_water() -> void:
 
 # --- Terminals ----------------------------------------------------------------------
 
+## Every dock site's terminal is built with the map (TID-319). One the company
+## doesn't own yet is built into its own hidden node, its lights hidden under
+## the night lights, so buying it only has to show them (show_terminal).
 func _build_terminals() -> void:
-	for isl in map.islands:
-		if not isl.has_terminal:
+	var main_root := root
+	var main_glows := glows
+	for isl in map.towns:
+		if not isl.has_dock:
 			continue
-		var mb := MeshBuilder.new()
-		mb.xform = isl.terminal_xform()
-		glows.xform = mb.xform
-		var hw := isl.lot_half_width
-		var ly := Layout.LOT_Y
-		var mid_u := (Layout.LOT_FRONT + Layout.LOT_BACK) * 0.5
-		mb.box(Vector3(0, ly - 1.35, mid_u), Vector3(hw * 2.0 + 3.6, 2.4, Layout.LOT_LENGTH + 3.6), CONCRETE)
-		var open := Layout.open_lanes(hw, isl.open_lanes)
-		if isl.open_lanes > 0:
-			# Only the lanes in use are paved; the rest of the site is graded gravel.
-			mb.box(Vector3(0, ly - 0.95, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), PavingCrew.GRAVEL.darkened(0.1))
-			var lo := minf(open.front() - Layout.LANE_WIDTH * 0.5, -Layout.EXIT_CLEAR + Layout.LANE_WIDTH * 0.5)
-			var hi := maxf(open.back() + Layout.LANE_WIDTH * 0.5, Layout.EXIT_CLEAR - Layout.LANE_WIDTH * 0.5)
-			mb.box(Vector3((lo + hi) * 0.5, ly - 0.9, mid_u), Vector3(hi - lo, 1.8, Layout.LOT_LENGTH), ASPHALT)
+		var site: Node3D = null
+		if not isl.built:
+			site = Node3D.new()
+			site.name = isl.name + " Terminal (site)"
+			site.visible = false
+			main_root.add_child(site)
+			root = site
+			glows = GlowBuilder.new()
+		_terminal_for(isl)
+		if site:
+			_sites[isl.id] = [site, glows]
+		root = main_root
+		glows = main_glows
+
+
+func _terminal_for(isl: MapData.Town) -> void:
+	var mb := MeshBuilder.new()
+	mb.xform = isl.terminal_xform()
+	glows.xform = mb.xform
+	var hw := isl.lot_half_width
+	var ly := Layout.LOT_Y
+	var mid_u := (Layout.LOT_FRONT + Layout.LOT_BACK) * 0.5
+	mb.box(Vector3(0, ly - 1.35, mid_u), Vector3(hw * 2.0 + 3.6, 2.4, Layout.LOT_LENGTH + 3.6), CONCRETE)
+	var open := Layout.open_lanes(hw, isl.open_lanes)
+	if isl.open_lanes > 0:
+		# Only the lanes in use are paved; the rest of the site is graded gravel.
+		mb.box(Vector3(0, ly - 0.95, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), PavingCrew.GRAVEL.darkened(0.1))
+		var lo := minf(open.front() - Layout.LANE_WIDTH * 0.5, -Layout.EXIT_CLEAR + Layout.LANE_WIDTH * 0.5)
+		var hi := maxf(open.back() + Layout.LANE_WIDTH * 0.5, Layout.EXIT_CLEAR - Layout.LANE_WIDTH * 0.5)
+		mb.box(Vector3((lo + hi) * 0.5, ly - 0.9, mid_u), Vector3(hi - lo, 1.8, Layout.LOT_LENGTH), ASPHALT)
+	else:
+		mb.box(Vector3(0, ly - 0.9, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), ASPHALT)
+
+	# Lane markings
+	var mark_len := Layout.LANE_HEAD - (Layout.LOT_BACK + 7.5) + 3.0
+	var mark_u := (Layout.LANE_HEAD + 3.0 + Layout.LOT_BACK + 7.5) * 0.5
+	var marked: Array[float] = open
+	if isl.open_lanes == 0:
+		marked = []
+		for lane_set in Layout.lane_positions(hw, maxi(isl.route_ids().size(), 1)):
+			for v in lane_set:
+				marked.append(v)
+	for v in marked:
+		for side: float in [-3.6, 3.6]:
+			mb.box(Vector3(v + side, ly + 0.03, mark_u), Vector3(0.36, 0.06, mark_len), LINE_WHITE)
+	var u := Layout.LOT_BACK + 4.5
+	while u < Layout.LOT_FRONT - 3.0:
+		mb.box(Vector3(0, ly + 0.03, u), Vector3(0.42, 0.06, 3.6), LINE_YELLOW)
+		u += 7.2
+
+	for i in isl.slips.size():
+		if isl.slips[i].tie_up:
+			_build_tie_up(mb, isl.slip_offset(i))
 		else:
-			mb.box(Vector3(0, ly - 0.9, mid_u), Vector3(hw * 2.0, 1.8, Layout.LOT_LENGTH), ASPHALT)
+			_build_slip(mb, isl.slip_offset(i))
 
-		# Lane markings
-		var mark_len := Layout.LANE_HEAD - (Layout.LOT_BACK + 7.5) + 3.0
-		var mark_u := (Layout.LANE_HEAD + 3.0 + Layout.LOT_BACK + 7.5) * 0.5
-		var marked: Array[float] = open
-		if isl.open_lanes == 0:
-			marked = []
-			for lane_set in Layout.lane_positions(hw, maxi(isl.route_ids().size(), 1)):
-				for v in lane_set:
-					marked.append(v)
-		for v in marked:
-			for side: float in [-3.6, 3.6]:
-				mb.box(Vector3(v + side, ly + 0.03, mark_u), Vector3(0.36, 0.06, mark_len), LINE_WHITE)
-		var u := Layout.LOT_BACK + 4.5
-		while u < Layout.LOT_FRONT - 3.0:
-			mb.box(Vector3(0, ly + 0.03, u), Vector3(0.42, 0.06, 3.6), LINE_YELLOW)
-			u += 7.2
+	# The entry porch faces the holding lanes. The gulls sit along the hall ridge.
+	var bv := hw + 15.0
+	var hall := _terminal_model(preload("res://assets/models/ferry_passenger_terminal.glb"),
+		mb.xform.translated_local(Vector3(bv, ly, -36)))
+	_perch(hall.transform * Vector3(1, 10.59, -8.0),
+		hall.transform * Vector3(1, 10.59, 14.5), 0.0, Seagulls.Kind.ROOF)
+	glows.pool(Vector3(bv - 11, ly + 0.15, -34), GlowBuilder.WARM, 13.5, 0.3)
 
-		for i in isl.slips.size():
-			if isl.slips[i].tie_up:
-				_build_tie_up(mb, isl.slip_offset(i))
-			else:
-				_build_slip(mb, isl.slip_offset(i))
+	var tu := Layout.TICKET_U
+	var plaza_y := ly
+	if isl.road_main_a.size() >= 2:
+		var near := mb.xform.affine_inverse() * isl.road_main_a[0]
+		for i in range(1, isl.road_main_a.size()):
+			var far := mb.xform.affine_inverse() * isl.road_main_a[i]
+			if far.z <= tu:
+				plaza_y = remap(tu, near.z, far.z, near.y, far.y)
+				break
+			near = far
+	_terminal_model(preload("res://assets/models/ferry_ticket_plaza.glb"),
+		mb.xform.translated_local(Vector3(0, plaza_y, tu)))
+	for v: float in Layout.TICKET_LANES:
+		mb.box(Vector3(v, plaza_y + 6.12, tu), Vector3(1.6, 0.12, 1.2), Models.lamp_glass(GlowBuilder.LED))
+		glows.glow(Vector3(v, plaza_y + 6.0, tu), GlowBuilder.LED, 0.48, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+	glows.pool(Vector3(-6, plaza_y + 0.15, tu), GlowBuilder.SODIUM, 16.5, 0.3)
 
-		# The entry porch faces the holding lanes. The gulls sit along the hall ridge.
-		var bv := hw + 15.0
-		var hall := _terminal_model(preload("res://assets/models/ferry_passenger_terminal.glb"),
-			mb.xform.translated_local(Vector3(bv, ly, -36)))
-		_perch(hall.transform * Vector3(1, 10.59, -8.0),
-			hall.transform * Vector3(1, 10.59, 14.5), 0.0, Seagulls.Kind.ROOF)
-		glows.pool(Vector3(bv - 11, ly + 0.15, -34), GlowBuilder.WARM, 13.5, 0.3)
+	# Light poles
+	for v: float in [-hw + 1.2, hw - 1.2]:
+		for pu: float in [Layout.LOT_FRONT - 3.0, Layout.LOT_BACK + 3.0]:
+			mb.box(Vector3(v, ly + 7.5, pu), Vector3(0.54, 15.0, 0.54), Color(0.35, 0.36, 0.38))
+			mb.box(Vector3(v, ly + 15.0, pu), Vector3(1.8, 0.54, 1.8), Color(0.95, 0.95, 0.8))
+			mb.box(Vector3(v, ly + 14.61, pu), Vector3(1.44, 0.24, 1.44), Models.lamp_glass(GlowBuilder.SODIUM))
+			glows.glow(Vector3(v, ly + 14.55, pu), GlowBuilder.SODIUM, 0.9, 6.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			glows.pool(Vector3(v * 0.7, ly + 0.15, pu), GlowBuilder.SODIUM, 24.0, 0.22)
+			var top := mb.xform * Vector3(v, ly + 15.27, pu)
+			_perch(top, top, 0.0, Seagulls.Kind.LAMP)
 
-		var tu := Layout.TICKET_U
-		var plaza_y := ly
-		if isl.road_main_a.size() >= 2:
-			var near := mb.xform.affine_inverse() * isl.road_main_a[0]
-			for i in range(1, isl.road_main_a.size()):
-				var far := mb.xform.affine_inverse() * isl.road_main_a[i]
-				if far.z <= tu:
-					plaza_y = remap(tu, near.z, far.z, near.y, far.y)
-					break
-				near = far
-		_terminal_model(preload("res://assets/models/ferry_ticket_plaza.glb"),
-			mb.xform.translated_local(Vector3(0, plaza_y, tu)))
-		for v: float in Layout.TICKET_LANES:
-			mb.box(Vector3(v, plaza_y + 6.12, tu), Vector3(1.6, 0.12, 1.2), Models.lamp_glass(GlowBuilder.LED))
-			glows.glow(Vector3(v, plaza_y + 6.0, tu), GlowBuilder.LED, 0.48, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
-		glows.pool(Vector3(-6, plaza_y + 0.15, tu), GlowBuilder.SODIUM, 16.5, 0.3)
+	_add_mesh(mb.commit(), isl.name + " Terminal")
 
-		# Light poles
-		for v: float in [-hw + 1.2, hw - 1.2]:
-			for pu: float in [Layout.LOT_FRONT - 3.0, Layout.LOT_BACK + 3.0]:
-				mb.box(Vector3(v, ly + 7.5, pu), Vector3(0.54, 15.0, 0.54), Color(0.35, 0.36, 0.38))
-				mb.box(Vector3(v, ly + 15.0, pu), Vector3(1.8, 0.54, 1.8), Color(0.95, 0.95, 0.8))
-				mb.box(Vector3(v, ly + 14.61, pu), Vector3(1.44, 0.24, 1.44), Models.lamp_glass(GlowBuilder.SODIUM))
-				glows.glow(Vector3(v, ly + 14.55, pu), GlowBuilder.SODIUM, 0.9, 6.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
-				glows.pool(Vector3(v * 0.7, ly + 0.15, pu), GlowBuilder.SODIUM, 24.0, 0.22)
-				var top := mb.xform * Vector3(v, ly + 15.27, pu)
-				_perch(top, top, 0.0, Seagulls.Kind.LAMP)
-
-		_add_mesh(mb.commit(), isl.name + " Terminal")
-
-		# Keep trees and houses off the lot, piers and building.
-		var t := isl.lateral()
-		var bu := Layout.LOT_BACK - 18.0
-		while bu < Layout.PIER_END:
-			var bvv := -hw - 9.0
-			while bvv < hw + 36.0:
-				_block(isl.shore + isl.dock_dir * bu + t * bvv, 3.0)
-				bvv += 4.5
-			bu += 4.5
+	# Keep trees and houses off the lot, piers and building.
+	var t := isl.lateral()
+	var bu := Layout.LOT_BACK - 18.0
+	while bu < Layout.PIER_END:
+		var bvv := -hw - 9.0
+		while bvv < hw + 36.0:
+			_block(isl.shore + isl.dock_dir * bu + t * bvv, 3.0)
+			bvv += 4.5
+		bu += 4.5
 
 
 func _terminal_model(scene: PackedScene, pose: Transform3D) -> Node3D:
@@ -835,7 +879,7 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 
 func _build_roads() -> void:
 	var mb := MeshBuilder.new()
-	for isl in map.islands:
+	for isl in map.towns:
 		if isl.road_main_a.is_empty():
 			continue
 		# Widen the inbound shoulder into the three staffed channels. Build only
@@ -945,26 +989,24 @@ func _build_towns() -> void:
 		var list: Array[Transform3D] = []
 		per_variant.append(list)
 
-	for isl in map.islands:
-		if not isl.inhabited or isl.is_mainland:
-			continue
+	for isl in map.towns:
 		var tc := isl.town_center
 		var t := isl.town_axis
 		var inland := Vector3.UP.cross(t)  # perpendicular to the cross street
-		if isl.has_terminal:
+		if isl.has_dock:
 			inland = -isl.dock_dir
 		var town_r := sqrt(isl.population / 90.0) * 9.0
 		var spacing := 16.5
 		for b in range(-8, 9):
 			for a in range(-8, 9):
-				if isl.has_terminal and (a == 0 or b == 0):
+				if isl.has_dock and (a == 0 or b == 0):
 					continue  # the streets
 				var p := tc + t * (a * spacing) + inland * (b * spacing)
 				p += Vector3(rng.randf_range(-2.4, 2.4), 0, rng.randf_range(-2.4, 2.4))
 				var r := Vector2(a, b).length() * spacing
 				if rng.randf() > exp(-pow(r / town_r, 2.0)) * 1.15:
 					continue
-				if isl.has_terminal and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - 12.0:
+				if isl.has_dock and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - 12.0:
 					continue
 				if _is_blocked(p.x, p.z):
 					continue
@@ -980,7 +1022,7 @@ func _build_towns() -> void:
 				if hmax - hmin > 4.2 or hmin < 2.4:
 					continue
 				var front := -inland * signf(b) if absi(b) <= absi(a) or a == 0 else -t * signf(a)
-				if not isl.has_terminal:
+				if not isl.has_dock:
 					front = -inland
 				var basis := Basis(Vector3.UP, atan2(front.x, front.z) + rng.randf_range(-0.05, 0.05))
 				var vi := rng.randi_range(0, houses - 1)
@@ -1146,10 +1188,7 @@ func _build_vegetation() -> void:
 	var rounds: Array[Transform3D] = []
 	var round_cols: Array[Color] = []
 	var rocks: Array[Transform3D] = []
-	var towns: Array[MapData.Island] = []
-	for isl in map.islands:
-		if isl.inhabited and not isl.is_mainland:
-			towns.append(isl)
+	var towns := map.towns
 
 	var step := 8.1
 	var hs := terrain.half_size - 9.0

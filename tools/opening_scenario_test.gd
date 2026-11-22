@@ -33,21 +33,21 @@ func _check(sim: Simulation, hud: Hud) -> String:
 	var in_service := sim.map.routes.filter(func(r): return r.in_service).size()
 	if ferry.ferry_name != "Hiyu" or ferry.fc.size != 2 or in_service != 1:
 		return "The opening needs the size-2 Hiyu on a single route"
-	var keys := [ferry.term_a.island.key, ferry.term_b.island.key]
-	if not keys.has("island-1") or not keys.has("island-2"):
+	var keys := [ferry.term_a.town.key, ferry.term_b.town.key]
+	if not keys.has("island-1/0") or not keys.has("island-2/0"):
 		return "Hiyu should shuttle between Port Rosario and Madrona"
 	var idle: Terminal
 	for terminal: Terminal in sim.terminals.values():
-		if terminal.island.slips.size() != 1:
+		if terminal.town.slips.size() != 1:
 			return "An opening terminal should have one slip"
-		if terminal.island.key == "island-7":
+		if terminal.town.key.begins_with("island-7/"):
 			idle = terminal
 	if idle == null:
 		return "Gullrock needs an idle terminal"
 	idle._spawn_car()
 	if idle.has_service() or idle.total_queued() != 0 or idle.buy_holding_lane():
 		return "Gullrock should start idle with no waiting cars or lane purchase"
-	hud.select_island(idle.island, false)
+	hud.select_town(idle.town, false)
 	if hud._info_sub.text != "Ferry terminal · idle slip" or hud._tb["terminal"][2].text != "No scheduled service":
 		return "The idle terminal should show its service status instead of a wait estimate"
 	for label: Label in hud._info_grid.get_children():

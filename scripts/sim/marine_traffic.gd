@@ -664,11 +664,10 @@ func near_harbour(p: Vector2, r: float) -> bool:
 		var a := q.at(Layout.QUAY_FACE_U, 0.0)
 		if Vector2(a.x, a.z).distance_squared_to(p) < r * r:
 			return true
-	for isl in map.islands:
-		if isl.has_terminal:
-			var a := isl.shore + isl.dock_dir * Layout.DOCK_U
-			if Vector2(a.x, a.z).distance_squared_to(p) < r * r:
-				return true
+	for isl in map.dock_towns():
+		var a := isl.shore + isl.dock_dir * Layout.DOCK_U
+		if Vector2(a.x, a.z).distance_squared_to(p) < r * r:
+			return true
 	return false
 
 

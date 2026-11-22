@@ -13,18 +13,18 @@ class Assignment:
 var fleet: Array[Assignment] = []
 
 
-static func _island_record(map: MapData, island: MapData.Island) -> Dictionary:
+static func _town_record(map: MapData, island: MapData.Town) -> Dictionary:
 	var slips: Array[String] = []
 	for slip in island.slips:
 		var keys: PackedStringArray = []
 		for route_id in slip.routes:
 			keys.append(map.routes[route_id].key)
 		slips.append("+".join(keys) if not keys.is_empty() else "idle")
-	return {"key": island.key, "terminal": island.has_terminal, "slips": slips}
+	return {"key": island.key, "terminal": island.built, "slips": slips}
 
 
 static func _route_record(map: MapData, route: MapData.Route) -> Dictionary:
-	return {"key": route.key, "a": map.islands[route.a].key, "b": map.islands[route.b].key}
+	return {"key": route.key, "a": map.towns[route.a].key, "b": map.towns[route.b].key}
 
 
 static func capture(sim: Simulation) -> String:
@@ -32,15 +32,15 @@ static func capture(sim: Simulation) -> String:
 	var islands := []
 	var routes := []
 	var ferries := []
-	for island in map.islands:
-		islands.append(_island_record(map, island))
+	for town in map.towns:
+		islands.append(_town_record(map, town))
 	for route in map.routes:
 		routes.append(_route_record(map, route))
 	for ferry in sim.ferries:
 		ferries.append({"key": ferry.fleet_key, "route": ferry.route.key,
 			"name": ferry.ferry_name, "size": ferry.fc.size})
 	# JSON numbers are parsed as doubles. Keep the entire int64 seed.
-	return JSON.stringify({"seed": str(map.map_seed), "islands": islands,
+	return JSON.stringify({"seed": str(map.map_seed), "towns": islands,
 		"routes": routes, "ferries": ferries})
 
 
@@ -49,9 +49,9 @@ func read(saved_json: String, map: MapData) -> String:
 	if not saved is Dictionary or saved.get("seed") != str(map.map_seed):
 		return "Invalid company network or wrong region seed"
 	var expected_islands := {}
-	for island in map.islands:
-		expected_islands[island.key] = _island_record(map, island)
-	var error := _match_records(saved.get("islands"), expected_islands, map.islands.size(), "island")
+	for town in map.towns:
+		expected_islands[town.key] = _town_record(map, town)
+	var error := _match_records(saved.get("towns"), expected_islands, map.towns.size(), "town")
 	if not error.is_empty():
 		return error
 	var expected_routes := {}

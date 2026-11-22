@@ -26,7 +26,7 @@ func play_opening() -> bool:
 		return fail("Expected Hiyu on the opening route")
 	var boat := sim.ferries[0]
 	var port := boat.here()
-	if port.island.name != "Port Rosario" or port.capacity() != 14:
+	if port.town.name != "Port Rosario" or port.capacity() != 14:
 		return fail("Expected 14 holding spaces at Port Rosario before the first sailing")
 	if not await press("Speed 3"):
 		return false
@@ -34,7 +34,7 @@ func play_opening() -> bool:
 		await process_frame
 		if boat.trips > 0:
 			break
-	if boat.trips != 1 or boat.here().island.name != "Madrona Island":
+	if boat.trips != 1 or not boat.here().town.key.begins_with("island-2/"):
 		return fail("Hiyu did not complete her first sailing to Madrona")
 	if not await press("Pause") or not await press("FINANCES"):
 		return false
@@ -56,11 +56,11 @@ func play_opening() -> bool:
 	if not await press("FINANCES"):
 		return false
 	# Frame the port before clicking its map label, independent of the opening camera.
-	hud.rig.focus_on(port.island.town_center, 390.0)
+	hud.rig.focus_on(port.town.town_center, 390.0)
 	hud.rig.snap()
 	await process_frame
-	var label: Control = hud._labels[port.island.id]
-	if not click_control(label, label.size * 0.5, "Port Rosario") or hud.selected_island != port.island:
+	var label: Control = hud._labels[port.town.id]
+	if not click_control(label, label.size * 0.5, "Port Rosario") or hud.selected_town != port.town:
 		return fail("Port Rosario's map label did not open its inspector")
 	return await buy_lane(hud, port, ledger)
 

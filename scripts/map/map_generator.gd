@@ -45,7 +45,7 @@ const CLEARANCE_SLOPE := 1.0
 ## turn before the old rule (just afloat, 18 m either side).
 const CLEARANCE_STEPS := [1.0, 0.6, 0.3]
 ## Bump when the planner changes, so saved routes are planned again.
-const ROUTE_PLANNER_VERSION := 3
+const ROUTE_PLANNER_VERSION := 4
 
 
 ## A random map: rolls a layout from `map_seed`, then builds it.
@@ -76,6 +76,7 @@ func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
 	for isl in map.islands:
 		terrain.stamp(stamp_of(isl))
 	terrain.finalize()
+	_make_towns()
 	_plan_routes()
 	_save_route_memo()
 	_place_islets()
@@ -138,6 +139,7 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 		site.shore = Vector3(at.x, 0.0, at.y)
 		site.dir = Vector3(dir.x, 0.0, dir.y)
 		site.tier = d.tier
+		site.town = d.town
 		isl.dock_sites.append(site)
 
 
@@ -295,14 +297,56 @@ static func _fits(lay: MapLayout, spec: MapLayout.IslandSpec, c: Vector2, reach:
 ## Where `o`'s terminal stands and every dock site locked on it, built or not,
 ## as [shore, dir, built]: islets, marinas, quays and beaches keep clear of them
 ## all, so buying a site in play finds it as it was left.
+## Where `o`'s docks meet the shore: [shore, dir, a terminal's lot, its half width].
+## On an authored map every dock site is a town's, built or not, so all count.
 func _dock_spots(o: MapData.Island) -> Array:
 	var out := []
-	if o.has_terminal:
-		out.append([o.shore, o.dock_dir, true])
+	var sites := {}
+	for id in o.towns:
+		var t := map.towns[id]
+		if t.has_dock:
+			out.append([t.shore, t.dock_dir, true, t.lot_half_width])
+			sites[t.site] = true
 	for i in o.dock_sites.size():
-		if not (o.has_terminal and i == o.site):
-			out.append([o.dock_sites[i].shore, o.dock_sites[i].dir, false])
+		if not sites.has(i):
+			out.append([o.dock_sites[i].shore, o.dock_sites[i].dir, false, 0.0])
 	return out
+
+
+## One town per locked dock site (an island with none gets one town with no
+## dock); a generated map's islands one town each, docked where planning finds.
+func _make_towns() -> void:
+	map.towns.clear()
+	for isl in _main_islands():
+		isl.towns.clear()
+		var n := isl.dock_sites.size() if _locked else 0
+		for i in maxi(n, 1):
+			var t := MapData.Town.new()
+			t.id = map.towns.size()
+			t.key = "%s/%d" % [isl.key, i]
+			t.island = isl.id
+			t.name = isl.name
+			t.center = isl.center
+			if i < n:
+				var site := isl.dock_sites[i]
+				t.site = i
+				t.has_dock = true
+				t.shore = site.shore
+				t.dock_dir = site.dir
+				t.center = Vector2(site.shore.x, site.shore.z)
+				if not site.town.is_empty():
+					t.name = site.town
+				elif n > 1 and i > 0:
+					t.name = "%s %d" % [isl.name, i + 1]
+			map.towns.append(t)
+			isl.towns.append(t.id)
+
+
+## Whether town `t`'s terminal is the company's from the start.
+func _owned(t: MapData.Town) -> bool:
+	if _scenario:
+		return _scenario.terminals.has(t.key)
+	return map.islands[t.island].ferry and t.site <= 0
 
 
 func _main_islands() -> Array[MapData.Island]:
@@ -325,15 +369,18 @@ static func _find(parent: Array, i: int) -> int:
 ## banned and the network planned again without it, so the docks face the links
 ## that remain.
 func _plan_routes() -> void:
-	var mains: Array[MapData.Island] = []
-	for isl in _main_islands():
-		if not (_scenario.terminals.has(isl.key) if _scenario else isl.ferry):
-			continue
-		if _locked and isl.dock_sites.is_empty():
-			if _scenario:
-				push_warning("%s (%s) has no dock placed in the layout, so no terminal" % [isl.name, isl.key])
-			continue
-		mains.append(isl)
+	var mains: Array[MapData.Town] = []
+	for t in map.towns:
+		if _locked and _scenario:
+			# Every dock site is planned for, owned or not, so buying one in play
+			# needs nothing built (TID-319). (--full-network keeps the old
+			# spanning tree over the islands' first sites.)
+			if t.has_dock:
+				mains.append(t)
+			elif _scenario and _scenario.terminals.has(t.key):
+				push_warning("%s (%s) has no dock placed in the layout, so no terminal" % [t.name, t.key])
+		elif _owned(t) and (t.has_dock or not _locked):
+			mains.append(t)
 	var banned := {}
 	while true:
 		var bad := _try_routes(mains, banned)
@@ -343,15 +390,17 @@ func _plan_routes() -> void:
 			banned[key] = true
 	for r in map.routes:
 		_route_samples.append_array(r.curve.get_baked_points())
+	for t in mains:
+		t.built = t.has_dock and _owned(t)
 
 
 ## One planning pass with the `banned` links left out. Returns the links (as
 ## Vector2i of indices into `mains`) whose routes turned out not to make sense.
-func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
+func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 	map.routes.clear()
 	_slip_zones.clear()
 	for isl in mains:
-		isl.has_terminal = false
+		isl.has_dock = _locked
 		isl.slips.clear()
 	var edges: Array = []
 	for i in mains.size():
@@ -396,35 +445,28 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		if e.size() > 3:
 			continue   # a candidate route for the schedule editor: docks don't face it
 		for pair in [[e[1], e[2]], [e[2], e[1]]]:
-			var me: MapData.Island = mains[pair[0]]
-			var other: MapData.Island = mains[pair[1]]
+			var me: MapData.Town = mains[pair[0]]
+			var other: MapData.Town = mains[pair[1]]
 			var v: Vector2 = desired.get(me.id, Vector2.ZERO)
 			desired[me.id] = v + (other.center - me.center).normalized()
 	# A scenario terminal with no scheduled stop faces its nearest fellow terminal.
 	if _scenario:
 		for isl in mains:
 			if not desired.has(isl.id):
-				var near: MapData.Island = null
+				var near: MapData.Town = null
 				for o in mains:
 					if o != isl and (near == null or o.center.distance_to(isl.center) < near.center.distance_to(isl.center)):
 						near = o
 				desired[isl.id] = (near.center - isl.center).normalized() if near else Vector2.ZERO
+	# Locked by hand (has_dock already): exactly where placed, whatever the links.
 	var taken: Array[Vector3] = []
-	for isl in mains:
-		if desired.has(isl.id) and _locked:
-			# Locked by hand: exactly where it was placed, whatever the links.
-			isl.site = clampi(_scenario.dock_site(isl.key) if _scenario else 0, 0, isl.dock_sites.size() - 1)
-			isl.shore = isl.dock_sites[isl.site].shore
-			isl.dock_dir = isl.dock_sites[isl.site].dir
-			isl.has_terminal = true
-			taken.append(isl.dock_dir)
 	for isl in mains:
 		if desired.has(isl.id) and not _locked:
 			var dir: Vector2 = desired[isl.id]
 			if dir.length() < 0.1:
 				dir = -isl.center if isl.center.length() > 3.0 else Vector2.RIGHT
-			isl.has_terminal = _find_dock(isl, dir, taken)
-			if isl.has_terminal:
+			isl.has_dock = _find_dock(isl, dir, taken)
+			if isl.has_dock:
 				taken.append(isl.dock_dir)
 
 	var bad: Array = []
@@ -434,14 +476,16 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		var none: Array[int] = []
 		calls[isl.id] = none
 	for e in chosen:
-		var a: MapData.Island = mains[e[1]]
-		var b: MapData.Island = mains[e[2]]
+		var a: MapData.Town = mains[e[1]]
+		var b: MapData.Town = mains[e[2]]
 		# No dock for it: plan again without this link, so the network goes another way.
-		if not (a.has_terminal and b.has_terminal):
+		if not (a.has_dock and b.has_dock):
 			bad.append(Vector2i(e[1], e[2]))
 			continue
-		var test := _route_curve(a.shore + a.dock_dir * Layout.DOCK_U, a.dock_dir, b.shore + b.dock_dir * Layout.DOCK_U, b.dock_dir)
-		if test == null or not _route_sensible(test):
+		# Locked docks don't turn to face their links, so the final pass below
+		# is the only test their routes need (and the only one worth saving).
+		var test: Curve3D = null if _locked else _route_curve(a.shore + a.dock_dir * Layout.DOCK_U, a.dock_dir, b.shore + b.dock_dir * Layout.DOCK_U, b.dock_dir)
+		if not _locked and (test == null or not _route_sensible(test)):
 			bad.append(Vector2i(e[1], e[2]))
 			continue
 		var r := MapData.Route.new()
@@ -460,8 +504,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 
 	for isl in mains:
 		var here: Array[int] = calls[isl.id]
-		if here.is_empty() and not (isl.has_terminal and _scenario):
-			isl.has_terminal = false
+		if here.is_empty() and not (isl.has_dock and (_scenario or _locked)):
+			isl.has_dock = false
 			continue
 		var lat := isl.lateral()
 		here.sort_custom(func(ra, rb): return _departure_lateral(isl, ra, lat) < _departure_lateral(isl, rb, lat))
@@ -472,13 +516,13 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		_add_slip_zones(isl)
 
 	for r in map.routes:
-		var a := map.islands[r.a]
-		var b := map.islands[r.b]
+		var a := map.towns[r.a]
+		var b := map.towns[r.b]
 		var pa := a.dock_center(r.id)
 		var pb := b.dock_center(r.id)
 		# Every route keeps clear of every other slip and of land.
 		r.curve = _route_curve(pa, a.dock_dir, pb, b.dock_dir, r.id)
-		if r.curve == null or not _route_sensible(r.curve):
+		if r.curve == null or not (_locked or _route_sensible(r.curve)):
 			bad.append(link[r.id])
 			continue
 		r.length = r.curve.get_baked_length()
@@ -488,7 +532,7 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 ## Gives `isl` its slips and the routes calling there (sorted left to right by
 ## where they head) to them. A scenario terminal has the slips it lists, shared in
 ## turn by neighbouring routes; a planned network gives every route a large slip.
-func _assign_slips(isl: MapData.Island, routes: Array[int]) -> void:
+func _assign_slips(isl: MapData.Town, routes: Array[int]) -> void:
 	isl.slips.clear()
 	if _scenario == null:
 		for rid in routes:
@@ -500,14 +544,15 @@ func _assign_slips(isl: MapData.Island, routes: Array[int]) -> void:
 		isl.slips[floori(i * isl.slips.size() / float(routes.size()))].routes.append(routes[i])
 	for size in _scenario.tie_ups.get(isl.key, []):
 		isl.slips.append(MapData.Slip.new(size, true))
-	isl.open_lanes = _scenario.lanes.get(isl.key, 0)
+	# A site bought in play opens with one small slip and two paved lanes.
+	isl.open_lanes = _scenario.lanes.get(isl.key, 0 if _scenario.terminals.has(isl.key) else 2)
 
 
 ## The scenario's scheduled links as edges ([distance, i, j] into `mains`), then
 ## every other pair of its terminals as a candidate ([distance, i, j, true])
 ## the schedule editor can put a boat on. A candidate with no sensible route is
 ## banned like any other link.
-func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: Array) -> void:
+func _scenario_links(mains: Array[MapData.Town], banned: Dictionary, chosen: Array) -> void:
 	var index := {}
 	for i in mains.size():
 		index[mains[i].key] = i
@@ -531,7 +576,7 @@ func _scenario_links(mains: Array[MapData.Island], banned: Dictionary, chosen: A
 				chosen.append([mains[i].center.distance_to(mains[j].center), i, j, true])
 
 
-func _link(mains: Array[MapData.Island], bearings: Array, degree: PackedInt32Array, chosen: Array, e: Array) -> void:
+func _link(mains: Array[MapData.Town], bearings: Array, degree: PackedInt32Array, chosen: Array, e: Array) -> void:
 	var a: int = e[1]
 	var b: int = e[2]
 	var ab := mains[b].center - mains[a].center
@@ -546,7 +591,7 @@ func _link(mains: Array[MapData.Island], bearings: Array, degree: PackedInt32Arr
 ## between them: every neighbour of an island must lie within MAX_SPREAD of the
 ## others, so the dock faces them all rather than splitting the difference
 ## between opposite shores and sending ferries off the wrong way.
-func _fits_terminal(mains: Array[MapData.Island], bearings: Array, a: int, b: int) -> bool:
+func _fits_terminal(mains: Array[MapData.Town], bearings: Array, a: int, b: int) -> bool:
 	var ab := mains[b].center - mains[a].center
 	return _spread(bearings[a], ab.angle()) <= MAX_SPREAD and _spread(bearings[b], (-ab).angle()) <= MAX_SPREAD
 
@@ -584,10 +629,14 @@ func _route_sensible(c: Curve3D) -> bool:
 
 ## Which side the route heads off to once clear of the terminal, from its planning
 ## curve, so neighbouring slips' routes peel away from each other instead of crossing.
-func _departure_lateral(isl: MapData.Island, route_id: int, lat: Vector3) -> float:
+func _departure_lateral(isl: MapData.Town, route_id: int, lat: Vector3) -> float:
 	if not MapData.is_route(route_id):
 		return 0.0
 	var r := map.routes[route_id]
+	if r.curve == null:
+		# Not planned yet (locked docks): which way the far dock lies will do.
+		var other := map.towns[r.b if r.a == isl.id else r.a]
+		return (other.shore - isl.shore).dot(lat)
 	var length := r.curve.get_baked_length()
 	var s := minf(RUN_IN + 180.0, length * 0.5)
 	var p := r.curve.sample_baked(s if r.a == isl.id else length - s)
@@ -598,7 +647,8 @@ func _departure_lateral(isl: MapData.Island, route_id: int, lat: Vector3) -> flo
 ## holding lot) and open water ahead (for the slip and approach), never facing
 ## within DOCK_MIN_ANGLE of a dock already placed. The coast is rarely square to a
 ## line from the island's middle, so each landfall tries facing a little either way.
-func _find_dock(isl: MapData.Island, desired: Vector2, taken: Array[Vector3]) -> bool:
+func _find_dock(town: MapData.Town, desired: Vector2, taken: Array[Vector3]) -> bool:
+	var isl := map.islands[town.island]
 	var base := atan2(desired.y, desired.x)
 	for k in 33:
 		var ang := base + ceili(k / 2.0) * 0.1 * (1.0 if k % 2 == 1 else -1.0)
@@ -623,8 +673,8 @@ func _find_dock(isl: MapData.Island, desired: Vector2, taken: Array[Vector3]) ->
 					break
 			if clash or not _dock_fits(s3, n3):
 				continue
-			isl.shore = s3
-			isl.dock_dir = n3
+			town.shore = s3
+			town.dock_dir = n3
 			return true
 	return false
 
@@ -723,17 +773,51 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 			break
 	if c == null:
 		c = _direct_curve(pa, na, pb, nb, route_id, 0.0)
-	# Its own points (not the baked ones), so the curve rebuilt from them bakes
-	# the same and passes the same checks.
+	# Its own points (not the baked ones), thinned to within 10 cm and rounded to
+	# 1 cm so the saved routes stay small; the curve is rebuilt from them either
+	# way, so a planned and a loaded route are the same.
 	var flat: Array = []
 	if c != null:
+		var pts := PackedVector2Array()
 		for i in c.point_count:
 			var p := c.get_point_position(i)
-			flat.append(p.x)
-			flat.append(p.z)
+			pts.append(Vector2(p.x, p.z))
+		for p in _thin(pts, 0.1):
+			flat.append(snappedf(p.x, 0.01))
+			flat.append(snappedf(p.y, 0.01))
 	_route_memo[key] = flat
 	_memo_dirty = true
 	return _curve_of(flat) if c != null else null
+
+
+## `pts` with the points dropped that lie within `tolerance` of the line through
+## their neighbours (Ramer–Douglas–Peucker). The ends are kept.
+static func _thin(pts: PackedVector2Array, tolerance: float) -> PackedVector2Array:
+	if pts.size() < 3:
+		return pts
+	var keep := PackedByteArray()
+	keep.resize(pts.size())
+	keep[0] = 1
+	keep[pts.size() - 1] = 1
+	var stack: Array[Vector2i] = [Vector2i(0, pts.size() - 1)]
+	while not stack.is_empty():
+		var span: Vector2i = stack.pop_back()
+		var worst := -1
+		var worst_d := tolerance
+		for i in range(span.x + 1, span.y):
+			var d := pts[i].distance_to(Geometry2D.get_closest_point_to_segment(pts[i], pts[span.x], pts[span.y]))
+			if d > worst_d:
+				worst_d = d
+				worst = i
+		if worst >= 0:
+			keep[worst] = 1
+			stack.append(Vector2i(span.x, worst))
+			stack.append(Vector2i(worst, span.y))
+	var out := PackedVector2Array()
+	for i in pts.size():
+		if keep[i]:
+			out.append(pts[i])
+	return out
 
 
 func _curve_of(flat: Array) -> Curve3D:
@@ -794,7 +878,7 @@ func _round_land_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route
 		if pts.is_empty():
 			continue
 		var c := _curve_from(pa, pts, pb, run)
-		if _route_clear(c) and _route_sensible(c) and _keeps_clear(c, fraction) and (route_id < 0 or _clear_of_slips(c, route_id)):
+		if _route_clear(c) and (_locked or _route_sensible(c)) and _keeps_clear(c, fraction) and (route_id < 0 or _clear_of_slips(c, route_id)):
 			return c
 	return null
 
@@ -825,7 +909,7 @@ func _direct_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id:
 		var c := _curve_from(pa, cand[1], pb, cand[2])
 		# Not one that strays too far or turns too much (a long run-in can, where
 		# the slips face away from each other): a shorter run-in will do instead.
-		if _route_clear(c) and _route_sensible(c) and _keeps_clear(c, fraction) and (route_id < 0 or _clear_of_slips(c, route_id)):
+		if _route_clear(c) and (_locked or _route_sensible(c)) and _keeps_clear(c, fraction) and (route_id < 0 or _clear_of_slips(c, route_id)):
 			return c
 	# Nothing standard keeps out of every other slip: try longer straight runs out
 	# of either end and wider turns before giving up on the link.
@@ -923,7 +1007,7 @@ func _route_clear(c: Curve3D) -> bool:
 
 
 ## Marks `isl`'s slips off limits to other routes (_clear_of_slips).
-func _add_slip_zones(isl: MapData.Island) -> void:
+func _add_slip_zones(isl: MapData.Town) -> void:
 	var lat := isl.lateral()
 	var last := isl.slips.size() - 1
 	for i in isl.slips.size():
@@ -1194,8 +1278,8 @@ func _place_station(map_seed: int) -> void:
 
 
 func _flatten_terminals() -> void:
-	for isl in map.islands:
-		if not isl.has_terminal:
+	for isl in map.towns:
+		if not isl.has_dock:
 			continue
 		var hw := isl.lot_half_width
 		terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - 6.0, Layout.LOT_FRONT + 3.0,
@@ -1212,8 +1296,8 @@ func _place_beaches(map_seed: int) -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = map_seed * 31 + 17
 	var cut: Array[Vector3] = []
-	for isl in _main_islands():
-		if not isl.has_terminal:
+	for isl in map.towns:
+		if not isl.has_dock:
 			continue
 		var hw := isl.lot_half_width
 		var sides: Array[float] = [1.0]
@@ -1266,7 +1350,7 @@ func _try_beach(at: Vector3, out: Vector3, half_w: float, r: RandomNumberGenerat
 		return false
 	for o in map.islands:
 		for sp in _dock_spots(o):
-			if s3.distance_to(sp[0]) < (o.lot_half_width + 24.0 + half_w if beside and sp[2] else 260.0):
+			if s3.distance_to(sp[0]) < (sp[3] + 24.0 + half_w if beside and sp[2] else 260.0):
 				return false
 	for m in map.marinas:
 		if s3.distance_to(m.shore) < (Layout.MARINA_HEAD_HALF + 30.0 + half_w if beside else 170.0):
@@ -1293,6 +1377,9 @@ func _name_islands() -> void:
 	for isl in _main_islands():
 		isl.population = int(rng.randf_range(900.0, 6500.0) / 10.0) * 10
 		isl.growth = rng.randf_range(-0.5, 4.5)
+		# Split evenly across its towns (service growth will grow the one served).
+		for id in isl.towns:
+			map.towns[id].population = int(isl.population / float(isl.towns.size()) / 10.0) * 10
 
 
 ## Some islands are wildlife hotspots, most are middling, a few rarely see any.
@@ -1523,8 +1610,8 @@ func _h(p: Vector3) -> float:
 ## Main road from the lot entrance inland to a town centre, plus a cross street.
 func _layout_towns() -> void:
 	# Where each town sits, then smooth ground around it, then its roads.
-	for isl in _main_islands():
-		if isl.has_terminal:
+	for isl in map.towns:
+		if isl.has_dock:
 			var nd := isl.dock_dir
 			var e := isl.shore + nd * Layout.LOT_BACK
 			var dist := 48.0
@@ -1536,10 +1623,11 @@ func _layout_towns() -> void:
 			isl.town_center = e - nd * dist
 			isl.town_axis = isl.lateral()
 		else:
-			# Unconnected island: settle on the highest ground near the centre.
-			var best := Vector3(isl.center.x, 0.0, isl.center.y)
+			# A town with no dock: settle on the highest ground near the centre.
+			var c := map.islands[isl.island].center
+			var best := Vector3(c.x, 0.0, c.y)
 			for k in 24:
-				var p := Vector3(isl.center.x + rng.randf_range(-150, 150), 0.0, isl.center.y + rng.randf_range(-150, 150))
+				var p := Vector3(c.x + rng.randf_range(-150, 150), 0.0, c.y + rng.randf_range(-150, 150))
 				if _h(p) > _h(best):
 					best = p
 			isl.town_center = best
@@ -1550,13 +1638,13 @@ func _layout_towns() -> void:
 		terrain.smooth_town(isl.town_center, town_r * 1.4 + 20.0, 45.0)
 	# Cut a shoulder for the ticket lanes after locating the towns. Keep hillside
 	# terrain below the outer booth and taper the cut back into the access road.
-	for isl in _main_islands():
-		if isl.has_terminal:
+	for isl in map.towns:
+		if isl.has_dock:
 			terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - Layout.TICKET_FAN_LENGTH,
 				Layout.LOT_BACK, -18.5, 5.5, Layout.LOT_Y - 0.15, 12.0)
 	terrain.apply_flats()  # the ferry lots stay exactly level
-	for isl in _main_islands():
-		if isl.has_terminal:
+	for isl in map.towns:
+		if isl.has_dock:
 			var nd := isl.dock_dir
 			var t := isl.lateral()
 			var e := isl.shore + nd * Layout.LOT_BACK

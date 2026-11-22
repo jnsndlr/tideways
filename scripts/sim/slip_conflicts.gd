@@ -31,7 +31,7 @@ static func windows(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Arr
 		var t := float(times[k])
 		var prev := float(times[k - 1] if k > 0 else times[-1] - Timetable.DAY)
 		for i in n:
-			var isl := sim.map.islands[ids[i]]
+			var isl := sim.map.towns[ids[i]]
 			var r := sim.route_between(ids[i], ids[(i + 1) % n])
 			var start := prev + o[n] - dwell if i == 0 else t + o[i] - dwell
 			var slip := isl.slip_index(r.id)
@@ -48,7 +48,7 @@ static func windows(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Arr
 
 ## The tie-up slip at `isl` she goes to in a gap of `gap` minutes between
 ## unloading and her next sailing there (Ferry.GAP_TIE_UP), or -1.
-static func _tie_up_for(f: Ferry, isl: MapData.Island, gap: float) -> int:
+static func _tie_up_for(f: Ferry, isl: MapData.Town, gap: float) -> int:
 	if gap < Ferry.GAP_TIE_UP:
 		return -1
 	for i in isl.tie_ups():
@@ -90,7 +90,7 @@ static func check(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Dicti
 		if plan.times.is_empty():
 			for i in plan.ids.size():
 				var r := f.sim.route_between(plan.ids[i], plan.ids[(i + 1) % plan.ids.size()])
-				var isl := f.sim.map.islands[plan.ids[i]]
+				var isl := f.sim.map.towns[plan.ids[i]]
 				if r != null and my_slips.has("%d:%d" % [plan.ids[i], isl.slip_index(r.id)]) and other not in out.untimed:
 					out.untimed.append(other)
 			continue
@@ -190,7 +190,7 @@ static func _others(result: Dictionary) -> Array:
 
 ## One line for a clash on a sailing.
 static func clash_text(sim: Simulation, c: Dictionary) -> String:
-	var where := sim.map.islands[c.island].name.trim_suffix(" Island")
+	var where := sim.map.towns[c.island].name.trim_suffix(" Island")
 	var mins := maxi(1, roundi(c.hold))
 	if c.she_holds:
 		return "%s %s: the %s is alongside · she holds ~%d min offshore" % [where, Timetable.text(c.at), c.other.ferry_name, mins]
@@ -200,7 +200,7 @@ static func clash_text(sim: Simulation, c: Dictionary) -> String:
 static func _slip_names(sim: Simulation, cs: Array) -> String:
 	var names: Array[String] = []
 	for c in cs:
-		var n := sim.map.islands[c.island].name.trim_suffix(" Island")
+		var n := sim.map.towns[c.island].name.trim_suffix(" Island")
 		if n not in names:
 			names.append(n)
 	return " and ".join(names)

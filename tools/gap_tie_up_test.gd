@@ -30,7 +30,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -54,7 +54,7 @@ func _process(_delta: float) -> bool:
 	var gullrock := _term(sim, "island-7")
 	if frames == 5:
 		Engine.time_scale = 12.0
-		var ids: Array[int] = [madrona.island.id, gullrock.island.id]
+		var ids: Array[int] = [madrona.town.id, gullrock.town.id]
 		var round_min := rhodo.plan_offsets(ids)[-1]
 		var first := int(ceil(fmod(sim.minutes, 1440.0) / 5.0)) * 5 + 180
 		_times = [first, first + ceili(round_min) + 200]
@@ -68,7 +68,7 @@ func _process(_delta: float) -> bool:
 			return _fail("Refused Hiyu's evening sailing")
 		return false
 	var sailing := rhodo.state == Ferry.State.SAILING and rhodo.berth == Ferry.Berth.WORKING
-	if sailing and not _was_sailing and rhodo.stops[0] == madrona.island.id and rhodo.call == 1:
+	if sailing and not _was_sailing and rhodo.stops[0] == madrona.town.id and rhodo.call == 1:
 		var due := float(_times[_departures % 2])
 		var now := fmod(sim.minutes, 1440.0)
 		print("%s: left Madrona (due %s)" % [sim.clock_text(), Timetable.text(due)])

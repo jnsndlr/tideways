@@ -35,12 +35,12 @@ func _process(_delta: float) -> bool:
 	var sim: Simulation = main.sim
 	var term: Terminal
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == "island-1":
+		if t.town.key.begins_with("island-1/"):
 			term = t
 	if frames == 5:
 		Engine.time_scale = 8.0
 		start_lanes = _lane_count(term)
-		print("%s: %d lanes %s, %d more on the lot" % [term.island.name, start_lanes, term.lanes.values().map(func(a): return a.map(func(l): return l.v)), term.site_lanes.size()])
+		print("%s: %d lanes %s, %d more on the lot" % [term.town.name, start_lanes, term.lanes.values().map(func(a): return a.map(func(l): return l.v)), term.site_lanes.size()])
 		if start_lanes != 2:
 			return _fail("Expected two lanes at the start")
 	if bought < 2 and term.buy_holding_lane():

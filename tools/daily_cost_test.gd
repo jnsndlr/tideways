@@ -29,7 +29,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -50,7 +50,7 @@ func _process(_delta: float) -> bool:
 	var hiyu := sim.ferries[0]
 	if frames == 5:
 		Engine.time_scale = 6.0
-		var ids: Array[int] = [_term(sim, "island-1").island.id, _term(sim, "island-2").island.id]
+		var ids: Array[int] = [_term(sim, "island-1").town.id, _term(sim, "island-2").town.id]
 		var round_min := hiyu.plan_offsets(ids)[-1]
 		var times: Array[int] = [400, 400 + ceili(round_min)]
 		if not sim.reschedule(hiyu, ids, times):

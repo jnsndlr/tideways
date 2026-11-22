@@ -32,7 +32,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -50,12 +50,12 @@ func _process(_delta: float) -> bool:
 	if frames == 5:
 		Engine.time_scale = 6.0
 		for t: Terminal in [madrona, gullrock, rosario, cypress]:
-			print("%s lanes: %s" % [t.island.name, t.lanes.keys().map(func(k): return "%s×%d" % [sim.map.islands[k].name, t.lanes[k].size()])])
+			print("%s lanes: %s" % [t.town.name, t.lanes.keys().map(func(k): return "%s×%d" % [sim.map.towns[k].name, t.lanes[k].size()])])
 		print("Hiyu stops %s" % [hiyu.stops])
 	# Her hull never jumps or swings round between frames.
 	var yaw := hiyu.global_rotation.y
 	if _last_yaw != INF and (absf(angle_difference(_last_yaw, yaw)) > 0.25 or hiyu.global_position.distance_to(_last_pos) > 6.0) and hiyu.berth == Ferry.Berth.WORKING:
-		return _fail("Hiyu jumped at %s: yaw %.2f -> %.2f" % [hiyu.here().island.name, _last_yaw, yaw])
+		return _fail("Hiyu jumped at %s: yaw %.2f -> %.2f" % [hiyu.here().town.name, _last_yaw, yaw])
 	_last_yaw = yaw
 	_last_pos = hiyu.global_position
 	# No sharing at Madrona; sharing where Hiyu serves both.
@@ -65,7 +65,7 @@ func _process(_delta: float) -> bool:
 				var car := instance_from_id(waiting.vehicle_id) as Vehicle
 				if car.dest == key:
 					continue
-				return _fail("%s traffic queued in the %s lane at Madrona" % [sim.map.islands[car.dest].name, sim.map.islands[key].name])
+				return _fail("%s traffic queued in the %s lane at Madrona" % [sim.map.towns[car.dest].name, sim.map.towns[key].name])
 	for t: Terminal in [rosario, gullrock]:
 		for key in t.lanes.keys():
 			for lane: Terminal.Lane in t.lanes[key]:
@@ -73,7 +73,7 @@ func _process(_delta: float) -> bool:
 					var car := instance_from_id(waiting.vehicle_id) as Vehicle
 					if car.dest == key or shared_ok:
 						continue
-					print("Day %d %s: %s traffic sharing the %s lane at %s" % [sim.day, sim.clock_text(), sim.map.islands[car.dest].name, sim.map.islands[key].name, t.island.name])
+					print("Day %d %s: %s traffic sharing the %s lane at %s" % [sim.day, sim.clock_text(), sim.map.towns[car.dest].name, sim.map.towns[key].name, t.town.name])
 					shared_ok = true
 	# A through car.
 	var sailing := hiyu.state == Ferry.State.SAILING
@@ -81,7 +81,7 @@ func _process(_delta: float) -> bool:
 		var left := hiyu.here()
 		if left == rosario and through_phase == 0:
 			for car in hiyu.aboard:
-				if car.dest == gullrock.island.id:
+				if car.dest == gullrock.town.id:
 					through = car
 					through_phase = 1
 					print("Leaving Port Rosario with a car for Gullrock aboard")

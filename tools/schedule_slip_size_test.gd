@@ -9,11 +9,11 @@ func _run() -> void:
 	var region := TinyRegion.build(3)
 	var company := Scenario.from_network(region.map, ["Test ferry"], [4, 2, 2])
 	var service := company.schedules[0]
-	for island in region.map.islands:
+	for island in region.map.towns:
 		for slip in island.slips:
 			slip.size = 2
-	service.stops = [region.map.islands[0].key, region.map.islands[1].key, region.map.islands[2].key]
-	var last := region.map.islands[2]
+	service.stops = [region.map.towns[0].key, region.map.towns[1].key, region.map.towns[2].key]
+	var last := region.map.towns[2]
 	# The 1 -> 2 leg is after the first and has a different berth from the 2 -> 0 leg.
 	var berth := last.slips[last.slip_index(region.map.routes[2].id)]
 	berth.size = 1

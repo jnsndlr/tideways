@@ -38,7 +38,7 @@ func _process(_delta: float) -> bool:
 	if frame == 1:
 		ferry = sandbox.sim.ferries[0]
 		destination = ferry.destination()
-		for lane in ferry.here().lanes[ferry.destination().island.id]:
+		for lane in ferry.here().lanes[ferry.destination().town.id]:
 			for waiting in lane.queue:
 				queued[waiting.vehicle_id] = true
 		Engine.time_scale = 4.0

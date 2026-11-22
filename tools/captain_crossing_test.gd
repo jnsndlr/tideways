@@ -39,7 +39,7 @@ func _process(_delta: float) -> bool:
 		Engine.time_scale = 4.0
 		print("Unhindered crossing forecasts (game minutes):")
 		for g in sim.ferries:
-			var line := "  %-16s %s <-> %s, %4.0f m:" % [g.ferry_name, g.term_a.island.name, g.term_b.island.name, g.run_length()]
+			var line := "  %-16s %s <-> %s, %4.0f m:" % [g.ferry_name, g.term_a.town.name, g.term_b.town.name, g.run_length()]
 			for c in Captain.roster():
 				line += "  %s %.1f" % [c.surname(), g.forecast_minutes(c)]
 			print(line + "  -> suits " + g.best_captain().surname())
@@ -68,7 +68,7 @@ func _process(_delta: float) -> bool:
 		if not _results.has(c.id):
 			_results[c.id] = []
 		_results[c.id].append([f.last_crossing, _held])
-		print("  %-14s to %-14s %.1f min (forecast %.1f)%s" % [c.name, f.here().island.name, f.last_crossing,
+		print("  %-14s to %-14s %.1f min (forecast %.1f)%s" % [c.name, f.here().town.name, f.last_crossing,
 			f.forecast_minutes(c), "  held up by traffic" if _held else ""])
 	_held = false
 	if _plan.is_empty():

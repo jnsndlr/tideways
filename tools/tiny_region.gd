@@ -35,33 +35,38 @@ static func build(towns := 2) -> TinyRegion:
 		var isl := gen._new_island(centers[i], ISLAND_RADIUS, 1.0, true)
 		isl.name = names[i]
 		isl.population = 2600
-		isl.has_terminal = true
 		gen.terrain.stamp_island(isl.center, isl.radius, isl.strength)
 	gen.terrain.finalize()
+	# One town per island, each with its terminal open (ids match the islands').
+	gen._make_towns()
+	for t in map.towns:
+		t.population = 2600
+		t.has_dock = true
+		t.built = true
 	var middle := Vector2.ZERO
 	for c: Vector2 in centers:
 		middle += c / centers.size()
-	for isl in map.islands:
+	for isl in map.towns:
 		var toward := middle - isl.center if towns == 3 else -isl.center
 		if not gen._find_dock(isl, toward.normalized(), []):
 			push_error("TinyRegion: no dock site on %s" % isl.name)
 			return null
-	for a in map.islands.size():
-		for b in range(a + 1, map.islands.size()):
+	for a in map.towns.size():
+		for b in range(a + 1, map.towns.size()):
 			var r := MapData.Route.new()
 			r.id = map.routes.size()
-			r.key = "link-%s-%s" % [map.islands[a].key, map.islands[b].key]
+			r.key = "link-%s-%s" % [map.towns[a].key, map.towns[b].key]
 			r.a = a
 			r.b = b
 			map.routes.append(r)
-			map.islands[a].add_route_slip(r.id)
-			map.islands[b].add_route_slip(r.id)
-	for isl in map.islands:
+			map.towns[a].add_route_slip(r.id)
+			map.towns[b].add_route_slip(r.id)
+	for isl in map.towns:
 		isl.lot_half_width = maxf(36.0, (isl.slips.size() - 1) * Layout.SLIP_SPACING * 0.5 + 15.0)
 		gen._add_slip_zones(isl)
 	for r in map.routes:
-		var a := map.islands[r.a]
-		var b := map.islands[r.b]
+		var a := map.towns[r.a]
+		var b := map.towns[r.b]
 		# Each route keeps out of the others' slips and berths, as on a generated map.
 		r.curve = gen._route_curve(a.dock_center(r.id), a.dock_dir, b.dock_center(r.id), b.dock_dir, r.id)
 		if r.curve == null:

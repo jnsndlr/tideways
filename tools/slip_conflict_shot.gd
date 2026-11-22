@@ -27,8 +27,8 @@ func _shot(name: String) -> void:
 
 
 func _id(sim: Simulation, key: String) -> int:
-	for isl in sim.map.islands:
-		if isl.key == key:
+	for isl in sim.map.towns:
+		if isl.key.begins_with(key + "/"):
 			return isl.id
 	return -1
 
@@ -73,7 +73,7 @@ func _process(_delta: float) -> bool:
 			_shot("panel")
 			Engine.time_scale = 6.0
 	# Then the Heron coming in to Madrona's dock, which faces Port Rosario.
-	if frames > 210 and _docked_at < 0 and heron.state != Ferry.State.SAILING and heron.here().island.key == "island-2":
+	if frames > 210 and _docked_at < 0 and heron.state != Ferry.State.SAILING and heron.here().town.key.begins_with("island-2/"):
 		_docked_at = frames
 	if _docked_at > 0 and frames == _docked_at + 3:
 		_shot("heron_at_madrona")

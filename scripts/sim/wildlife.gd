@@ -770,17 +770,17 @@ func _look(v: Visit) -> void:
 		return
 	var p := Vector2(v.pos.x, v.pos.z)
 	for term: Terminal in sim.terminals.values():
-		var isl := term.island
+		var isl := term.town
 		if p.distance_to(Vector2(isl.shore.x, isl.shore.z)) < DOCK_RADIUS:
-			_credit(v, isl, "the %s dock" % isl.name)
+			_credit(v, sim.map.island_of(isl), "the %s dock" % isl.name)
 	if v.phase == Phase.HAULED and v.site.kind == MapData.HaulOut.Kind.DOCK:
 		var m := sim.map.marinas[v.site.marina]
 		_credit(v, sim.map.islands[m.island], "the %s marina" % sim.map.islands[m.island].name)
 	for f in sim.ferries:
 		if f.state == Ferry.State.SAILING \
 				and p.distance_to(Vector2(f.global_position.x, f.global_position.z)) < FERRY_RADIUS:
-			_credit(v, f.term_a.island, "the " + f.ferry_name)
-			_credit(v, f.term_b.island, "the " + f.ferry_name)
+			_credit(v, sim.map.island_of(f.term_a.town), "the " + f.ferry_name)
+			_credit(v, sim.map.island_of(f.term_b.town), "the " + f.ferry_name)
 
 
 func _credit(v: Visit, isl: MapData.Island, seen_from: String) -> void:

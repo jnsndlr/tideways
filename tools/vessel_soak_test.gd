@@ -161,8 +161,8 @@ func _process(delta: float) -> bool:
 					if not ferry_stop_why.has(why):
 						var o: Ferry = f._waiting_for
 						print("FERRY WAIT %s %s at %.0f of %.0f m to %s: %s%s" % [sim.clock_text(), f.ferry_name, f.traveled, f.run_length(),
-							f.destination().island.name, why, "" if o == null else " [%s at %.0f of %.0f m to %s]" % [
-								o.ferry_name, o.traveled, o.run_length(), o.destination().island.name]])
+							f.destination().town.name, why, "" if o == null else " [%s at %.0f of %.0f m to %s]" % [
+								o.ferry_name, o.traveled, o.run_length(), o.destination().town.name]])
 					ferry_stop_why[why] = ferry_stop_why.get(why, 0.0) + delta
 	if frames < max_frames:
 		return false

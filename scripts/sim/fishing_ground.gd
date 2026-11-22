@@ -34,9 +34,8 @@ static func find_all(t: MarineTraffic) -> Array[FishingGround]:
 	var map := t.sim.map
 	var out: Array[FishingGround] = []
 	var avoid: Array[Vector2] = []
-	for isl in map.islands:
-		if isl.has_terminal:
-			avoid.append(Vector2(isl.shore.x, isl.shore.z))
+	for isl in map.dock_towns():
+		avoid.append(Vector2(isl.shore.x, isl.shore.z))
 	for m in map.marinas:
 		var a := m.at(Layout.MARINA_APPROACH_U, 0.0)
 		avoid.append(Vector2(a.x, a.z))

@@ -25,11 +25,10 @@ func _initialize() -> void:
 		var gen := MapGenerator.new()
 		var map := gen.generate(seed)
 		var map_bad := false
-		for isl in map.islands:
-			if isl.inhabited and not isl.is_mainland:
-				islands += 1
-				if not isl.has_terminal:
-					unlinked += 1
+		for isl in map.towns:
+			islands += 1
+			if not isl.built:
+				unlinked += 1
 		for r in map.routes:
 			n_routes += 1
 			var info := audit(gen, r)
@@ -39,7 +38,7 @@ func _initialize() -> void:
 				map_bad = true
 			if flagged or verbose:
 				print("seed %d route %d (%s-%s): turn %.0f°, len %.0f, chord %.0f, ratio %.2f%s%s" % [seed, r.id,
-					map.islands[r.a].name, map.islands[r.b].name, info.turn, r.length, info.chord, r.length / maxf(info.chord, 1.0),
+					map.towns[r.a].name, map.towns[r.b].name, info.turn, r.length, info.chord, r.length / maxf(info.chord, 1.0),
 					"  LOOPS" if info.loops else "", "  THROUGH SLIP" if not info.slips_clear else ""])
 		if map_bad:
 			maps_bad += 1
@@ -80,9 +79,8 @@ static func audit(gen: MapGenerator, r: MapData.Route) -> Dictionary:
 ## How many separate ferry networks the map has.
 static func components(map: MapData) -> int:
 	var parent := {}
-	for isl in map.islands:
-		if isl.has_terminal:
-			parent[isl.id] = isl.id
+	for isl in map.terminal_towns():
+		parent[isl.id] = isl.id
 	var find := func(f: Callable, i: int) -> int: return i if parent[i] == i else f.call(f, parent[i])
 	for r in map.routes:
 		parent[find.call(find, r.a)] = find.call(find, r.b)

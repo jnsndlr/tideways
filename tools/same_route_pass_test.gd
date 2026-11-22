@@ -46,7 +46,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -71,7 +71,7 @@ func _process(delta: float) -> bool:
 		Engine.time_scale = 6.0
 		hiyu.pace = 2
 		rhodo.pace = 0
-		var ids: Array[int] = [rosario.island.id, madrona.island.id]
+		var ids: Array[int] = [rosario.town.id, madrona.town.id]
 		# Both on one timetable's beat, Rhododendron leaving Port Rosario so that
 		# halfway across she meets Hiyu halfway back (at their different paces).
 		var beat := maxf(hiyu.plan_offsets(ids)[-1], rhodo.plan_offsets(ids)[-1]) + 20.0
@@ -101,7 +101,7 @@ func _process(delta: float) -> bool:
 	for term: Terminal in sim.terminals.values():
 		var at := sim.ferries.filter(func(f): return f.berth == Ferry.Berth.WORKING and f.state != Ferry.State.SAILING and f.here() == term)
 		if at.size() > 1:
-			return _fail("%s and %s both at %s's slip" % [at[0].ferry_name, at[1].ferry_name, term.island.name])
+			return _fail("%s and %s both at %s's slip" % [at[0].ferry_name, at[1].ferry_name, term.town.name])
 	# Never stuck.
 	var minutes := delta   # (already scaled; a second is a game minute)
 	var held := func(f: Ferry, by: Ferry) -> bool:
@@ -120,7 +120,7 @@ func _process(delta: float) -> bool:
 			if _still[f] > STUCK:
 				for g: Ferry in sim.ferries:
 					print("  %s: %s to %s, %.0f m left, route %d at_a %s, stops %s next %s, %s, clear %.0f hold %.0f blocker %s speed %.2f traveled %.0f wf %s" % [g.ferry_name, Ferry.State.keys()[g.state],
-						g.destination().island.name, g.path_left(), g.route.id, g.at_a, g.stops, g.next_stops, g.status_text(), g.clear, g.hold, g.blocker.vessel_name if g.blocker else "-", g.speed, g.traveled, g._waiting_for.ferry_name if g._waiting_for else "-"])
+						g.destination().town.name, g.path_left(), g.route.id, g.at_a, g.stops, g.next_stops, g.status_text(), g.clear, g.hold, g.blocker.vessel_name if g.blocker else "-", g.speed, g.traveled, g._waiting_for.ferry_name if g._waiting_for else "-"])
 				for id in sim.marine.corridors:
 					for c in sim.marine.corridors[id]:
 						print("  corridor %s on %d %s owner %s" % [c.key, id, c.span[id], c.owner.ferry_name if c.owner else "-"])
@@ -146,7 +146,7 @@ func _process(delta: float) -> bool:
 			if hiyu.speed > hiyu.cruise * 0.5 and rhodo.speed > rhodo.cruise * 0.5:
 				under_way += 1
 			print("Day %d %s: pass %d, %.1f m apart. Hiyu %.0f m from %s, %s; Rhododendron %.0f m from %s, %s" % [sim.day, sim.clock_text(), passes, gap,
-				hiyu.path_left(), hiyu.destination().island.name, hiyu.status_text(), rhodo.path_left(), rhodo.destination().island.name, rhodo.status_text()])
+				hiyu.path_left(), hiyu.destination().town.name, hiyu.status_text(), rhodo.path_left(), rhodo.destination().town.name, rhodo.status_text()])
 		_ahead = side
 		if _shots != "":
 			_film(hiyu, rhodo, d)

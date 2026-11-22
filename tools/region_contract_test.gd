@@ -17,14 +17,14 @@ func _initialize() -> void:
 			quit(1)
 			return
 	# Use generated, valid data as the control. Each mutation breaks one reference.
-	fixture.islands.reverse()
+	fixture.towns.reverse()
 	if not inspect(fixture).contains("runtime index"):
-		push_error("Region check accepted reordered runtime island IDs")
+		push_error("Region check accepted reordered runtime town IDs")
 		quit(1)
 		return
-	fixture.islands.reverse()
+	fixture.towns.reverse()
 	var route := fixture.routes[0]
-	fixture.islands[route.a].add_route_slip(fixture.routes.size())
+	fixture.towns[route.a].add_route_slip(fixture.routes.size())
 	if not inspect(fixture).contains("missing route"):
 		push_error("Region check accepted a dangling terminal slip")
 		quit(1)
@@ -36,10 +36,10 @@ func _initialize() -> void:
 func inspect(map: MapData) -> String:
 	if map.routes.is_empty():
 		return "no sailing routes"
-	for i in map.islands.size():
-		var island := map.islands[i]
+	for i in map.towns.size():
+		var island := map.towns[i]
 		if island.id != i:
-			return "island ID differs from its runtime index at %s" % i
+			return "town ID differs from its runtime index at %s" % i
 		for rid in island.route_ids():
 			if rid < 0 or rid >= map.routes.size():
 				return "island %s references missing route %s" % [i, rid]
@@ -53,9 +53,9 @@ func inspect(map: MapData) -> String:
 		if route.curve == null or route.length <= 0.0:
 			return "route %s has no navigable length" % i
 		for endpoint: int in [route.a, route.b]:
-			if endpoint < 0 or endpoint >= map.islands.size():
-				return "route %s references missing island %s" % [i, endpoint]
-			var island := map.islands[endpoint]
-			if not island.has_terminal or island.route_ids().count(i) != 1:
+			if endpoint < 0 or endpoint >= map.towns.size():
+				return "route %s references missing town %s" % [i, endpoint]
+			var island := map.towns[endpoint]
+			if not island.has_dock or island.route_ids().count(i) != 1:
 				return "route %s needs exactly one terminal slip at %s" % [i, endpoint]
 	return ""

@@ -25,8 +25,8 @@ func _round_trip() -> String:
 	var first := original.ferries[0]
 	var first_key := first.fleet_key
 	var route_key := first.route.key
-	var endpoint_a := first.term_a.island.key
-	var endpoint_b := first.term_b.island.key
+	var endpoint_a := first.term_a.town.key
+	var endpoint_b := first.term_b.town.key
 	var original_route_index := first.route.id
 	var old_size := first.fc.size
 	first.ferry_name = "Renamed ferry"
@@ -34,7 +34,7 @@ func _round_trip() -> String:
 	original._spawn_ferry("relief-boat", first.route, first.ferry_name, 5)
 	var saved: Dictionary = JSON.parse_string(CompanyNetwork.capture(original))
 	original.free()
-	for group in ["islands", "routes", "ferries"]:
+	for group in ["towns", "routes", "ferries"]:
 		saved[group].reverse()
 	var file := FileAccess.create_temp(FileAccess.WRITE_READ, "tideways-company", "json")
 	if file == null:
@@ -48,7 +48,7 @@ func _round_trip() -> String:
 	region.routes.reverse()
 	for i in region.routes.size():
 		region.routes[i].id = i
-	for island in region.islands:
+	for island in region.towns:
 		for slip in island.slips:
 			for i in slip.routes.size():
 				slip.routes[i] = region.routes.size() - 1 - slip.routes[i]
@@ -74,7 +74,7 @@ func _verify_assignments(sim: Simulation, first_key: String, route_key: String, 
 			continue
 		if ferry.route.key != route_key or ferry.route.id == old_index:
 			return "Assignment followed the runtime route index"
-		if ferry.term_a.island.key != a or ferry.term_b.island.key != b:
+		if ferry.term_a.town.key != a or ferry.term_b.town.key != b:
 			return "Ferry restored to the wrong terminal pair"
 		var size := old_size if ferry.fleet_key == first_key else 5
 		if ferry.fc.size != size or ferry.ferry_name != "Renamed ferry":
@@ -88,7 +88,7 @@ func _verify_assignments(sim: Simulation, first_key: String, route_key: String, 
 func _reject_corruption(map: MapData, terrain: Terrain, saved: Dictionary) -> String:
 	var target := Simulation.new()
 	var cases := []
-	for group in ["islands", "routes", "ferries"]:
+	for group in ["towns", "routes", "ferries"]:
 		var duplicate := saved.duplicate(true)
 		duplicate[group][0].key = duplicate[group][1].key
 		cases.append([duplicate, "Duplicate"])
@@ -96,7 +96,7 @@ func _reject_corruption(map: MapData, terrain: Terrain, saved: Dictionary) -> St
 	lost_route.ferries[0].route = "missing-route"
 	cases.append([lost_route, "unknown route"])
 	var lost_endpoint := saved.duplicate(true)
-	lost_endpoint.routes[0].a = "missing-island"
+	lost_endpoint.routes[0].a = "missing-town"
 	cases.append([lost_endpoint, "topology"])
 	var wrong_region := saved.duplicate(true)
 	wrong_region.seed = "124"

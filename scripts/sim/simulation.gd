@@ -15,7 +15,11 @@ var terrain: Terrain
 var rng := RandomNumberGenerator.new()
 var minutes := 6.0 * 60.0
 var day := 12
-var terminals := {}             # island id -> Terminal
+var terminals := {}             # town id -> Terminal
+## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
+const DOCK_BUILD_MINUTES := 12.0 * 60.0
+## Terminals being built: town id -> game minutes until they open.
+var docks_building := {}
 var ferries: Array[Ferry] = []
 ## How the company started; its schedules are the only links between terminals.
 var scenario: Scenario
@@ -23,6 +27,10 @@ var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
+## A dock site was bought and its terminal is being built (buy_dock).
+signal dock_bought(town: MapData.Town)
+## A terminal bought in play opened (open_terminal).
+signal terminal_opened(term: Terminal)
 ## A boat's running costs went on the ledger (`trip`: as she docked).
 signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
 ## Which routes are in service changed (a schedule was edited).
@@ -73,12 +81,8 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	traffic = Node3D.new()
 	traffic.name = "Traffic"
 	add_child(traffic)
-	for isl in map.islands:
-		if isl.has_terminal:
-			var term := Terminal.new()
-			add_child(term)
-			term.setup(self, isl)
-			terminals[isl.id] = term
+	for town in map.terminal_towns():
+		_add_terminal(town)
 	if network == null:
 		if scenario == null:
 			scenario = Scenario.from_network(map, FERRY_NAMES, _ferry_sizes())
@@ -104,15 +108,39 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	marine.setup(self)
 
 
+func _add_terminal(town: MapData.Town) -> Terminal:
+	var term := Terminal.new()
+	add_child(term)
+	term.setup(self, town)
+	terminals[town.id] = term
+	return term
+
+
+## Opens the terminal at `town` once it is built (TID-319): everything it needs
+## is in the map already, so it starts with its lanes idle until a schedule
+## calls there. Returns it, or null if it was open already.
+func open_terminal(town: MapData.Town) -> Terminal:
+	if terminals.has(town.id) or not town.has_dock:
+		return null
+	town.built = true
+	if not scenario.terminals.has(town.key):
+		scenario.terminals.append(town.key)
+	var term := _add_terminal(town)
+	term.build_lanes(_lane_destinations(term))
+	term.prefill()
+	terminal_opened.emit(term)
+	return term
+
+
 ## One boat per schedule. Two stops shuttle; more run round in turn, leg by leg.
 func _spawn_scheduled() -> void:
 	var route_by_pair := {}
-	var island_by_key := {}
-	for isl in map.islands:
-		island_by_key[isl.key] = isl.id
+	var town_by_key := {}
+	for t in map.towns:
+		town_by_key[t.key] = t.id
 	for r in map.routes:
-		var a := map.islands[r.a].key
-		var b := map.islands[r.b].key
+		var a := map.towns[r.a].key
+		var b := map.towns[r.b].key
 		route_by_pair[a + "|" + b] = r
 		route_by_pair[b + "|" + a] = r
 	for schedule in scenario.schedules:
@@ -132,7 +160,7 @@ func _spawn_scheduled() -> void:
 		ferries[-1].schedule = schedule
 		var stop_ids: Array[int] = []
 		for key in schedule.stops:
-			stop_ids.append(island_by_key[key])
+			stop_ids.append(town_by_key[key])
 		ferries[-1].set_legs(stop_ids, leg_routes)
 
 
@@ -152,17 +180,19 @@ func stops_problem(f: Ferry, ids: Array[int]) -> String:
 	for i in n:
 		var a := ids[i]
 		var b := ids[(i + 1) % n]
+		if not terminals.has(a):
+			return "%s has no terminal yet" % map.towns[a].name
 		if a == b:
-			return "%s is listed twice in a row" % map.islands[a].name
+			return "%s is listed twice in a row" % map.towns[a].name
 		if route_between(a, b) == null:
-			return "No route between %s and %s" % [map.islands[a].name, map.islands[b].name]
+			return "No route between %s and %s" % [map.towns[a].name, map.towns[b].name]
 	for i in n:
-		var isl := map.islands[ids[i]]
+		var isl := map.towns[ids[i]]
 		var slip := isl.slips[isl.slip_index(route_between(ids[i], ids[(i + 1) % n]).id)]
 		if not slip.fits(f.fc.size):
 			return "%s's %s slip is too small for her" % [isl.name, slip.size_name()]
-	if f.next_dock().island.id not in ids:
-		return "Keep %s, where she calls next" % f.next_dock().island.name
+	if f.next_dock().town.id not in ids:
+		return "Keep %s, where she calls next" % f.next_dock().town.name
 	return ""
 
 
@@ -190,7 +220,7 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	else:
 		f.plan_stops(ids, leg_routes, new_times)
 	if f.schedule:
-		f.schedule.stops.assign(ids.map(func(id): return map.islands[id].key))
+		f.schedule.stops.assign(ids.map(func(id): return map.towns[id].key))
 		f.schedule.departures = new_times
 	_mark_routes_in_service()
 	return true
@@ -220,7 +250,7 @@ func _mark_routes_in_service() -> void:
 func _schedule_fits(boat: Scenario.Boat, legs: Array[MapData.Route]) -> bool:
 	for route in legs:
 		for id in [route.a, route.b]:
-			var island := map.islands[id]
+			var island := map.towns[id]
 			var berth := island.slip_index(route.id)
 			if berth < 0 or not island.slips[berth].fits(boat.size):
 				push_warning("Cannot schedule %s (size %d) at %s: no suitable slip for this leg" % [boat.name, boat.size, island.name])
@@ -240,14 +270,14 @@ func _lane_destinations(term: Terminal) -> Array[int]:
 	var served: Array[int] = []
 	for f in ferries:
 		for i in f.stops.size():
-			if f.stops[i] == term.island.id:
+			if f.stops[i] == term.town.id:
 				for d in f._served_from(i):
 					if d not in served:
 						served.append(d)
 	var dests: Array[int] = []
-	for rid in term.island.route_ids():
+	for rid in term.town.route_ids():
 		var r := map.routes[rid]
-		var other := r.b if r.a == term.island.id else r.a
+		var other := r.b if r.a == term.town.id else r.a
 		if other in served and other not in dests:
 			dests.append(other)
 	for d in served:
@@ -261,9 +291,9 @@ func _tie_up_laid_up() -> void:
 	for f in ferries:
 		if f.schedule == null or not f.schedule.laid_up:
 			continue
-		var term: Terminal = f.term_a if f.term_a.island.key == f.schedule.stops[0] else f.term_b
+		var term: Terminal = f.term_a if f.term_a.town.key == f.schedule.stops[0] else f.term_b
 		if not f.start_tied_up(term):
-			push_warning("%s starts laid up but %s has no free tie-up slip for her" % [f.ferry_name, term.island.name])
+			push_warning("%s starts laid up but %s has no free tie-up slip for her" % [f.ferry_name, term.town.name])
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
@@ -283,8 +313,8 @@ func _ferry_sizes() -> Array[int]:
 	for r in map.routes:
 		var pop := 0.0
 		for id in [r.a, r.b]:
-			var isl: MapData.Island = terminals[id].island
-			pop += 8000.0 if isl.is_mainland else float(isl.population)
+			var town: MapData.Town = map.towns[id]
+			pop += 8000.0 if map.island_of(town).is_mainland else float(town.population)
 		demand.append(pop * 0.5)
 	var sizes := FerryClass.sizes_by_demand(demand)
 	for arg in OS.get_cmdline_user_args():
@@ -315,6 +345,40 @@ func _process(delta: float) -> void:
 	minutes += delta
 	for ferry in ferries:
 		ferry.pay_crew(delta)
+	_advance_docks(delta)
+
+
+## What building a terminal at `town`'s dock site costs (its tier), or 0 if it can't be bought.
+func dock_price(town: MapData.Town) -> int:
+	if not town.has_dock or town.built or town.site < 0:
+		return 0
+	return map.island_of(town).dock_sites[town.site].price()
+
+
+## Game minutes until `town`'s terminal opens, or -1 if it isn't being built.
+func dock_building(town: MapData.Town) -> float:
+	return docks_building.get(town.id, -1.0)
+
+
+## Buys `town`'s dock site and starts building its terminal there. It opens
+## DOCK_BUILD_MINUTES later, whatever the hour (open_terminal). False if it
+## can't be bought or the company can't afford it.
+func buy_dock(town: MapData.Town) -> bool:
+	var price := dock_price(town)
+	if price <= 0 or docks_building.has(town.id) or available_cash < price:
+		return false
+	ledger.spend("purchases", price)
+	docks_building[town.id] = DOCK_BUILD_MINUTES
+	dock_bought.emit(town)
+	return true
+
+
+func _advance_docks(delta: float) -> void:
+	for id in docks_building.keys():
+		docks_building[id] -= delta
+		if docks_building[id] <= 0.0:
+			docks_building.erase(id)
+			open_terminal(map.towns[id])
 
 
 func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:
@@ -364,11 +428,11 @@ func demand_factor() -> float:
 	return TrafficDemand.factor(hour())
 
 
-func demand_rate(isl: MapData.Island) -> float:
+func demand_rate(isl: MapData.Town) -> float:
 	return TrafficDemand.arrivals_per_minute(isl.population, hour())
 
 
-func demand_label(isl: MapData.Island) -> String:
+func demand_label(isl: MapData.Town) -> String:
 	return TrafficDemand.label(demand_rate(isl))
 
 
@@ -376,8 +440,8 @@ func satisfaction() -> float:
 	var total := 0.0
 	var weight := 0.0
 	for term: Terminal in terminals.values():
-		total += term.satisfaction() * term.island.population
-		weight += term.island.population
+		total += term.satisfaction() * term.town.population
+		weight += term.town.population
 	return total / weight if weight > 0.0 else 0.0
 
 

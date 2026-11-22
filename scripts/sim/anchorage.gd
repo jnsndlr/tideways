@@ -54,9 +54,8 @@ static func find_all(t: MarineTraffic) -> Array[Anchorage]:
 			depth[j * n + i] = h
 			land[j * n + i] = 1 if h > -1.2 else 0
 	var avoid: Array[Vector2] = []
-	for isl in map.islands:
-		if isl.has_terminal:
-			avoid.append(Vector2(isl.shore.x, isl.shore.z) + Vector2(isl.dock_dir.x, isl.dock_dir.z) * 90.0)
+	for isl in map.dock_towns():
+		avoid.append(Vector2(isl.shore.x, isl.shore.z) + Vector2(isl.dock_dir.x, isl.dock_dir.z) * 90.0)
 	for m in map.marinas:
 		var a := m.at(Layout.MARINA_APPROACH_U, 0.0)
 		avoid.append(Vector2(a.x, a.z))

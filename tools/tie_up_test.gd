@@ -35,14 +35,14 @@ func _process(_delta: float) -> bool:
 		Engine.time_scale = 6.0
 		rhodo.request_lay_up()
 		print("Day %d %s: %s asked to lay up (%s)" % [sim.day, sim.clock_text(), rhodo.ferry_name, rhodo.status_text()])
-	var at := hiyu.state != Ferry.State.SAILING and hiyu.here().island.key == "island-2"
+	var at := hiyu.state != Ferry.State.SAILING and hiyu.here().town.key.begins_with("island-2/")
 	if at and not _hiyu_was:
 		hiyu_docks += 1
 	_hiyu_was = at
 	match phase:
 		0:
 			if rhodo.berth == Ferry.Berth.TIED_UP:
-				var isl := rhodo.here().island
+				var isl := rhodo.here().town
 				var off := rhodo.global_position.distance_to(isl.berth_center(rhodo.tie_up))
 				print("Day %d %s: %s tied up at %s, %.1f m from the tie-up's centre" % [sim.day, sim.clock_text(), rhodo.ferry_name, isl.name, off])
 				if off > rhodo.fc.half_length:
@@ -64,7 +64,7 @@ func _process(_delta: float) -> bool:
 				return true
 	var both := 0
 	for f in sim.ferries:
-		if f.berth == Ferry.Berth.WORKING and f.state != Ferry.State.SAILING and f.here().island.key == "island-2":
+		if f.berth == Ferry.Berth.WORKING and f.state != Ferry.State.SAILING and f.here().town.key.begins_with("island-2/"):
 			both += 1
 	if both > 1:
 		return _fail("Two boats at Madrona's working slip on frame %d" % frames)

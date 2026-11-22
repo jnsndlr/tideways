@@ -31,12 +31,11 @@ func _process(_delta: float) -> bool:
 		for r in sim.map.routes:
 			for c in sim.marine.corridors[r.id]:
 				print("Route %d (%.0f m) corridor span %s docked %s" % [r.id, r.length, c.span[r.id], c.docked[r.id]])
-		for isl in sim.map.islands:
-			if isl.has_terminal:
-				print("%s: %s" % [isl.name, ", ".join(isl.slips.map(func(s): return "%s %s" % [s.size_name(), s.routes]))])
+		for isl in sim.map.terminal_towns():
+			print("%s: %s" % [isl.name, ", ".join(isl.slips.map(func(s): return "%s %s" % [s.size_name(), s.routes]))])
 	var madrona: Terminal
 	for term: Terminal in sim.terminals.values():
-		if term.island.key == "island-2":
+		if term.town.key.begins_with("island-2/"):
 			madrona = term
 	var here := 0
 	for f in sim.ferries:

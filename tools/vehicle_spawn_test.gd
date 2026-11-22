@@ -100,8 +100,8 @@ func check_queue_parking() -> void:
 	rig.attach_trailer("trailer_van", BoxMesh.new())
 	sim.traffic.add_child(rig)
 	var terminal := Terminal.new()
-	terminal.island = MapData.Island.new()
-	terminal.island.dock_dir = Vector3.BACK
+	terminal.town = MapData.Town.new()
+	terminal.town.dock_dir = Vector3.BACK
 	terminal.sim = sim
 	sim.add_child(terminal)
 	var lane := Terminal.Lane.new(Layout.LANE_WIDTH)

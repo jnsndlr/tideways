@@ -28,7 +28,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -49,12 +49,12 @@ func _process(_delta: float) -> bool:
 		and hiyu.state != Ferry.State.SAILING and hiyu.here() == shared
 	if heron_held:
 		print("%s: the Heron holds %.0f m off %s while the Hiyu is alongside (planned in %s)" % [
-			sim.clock_text(), heron.path_left(), shared.island.name, sim.clock_text(_heron_in)])
+			sim.clock_text(), heron.path_left(), shared.town.name, sim.clock_text(_heron_in)])
 		print("TEST PASSED")
 		quit(0)
 		return true
 	if frames > 12000:
-		return _fail("The Heron never held offshore for the Hiyu at %s" % shared.island.name)
+		return _fail("The Heron never held offshore for the Hiyu at %s" % shared.town.name)
 	return false
 
 
@@ -82,9 +82,9 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 	if hiyu_t < now + 30:
 		return _fail("No room to set this up at %s" % sim.clock_text())
 	print("Hiyu leaves %s %s (alongside %s %s–%s); Heron leaves %s %s (due in %s)" % [
-		sim.map.islands[hiyu_ids[0]].name, Timetable.text(hiyu_t), shared.island.name,
+		sim.map.towns[hiyu_ids[0]].name, Timetable.text(hiyu_t), shared.town.name,
 		Timetable.text(hiyu_t + oh[1] - hiyu.planned_dwell()), Timetable.text(hiyu_t + oh[1]),
-		sim.map.islands[heron_ids[0]].name, Timetable.text(heron_t), Timetable.text(heron_in)])
+		sim.map.towns[heron_ids[0]].name, Timetable.text(heron_t), Timetable.text(heron_in)])
 	var hiyu_times: Array[int] = [hiyu_t]
 	if not sim.reschedule(hiyu, hiyu_ids, hiyu_times):
 		return _fail("Couldn't time the Hiyu")
@@ -98,7 +98,7 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 	var result := SlipConflicts.check(heron, heron_ids, ed._times, heron.pace)
 	var clashes := SlipConflicts.on_sailing(result, 0)
 	if clashes.size() != 1 or not clashes[0].she_holds or clashes[0].other != hiyu or clashes[0].island != madrona:
-		return _fail("Expected one clash with the Heron holding for the Hiyu at %s, got %s" % [shared.island.name, result.clashes])
+		return _fail("Expected one clash with the Heron holding for the Hiyu at %s, got %s" % [shared.town.name, result.clashes])
 	print("Clash: %s" % SlipConflicts.clash_text(sim, clashes[0]))
 	if not ed._clash_note.visible or "holds offshore for the Hiyu" not in ed._clash_note.text:
 		return _fail("The editor shows no recurring hold warning: '%s'" % ed._clash_note.text)

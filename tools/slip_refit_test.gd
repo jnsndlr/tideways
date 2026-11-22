@@ -35,13 +35,13 @@ func _process(_delta: float) -> bool:
 	var sim: Simulation = main.sim
 	if frames == 5:
 		for t: Terminal in sim.terminals.values():
-			if t.island.name.begins_with("Madrona"):
+			if t.town.key.begins_with("island-2/"):
 				madrona = t
 		hiyu = sim.ferries[0]
 		if madrona == null:
 			return _fail("no Madrona terminal")
 		var i := madrona.next_refit()
-		if i < 0 or madrona.island.slips[i].size != 1:
+		if i < 0 or madrona.town.slips[i].size != 1:
 			return _fail("Madrona has no small slip to refit")
 		face_before = madrona.slip_guides[i].fenders[0].face
 		cash_before = sim.available_cash
@@ -61,7 +61,7 @@ func _process(_delta: float) -> bool:
 		held = true
 	if madrona.refit_stage == Terminal.RefitStage.NONE and not reopened:
 		reopened = true
-		var slip := madrona.island.slips[0]
+		var slip := madrona.town.slips[0]
 		if slip.size != 2:
 			return _fail("slip is %s after the refit, not medium" % slip.size_name())
 		for s in [Terminal.RefitStage.CLEARING, Terminal.RefitStage.ARRIVING, Terminal.RefitStage.WORKING, Terminal.RefitStage.LEAVING]:

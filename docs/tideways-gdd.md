@@ -418,7 +418,7 @@ Decided in stage 4 (2026-11-21):
 - A scenario map plans a route between every pair of its terminals in reach, so a schedule can be edited onto any of them in play. Only routes a schedule sails are in service: they show on the map and draw traffic. This replaces the stage 2 rule that no link exists without a schedule. The rule is now that no service exists without one.
 - The stop editor (ferry panel, Edit stops) lists a boat's stops in turn. A terminal she can't call at next is greyed out with the reason: no route, or a slip too small for her. A new list must keep the terminal she calls at next. She finishes her crossing and takes the new stops there. Cars aboard for a stop she no longer reaches drive off there, and the lanes at every terminal divide again among the new destinations.
 - On the authored map (any scenario), routes have no distance limit. Where land lies between two terminals, the route goes round it in as few straight legs as it can, keeping 150 m off land in open water and tapering in near each terminal (0.3 mi was tried first, but no channel between Madrona, Cypress and Gullrock is wide enough for it). Where no route can keep that much, it keeps 60% of it, then 30%. The clearance and taper are constants in `MapGenerator` to tune by eye. Captains will later vary the clearance (see Captains). Sandbox's generated networks keep their old rules for now: links within 3,100 m, direct routes only.
-- On the authored map a terminal stands only at a dock placed and locked in the island editor (TID-16). Adding a route never moves or re-aims a dock. An island can have several locked sites, saved relative to the island in `maps/main_story.json`, and an island with none never gets a terminal. A scenario names its pre-built sites. Any other site can be bought in play at a price set by its tier (`MapLayout.DOCK_TIERS`). For now buying rebuilds the map, with the company carried over. Generated Sandbox maps still place docks automatically.
+- On the authored map a terminal stands only at a dock placed and locked in the island editor (TID-16). Adding a route never moves or re-aims a dock. An island can have several locked sites, saved relative to the island in `maps/main_story.json`, and an island with none never gets a terminal. A scenario names its pre-built sites. Any other site can be bought in play at a price set by its tier (`MapLayout.DOCK_TIERS`). Since stage 7 buying builds it in place with no rebuild (below). Generated Sandbox maps still place docks automatically.
 - The authored map's routes are planned once and saved per scenario in `maps/routes/`, so Play loads them instead of planning. They are planned again only when the islands, a scenario's terminals or links, or the planner change: `tools/bake_routes.gd`, or automatically on the next desktop run.
 
 Agreed for the rest of stage 4 (2026-11-21), in build order:
@@ -441,6 +441,19 @@ Agreed for the rest of stage 4 (2026-11-21), in build order:
 Next after stage 4 (Jon, 2026-11-22): dock limits without rebuilding the map (TID-319), then boat purchasing (stage 6) to get the loop going.
 
 Left out of stage 4: weekend timetables (TID-25), automatic spacing of several boats on one route (TID-20, with Fleet), the new route planner for Sandbox (its direct links still work in the editor), and captains' shore clearance.
+
+Order for stages 5–7 (Jon, 2026-11-22): stage 7 first, so buying a dock stops rebuilding the map, which made playtesting frustrating. Stages 5 and 6 follow in parallel.
+
+Decided for stage 5 (2026-11-22): a terminal's second and third slips, and its tie-up slips, are placed automatically along the shore beside the first. They face the same way, on the side with clear water. Nothing is authored per dock.
+
+Decided for stage 6 (2026-11-22): a bought boat is delivered towed by a tug, then assigned to a schedule. Her resale value starts at 80% of her price and falls linearly with wear and tear. Good maintenance can raise it again. For now wear and tear is a stub fixed at 100%, so every sale returns 80%. Wear and maintenance come later.
+
+Decided in stage 7 (2026-11-22, TID-319):
+
+- Every locked dock site is a town of its own (`MapData.Town`), named as Jon wrote it in the island editor, or after the island where he left it blank. An island with no site has one town and no dock. Terminals, routes, schedules and stops name towns by key: `island-2/1` is Madrona's second site. A scenario file can still name a terminal by island key, with `"dock": n` (0 if left out).
+- The whole map is built up front for every site, bought or not: the lot's ground, the town and its roads, a route to every other site water joins it to, and the terminal itself, hidden. A scenario's terminals open at the start. Buying a site charges its tier price and starts a 12-hour build (`Simulation.DOCK_BUILD_MINUTES`). The terminal opens when the build is done, whatever the hour, idle until the player edits a boat's stops to call there. Nothing is rebuilt or reloaded.
+- On locked docks the planner never judges whether a route makes sense. It skips the detour and turn limits and drops a pair only if no path round land keeps clear of the other slips. Of the main map's 105 site pairs, 88 have routes. Kestrel Island's first site has none, because no path out of it clears land, so its locked dock needs checking in the island editor. Five long pairs are blocked only by another site's slip.
+- People are split evenly across an island's towns for now. Service growth growing the town served, and drivers crossing their island to another dock, are still to do (TID-319 stage 5).
 
 
 ---
