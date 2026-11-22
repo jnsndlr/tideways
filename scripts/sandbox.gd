@@ -443,6 +443,7 @@ func _dress_terminal(terminal: Terminal) -> void:
 		terminal.add_child(extension)
 		extension.setup(terminal)
 	terminal.slip_built.connect(_on_slip_built.bind(terminal))
+	terminal.seabed_dredged.connect(builder.rebuild_terrain)
 
 
 ## A slip bought at `terminal` is built: it goes into the world where it stands.

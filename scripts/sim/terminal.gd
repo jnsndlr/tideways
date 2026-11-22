@@ -12,6 +12,8 @@ signal extension_changed
 signal refit_changed
 ## A slip bought here (Kind.SLIP or TIE_UP) is built and in use: `i` into town.slips.
 signal slip_built(i: int)
+## The seabed was dredged for a slip bought here (`rect`: Terrain grid cells changed).
+signal seabed_dredged(rect: Rect2i)
 
 enum WorkStage { IDLE, DRAINING, ARRIVING, PAVING, LEAVING, OPEN }
 ## Refitting a slip for bigger boats (TID-44): the slip closes to arrivals at once
@@ -30,7 +32,8 @@ const REFIT_WORK := 150.0
 const REFIT_DEPARTURE := 20.0
 const REFIT_HOLD := 320.0      # how far out boats for a closed slip hold off (m)
 # New slips (stage 5), built by the same crane scow as a refit: one slip job at a
-# time. They go along the shore beside the others (new_slip_v) and are built small.
+# time. They go along the shore beside the others (new_slip_sites), dredged if need
+# be, and are built small.
 const MAX_WORKING_SLIPS := 3
 const MAX_TIE_UPS := 2
 const SLIP_PRICE := [0, 0, 12000, 18000]   # by the working slip it makes (2nd, 3rd)
@@ -43,6 +46,14 @@ const REAIM_HOLD := 150.0
 const REAIM_BLEND := 500.0
 # A boat leaving a slip keeps it until she is this far out (m).
 const SLIP_LEAVE_CLEAR := 200.0
+# Dredging (a slip where the water is too shallow): the seabed off it is cut to
+# DREDGE_DEPTH, easing back over DREDGE_BLEND. Only seabed and low shore, never
+# ground higher than DREDGE_MAX_HEIGHT. Priced and timed by the volume cut.
+const DREDGE_DEPTH := -7.0
+const DREDGE_BLEND := 18.0
+const DREDGE_MAX_HEIGHT := 1.5
+const DREDGE_PRICE := 0.25      # $ per cubic metre (rounded up to $500, at least $1,000)
+const DREDGE_RATE := 12000.0    # cubic metres an hour, added to the build
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
@@ -68,6 +79,8 @@ var refit_new := false         # building refit_slip new, rather than refitting 
 ## Routes waiting to move to another working slip (route id -> slip index) once no
 ## boat on them is under way or alongside here (spread_routes).
 var pending_routes := {}
+# Surveyed slip sites ("v|working" -> _site_dredge), kept until a slip is bought.
+var _sites := {}
 # Which way (+1 / -1 across the slips, the terminal frame's x) the flood tide sets a
 # ferry lying alongside here; the ebb sets her the other way.
 var flood_side := 1.0
@@ -121,18 +134,12 @@ func upgrades() -> Array[TerminalUpgrade]:
 		out.append(lane)
 	var working := _slip_count(false)
 	if working < MAX_WORKING_SLIPS:
-		var slip := TerminalUpgrade.new(TerminalUpgrade.Kind.SLIP, ["", "", "Second", "Third"][working + 1] + " working slip",
-			SLIP_PRICE[working + 1], REFIT_ARRIVAL + SLIP_WORK + REFIT_DEPARTURE)
-		slip.v = new_slip_v(false)
-		slip.blocked = _crane_busy() if _crane_busy() != "" else ("No clear water beside the slips" if is_nan(slip.v) else "")
-		out.append(slip)
+		out.append_array(_slip_offers(TerminalUpgrade.Kind.SLIP, ["", "", "Second", "Third"][working + 1] + " working slip",
+			SLIP_PRICE[working + 1], REFIT_ARRIVAL + SLIP_WORK + REFIT_DEPARTURE))
 	var ties := _slip_count(true)
 	if ties < MAX_TIE_UPS:
-		var tie := TerminalUpgrade.new(TerminalUpgrade.Kind.TIE_UP, "Tie-up slip" if ties == 0 else "Second tie-up slip",
-			TIE_UP_PRICE[ties + 1], REFIT_ARRIVAL + TIE_UP_WORK + REFIT_DEPARTURE)
-		tie.v = new_slip_v(true)
-		tie.blocked = _crane_busy() if _crane_busy() != "" else ("No clear water beside the slips" if is_nan(tie.v) else "")
-		out.append(tie)
+		out.append_array(_slip_offers(TerminalUpgrade.Kind.TIE_UP, "Tie-up slip" if ties == 0 else "Second tie-up slip",
+			TIE_UP_PRICE[ties + 1], REFIT_ARRIVAL + TIE_UP_WORK + REFIT_DEPARTURE))
 	for i in town.slips.size():
 		var price := refit_price(i)
 		if price <= 0 or town.slips[i].building:
@@ -147,10 +154,44 @@ func upgrades() -> Array[TerminalUpgrade]:
 	return out
 
 
-## The catalogue's `kind` entry (for a refit, of slip `i`), or null if there is none.
-func find_upgrade(kind: TerminalUpgrade.Kind, i := -1) -> TerminalUpgrade:
+## A new slip (or tie-up) for each side of the slips it can go on, cheapest side
+## first, each with the dredging it needs there; or one entry saying why it can't.
+func _slip_offers(kind: TerminalUpgrade.Kind, title: String, price: int, minutes: float) -> Array[TerminalUpgrade]:
+	var out: Array[TerminalUpgrade] = []
+	var sites := new_slip_sites(kind == TerminalUpgrade.Kind.TIE_UP)
+	for site in sites:
+		var u := TerminalUpgrade.new(kind, title + (", %s side" % _side_name(site.x) if sites.size() > 1 else ""),
+			price, minutes)
+		u.v = site.x
+		u.dredge_m3 = site.y
+		if site.y > 0.0:
+			u.dredge_price = maxi(1000, ceili(site.y * DREDGE_PRICE / 500.0) * 500)
+			u.price += u.dredge_price
+			u.build_minutes += ceilf(site.y / DREDGE_RATE) * 60.0
+		u.blocked = _crane_busy()
+		out.append(u)
+	if out.is_empty():
+		var none := TerminalUpgrade.new(kind, title, price, minutes)
+		none.blocked = _crane_busy() if _crane_busy() != "" else "No room beside the slips, even dredged"
+		out.append(none)
+	return out
+
+
+## Which way (a compass point) a slip at `v` lies from the others.
+func _side_name(v: float) -> String:
+	var mid := 0.0
+	for i in town.slips.size():
+		mid += town.slip_offset(i) / town.slips.size()
+	var d := town.lateral() * signf(v - mid)
+	var a := fposmod(rad_to_deg(atan2(d.x, -d.z)) + 22.5, 360.0)
+	return ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"][int(a / 45.0)]
+
+
+## The catalogue's `kind` entry (for a refit, of slip `i`; for a new slip, the one
+## at `v` if given), or null if there is none.
+func find_upgrade(kind: TerminalUpgrade.Kind, i := -1, v := NAN) -> TerminalUpgrade:
 	for u in upgrades():
-		if u.kind == kind and u.slip == i:
+		if u.kind == kind and u.slip == i and (is_nan(v) or is_equal_approx(u.v, v)):
 			return u
 	return null
 
@@ -160,7 +201,7 @@ func find_upgrade(kind: TerminalUpgrade.Kind, i := -1) -> TerminalUpgrade:
 func buy(offer: TerminalUpgrade) -> bool:
 	if offer == null:
 		return false
-	var u := find_upgrade(offer.kind, offer.slip)
+	var u := find_upgrade(offer.kind, offer.slip, offer.v)
 	if u == null or u.blocked != "" or not sim.has_research(u.research) or sim.available_cash < u.price:
 		return false
 	sim.ledger.spend("purchases", u.price)
@@ -305,6 +346,12 @@ func _start_refit(i: int, work: float, new_slip: bool) -> void:
 ## Lays out a bought slip where `u` says (hidden and closed while it is built) and
 ## brings the crane scow in to build it.
 func _start_slip(u: TerminalUpgrade) -> void:
+	_sites.clear()
+	if u.dredge_m3 > 0.0:
+		var reach := _site_reach(u.kind == TerminalUpgrade.Kind.SLIP)
+		sim.terrain.dredge(_at(u.v, 0.0), town.dock_dir, Layout.PIER_END + 4.0, reach.x + 10.0, reach.y + 7.0,
+			DREDGE_DEPTH, DREDGE_BLEND, true)
+		seabed_dredged.emit(sim.terrain.touched)
 	town.freeze_slip_offsets()
 	var tie := u.kind == TerminalUpgrade.Kind.TIE_UP
 	var slip := MapData.Slip.new(1, tie)
@@ -316,13 +363,15 @@ func _start_slip(u: TerminalUpgrade) -> void:
 	_start_refit(town.slips.size() - 1, TIE_UP_WORK if tie else SLIP_WORK, true)
 
 
-## Where a new working slip (or tie-up) goes along the shore: beside the end slip
-## on one side or the other, facing the same way, wherever there is clear water.
-## Tie-ups keep to the side they are on (the right to begin with) and working slips
-## to the other, when both sides are clear. NAN if neither side is.
-func new_slip_v(tie_up: bool) -> float:
+## Where a new working slip (or tie-up) can go along the shore: beside the end
+## slip on either side, facing the same way, as Vector2(v, cubic metres to dredge
+## there, 0 for none). The side with clear water comes first; with both clear (or
+## both needing dredging), tie-ups keep to the side they are on (the right to begin
+## with) and working slips go to the other. Empty if neither side can take one.
+func new_slip_sites(tie_up: bool) -> Array[Vector2]:
+	var out: Array[Vector2] = []
 	if town.slips.is_empty():
-		return NAN
+		return out
 	var lo := INF
 	var hi := -INF
 	var sums := [0.0, 0.0]     # working, tie-up
@@ -349,39 +398,69 @@ func new_slip_v(tie_up: bool) -> float:
 	var left := lo - (Layout.TIE_UP_SPACING if tie_up and lo_tie else Layout.SLIP_SPACING)
 	var first := right if tie_up == (tie_side > 0.0) else left
 	for v: float in [first, left if first == right else right]:
-		if _water_clear(v, not tie_up):
-			return v
-	return NAN
+		var m3 := _site_dredge(v, not tie_up)
+		if m3 >= 0.0:
+			out.append(Vector2(v, m3))
+	if out.size() == 2 and out[0].y > 0.0 and out[1].y == 0.0:
+		out.reverse()
+	return out
 
 
-## Whether a slip at `v` would have deep water off its pier: out past its dolphins
-## and a boat's straight run in for a working slip (`approach`), or for a tie-up just
-## where a boat lies. And clear of every other dock's slips.
-func _water_clear(v: float, approach: bool) -> bool:
+## Where the first of new_slip_sites puts a slip (NAN if nowhere).
+func new_slip_v(tie_up: bool) -> float:
+	var sites := new_slip_sites(tie_up)
+	return sites[0].x if not sites.is_empty() else NAN
+
+
+## How far out (x) and how far either side (y) a new slip needs deep water: out past
+## its dolphins and a boat's straight run in for a working slip, or for a tie-up
+## just where a boat lies.
+func _site_reach(working: bool) -> Vector2:
+	if working:
+		return Vector2(Layout.CHANNEL_BUOY_U + REAIM_HOLD + 120.0, 15.0)
+	return Vector2(Layout.DOCK_U + Layout.FERRY_HALF, 10.0)
+
+
+## Whether a slip can go at `v`: 0 if the water off it is deep already, the cubic
+## metres to dredge if only shallows are in the way, -1 if it can't (land in the way,
+## no shore for its pier, or too near another dock's slips).
+func _site_dredge(v: float, working: bool) -> float:
+	var key := "%d|%s" % [roundi(v), working]
+	if not _sites.has(key):
+		_sites[key] = _survey_site(v, working)
+	return _sites[key]
+
+
+func _survey_site(v: float, working: bool) -> float:
 	var terrain := sim.terrain
 	if terrain == null:
-		return false   # (a bare test terminal: no shore to build along)
+		return -1.0   # (a bare test terminal: no shore to build along)
 	# Its pier meets the shore about where the lot's does.
 	if terrain.height_v(_at(v, Layout.LOT_FRONT)) < -6.0:
-		return false
-	var reach := Layout.CHANNEL_BUOY_U + REAIM_HOLD + 120.0 if approach else Layout.DOCK_U + Layout.FERRY_HALF
-	var half := 15.0 if approach else 10.0
-	var u := Layout.PIER_END + 12.0
-	while u < reach:
-		for dv: float in [-half, 0.0, half]:
-			if terrain.height_v(_at(v + dv, u)) > -3.6:
-				return false
-		u += 9.0
+		return -1.0
 	var berth := _at(v, Layout.DOCK_U)
 	for t in sim.map.dock_towns():
 		if t == town:
 			continue
 		for i in t.slips.size():
 			if t.berth_center(i).distance_to(berth) < Layout.SLIP_SPACING * 1.5:
-				return false
+				return -1.0
 		if t.slips.is_empty() and t.shore.distance_to(berth) < Layout.SLIP_SPACING * 1.5:
-			return false
-	return true
+			return -1.0
+	var reach := _site_reach(working)
+	var deep := true
+	var u := Layout.PIER_END + 12.0
+	while u < reach.x:
+		for dv: float in [-reach.y, 0.0, reach.y]:
+			var h := terrain.height_v(_at(v + dv, u))
+			if h > DREDGE_MAX_HEIGHT:
+				return -1.0
+			deep = deep and h <= -3.6
+		u += 9.0
+	if deep:
+		return 0.0
+	return terrain.dredge(_at(v, 0.0), town.dock_dir, Layout.PIER_END + 4.0, reach.x + 10.0, reach.y + 7.0,
+		DREDGE_DEPTH, DREDGE_BLEND)
 
 
 ## Point (v, u) of the terminal frame in the world, at sea level.

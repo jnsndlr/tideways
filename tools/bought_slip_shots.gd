@@ -24,9 +24,14 @@ func _initialize() -> void:
 	root.add_child(main)
 
 
-## Buys `kind` and runs its build on to the moment the slip opens.
+## Buys `kind` (the side that needs dredging, if one does, to show it) and runs its
+## build on to the moment the slip opens.
 func _build(kind: TerminalUpgrade.Kind) -> void:
-	var u := _term.find_upgrade(kind)
+	var u: TerminalUpgrade = null
+	for o in _term.upgrades():
+		print("  %s · $%d · %s" % [o.title, o.price, o.detail()])
+		if o.kind == kind and (u == null or o.dredge_price > u.dredge_price):
+			u = o
 	if u == null or not _term.buy(u):
 		push_warning("Couldn't buy %s: %s" % [TerminalUpgrade.Kind.keys()[kind], u.blocked if u else "not offered"])
 		return

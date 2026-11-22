@@ -351,6 +351,46 @@ func _apply_flat(f: Dictionary) -> void:
 			h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
 
 
+## Dredging (a slip bought where the water is shallow, Terminal): the ground over
+## the rect `u0..u1` along `dir` and `-half..half` across it from `origin` cut down
+## to `depth`, easing back to the seabed round it over `blend`, never raised.
+## Returns the cubic metres that takes; with `apply` it is cut, and `touched` is the
+## grid rect it changed (for WorldBuilder.rebuild_terrain).
+var touched := Rect2i()
+func dredge(origin: Vector3, dir: Vector3, u0: float, u1: float, half: float, depth: float, blend: float, apply := false) -> float:
+	var td := Vector3.UP.cross(dir)
+	var reach := maxf(absf(u0), absf(u1)) + half + blend
+	var i0 := _index_of(origin.x - reach)
+	var i1 := _index_of(origin.x + reach)
+	var j0 := _index_of(origin.z - reach)
+	var j1 := _index_of(origin.z + reach)
+	var volume := 0.0
+	var lo := Vector2i(i1, j1)
+	var hi := Vector2i(i0, j0)
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var p := Vector3(-half_size + i * CELL, 0.0, -half_size + j * CELL) - origin
+			var u := p.dot(dir)
+			var v := p.dot(td)
+			var du := maxf(maxf(u0 - u, u - u1), 0.0)
+			var dv := maxf(absf(v) - half, 0.0)
+			var dd := sqrt(du * du + dv * dv)
+			if dd >= blend:
+				continue
+			var k := j * (n + 1) + i
+			var cut := minf(h_grid[k], lerpf(h_grid[k], depth, 1.0 - smoothstep(0.0, blend, dd)))
+			if cut >= h_grid[k] - 0.01:
+				continue
+			volume += (h_grid[k] - cut) * CELL * CELL
+			if apply:
+				h_grid[k] = cut
+				lo = Vector2i(mini(lo.x, i), mini(lo.y, j))
+				hi = Vector2i(maxi(hi.x, i), maxi(hi.y, j))
+	if apply:
+		touched = Rect2i(lo, hi - lo + Vector2i.ONE) if hi.x >= lo.x else Rect2i()
+	return volume
+
+
 ## Irons the small bumps out of the ground around `center` (a town) so house lots
 ## come out nearly level, keeping the broad hills: the heights are box-blurred
 ## twice (about TOWN_BLUR cells either way), full strength out to `radius`, easing

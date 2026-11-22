@@ -23,6 +23,9 @@ var research := ""
 var slip := -1
 ## Where a new slip goes (its lateral offset in the terminal frame).
 var v := NAN
+## The seabed to dredge there first (cubic metres) and what that adds to `price`.
+var dredge_m3 := 0.0
+var dredge_price := 0
 
 
 func _init(k: Kind, t: String, p: int, minutes: float) -> void:
@@ -38,4 +41,13 @@ func detail() -> String:
 		return blocked
 	var h := build_minutes / 60.0
 	var time := "%d min" % roundi(build_minutes) if h < 2.0 else ("%d h" % roundi(h) if is_equal_approx(h, roundf(h)) else "%.1f h" % h)
-	return "Builds in " + time
+	return "Builds in " + time + (" · includes %s of dredging" % _money(dredge_price) if dredge_price > 0 else "")
+
+
+static func _money(n: int) -> String:
+	var s := str(n)
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.right(3) + out
+		s = s.left(s.length() - 3)
+	return "$" + s + out
