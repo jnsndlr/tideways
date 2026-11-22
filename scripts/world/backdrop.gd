@@ -10,6 +10,7 @@ extends Node3D
 ## own edge vertices (so the two meet without a crack), and each ring further out is
 ## a little larger, halving its samples twice so far ranges get broad facets.
 
+const MAINLAND_SLICE_USEC := 12500
 const LAND_SHADER := "res://shaders/backdrop.gdshader"
 
 const SAND := Color(0.8, 0.73, 0.54)
@@ -42,6 +43,7 @@ const CARD_SPRITE := "res://assets/textures/pine_card.png"
 const CARD_FAR := 3000.0
 const CARD_TILE := 768.0
 
+var _frames := BuildFrameBudget.new()
 var terrain: Terrain
 var builder: WorldBuilder
 var _rng := RandomNumberGenerator.new()
@@ -52,17 +54,29 @@ var _near_trees: Array[MultiMeshInstance3D] = []
 var _card_cols: Array[Color] = []
 
 
-func setup(t: Terrain, b: WorldBuilder = null) -> void:
+func setup(t: Terrain, b: WorldBuilder = null, frame: Signal = Signal()) -> bool:
+	_frames.slice_usec = MAINLAND_SLICE_USEC
+	_frames.start(frame)
 	name = "Backdrop"
 	terrain = t
 	builder = b
 	_rng.seed = int(t.mainland.snowline * 1000.0)
-	_build_land()
-	if builder:
+	await _build_land()
+	_frames.slice_usec = BuildFrameBudget.SLICE_USEC
+	if builder and not _frames.cancelled:
 		# The cards WorldBuilder put inside the map, on the mainland's shores.
 		for at in builder.edge_cards:
+			if not await _frames.can_continue():
+				break
 			_card_at(at)
-	_build_trees()
+	if not _frames.cancelled:
+		await _build_trees()
+	_frames.finish()
+	return not _frames.cancelled
+
+
+func cancel_build() -> void:
+	_frames.cancel()
 
 
 # --- Land ---------------------------------------------------------------------------
@@ -80,6 +94,8 @@ func _build_land() -> void:
 	var d := 24.0
 	var level := 1
 	while true:
+		if not await _frames.can_continue():
+			return
 		var s := 1.0 + d / hs
 		if s > smax:
 			break
@@ -89,13 +105,20 @@ func _build_land() -> void:
 		else:
 			level = 2
 			d = (s * RING_GROWTH - 1.0) * hs
-	var norms := _ring_normals(rings)
-	var cols := _ring_colors(rings, norms)
+	var norms := await _ring_normals(rings)
+	if _frames.cancelled:
+		return
+	var cols := await _ring_colors(rings, norms)
 	for k in rings.size() - 1:
+		if not await _frames.can_continue():
+			return
 		_stitch(mb, rings[k], rings[k + 1], norms[k], norms[k + 1], cols[k], cols[k + 1])
+	var land := await mb.commit_in_frames(_frames)
+	if land == null:
+		return
 	var mi := MeshInstance3D.new()
 	mi.name = "Mainland"
-	mi.mesh = mb.commit()
+	mi.mesh = land
 	var mat := ShaderMaterial.new()
 	mat.shader = load(LAND_SHADER)
 	mat.set_shader_parameter("map_half", terrain.half_size)
@@ -111,6 +134,8 @@ func _build_land() -> void:
 func _ring_normals(rings: Array[PackedVector3Array]) -> Array[PackedVector3Array]:
 	var out: Array[PackedVector3Array] = []
 	for k in rings.size():
+		if not await _frames.can_continue():
+			return out
 		var r := rings[k]
 		var m := r.size()
 		var nr := PackedVector3Array()
@@ -135,6 +160,8 @@ func _ring_colors(rings: Array[PackedVector3Array], norms: Array[PackedVector3Ar
 	var hs := terrain.half_size
 	var out: Array[PackedColorArray] = []
 	for k in rings.size():
+		if not await _frames.can_continue():
+			return out
 		var r := rings[k]
 		var c := PackedColorArray()
 		c.resize(r.size())
@@ -366,12 +393,16 @@ func _build_trees() -> void:
 	var variants := Models.tree_variants(false)
 	var tiles := {}
 	for i in _trees.size():
+		if i % 1024 == 0 and not await _frames.can_continue():
+			return
 		var o := _trees[i].origin
 		var key := Vector3i(floori(o.x / TREE_TILE), floori(o.z / TREE_TILE), Models.tree_variant(o, variants.size()))
 		if not tiles.has(key):
 			tiles[key] = []
 		tiles[key].append(i)
 	for key: Vector3i in tiles:
+		if not await _frames.can_continue():
+			return
 		var idx: Array = tiles[key]
 		var levels := Models.tree_lod_levels(variants[key.z])
 		for l in levels.size():
@@ -400,12 +431,16 @@ func _build_trees() -> void:
 	quad.material = mat
 	tiles = {}
 	for i in _cards.size():
+		if i % 1024 == 0 and not await _frames.can_continue():
+			return
 		var o := _cards[i].origin
 		var key := Vector2i(floori(o.x / CARD_TILE), floori(o.z / CARD_TILE))
 		if not tiles.has(key):
 			tiles[key] = []
 		tiles[key].append(i)
 	for key: Vector2i in tiles:
+		if not await _frames.can_continue():
+			return
 		var idx: Array = tiles[key]
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D

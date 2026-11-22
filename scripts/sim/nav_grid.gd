@@ -22,20 +22,24 @@ var small := AStarGrid2D.new()
 var large := AStarGrid2D.new()
 
 
-func _init(map: MapData, t: Terrain) -> void:
+func _init(map: MapData, t: Terrain, should_stop := Callable()) -> void:
 	terrain = t
 	ext = map.half_size + 330.0
 	n = ceili(ext * 2.0 / CELL)
 	var land := PackedByteArray()
 	land.resize(n * n)
 	for j in n:
+		if should_stop.is_valid() and should_stop.call():
+			return
 		for i in n:
 			var c := center(Vector2i(i, j))
 			var h := terrain.height_at(c.x, c.y)
 			for o: Vector2 in [Vector2(-7.5, -7.5), Vector2(7.5, -7.5), Vector2(-7.5, 7.5), Vector2(7.5, 7.5)]:
 				h = maxf(h, terrain.height_at(c.x + o.x, c.y + o.y))
 			land[j * n + i] = 1 if h > LAND_DEPTH else 0
-	var dist := _distance(land)
+	var dist := _distance(land, should_stop)
+	if dist.is_empty():
+		return
 	for g: AStarGrid2D in [small, large]:
 		g.region = Rect2i(0, 0, n, n)
 		g.cell_size = Vector2(CELL, CELL)
@@ -44,6 +48,8 @@ func _init(map: MapData, t: Terrain) -> void:
 		g.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 		g.update()
 	for j in n:
+		if should_stop.is_valid() and should_stop.call():
+			return
 		for i in n:
 			var d := dist[j * n + i]
 			small.set_point_solid(Vector2i(i, j), d < SMALL_CLEAR)
@@ -63,7 +69,7 @@ func center(c: Vector2i) -> Vector2:
 
 
 ## Chamfer distance (in metres) from every cell to the nearest land cell.
-func _distance(land: PackedByteArray) -> PackedFloat32Array:
+func _distance(land: PackedByteArray, should_stop: Callable) -> PackedFloat32Array:
 	var d := PackedFloat32Array()
 	d.resize(n * n)
 	for k in n * n:
@@ -71,6 +77,8 @@ func _distance(land: PackedByteArray) -> PackedFloat32Array:
 	var o := CELL
 	var dg := CELL * sqrt(2.0)
 	for j in n:
+		if should_stop.is_valid() and should_stop.call():
+			return PackedFloat32Array()
 		for i in n:
 			var k := j * n + i
 			var v := d[k]
@@ -84,6 +92,8 @@ func _distance(land: PackedByteArray) -> PackedFloat32Array:
 					v = minf(v, d[k - n + 1] + dg)
 			d[k] = v
 	for j in range(n - 1, -1, -1):
+		if should_stop.is_valid() and should_stop.call():
+			return PackedFloat32Array()
 		for i in range(n - 1, -1, -1):
 			var k := j * n + i
 			var v := d[k]
