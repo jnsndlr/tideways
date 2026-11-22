@@ -14,7 +14,7 @@ check() {
   awk -v phase="$phase" -v expected="$expected" '
     { gsub(/\033\[[0-9;]*m/, ""); sub(/\r$/, "") }
     /^TEST PASSED$/ { completed = 1 }
-    /^[[:space:]]*WARNING: .*ObjectDB instances .*leaked at exit/ { failed = 1 }
+    /^[[:space:]]*WARNING: .*ObjectDB instances? .*leaked at exit/ { failed = 1 }
     /^[[:space:]]*(SCRIPT ERROR|ERROR):/ { failed = 1 }
     END {
       if (expected == "test" && !completed) {
