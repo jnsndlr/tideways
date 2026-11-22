@@ -1420,26 +1420,69 @@ func crossing_minutes() -> float:
 ## deck off, a whole deck on, and the last car aboard and the apron up.
 func planned_dwell() -> float:
 	var deck_minutes := fc.capacity * PLAN_CAR_GAP
-	return deck_minutes + 2.0 + clampf(deck_minutes, MIN_DWELL, MAX_DWELL) + BOARD_CLOSE
+	return planned_unload() + clampf(deck_minutes, MIN_DWELL, MAX_DWELL) + BOARD_CLOSE
 
 
-## Unhindered minutes for a leg on route `r`, at her pace under her next captain.
-func leg_minutes(r: MapData.Route) -> float:
-	return next_captain.crossing_minutes(r.length + 2.0 * _inset, paced_cruise())
+## Of planned_dwell, the part she spends unloading a whole deck.
+func planned_unload() -> float:
+	return fc.capacity * PLAN_CAR_GAP + 2.0
+
+
+## Unhindered minutes for a leg on route `r`, at pace `p` under her next captain.
+func leg_minutes(r: MapData.Route, p := pace) -> float:
+	return next_captain.crossing_minutes(r.length + 2.0 * _inset, paced_cruise(p))
+
+
+## Fuel ($) for an unhindered leg on route `r` at pace `p` under her next captain,
+## burnt as she sails it (_burn), easing off into the slip included.
+func leg_fuel(r: MapData.Route, p := pace) -> float:
+	var burn := next_captain.crossing_burn(r.length + 2.0 * _inset, paced_cruise(p))
+	return FUEL_PRICE * fc.burn * burn / (fc.cruise * fc.cruise * METRES_PER_NM)
 
 
 ## For a round of `ids` (island ids in turn): offsets[i] is how many minutes after
 ## she leaves ids[0] she can leave ids[i], and offsets[n] when she can next leave
 ## ids[0] (the shortest gap between two departures). Empty if a leg has no route.
-func plan_offsets(ids: Array[int]) -> Array[float]:
+func plan_offsets(ids: Array[int], p := pace) -> Array[float]:
 	var out: Array[float] = [0.0]
 	var n := ids.size()
 	for i in n:
 		var r := sim.route_between(ids[i], ids[(i + 1) % n])
 		if r == null:
 			return []
-		out.append(out[i] + leg_minutes(r) + planned_dwell())
+		out.append(out[i] + leg_minutes(r, p) + planned_dwell())
 	return out
+
+
+## How long after she leaves ids[0] on a round she is due back there and
+## unloaded, for a round with `offsets` (plan_offsets): her crew's shift ends
+## this long after the day's last sailing.
+func shift_tail(offsets: Array[float]) -> float:
+	return offsets[-1] - planned_dwell() + planned_unload()
+
+
+## What a day on `times` (Timetable) round `ids` at pace `p` should cost her, on
+## the planning numbers the timetable is built from: each sailing makes every
+## leg once, unhindered, and her crew are on from CREW_CALL before the first
+## sailing until she is due back and unloaded after the last (off_shift).
+## {fuel, crew, hours (crew), sailings}; empty with no times or a leg with no route.
+func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
+	var o := plan_offsets(ids, p)
+	if o.is_empty() or times.is_empty():
+		return {}
+	var round_fuel := 0.0
+	for i in ids.size():
+		round_fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
+	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
+	var hours := minf(span, Timetable.DAY) / 60.0
+	return {"fuel": round_fuel * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
+
+
+## daily_cost of the timetable she runs now (or is taking at her next call).
+func planned_daily_cost() -> Dictionary:
+	if not next_stops.is_empty():
+		return daily_cost(next_stops, _next_timetable)
+	return daily_cost(stops, timetable)
 
 
 func _round_offsets() -> Array[float]:
@@ -1487,22 +1530,26 @@ func due() -> float:
 	return _round_abs + o[call] if call < o.size() else -1.0
 
 
-## Alongside at her first stop overnight: her crew are off until shortly before
-## the day's first sailing.
+## Alongside at her first stop overnight: her crew are off from when she was
+## due back and unloaded after the day's last sailing (shift_tail; later if she
+## ran late) until shortly before the day's first sailing.
 func off_shift() -> bool:
 	if timetable.is_empty() or state != State.LOADING or call != 0 or _boarding > 0:
 		return false
 	var d := due()
 	if d < 0.0 or int(round(fmod(d, Timetable.DAY))) != timetable[0]:
 		return false
-	return d - sim.abs_minutes() > CREW_CALL
+	var now := sim.abs_minutes()
+	if _last_round_abs >= 0.0 and now < _last_round_abs + shift_tail(_round_offsets()):
+		return false
+	return d - now > CREW_CALL
 
 
 # --- Running costs ------------------------------------------------------------------
 
 ## The class's cruise speed at her pace setting; her captain then takes it from there.
-func paced_cruise() -> float:
-	return fc.cruise * PACES[pace][0]
+func paced_cruise(p := pace) -> float:
+	return fc.cruise * PACES[p][0]
 
 
 ## Open-water speed at her pace, under the captain who has (or is taking) the helm.

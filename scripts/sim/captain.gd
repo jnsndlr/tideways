@@ -59,15 +59,29 @@ func speed_limit(remaining: float, class_cruise: float) -> float:
 ## Game minutes for an unhindered crossing of `run` metres dock to dock (other
 ## traffic can still hold a ferry up). Steps the same rule Ferry sails by.
 func crossing_minutes(run: float, class_cruise: float) -> float:
+	return _step_crossing(run, class_cruise).x
+
+
+## The sum of speed² × distance over an unhindered crossing of `run` metres
+## (m³/s²): fuel burnt per mile goes as speed², so Ferry.leg_fuel scales this.
+func crossing_burn(run: float, class_cruise: float) -> float:
+	return _step_crossing(run, class_cruise).y
+
+
+## [game minutes, Σ v² ds] for an unhindered crossing, stepped as Ferry sails it.
+func _step_crossing(run: float, class_cruise: float) -> Vector2:
 	const STEP := 0.05
 	var t := 0.0
 	var gone := 0.0
 	var v := 0.0
+	var burn := 0.0
 	while gone < run - 0.03 and t < 3600.0:
 		v = minf(speed_limit(run - gone, class_cruise), v + FerryVoyage.ACCEL * STEP)
+		var ds := minf(v * STEP, run - gone)
 		gone += v * STEP
+		burn += v * v * ds
 		t += STEP
-	return t
+	return Vector2(t, burn)
 
 
 ## Whichever of the roster makes the quickest unhindered crossing of `run`.

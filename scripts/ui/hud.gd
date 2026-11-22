@@ -676,6 +676,9 @@ func _timetable_text(f: Ferry) -> String:
 	var late := f.late_sailings().count(true)
 	if late > 0:
 		text += " · %d late at this pace" % late
+	var cost := f.daily_cost(f.stops, f.timetable)
+	if not cost.is_empty():
+		text += " · ~%s a day" % fmt_money(cost.fuel + cost.crew)
 	return text
 
 

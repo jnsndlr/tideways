@@ -6,12 +6,18 @@ extends PanelContainer
 ## the simulation, which gives them to her at her next call at one of them.
 ## Below the stops is her timetable: as loading allows, or the times she leaves
 ## her first stop. A time she can't make (Ferry.plan_offsets) can't be set.
+## Her pace is drafted here too, and below the sailings is what the draft should
+## cost a day (Ferry.daily_cost) beside what her timetable now costs.
 
 var sim: Simulation
 var ferry: Ferry
 var _draft: Array[int] = []
 var _times: Array[int] = []
 var _timed := false
+var _pace := Ferry.SERVICE_PACE
+var _pace_buttons: Array[Button] = []
+var _cost: Label
+var _cost_change: Label
 var _make_label: Callable
 var _title: Label
 var _stops := VBoxContainer.new()
@@ -57,6 +63,14 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	var modes := HBoxContainer.new()
 	modes.add_theme_constant_override("separation", 6)
 	column.add_child(modes)
+	var paces := HBoxContainer.new()
+	paces.add_theme_constant_override("separation", 6)
+	for i in Ferry.PACES.size():
+		var b := _button(Ferry.PACES[i][1])
+		b.toggle_mode = true
+		b.pressed.connect(_set_pace.bind(i))
+		paces.add_child(b)
+		_pace_buttons.append(b)
 	_mode_auto = _button("As loading allows")
 	_mode_auto.toggle_mode = true
 	_mode_auto.pressed.connect(_set_timed.bind(false))
@@ -76,6 +90,13 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	_add_sailing = _button("Add a sailing")
 	_add_sailing.pressed.connect(_on_add_sailing)
 	column.add_child(_add_sailing)
+	column.add_child(paces)
+	_cost = make_label.call("", 13, Hud.TEXT, true)
+	_cost.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_cost)
+	_cost_change = make_label.call("", 12, Hud.MUTED, false)
+	_cost_change.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_cost_change)
 	column.add_child(HSeparator.new())
 	_problem = make_label.call("", 12, FinancePanel.LOSS, false)
 	_problem.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -97,6 +118,7 @@ func open(f: Ferry) -> void:
 	_draft.assign(f.next_stops if not f.next_stops.is_empty() else f.stops)
 	_times.assign(f._next_timetable if not f.next_stops.is_empty() else f.timetable)
 	_timed = not _times.is_empty()
+	_pace = f.pace
 	_rebuild()
 	show()
 
@@ -141,14 +163,15 @@ func _rebuild() -> void:
 		b.pressed.connect(_on_add.bind(id))
 		_adds.add_child(b)
 	var problem := sim.stops_problem(ferry, _draft)
-	var offsets: Array[float] = ferry.plan_offsets(_draft) if problem == "" else []
+	var offsets: Array[float] = ferry.plan_offsets(_draft, _pace) if problem == "" else []
 	_rebuild_timetable(offsets)
+	_rebuild_cost(offsets)
 	if problem == "" and _timed and _times.is_empty():
 		problem = "Add a sailing, or let her sail as loading allows"
 	if problem == "" and Timetable.any_too_soon(_times, offsets[-1]):
 		problem = "A sailing in red comes too soon after the one before: a round takes %d min" % ceili(offsets[-1])
 	var stops_same := _draft == ferry.stops and ferry.next_stops.is_empty()
-	var unchanged := stops_same and _times == ferry.timetable
+	var unchanged := stops_same and _times == ferry.timetable and _pace == ferry.pace
 	_problem.text = problem
 	_problem.visible = problem != ""
 	_apply.disabled = problem != "" or unchanged
@@ -211,6 +234,7 @@ func _rebuild_timetable(offsets: Array[float]) -> void:
 		box.add_child(sub)
 		_sailings.add_child(box)
 	_sailings_scroll.custom_minimum_size.y = minf(_times.size() * 64.0, 260.0)
+	_fit.call_deferred()
 	var next := _next_sailing(round_min)
 	_add_sailing.disabled = next < 0 or not _allowed(_times + [next], round_min, red)
 	_add_sailing.text = "Add a sailing at %s" % Timetable.text(next) if not _add_sailing.disabled else "No room for another sailing"
@@ -271,7 +295,7 @@ func _on_drop_sailing(k: int) -> void:
 
 
 func _on_add_sailing() -> void:
-	var offsets := ferry.plan_offsets(_draft)
+	var offsets := ferry.plan_offsets(_draft, _pace)
 	var t := _next_sailing(offsets[-1])
 	if t >= 0:
 		_times.append(t)
@@ -317,5 +341,67 @@ func _on_add(id: int) -> void:
 
 
 func _on_apply() -> void:
+	var was := ferry.pace
+	ferry.set_pace(_pace)
 	if sim.reschedule(ferry, _draft.duplicate(), _times.duplicate() if _timed else []):
 		hide()
+	else:
+		ferry.set_pace(was)
+
+
+## Shortens the sailings list so the editor (Apply included) stays on screen.
+func _fit() -> void:
+	var over := offset_top + get_combined_minimum_size().y + 12.0 - get_viewport_rect().size.y
+	if over > 0.0:
+		_sailings_scroll.custom_minimum_size.y = maxf(_sailings_scroll.custom_minimum_size.y - over, 64.0)
+	# (it grows back to its minimum height, which is now what it needs)
+	offset_bottom = offset_top
+
+
+func _set_pace(p: int) -> void:
+	_pace = p
+	_rebuild()
+
+
+static func _money(v: float) -> String:
+	return "$%d" % roundi(v)
+
+
+## The draft's projected cost a day, and the change from her timetable now.
+func _rebuild_cost(offsets: Array[float]) -> void:
+	for i in _pace_buttons.size():
+		_pace_buttons[i].set_pressed_no_signal(i == _pace)
+		_pace_buttons[i].text = "%s%s" % [Ferry.PACES[i][1], " (now)" if i == ferry.pace and _pace != ferry.pace else ""]
+	_cost_change.text = ""
+	_cost_change.add_theme_color_override("font_color", Hud.MUTED)
+	if offsets.is_empty():
+		_cost.text = ""
+		return
+	var round_fuel := 0.0
+	for i in _draft.size():
+		round_fuel += ferry.leg_fuel(sim.route_between(_draft[i], _draft[(i + 1) % _draft.size()]), _pace)
+	var all_day := 24.0 * ferry.crew_per_hour()
+	if not _timed or _times.is_empty():
+		_cost.text = "Crew on all day: %s a day in wages, plus about %s fuel a round at %s." % [
+			_money(all_day), _money(round_fuel), Ferry.PACES[_pace][1].to_lower()]
+		return
+	var draft := ferry.daily_cost(_draft, _times, _pace)
+	var total: float = draft.fuel + draft.crew
+	_cost.text = "About %s a day · fuel %s · crew %s (%s h)" % [
+		_money(total), _money(draft.fuel), _money(draft.crew), _hours(draft.hours)]
+	var now := ferry.planned_daily_cost()
+	if now.is_empty():
+		_cost_change.text = "Now: as loading allows, crew on all day (%s in wages alone)" % _money(all_day)
+		return
+	var diff: float = total - (now.fuel + now.crew)
+	if absf(diff) < 0.5:
+		_cost_change.text = "Same as her timetable now"
+		return
+	_cost_change.text = "%s%s a day on her timetable now (%s)" % [
+		"+" if diff > 0.0 else "−", _money(absf(diff)), _money(now.fuel + now.crew)]
+	_cost_change.add_theme_color_override("font_color", FinancePanel.LOSS if diff > 0.0 else Hud.ACCENT)
+
+
+static func _hours(h: float) -> String:
+	var m := roundi(h * 60.0)
+	return "%d:%02d" % [m / 60, m % 60]
