@@ -14,7 +14,7 @@ check() {
   awk -v phase="$phase" -v expected="$expected" '
     { gsub(/\033\[[0-9;]*m/, ""); sub(/\r$/, "") }
     /^TEST PASSED$/ { completed = 1 }
-    /^[[:space:]]*WARNING: .*ObjectDB instances .*leaked at exit/ { failed = 1 }
+    /^[[:space:]]*WARNING: .*ObjectDB instances? .*leaked at exit/ { failed = 1 }
     /^[[:space:]]*(SCRIPT ERROR|ERROR):/ { failed = 1 }
     END {
       if (expected == "test" && !completed) {
@@ -47,6 +47,7 @@ if [[ $suite == traffic ]]; then
   check daily-cost test --fixed-fps 30 --script tools/daily_cost_test.gd
   check dock-sites test --fixed-fps 30 --script tools/dock_site_test.gd
   check slip-conflict test --fixed-fps 30 --script tools/slip_conflict_test.gd
+  check tie-up-refit test --fixed-fps 30 --script tools/tie_up_refit_test.gd -- --scenario=shared_slip
   check slip-refit test --fixed-fps 30 --script tools/slip_refit_test.gd -- --scenario=opening
   check marine-traffic test --fixed-fps 30 --script tools/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
   exit 0
@@ -59,7 +60,16 @@ check simulation-rules test --script tools/simulation_rules_test.gd
 check region-contract test --script tools/region_contract_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
+check forest-proximity test --script tools/forest_proximity_test.gd
+check schedule-slip-size test --script tools/schedule_slip_size_test.gd
+check eagle-departure test --script tools/eagle_departure_test.gd
+check shared-forecourt test --script tools/shared_forecourt_test.gd
+check refit-crane test --script tools/refit_crane_test.gd
 check model-parts test --script tools/model_parts_test.gd
+check lane-redistribution test --script tools/lane_redistribution_test.gd -- --scenario=lane_sharing
+check opening-scenario test --script tools/opening_scenario_test.gd
+check full-network-opening test --script tools/opening_scenario_test.gd -- --full-network
+check opening-economy-ui test --fixed-fps 30 --script tools/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
 check touch-edit test --fixed-fps 30 --script tools/touch_edit_test.gd

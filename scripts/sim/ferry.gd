@@ -605,15 +605,27 @@ func _tick_unloading(delta: float) -> void:
 		return
 	_dispatch_timer -= delta
 	if not _unload_queue.is_empty():
-		if _dispatch_timer <= 0.0:
+		var term := here()
+		if _dispatch_timer <= 0.0 and (term.unloading_ferry == null or term.unloading_ferry == self):
+			term.unloading_ferry = self
 			var car: Vehicle = _unload_queue.pop_front()
 			_dispatch_timer = _gap_after(car)
 			_drive_off(car)
-	elif _dispatch_timer < -2.0:
+	elif _dispatch_timer < -2.0 and _last_vehicle_clear_of_lot():
+		if here().unloading_ferry == self:
+			here().unloading_ferry = null
 		if lay_up_requested and free_tie_up(here()) >= 0:
 			_begin_tie_up()
 		else:
 			_begin_loading()
+
+
+## Outbound vehicles cross the boarding approaches before joining the central
+## exit lane. Give the last vehicle room to clear the crossing before loading.
+func _last_vehicle_clear_of_lot() -> bool:
+	if not is_instance_valid(_last_sent):
+		return true
+	return here().to_local(_last_sent._tail()).z < Layout.LANE_HEAD
 
 
 ## Seconds before the next car may follow `car`: long enough for it to pull its own
@@ -675,7 +687,9 @@ func _begin_loading() -> void:
 func _tick_loading(delta: float) -> void:
 	_dispatch_timer -= delta
 	var term := here()
-	var full := true
+	if not _casting_off and term.unloading_ferry != null and term.unloading_ferry != self:
+		_state_time -= delta  # Waiting for the shared crossing does not spend loading time.
+		return
 	var serves := serves_from_here()
 	var fits := func(c: Vehicle): return _free_slot(c) >= 0
 	# On a timetable she boards from MAX_DWELL until BOARD_CLOSE before she is due,
@@ -694,7 +708,7 @@ func _tick_loading(delta: float) -> void:
 			_dispatch_timer = _gap_after(car)
 			_drive_on(car, term)
 	# (full: nothing waiting would fit)
-	full = not term.has_waiting(serves, fits)
+	var full := not term.has_waiting(serves, fits)
 	var queue_empty := not term.has_waiting(serves, func(_c: Vehicle): return true)
 	var loaded := _state_time >= MIN_DWELL and (full or queue_empty or _state_time >= MAX_DWELL)
 	if timed:
@@ -1925,4 +1939,3 @@ func _follow_shift(delta: float) -> bool:
 			break
 		s -= seg
 	return _shift_s >= length - 0.01
-

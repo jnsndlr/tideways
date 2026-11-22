@@ -38,6 +38,10 @@ var ramps := {}        # route id -> the SlipRamp of the slip it calls at (none 
 var slip_ramps: Array[SlipRamp] = []   # by slip index (null with the classic slip)
 var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolphins (null with
                                         # the classic slip)
+## A terminal's slips share one road out. One ferry's outbound stream gets
+## the forecourt until its last vehicle has passed the boarding approaches.
+var unloading_ferry: Ferry
+
 # The slip being refitted (-1 for none), how far along, and game minutes of work left
 # once the crew is under way.
 var refit_slip := -1
@@ -474,12 +478,24 @@ func _spawn_car() -> void:
 	car.drive(path, _on_car_reached_lot.bind(lane))
 
 
-func _on_car_reached_lot(car: Vehicle, lane: Lane) -> void:
+func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> void:
+	if not changing_lanes:
+		car.lot_arrival = sim.minutes
+	# A ferry can cast off while overflow traffic is still driving to this lot.
+	if lane not in lanes.get(car.dest, []):
+		for key in lanes:
+			if lane in lanes[key]:
+				var loader := next_loader(key)
+				if loader == null or car.dest not in loader.serves_next_call_at(self):
+					lane.enroute -= car.slots
+					car.lane_v = lane.v
+					_redirect_guest(car)
+					return
+				break
 	var ahead := lane.queued_slots()
 	car.leader = _car(lane.queue.back()) if not lane.queue.is_empty() else null
 	lane.arrive(car.get_instance_id(), car.slots)
 	car.lane_v = lane.v
-	car.lot_arrival = sim.minutes
 	_park_in_queue(car, lane, ahead)
 
 
@@ -506,26 +522,21 @@ func prefill() -> void:
 				k += car.slots
 
 
-## The longest of `candidates` whose front car fits (`fits`, null for any) and is for one
-## of `serves` (empty for any): Lane.for_boarding's rule.
-func _longest_fitting_lane(candidates: Array, fits: Callable, serves: Array = []) -> Lane:
-	return Lane.for_boarding(candidates, func(id: int) -> bool:
-		var front := instance_from_id(id) as Vehicle
-		return (fits.is_null() or fits.call(front)) and (serves.is_empty() or front.dest in serves))
-
-
 ## The next car for a boat serving `serves` (island ids, her stops in order): from
 ## the lanes for her first stop first, so those cars park deepest and are first off.
 ## A lane whose front car she doesn't serve is blocked to her.
 func board_next(serves: Array[int], fits: Callable) -> Vehicle:
+	var eligible := func(id: int) -> bool:
+		var car := instance_from_id(id) as Vehicle
+		return car.dest in serves and fits.call(car)
 	for dest in serves:
 		if not lanes.has(dest):
 			continue
 		var best: Lane
 		if work_stage == WorkStage.DRAINING and dest == lane_keys()[0]:
-			best = _longest_fitting_lane(staging_lanes, fits, serves)
+			best = Lane.for_boarding(staging_lanes, eligible)
 		if best == null:
-			best = _longest_fitting_lane(lanes[dest], fits, serves)
+			best = Lane.for_boarding(lanes[dest], eligible)
 		if best != null:
 			return _dispatch(best)
 	return null
@@ -535,9 +546,10 @@ func board_next(serves: Array[int], fits: Callable) -> Vehicle:
 func has_waiting(serves: Array[int], fits: Callable) -> bool:
 	for dest in serves:
 		for lane: Lane in lanes.get(dest, []):
-			var front := _car(lane.queue[0]) if lane.queue.size() > 0 else null
-			if front != null and front.dest in serves and fits.call(front):
-				return true
+			if not lane.queue.is_empty():
+				var front := instance_from_id(lane.queue[0].vehicle_id) as Vehicle
+				if front.dest in serves and fits.call(front):
+					return true
 	return false
 
 
@@ -597,24 +609,27 @@ func sort_overflow() -> void:
 			var loader := next_loader(key)
 			var moved := false
 			for waiting in lane.queue.duplicate():
-				var car := _car(waiting)
+				var car := instance_from_id(waiting.vehicle_id) as Vehicle
 				if car.dest == key or car.dest < 0:
 					continue
 				if loader != null and car.dest in loader.serves_next_call_at(self):
 					continue
 				lane.queue.erase(waiting)
 				moved = true
-				var own := _pick_lane(car.dest, car.slots)
-				if own != null:
-					own.enroute += car.slots
-					car.leader = null
-					car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own))
-				else:
-					turned_recent += 1.0
-					car.leader = null
-					car.drive(_leave_path(car.lane_v), func(c: Vehicle): c.queue_free())
+				_redirect_guest(car)
 			if moved:
 				_close_up(lane)
+
+
+func _redirect_guest(car: Vehicle) -> void:
+	car.leader = null
+	var own := _pick_lane(car.dest, car.slots)
+	if own != null:
+		own.enroute += car.slots
+		car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own, true))
+	else:
+		turned_recent += 1.0
+		car.drive(_leave_path(car.lane_v), func(c: Vehicle): c.queue_free())
 
 
 ## Out of lane `from_v`, round by the exit lane and back in at the tail of `to_v`.
@@ -641,11 +656,14 @@ func _leave_path(from_v: float) -> PackedVector3Array:
 ## Give the closing lanes a chance to drain. When their front vehicle is too
 ## large for the available deck slots, keep serving other lanes as usual.
 func take_car(rid: int, fits := Callable()) -> Vehicle:
+	var fits_id := Callable()
+	if not fits.is_null():
+		fits_id = func(id: int): return fits.call(instance_from_id(id))
 	var best: Lane
 	if work_stage == WorkStage.DRAINING and rid == lane_keys()[0]:
-		best = _longest_fitting_lane(staging_lanes, fits)
+		best = Lane.for_boarding(staging_lanes, fits_id)
 	if best == null:
-		best = _longest_fitting_lane(lanes[rid], fits)
+		best = Lane.for_boarding(lanes[rid], fits_id)
 	if best == null:
 		return null
 	return _dispatch(best)

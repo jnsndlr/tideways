@@ -28,9 +28,6 @@ func _process(_delta: float) -> bool:
 		# Different paces so the two boats drift into each other at the slip.
 		sim.ferries[1].pace = 0
 		sim.ferries[0].pace = 2
-		for isl in sim.map.islands:
-			if isl.has_terminal:
-				pass
 		for r in sim.map.routes:
 			for c in sim.marine.corridors[r.id]:
 				print("Route %d (%.0f m) corridor span %s docked %s" % [r.id, r.length, c.span[r.id], c.docked[r.id]])

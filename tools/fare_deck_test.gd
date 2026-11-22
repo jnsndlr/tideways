@@ -9,6 +9,7 @@ func check(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	_check_midnight_costs()
 	var sim := Simulation.new()
 	var car := Vehicle.new()
 	sim.collect_fare(car)
@@ -75,3 +76,27 @@ func _initialize() -> void:
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
+
+
+func _check_midnight_costs() -> void:
+	var sim := Simulation.new()
+	var boat := Ferry.new()
+	boat.sim = sim
+	boat.fc = FerryClass.of(2)
+	boat.speed = boat.fc.cruise
+	sim.ferries.append(boat)
+	sim.minutes = 1439.5
+	sim.ledger.cash = 0.0
+	boat._burn(Ferry.METRES_PER_NM)
+	var fuel := Ferry.FUEL_PRICE * boat.fc.burn
+	var half_minute_pay := boat.crew_per_hour() / 120.0
+	sim._process(1.0)
+	check(is_equal_approx(sim.ledger.yesterday["fuel"], fuel), "Midnight posts fuel once")
+	check(is_equal_approx(sim.ledger.yesterday["crew"], half_minute_pay), "Yesterday ends at midnight")
+	boat.post_costs(true)
+	boat.post_costs(true)
+	check(is_equal_approx(boat.crew_today, half_minute_pay), "Docking posts only wages earned since midnight")
+	check(is_zero_approx(boat.fuel_today), "Docking cannot double-charge yesterday's fuel")
+	check(is_equal_approx(sim.ledger.cash, -fuel - 2.0 * half_minute_pay), "Both days reconcile to the cash balance")
+	boat.free()
+	sim.free()

@@ -61,6 +61,7 @@ var gull_perches: Array[Seagulls.Perch] = []
 var tree_shadows: Array[MultiMeshInstance3D] = []
 ## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
 var tree_cells := {}
+var _highest_tree_crown := -INF
 const TREE_CELL := 64.0
 ## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
 var eagle_perches: Array[Eagles.Perch] = []
@@ -760,13 +761,15 @@ func _add_tree_cell(p: Vector3) -> void:
 	var k := Vector2i(floori(p.x / TREE_CELL), floori(p.z / TREE_CELL))
 	if not tree_cells.has(k):
 		tree_cells[k] = PackedVector3Array()
-	tree_cells[k].append(p + Vector3(0.0, 4.0, 0.0))  # about mid-crown
+	var crown := p + Vector3(0.0, 4.0, 0.0)
+	tree_cells[k].append(crown)
+	_highest_tree_crown = maxf(_highest_tree_crown, crown.y)
 
 
 ## How far the nearest tree is from `p`, looking no further than `reach` (INF past it).
 func nearest_tree_distance(p: Vector3, reach: float) -> float:
-	if p.y > reach + 60.0:
-		return INF  # higher than any crown is within reach
+	if p.y > _highest_tree_crown + reach:
+		return INF
 	var r := ceili(reach / TREE_CELL)
 	var c := Vector2i(floori(p.x / TREE_CELL), floori(p.z / TREE_CELL))
 	var best := reach * reach

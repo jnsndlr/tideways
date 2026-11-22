@@ -20,9 +20,12 @@ const PUSH_WASH := 3.5
 # The water shader's unit (water.gdshader's UNIT): everything goes over in it.
 const UNIT := 3.0
 const WAKE_GROUP := &"wake_sources"
+# Conservative world-space vertical range around the displaced sea surface.
+const WATER_HEIGHT_MARGIN := 50.0
 
 var sim: Simulation
 var water_mat: ShaderMaterial
+var _setup_frame: int
 var _pts := PackedVector4Array()
 var _spd := PackedFloat32Array()
 var _spd4 := PackedVector4Array()
@@ -38,6 +41,7 @@ var _prof := PackedVector4Array()
 func _ready() -> void:
 	# After the vessels have moved this frame.
 	process_priority = 10
+	_setup_frame = Engine.get_frames_drawn()
 	_pts.resize(MAX_SLOTS * MAX_POINTS)
 	_spd.resize(MAX_SLOTS * MAX_POINTS)
 	_spd4.resize(MAX_SLOTS * MAX_POINTS / 4)
@@ -70,9 +74,16 @@ func _process(_delta: float) -> void:
 		var c := Vector2(cam.global_position.x, cam.global_position.z)
 		fleet.sort_custom(func(a: Node3D, b: Node3D):
 			return (a.call(&"pos2") - c).length_squared() < (b.call(&"pos2") - c).length_squared())
+	# The one-shot minimap shares the water material on its initial draw.
+	var planes: Array[Plane] = []
+	if cam and Engine.get_frames_drawn() > _setup_frame:
+		planes = cam.get_frustum()
+	var eligible := 0
 	var count := 0
+	var repeat_mask := 0
+	var previous: Node3D
 	for v in fleet:
-		if count >= MAX_SLOTS:
+		if eligible >= MAX_SLOTS:
 			break
 		var tr: WakeTrail = v.get(&"wake")
 		var hull: Vector4 = v.call(&"wake_hull")
@@ -100,6 +111,15 @@ func _process(_delta: float) -> void:
 			hi = hi.max(end + Vector2.ONE * FRONT_WASH_REACH)
 		if thrust <= 0.0 and push > 0.0:
 			thrust = -push * PUSH_WASH
+		# Preserve the original nearest-vessel budget even when a slot is culled.
+		eligible += 1
+		if _outside_view(lo, hi, planes):
+			continue
+		# A scheduled ferry can also appear in the marine traffic list. Keep both
+		# slots in order; only identical consecutive vessels can reuse shading.
+		if v == previous:
+			repeat_mask |= 1 << count
+		previous = v
 		_box[count] = Vector4(lo.x, lo.y, hi.x, hi.y) / UNIT
 		_info[count] = Vector4(tr.odometer / UNIT, n, tr.life, thrust)
 		_hull[count] = Vector4(hull.x / UNIT, hull.y / UNIT, hull.z, hull.w)
@@ -125,6 +145,7 @@ func _process(_delta: float) -> void:
 	# Speeds go four to a vec4, which keeps the shader's uniforms compact.
 	for i in _spd4.size():
 		_spd4[i] = Vector4(_spd[i * 4], _spd[i * 4 + 1], _spd[i * 4 + 2], _spd[i * 4 + 3])
+	water_mat.set_shader_parameter("wake_repeat_mask", repeat_mask)
 	water_mat.set_shader_parameter("wake_count", count)
 	water_mat.set_shader_parameter("wake_pts", _pts)
 	water_mat.set_shader_parameter("wake_speed", _spd4)
@@ -135,6 +156,16 @@ func _process(_delta: float) -> void:
 	water_mat.set_shader_parameter("wake_prof", _prof)
 	water_mat.set_shader_parameter("wake_group_box", _group_box)
 	water_mat.set_shader_parameter("wake_group_radius", _group_radius)
+
+
+## Cull only if the entire wake (including its trailing crumbs) misses one plane.
+static func _outside_view(lo: Vector2, hi: Vector2, planes: Array[Plane]) -> bool:
+	var center := Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5)
+	var extent := Vector3((hi.x - lo.x) * 0.5, WATER_HEIGHT_MARGIN, (hi.y - lo.y) * 0.5)
+	for plane in planes:
+		if plane.distance_to(center) > plane.normal.abs().dot(extent) + 1.0:
+			return true
+	return false
 
 
 ## Bound each group of trail segments in shader units. A fragment outside a

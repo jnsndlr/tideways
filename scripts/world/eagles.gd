@@ -200,6 +200,8 @@ func _process(delta: float) -> void:
 				_release(b)
 				if b.mate:
 					b.mate.mate = null
+				b.mate = null
+				b.leader = null
 				_birds.remove_at(i)
 		_place_visits()
 	_render()
