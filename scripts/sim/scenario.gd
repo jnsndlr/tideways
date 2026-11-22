@@ -3,9 +3,9 @@ extends RefCounted
 ## How a company starts: its cash, the terminals it owns, its boats and the
 ## schedules they run. Islands are named by their region key (MapData.Island.key).
 ## No service exists without a schedule. The map generator plans a route between
-## every pair of terminals in reach, but only the scheduled ones (`links()`) shape
-## where the docks face and are in service; the stop editor can put a boat on the
-## rest. Each terminal
+## every pair of terminals in reach, but only the scheduled ones (`links()`) are
+## in service (and, on a map without hand-placed docks, set where the docks
+## face); the stop editor can put a boat on the rest. Each terminal
 ## has the slips listed for it (one small slip if none are), and the routes
 ## calling there share them; a slip no route uses is idle.
 ## A generated map with no scenario plans its own network; `from_network` then

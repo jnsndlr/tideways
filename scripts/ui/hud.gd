@@ -700,6 +700,24 @@ func _timetable_text(f: Ferry) -> String:
 	return text
 
 
+var _clash_cache := {}   # ferry -> [msec checked, text]
+
+
+## A short line when her timetable and another boat's want one slip at once
+## (SlipConflicts), checked once a second; "" if they don't.
+func _slip_clash_text(f: Ferry) -> String:
+	var now := Time.get_ticks_msec()
+	var hit: Array = _clash_cache.get(f, [-INF, ""])
+	if now - hit[0] < 1000.0:
+		return hit[1]
+	var text := ""
+	var plan := SlipConflicts.plan_of(f)
+	if not plan.is_empty() and not plan.times.is_empty():
+		text = SlipConflicts.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
+	_clash_cache[f] = [now, text]
+	return text
+
+
 func _crossing_text(minutes: float, c: Captain) -> String:
 	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
@@ -791,6 +809,9 @@ func _refresh_panels() -> void:
 		if not f.next_stops.is_empty():
 			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().island.name.trim_suffix(" Island")]])
 		rows.append(["Timetable", _timetable_text(f)])
+		var clash := _slip_clash_text(f)
+		if clash != "":
+			rows.append(["Slip clash", clash])
 		rows.append_array([
 			["Class", f.fc.label],
 			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],
