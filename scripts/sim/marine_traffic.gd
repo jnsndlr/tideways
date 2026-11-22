@@ -121,6 +121,13 @@ func _register(v: Vessel, base_rank: int) -> void:
 
 func remove(v: Vessel) -> void:
 	vessels.erase(v)
+	if v is Ferry:
+		# Sold: whatever water she held is free, and her routes' corridors are found afresh.
+		for id in corridors:
+			for c: Corridor in corridors[id]:
+				if c.owner == v:
+					c.owner = null
+				c.boats.erase(v)
 	if v is CargoShip:
 		cargo_ships.erase(v)
 	elif v is Sailboat:
@@ -226,6 +233,8 @@ func shared(r: MapData.Route) -> bool:
 func boats_on(r: MapData.Route) -> Array[Ferry]:
 	var out: Array[Ferry] = []
 	for f in sim.ferries:
+		if not f.assigned:
+			continue   # (bought, not yet given stops: she sails nothing)
 		if r in f.legs or f.route == r:
 			out.append(f)
 	return out
@@ -243,7 +252,7 @@ func biggest_on(r: MapData.Route) -> Ferry:
 ## The first boat on `r`, or null.
 func ferry_on(r: MapData.Route) -> Ferry:
 	for f in sim.ferries:
-		if r in f.legs:
+		if f.assigned and r in f.legs:
 			return f
 	return null
 

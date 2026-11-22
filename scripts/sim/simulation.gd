@@ -35,6 +35,12 @@ signal terminal_opened(term: Terminal)
 signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
 ## Which routes are in service changed (a schedule was edited).
 signal routes_changed
+## A boat was bought (buy_ferry): she is in `ferries`, under tow.
+signal ferry_added(ferry: Ferry)
+## The tug has her where she'll lie, laid up until she is given stops.
+signal ferry_delivered(ferry: Ferry)
+## A boat was sold (sell_ferry); she leaves `ferries` and the scene after this.
+signal ferry_removed(ferry: Ferry)
 
 var ledger := CompanyLedger.new()
 var available_cash: float:
@@ -191,9 +197,20 @@ func stops_problem(f: Ferry, ids: Array[int]) -> String:
 		var slip := isl.slips[isl.slip_index(route_between(ids[i], ids[(i + 1) % n]).id)]
 		if not slip.fits(f.fc.size):
 			return "%s's %s slip is too small for her" % [isl.name, slip.size_name()]
+		var lying := _laid_up_in(terminals[ids[i]], isl.slip_index(route_between(ids[i], ids[(i + 1) % n]).id), f)
+		if lying:
+			return "%s lies laid up in %s's slip" % [lying.ferry_name, isl.name]
 	if f.next_dock().town.id not in ids:
 		return "Keep %s, where she calls next" % f.next_dock().town.name
 	return ""
+
+
+## A boat other than `except` lying out of service in working slip `slip` at `term`.
+func _laid_up_in(term: Terminal, slip: int, except: Ferry) -> Ferry:
+	for o in ferries:
+		if o != except and o.berth != Ferry.Berth.WORKING and o.here() == term and o.tie_up == slip:
+			return o
+	return null
 
 
 ## Puts boat `f` on `ids` from her next call (Ferry.plan_stops), and on the
@@ -212,6 +229,14 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	var leg_routes: Array[MapData.Route] = []
 	for i in n:
 		leg_routes.append(route_between(ids[i], ids[(i + 1) % n]))
+	if not f.assigned:
+		# Bought in play: these are her first stops, from where she lies.
+		f.take_first_stops(ids, leg_routes, new_times)
+		if f.schedule:
+			f.schedule.stops.assign(ids.map(func(id): return map.towns[id].key))
+			f.schedule.departures = new_times
+		stops_changed(f)
+		return true
 	if ids == f.stops:
 		f.next_stops = []
 		f._next_legs = []
@@ -241,6 +266,8 @@ func _mark_routes_in_service() -> void:
 	for r in map.routes:
 		r.in_service = false
 	for f in ferries:
+		if not f.assigned:
+			continue
 		for r in f.legs + f._next_legs:
 			r.in_service = true
 	routes_changed.emit()
@@ -269,6 +296,8 @@ func _build_lanes() -> void:
 func _lane_destinations(term: Terminal) -> Array[int]:
 	var served: Array[int] = []
 	for f in ferries:
+		if not f.assigned:
+			continue
 		for i in f.stops.size():
 			if f.stops[i] == term.town.id:
 				for d in f._served_from(i):
@@ -294,6 +323,116 @@ func _tie_up_laid_up() -> void:
 		var term: Terminal = f.term_a if f.term_a.town.key == f.schedule.stops[0] else f.term_b
 		if not f.start_tied_up(term):
 			push_warning("%s starts laid up but %s has no free tie-up slip for her" % [f.ferry_name, term.town.name])
+
+
+# --- Buying and selling boats (stage 6) ----------------------------------------------
+
+## Where at `term` a boat of `size` bought now could be delivered to lie: a free
+## tie-up slip she fits, else a working slip she fits that no boat calls at
+## (Ferry.idle_slip). -1 if neither.
+func delivery_slip(term: Terminal, size: int) -> int:
+	for i in term.town.tie_ups():
+		if not term.town.slips[i].fits(size) or term.tie_up_closed(i) or _laid_up_in(term, i, null):
+			continue
+		return i
+	return Ferry.idle_slip(term, size)
+
+
+## The route she is delivered on: from `term` to another open terminal, calling at
+## slip `slip` if that is a working one; the shortest such. Null if none.
+func _delivery_route(term: Terminal, slip: int) -> MapData.Route:
+	var town := term.town
+	var best: MapData.Route
+	for r in map.routes:
+		if r.a != town.id and r.b != town.id:
+			continue
+		if not terminals.has(r.b if r.a == town.id else r.a):
+			continue
+		var at := town.slip_index(r.id)
+		if at < 0 or (not town.slips[slip].tie_up and at != slip):
+			continue
+		if best == null or r.length < best.length:
+			best = r
+	return best
+
+
+## Why a boat of `size` can't be bought for delivery to `term` now, or "".
+func purchase_problem(size: int, term: Terminal) -> String:
+	var slip := delivery_slip(term, size)
+	if slip < 0:
+		return "No free slip she fits"
+	if _delivery_route(term, slip) == null:
+		return "No route to another terminal"
+	if available_cash < FerryClass.of(size).price():
+		return "Needs %s" % _money(FerryClass.of(size).price())
+	return ""
+
+
+static func _money(v: float) -> String:
+	var digits := str(roundi(absf(v)))
+	var out := ""
+	while digits.length() > 3:
+		out = "," + digits.right(3) + out
+		digits = digits.left(digits.length() - 3)
+	return "$" + digits + out
+
+
+## Buys a new boat of `size` (FerryClass.price on the ledger's purchases) and has
+## a tug tow her in to a free slip at `term`, where she lies laid up until she is
+## given stops (Edit stops). Returns her, or null if she can't be bought there.
+func buy_ferry(size: int, term: Terminal) -> Ferry:
+	if purchase_problem(size, term) != "":
+		return null
+	var slip := delivery_slip(term, size)
+	var route := _delivery_route(term, slip)
+	var key := ""
+	var n := ferries.size()
+	while key == "" or ferries.any(func(f): return f.fleet_key == key):
+		key = "hull-%d" % n
+		n += 1
+	var display_name := ""
+	for nm in FERRY_NAMES:
+		if not ferries.any(func(f): return f.ferry_name == nm):
+			display_name = nm
+			break
+	if display_name == "":
+		display_name = "Hull %d" % n
+	_spawn_ferry(key, route, display_name, size)
+	var f := ferries[-1]
+	f.start_delivery(term, slip)
+	var pts := DeliveryTow.plan(self, f.global_position, term.town.dock_dir, f.fc.half_beam)
+	if pts.size() < 2:
+		ferries.pop_back()
+		f.free()
+		return null
+	ledger.spend("purchases", f.fc.price())
+	var tug := DeliveryTow.new()
+	add_child(tug)
+	tug.setup(self, f, pts)
+	if marine:
+		marine.register(f, MarineTraffic.RANK_FERRY)
+		marine.register(tug, MarineTraffic.RANK_FERRY)
+	ferry_added.emit(f)
+	return f
+
+
+## Sells laid-up boat `f` for her resale value (Ferry.resale_value) and takes her
+## out of the game. False unless she lies laid up.
+func sell_ferry(f: Ferry) -> bool:
+	if not f.can_sell() or f not in ferries:
+		return false
+	ledger.receive("sales", f.resale_value())
+	f.post_costs(false)
+	ferries.erase(f)
+	if marine:
+		marine.remove(f)
+	ferry_removed.emit(f)
+	for car in f.aboard:
+		car.queue_free()
+	f.aboard.clear()
+	f.queue_free()
+	stops_changed(f)
+	return true
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:

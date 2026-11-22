@@ -47,6 +47,7 @@ if [[ $suite == traffic ]]; then
   check timetable test --fixed-fps 30 --script tools/timetable_test.gd
   check daily-cost test --fixed-fps 30 --script tools/daily_cost_test.gd
   check dock-sites test --fixed-fps 30 --script tools/dock_site_test.gd
+  check fleet-purchase test --fixed-fps 30 --script tools/fleet_purchase_test.gd
   check slip-conflict test --fixed-fps 30 --script tools/slip_conflict_test.gd -- --scenario=two_boats
   check tie-up-refit test --fixed-fps 30 --script tools/tie_up_refit_test.gd -- --scenario=shared_slip
   check slip-refit test --fixed-fps 30 --script tools/slip_refit_test.gd -- --scenario=opening

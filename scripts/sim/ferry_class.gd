@@ -115,6 +115,15 @@ const RUNNING := {
 	5: [15, 160.0],
 }
 
+# size: what she costs new from the yard (Simulation.buy_ferry). Rebalance them here.
+const PRICES := {
+	1: 24000,
+	2: 40000,
+	3: 75000,
+	4: 120000,
+	5: 180000,
+}
+
 static var _cache := {}
 
 var size := 4
@@ -214,6 +223,11 @@ var lamps := []                        # deck lamps: [point, out]
 var windows := []                      # lit-window reflections: [point, size, energy, facing]
 var deck_lights := PackedVector3Array() # lights filling the enclosed car deck (NightLights)
 var perches := []                      # gull perches: [from, to, spread]
+
+
+## What a new boat of this class costs.
+func price() -> int:
+	return PRICES[size]
 
 
 static func of(s: int) -> FerryClass:

@@ -448,6 +448,15 @@ Decided for stage 5 (2026-11-22): a terminal's second and third slips, and its t
 
 Decided for stage 6 (2026-11-22): a bought boat is delivered towed by a tug, then assigned to a schedule. Her resale value starts at 80% of her price and falls linearly with wear and tear. Good maintenance can raise it again. For now wear and tear is a stub fixed at 100%, so every sale returns 80%. Wear and maintenance come later.
 
+Decided in stage 6 (2026-11-22):
+
+- Boat prices by size, new from the yard (`FerryClass.PRICES`, to rebalance): size 1 $24,000, size 2 $40,000, size 3 $75,000, size 4 $120,000, size 5 $180,000. The opening's $50,000 buys one size 1 or one size 2. Buying posts to the ledger's purchases; a sale posts to a new income line, "Boats sold".
+- The buy flow is in the Fleet panel: Buy a boat, pick a class (price, cars, crew and wages, fuel per mile, the slip size she needs), then the terminal she is delivered to. A terminal she can't go to is greyed out with the reason: no free slip she fits, no route on to another terminal, or not enough cash.
+- A tug (the escort tug's hull) tows her in from the open end of the channel nearest that terminal, on a hawser, then comes alongside on her hip for the last few hundred metres and goes in with her. It then backs off and heads back out to sea. The tow runs at 80% of the tug's cruise (`DeliveryTow.TOW_PACE`), so delivery takes as long as the tow does: about 3 h of game time to Gullrock in the opening. She costs no crew or fuel under tow.
+- She lies laid up where she was delivered, with no stops of her own and no service: her placeholder route draws no traffic and no lanes. Edit stops gives her her first stops, which must start where she lies, and she returns to service straight away. Stops can be given while she is still under tow; she returns to service as soon as she arrives.
+- Proposed, for Jon to confirm: a boat can be delivered to, and laid up in, a working slip that no schedule calls at, when the terminal has no free tie-up slip she fits. The opening has no tie-up slips, so without this nothing could be bought before stage 5 sells tie-ups. A boat lying in a working slip keeps it: another boat can't be given stops there ("X lies laid up in Y's slip"). A free tie-up is used first. Laying up now uses the same rule, so a boat on Gullrock–Madrona lays up in Gullrock's slip.
+- Only a boat lying laid up can be sold, from the Sell button on her panel. She fetches her resale value, price × 80% × condition (`Ferry.resale_value`). Condition is a stub at 1 until wear and maintenance come in. The panel shows her resale value all the time.
+
 Decided in stage 7 (2026-11-22, TID-319):
 
 - Every locked dock site is a town of its own (`MapData.Town`), named as Jon wrote it in the island editor, or after the island where he left it blank. An island with no site has one town and no dock. Terminals, routes, schedules and stops name towns by key: `island-2/1` is Madrona's second site. A scenario file can still name a terminal by island key, with `"dock": n` (0 if left out).
