@@ -170,17 +170,32 @@ func stops_problem(f: Ferry, ids: Array[int]) -> String:
 	return ""
 
 
-## Puts boat `f` on `ids` from her next call (Ferry.plan_stops). False if she can't run them.
-func reschedule(f: Ferry, ids: Array[int]) -> bool:
+## Puts boat `f` on `ids` from her next call (Ferry.plan_stops), and on the
+## departures `times` (Timetable; null keeps hers). New times on the stops she
+## already runs start at once. False if she can't run them.
+func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	if stops_problem(f, ids) != "":
+		return false
+	var new_times: Array[int] = []
+	new_times.assign(times if times != null else (f._next_timetable if not f.next_stops.is_empty() else f.timetable))
+	new_times.sort()
+	var offsets := f.plan_offsets(ids)
+	if Timetable.any_too_soon(new_times, offsets[-1]):
 		return false
 	var n := ids.size()
 	var leg_routes: Array[MapData.Route] = []
 	for i in n:
 		leg_routes.append(route_between(ids[i], ids[(i + 1) % n]))
-	f.plan_stops(ids, leg_routes)
+	if ids == f.stops:
+		f.next_stops = []
+		f._next_legs = []
+		if new_times != f.timetable:
+			f.set_timetable(new_times)
+	else:
+		f.plan_stops(ids, leg_routes, new_times)
 	if f.schedule:
 		f.schedule.stops.assign(ids.map(func(id): return map.islands[id].key))
+		f.schedule.departures = new_times
 	_mark_routes_in_service()
 	return true
 
@@ -304,6 +319,11 @@ func collect_fare(car: Vehicle) -> void:
 		ledger.credit_flat(car.is_truck)
 	else:
 		ledger.credit_measured(car.length_metres())
+
+
+## Game minutes since the start of day 0, running on past midnight.
+func abs_minutes() -> float:
+	return day * 1440.0 + minutes
 
 
 func hour() -> float:

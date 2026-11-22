@@ -667,6 +667,18 @@ func _refresh_captains(f: Ferry) -> void:
 
 
 ## What a timed crossing took, and under whom.
+## "As loading allows", or her sailings from her first stop, with any she can't
+## make at her pace now (Ferry.late_sailings).
+func _timetable_text(f: Ferry) -> String:
+	if f.timetable.is_empty():
+		return "As loading allows"
+	var text := "%d sailing%s from %s" % [f.timetable.size(), "" if f.timetable.size() == 1 else "s", Timetable.text(f.timetable[0])]
+	var late := f.late_sailings().count(true)
+	if late > 0:
+		text += " · %d late at this pace" % late
+	return text
+
+
 func _crossing_text(minutes: float, c: Captain) -> String:
 	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
@@ -741,6 +753,7 @@ func _refresh_panels() -> void:
 		var rows := [["Status", f.status_text()]]
 		if not f.next_stops.is_empty():
 			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().island.name.trim_suffix(" Island")]])
+		rows.append(["Timetable", _timetable_text(f)])
 		rows.append_array([
 			["Class", f.fc.label],
 			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],

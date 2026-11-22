@@ -420,6 +420,21 @@ Decided in stage 4 (2026-11-21):
 - On the authored map (any scenario), routes have no distance limit. Where land lies between two terminals, the route goes round it in as few straight legs as it can, keeping 150 m off land in open water and tapering in near each terminal (0.3 mi was tried first, but no channel between Madrona, Cypress and Gullrock is wide enough for it). Where no route can keep that much, it keeps 60% of it, then 30%. The clearance and taper are constants in `MapGenerator` to tune by eye. Captains will later vary the clearance (see Captains). Sandbox's generated networks keep their old rules for now: links within 3,100 m, direct routes only.
 - The authored map's routes are planned once and saved per scenario in `maps/routes/`, so Play loads them instead of planning. They are planned again only when the islands, a scenario's terminals or links, or the planner change: `tools/bake_routes.gd`, or automatically on the next desktop run.
 
+Agreed for the rest of stage 4 (2026-11-21), in build order:
+
+1. **Manual timetables (TID-22).** A timetable is a list of departure times from the boat's first stop. The player sets those times, and the times at later stops follow from the leg and dwell times. Auto, today's shuttling as fast as loading allows, stays as the other option. Frequency ("every N minutes from the first sailing to the last") comes after Manual and fills the same list.
+   - Leg times are deterministic: boat × pace, and later × captain. Dwell is planned as if every sailing were full, with a whole deck to unload and load. The editor won't accept a departure the boat can't make. It shows the earliest time she can make, so an impossible timetable can't be applied.
+   - Changing pace on the boat's own panel never moves her timetable. A departure she can no longer make at the new pace is shown in red on the timetable, as a caution that she will run late.
+   - A boat that arrives early waits alongside and keeps loading. A late boat leaves as soon as she's loaded, never early, and the late sailing is flagged. No sailing is skipped.
+   - Crew are paid from shortly before the first sailing to shortly after the last. In between she lies at her slip or a tie-up with her crew off the clock, so the timetable saves crew cost as well as fuel.
+   - First build (2026-11-21): the editor's Timetable section switches between "As loading allows" and "Set times". Each sailing is moved with ±5 and ±15 min steppers, and a new one is added a round after the last. A timed boat boards from 24 min until 8 min before she is due, because the last car takes that long to drive on and the apron to lift, so she then sails on time. Crew come on 30 min before the first sailing. A full deck is planned at 0.8 min a car each way, so the Hiyu's Port Rosario–Madrona round plans at about 3 h 25 min (2 × 50 min crossing + 2 × 52 min alongside). Saves don't keep timetables yet.
+2. **Projected daily cost (TID-24).** The editor shows fuel per leg × sailings plus crew hours × rate, live as the player edits, with the change from her current timetable. Cost only for now, with no revenue estimate. Pace is shown and can be changed beside the legs.
+3. **Touch editing (TID-23).** Times are set with ± steppers (5 or 15 minutes), with no dragging. A morning trip to work and an evening return are built as a hand-edited list. Then an iPad pass.
+4. **Two boats and conflicts (also how stage 3 gets tested).** The opening scenario gets a size 1 boat beside the size 2 Hiyu, as the default fleet until stage 6 adds purchasing. The editor warns when two timetables want one slip at overlapping times, and when another boat would make her hold offshore regularly (a recurring conflict). It warns but doesn't block, and in play the offshore hold sorts it out.
+
+Left out of stage 4: weekend timetables (TID-25), automatic spacing of several boats on one route (TID-20, with Fleet), the new route planner for Sandbox (its direct links still work in the editor), and captains' shore clearance.
+
+
 ---
 
 ## Phase 1: First Playable

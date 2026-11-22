@@ -26,6 +26,9 @@ class Schedule:
 	var stops: Array[String] = []
 	## Starts tied up at the first stop's tie-up slip instead of in service.
 	var laid_up := false
+	## Minutes after midnight she leaves the first stop (Timetable); empty: as
+	## soon as she has loaded. In the file: "departures": ["6:30", "18:05"].
+	var departures: Array[int] = []
 
 
 var name := ""
@@ -75,6 +78,13 @@ static func load_file(path: String) -> Scenario:
 		for stop in sc.get("stops", []):
 			schedule.stops.append(str(stop))
 		schedule.laid_up = bool(sc.get("laid_up", false))
+		for t in sc.get("departures", []):
+			var m := Timetable.parse(str(t))
+			if m < 0:
+				push_warning("Schedule for %s: %s is not a time" % [schedule.boat, t])
+			elif m not in schedule.departures:
+				schedule.departures.append(m)
+		schedule.departures.sort()
 		s.schedules.append(schedule)
 	return s
 

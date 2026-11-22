@@ -4,16 +4,26 @@ extends PanelContainer
 ## button to drop each; below are the company's terminals to add next, each
 ## greyed out with the reason when she can't go there. Apply hands the stops to
 ## the simulation, which gives them to her at her next call at one of them.
+## Below the stops is her timetable: as loading allows, or the times she leaves
+## her first stop. A time she can't make (Ferry.plan_offsets) can't be set.
 
 var sim: Simulation
 var ferry: Ferry
 var _draft: Array[int] = []
+var _times: Array[int] = []
+var _timed := false
 var _make_label: Callable
 var _title: Label
 var _stops := VBoxContainer.new()
 var _loop_note: Label
 var _adds := VBoxContainer.new()
 var _problem: Label
+var _mode_auto: Button
+var _mode_timed: Button
+var _round_note: Label
+var _sailings := VBoxContainer.new()
+var _sailings_scroll := ScrollContainer.new()
+var _add_sailing: Button
 var _apply: Button
 
 
@@ -43,6 +53,30 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	_adds.add_theme_constant_override("separation", 4)
 	column.add_child(_adds)
 	column.add_child(HSeparator.new())
+	column.add_child(make_label.call("TIMETABLE", 11, Hud.MUTED, true))
+	var modes := HBoxContainer.new()
+	modes.add_theme_constant_override("separation", 6)
+	column.add_child(modes)
+	_mode_auto = _button("As loading allows")
+	_mode_auto.toggle_mode = true
+	_mode_auto.pressed.connect(_set_timed.bind(false))
+	modes.add_child(_mode_auto)
+	_mode_timed = _button("Set times")
+	_mode_timed.toggle_mode = true
+	_mode_timed.pressed.connect(_set_timed.bind(true))
+	modes.add_child(_mode_timed)
+	_round_note = make_label.call("", 12, Hud.MUTED, false)
+	_round_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_round_note)
+	_sailings.add_theme_constant_override("separation", 4)
+	_sailings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sailings_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_sailings_scroll.add_child(_sailings)
+	column.add_child(_sailings_scroll)
+	_add_sailing = _button("Add a sailing")
+	_add_sailing.pressed.connect(_on_add_sailing)
+	column.add_child(_add_sailing)
+	column.add_child(HSeparator.new())
 	_problem = make_label.call("", 12, FinancePanel.LOSS, false)
 	_problem.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_problem)
@@ -61,6 +95,8 @@ func setup(s: Simulation, make_label: Callable) -> void:
 func open(f: Ferry) -> void:
 	ferry = f
 	_draft.assign(f.next_stops if not f.next_stops.is_empty() else f.stops)
+	_times.assign(f._next_timetable if not f.next_stops.is_empty() else f.timetable)
+	_timed = not _times.is_empty()
 	_rebuild()
 	show()
 
@@ -105,11 +141,142 @@ func _rebuild() -> void:
 		b.pressed.connect(_on_add.bind(id))
 		_adds.add_child(b)
 	var problem := sim.stops_problem(ferry, _draft)
-	var unchanged := _draft == ferry.stops and ferry.next_stops.is_empty()
+	var offsets: Array[float] = ferry.plan_offsets(_draft) if problem == "" else []
+	_rebuild_timetable(offsets)
+	if problem == "" and _timed and _times.is_empty():
+		problem = "Add a sailing, or let her sail as loading allows"
+	if problem == "" and Timetable.any_too_soon(_times, offsets[-1]):
+		problem = "A sailing in red comes too soon after the one before: a round takes %d min" % ceili(offsets[-1])
+	var stops_same := _draft == ferry.stops and ferry.next_stops.is_empty()
+	var unchanged := stops_same and _times == ferry.timetable
 	_problem.text = problem
 	_problem.visible = problem != ""
 	_apply.disabled = problem != "" or unchanged
-	_apply.text = "Apply · from her next call at %s" % _name(ferry.next_dock().island.id) if problem == "" and not unchanged else "Apply"
+	_apply.text = "Apply"
+	if problem == "" and not unchanged:
+		_apply.text = "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().island.id)
+
+
+## The sailings, each with its time at every stop and steppers to move it.
+## A move or a new sailing that would leave her too little time is disabled.
+func _rebuild_timetable(offsets: Array[float]) -> void:
+	for c in _sailings.get_children():
+		c.queue_free()
+	_mode_auto.set_pressed_no_signal(not _timed)
+	_mode_timed.set_pressed_no_signal(_timed)
+	var have_round := not offsets.is_empty()
+	var round_min: float = offsets[-1] if have_round else 0.0
+	_sailings_scroll.visible = _timed and have_round
+	_add_sailing.visible = _timed and have_round
+	if not have_round:
+		_round_note.text = "Times follow once her stops make a round."
+		return
+	var stops_text := "%d min under way, %d min alongside at each stop for a full deck" % [
+		roundi(round_min - _draft.size() * ferry.planned_dwell()), roundi(ferry.planned_dwell())]
+	if not _timed:
+		_round_note.text = "She sails from each stop as soon as she has loaded. A round takes about %d min (%s)." % [ceili(round_min), stops_text]
+		return
+	_round_note.text = "Times she leaves %s. A round takes %d min (%s), so sailings must be at least that far apart." % [
+		_name(_draft[0]), ceili(round_min), stops_text]
+	var red := Timetable.too_soon(_times, round_min)
+	for k in _times.size():
+		var box := VBoxContainer.new()
+		box.add_theme_constant_override("separation", 2)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		var colour: Color = FinancePanel.LOSS if red[k] else Hud.TEXT
+		var time: Label = _make_label.call(Timetable.text(_times[k]), 15, colour, true)
+		time.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(time)
+		for step: int in [-15, -5, 5, 15]:
+			var b := Button.new()
+			b.text = "%+d" % step
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(44, 40)
+			b.disabled = not _allowed(_moved(k, step), round_min, red)
+			b.pressed.connect(_on_step.bind(k, step))
+			row.add_child(b)
+		var drop := Button.new()
+		drop.text = "✕"
+		drop.focus_mode = Control.FOCUS_NONE
+		drop.custom_minimum_size = Vector2(40, 40)
+		drop.pressed.connect(_on_drop_sailing.bind(k))
+		row.add_child(drop)
+		box.add_child(row)
+		var calls: Array[String] = []
+		for i in range(1, _draft.size()):
+			calls.append("%s %s" % [_name(_draft[i]), Timetable.text(_times[k] + offsets[i])])
+		var sub: Label = _make_label.call(" · ".join(calls), 11, colour if red[k] else Hud.MUTED, false)
+		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(sub)
+		_sailings.add_child(box)
+	_sailings_scroll.custom_minimum_size.y = minf(_times.size() * 64.0, 260.0)
+	var next := _next_sailing(round_min)
+	_add_sailing.disabled = next < 0 or not _allowed(_times + [next], round_min, red)
+	_add_sailing.text = "Add a sailing at %s" % Timetable.text(next) if not _add_sailing.disabled else "No room for another sailing"
+
+
+## The timetable with sailing `k` moved `step` minutes (kept in order), or [] if
+## it would leave the day.
+func _moved(k: int, step: int) -> Array[int]:
+	var t := _times[k] + step
+	if t < 0 or t >= Timetable.DAY:
+		return []
+	var out: Array[int] = []
+	out.assign(_times)
+	out[k] = t
+	out.sort()
+	return out
+
+
+## Whether `times` is no worse than now: no sailing red that wasn't, and none passing another.
+func _allowed(times: Array, round_min: float, red_now: Array[bool]) -> bool:
+	if times.is_empty():
+		return false
+	var sorted: Array[int] = []
+	sorted.assign(times)
+	sorted.sort()
+	var red := Timetable.too_soon(sorted, round_min)
+	var reds_now := red_now.count(true)
+	if red.count(true) > reds_now:
+		return false
+	return reds_now > 0 or not red.has(true)
+
+
+## A round after her last sailing, rounded up to 5 minutes; 6:00 AM for the first.
+func _next_sailing(round_min: float) -> int:
+	if _times.is_empty():
+		return 360
+	var t := ceili((_times[-1] + round_min) / 5.0) * 5
+	return t if t < Timetable.DAY else -1
+
+
+func _set_timed(on: bool) -> void:
+	_timed = on
+	if not on:
+		_times.clear()
+	elif _times.is_empty():
+		_times.append(360)
+	_rebuild()
+
+
+func _on_step(k: int, step: int) -> void:
+	_times.assign(_moved(k, step))
+	_rebuild()
+
+
+func _on_drop_sailing(k: int) -> void:
+	_times.remove_at(k)
+	_rebuild()
+
+
+func _on_add_sailing() -> void:
+	var offsets := ferry.plan_offsets(_draft)
+	var t := _next_sailing(offsets[-1])
+	if t >= 0:
+		_times.append(t)
+		_times.sort()
+	_rebuild()
 
 
 func _loop_text() -> String:
@@ -150,5 +317,5 @@ func _on_add(id: int) -> void:
 
 
 func _on_apply() -> void:
-	if sim.reschedule(ferry, _draft.duplicate()):
+	if sim.reschedule(ferry, _draft.duplicate(), _times.duplicate() if _timed else []):
 		hide()
