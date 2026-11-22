@@ -69,7 +69,7 @@ func buy_lane(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 	var cash_before := ledger.cash
 	if not is_zero_approx(ledger.today["purchases"]):
 		return fail("Opening company already recorded a purchase")
-	if not await press("Buy lane (+7 spaces) · $150"):
+	if not await press("Holding lane (+7 spaces) · $150"):
 		return false
 	if absf(ledger.cash - (cash_before - 150.0)) > 0.0001 or ledger.today["purchases"] != 150.0:
 		return fail("Buying one lane should debit exactly $150 from cash and purchases")

@@ -234,6 +234,9 @@ func stops_changed(_f: Ferry) -> void:
 	if marine:
 		marine.refresh_corridors()
 	_mark_routes_in_service()
+	# A route newly in service may share a slip while another stands free.
+	for term: Terminal in terminals.values():
+		term.spread_routes()
 
 
 ## Routes a boat sails, or will once she takes her planned stops, are in service.
@@ -379,6 +382,15 @@ func _advance_docks(delta: float) -> void:
 		if docks_building[id] <= 0.0:
 			docks_building.erase(id)
 			open_terminal(map.towns[id])
+
+
+## Research projects finished (stage 8 fills this; nothing is researched yet).
+var research_done: Array[String] = []
+
+
+## Whether research `key` is done ("" needs none). Upgrades ask before they are bought.
+func has_research(key: String) -> bool:
+	return key == "" or key in research_done
 
 
 func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> void:

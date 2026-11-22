@@ -10,6 +10,8 @@ extends Node3D
 
 signal extension_changed
 signal refit_changed
+## A slip bought here (Kind.SLIP or TIE_UP) is built and in use: `i` into town.slips.
+signal slip_built(i: int)
 
 enum WorkStage { IDLE, DRAINING, ARRIVING, PAVING, LEAVING, OPEN }
 ## Refitting a slip for bigger boats (TID-44): the slip closes to arrivals at once
@@ -27,6 +29,18 @@ const REFIT_ARRIVAL := 20.0
 const REFIT_WORK := 150.0
 const REFIT_DEPARTURE := 20.0
 const REFIT_HOLD := 320.0      # how far out boats for a closed slip hold off (m)
+# New slips (stage 5), built by the same crane scow as a refit: one slip job at a
+# time. They go along the shore beside the others (new_slip_v) and are built small.
+const MAX_WORKING_SLIPS := 3
+const MAX_TIE_UPS := 2
+const SLIP_PRICE := [0, 0, 12000, 18000]   # by the working slip it makes (2nd, 3rd)
+const TIE_UP_PRICE := [0, 4000, 6000]      # by the tie-up it makes (1st, 2nd)
+const SLIP_WORK := 440.0      # game minutes the crew works on a new working slip (8 h in all)
+const TIE_UP_WORK := 200.0    # and on a tie-up (4 h)
+# A route moved to a new slip keeps straight out of it this far past the berth,
+# then eases back onto its old line over up to REAIM_BLEND.
+const REAIM_HOLD := 150.0
+const REAIM_BLEND := 500.0
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
@@ -47,6 +61,11 @@ var unloading_ferry: Ferry
 var refit_slip := -1
 var refit_stage := RefitStage.NONE
 var refit_remaining := 0.0
+var refit_work := REFIT_WORK   # the crew's working time on this job
+var refit_new := false         # building refit_slip new, rather than refitting it
+## Routes waiting to move to another working slip (route id -> slip index) once no
+## boat on them is under way or alongside here (spread_routes).
+var pending_routes := {}
 # Which way (+1 / -1 across the slips, the terminal frame's x) the flood tide sets a
 # ferry lying alongside here; the ebb sets her the other way.
 var flood_side := 1.0
@@ -83,21 +102,118 @@ func can_stage_construction() -> bool:
 
 
 func buy_holding_lane() -> bool:
+	return buy(find_upgrade(TerminalUpgrade.Kind.LANE))
+
+
+# --- The purchase catalogue (stage 5) -----------------------------------------------
+
+## Every upgrade this terminal can take, with its price, build time and what (if
+## anything) stops it being bought now. One that can never be had here again (a
+## third slip once there are three) is left out.
+func upgrades() -> Array[TerminalUpgrade]:
+	var out: Array[TerminalUpgrade] = []
+	if town.lane_extension_price > 0 and not (extra_lane != null and site_lanes.is_empty()):
+		var lane := TerminalUpgrade.new(TerminalUpgrade.Kind.LANE, "Holding lane (+%d spaces)" % slots_per_lane,
+			town.lane_extension_price, BUILD_MINUTES)
+		lane.blocked = _lane_blocked()
+		out.append(lane)
+	var working := _slip_count(false)
+	if working < MAX_WORKING_SLIPS:
+		var slip := TerminalUpgrade.new(TerminalUpgrade.Kind.SLIP, ["", "", "Second", "Third"][working + 1] + " working slip",
+			SLIP_PRICE[working + 1], REFIT_ARRIVAL + SLIP_WORK + REFIT_DEPARTURE)
+		slip.v = new_slip_v(false)
+		slip.blocked = _crane_busy() if _crane_busy() != "" else ("No clear water beside the slips" if is_nan(slip.v) else "")
+		out.append(slip)
+	var ties := _slip_count(true)
+	if ties < MAX_TIE_UPS:
+		var tie := TerminalUpgrade.new(TerminalUpgrade.Kind.TIE_UP, "Tie-up slip" if ties == 0 else "Second tie-up slip",
+			TIE_UP_PRICE[ties + 1], REFIT_ARRIVAL + TIE_UP_WORK + REFIT_DEPARTURE)
+		tie.v = new_slip_v(true)
+		tie.blocked = _crane_busy() if _crane_busy() != "" else ("No clear water beside the slips" if is_nan(tie.v) else "")
+		out.append(tie)
+	for i in town.slips.size():
+		var price := refit_price(i)
+		if price <= 0 or town.slips[i].building:
+			continue
+		var s := town.slips[i]
+		var kind := TerminalUpgrade.Kind.TIE_UP_REFIT if s.tie_up else TerminalUpgrade.Kind.REFIT
+		var refit := TerminalUpgrade.new(kind, "Refit %s %d to %s" % ["tie-up" if s.tie_up else "slip", slip_number(i),
+			MapData.Slip.SIZE_NAMES[s.size + 1]], price, REFIT_ARRIVAL + REFIT_WORK + REFIT_DEPARTURE)
+		refit.slip = i
+		refit.blocked = _crane_busy()
+		out.append(refit)
+	return out
+
+
+## The catalogue's `kind` entry (for a refit, of slip `i`), or null if there is none.
+func find_upgrade(kind: TerminalUpgrade.Kind, i := -1) -> TerminalUpgrade:
+	for u in upgrades():
+		if u.kind == kind and u.slip == i:
+			return u
+	return null
+
+
+## Buys `offer` (from upgrades()): checks it afresh, pays for it and starts the work.
+## False if it can't be bought now, its research isn't done, or cash is short.
+func buy(offer: TerminalUpgrade) -> bool:
+	if offer == null:
+		return false
+	var u := find_upgrade(offer.kind, offer.slip)
+	if u == null or u.blocked != "" or not sim.has_research(u.research) or sim.available_cash < u.price:
+		return false
+	sim.ledger.spend("purchases", u.price)
+	match u.kind:
+		TerminalUpgrade.Kind.LANE:
+			_start_lane()
+		TerminalUpgrade.Kind.SLIP, TerminalUpgrade.Kind.TIE_UP:
+			_start_slip(u)
+		TerminalUpgrade.Kind.REFIT, TerminalUpgrade.Kind.TIE_UP_REFIT:
+			_start_refit(u.slip, REFIT_WORK, false)
+	return true
+
+
+## Slip `i`'s number as the player sees it: working slips and tie-ups are each
+## counted from 1, left to right along the shore.
+func slip_number(i: int) -> int:
+	var n := 1
+	for j in town.slips.size():
+		if j != i and town.slips[j].tie_up == town.slips[i].tie_up and town.slip_offset(j) < town.slip_offset(i):
+			n += 1
+	return n
+
+
+## Working slips (or tie-ups) here, counting one being built.
+func _slip_count(tie_up: bool) -> int:
+	var n := 0
+	for slip in town.slips:
+		if slip.tie_up == tie_up:
+			n += 1
+	return n
+
+
+func _crane_busy() -> String:
+	if refit_stage == RefitStage.NONE:
+		return ""
+	return "Building slip %d" % slip_number(refit_slip) if refit_new else "Wait until the slip refit is done"
+
+
+func _lane_blocked() -> String:
 	# An idle terminal (no boat scheduled to call) has nobody to queue in a new lane.
 	if not has_service():
-		return false
-	var ready := work_stage == WorkStage.IDLE or work_stage == WorkStage.OPEN and not site_lanes.is_empty()
-	if town.lane_extension_price <= 0 or not ready or not can_stage_construction():
-		return false
-	if sim.available_cash < town.lane_extension_price:
-		return false
-	sim.ledger.spend("purchases", town.lane_extension_price)
+		return "No boat calls here yet"
+	if not (work_stage == WorkStage.IDLE or work_stage == WorkStage.OPEN and not site_lanes.is_empty()):
+		return "A lane is being built"
+	if not can_stage_construction():
+		return "Keep one lane open for service"
+	return ""
+
+
+func _start_lane() -> void:
 	if site_lanes.is_empty():
 		for i in town.construction_staging_lanes:
 			staging_lanes.append(lanes[lane_keys()[0]][i])
 	build_remaining = BUILD_MINUTES
 	_set_work_stage(WorkStage.DRAINING)
-	return true
 
 
 func _set_work_stage(stage: WorkStage) -> void:
@@ -163,7 +279,7 @@ func next_refit(tie_up := false) -> int:
 		return -1
 	var best := -1
 	for i in town.slips.size():
-		if town.slips[i].tie_up != tie_up:
+		if town.slips[i].tie_up != tie_up or town.slips[i].building:
 			continue
 		if refit_price(i) > 0 and (best < 0 or town.slips[i].size < town.slips[best].size):
 			best = i
@@ -171,14 +287,304 @@ func next_refit(tie_up := false) -> int:
 
 
 func buy_refit(i: int) -> bool:
-	var price := refit_price(i)
-	if price <= 0 or refit_stage != RefitStage.NONE or sim.available_cash < price:
+	if i < 0 or i >= town.slips.size():
 		return false
-	sim.ledger.spend("purchases", price)
+	return buy(find_upgrade(TerminalUpgrade.Kind.TIE_UP_REFIT if town.slips[i].tie_up else TerminalUpgrade.Kind.REFIT, i))
+
+
+func _start_refit(i: int, work: float, new_slip: bool) -> void:
 	refit_slip = i
-	refit_remaining = REFIT_ARRIVAL + REFIT_WORK + REFIT_DEPARTURE
+	refit_work = work
+	refit_new = new_slip
+	refit_remaining = REFIT_ARRIVAL + work + REFIT_DEPARTURE
 	_set_refit_stage(RefitStage.CLEARING)
+
+
+## Lays out a bought slip where `u` says (hidden and closed while it is built) and
+## brings the crane scow in to build it.
+func _start_slip(u: TerminalUpgrade) -> void:
+	town.freeze_slip_offsets()
+	var tie := u.kind == TerminalUpgrade.Kind.TIE_UP
+	var slip := MapData.Slip.new(1, tie)
+	slip.v = u.v
+	slip.building = true
+	town.slips.append(slip)
+	slip_ramps.append(null)
+	slip_guides.append(null)
+	_start_refit(town.slips.size() - 1, TIE_UP_WORK if tie else SLIP_WORK, true)
+
+
+## Where a new working slip (or tie-up) goes along the shore: beside the end slip
+## on one side or the other, facing the same way, wherever there is clear water.
+## Tie-ups keep to the side they are on (the right to begin with) and working slips
+## to the other, when both sides are clear. NAN if neither side is.
+func new_slip_v(tie_up: bool) -> float:
+	if town.slips.is_empty():
+		return NAN
+	var lo := INF
+	var hi := -INF
+	var sums := [0.0, 0.0]     # working, tie-up
+	var counts := [0, 0]
+	for i in town.slips.size():
+		var v := town.slip_offset(i)
+		lo = minf(lo, v)
+		hi = maxf(hi, v)
+		var k := 1 if town.slips[i].tie_up else 0
+		sums[k] += v
+		counts[k] += 1
+	var tie_side := 1.0
+	if counts[0] > 0 and counts[1] > 0 and sums[1] / counts[1] < sums[0] / counts[0]:
+		tie_side = -1.0
+	var right := hi + Layout.SLIP_SPACING
+	var left := lo - Layout.SLIP_SPACING
+	var first := right if tie_up == (tie_side > 0.0) else left
+	for v: float in [first, left if first == right else right]:
+		if _water_clear(v, not tie_up):
+			return v
+	return NAN
+
+
+## Whether a slip at `v` would have deep water off its pier, out past its dolphins
+## (and with `approach`, a boat's straight run in), clear of every other dock's slips.
+func _water_clear(v: float, approach: bool) -> bool:
+	var terrain := sim.terrain
+	if terrain == null:
+		return false   # (a bare test terminal: no shore to build along)
+	# Its pier meets the shore about where the lot's does.
+	if terrain.height_v(_at(v, Layout.LOT_FRONT)) < -6.0:
+		return false
+	var reach := Layout.CHANNEL_BUOY_U + (REAIM_HOLD + 120.0 if approach else 20.0)
+	var u := Layout.PIER_END + 12.0
+	while u < reach:
+		for dv: float in [-15.0, 0.0, 15.0]:
+			if terrain.height_v(_at(v + dv, u)) > -3.6:
+				return false
+		u += 9.0
+	var berth := _at(v, Layout.DOCK_U)
+	for t in sim.map.dock_towns():
+		if t == town:
+			continue
+		for i in t.slips.size():
+			if t.berth_center(i).distance_to(berth) < Layout.SLIP_SPACING * 1.5:
+				return false
+		if t.slips.is_empty() and t.shore.distance_to(berth) < Layout.SLIP_SPACING * 1.5:
+			return false
 	return true
+
+
+## Point (v, u) of the terminal frame in the world, at sea level.
+func _at(v: float, u: float) -> Vector3:
+	return town.shore + town.dock_dir * u + town.lateral() * v
+
+
+## A bought slip is built: it takes its ramp and guides and comes into use, and
+## the routes boats sail from here spread over the working slips.
+func _open_slip(i: int) -> void:
+	var slip := town.slips[i]
+	slip.building = false
+	var v := town.slip_offset(i)
+	if SlipRamp.available() and not slip.tie_up:
+		slip_ramps[i] = SlipRamp.new(v)
+		add_child(slip_ramps[i])
+	if SlipGuides.available():
+		slip_guides[i] = SlipGuides.new(v, transform, sim.terrain)
+		add_child(slip_guides[i])
+		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[slip.size])
+	slip_built.emit(i)
+	if not slip.tie_up:
+		spread_routes()
+
+
+# --- Spreading routes over the slips ------------------------------------------------
+
+## Gives routes that share a working slip with another a slip of their own where
+## one is free and big enough for their boats. A route only moves if a boat sails
+## it; a boat that calls here on two legs keeps both on one slip. The move waits
+## until no boat on it is under way or alongside here (_move_pending_routes).
+func spread_routes() -> void:
+	var working: Array[int] = []
+	for i in town.slips.size():
+		if not town.slips[i].tie_up and not town.slips[i].building:
+			working.append(i)
+	if working.size() < 2:
+		return
+	var calls := {}
+	for i in working:
+		calls[i] = 0
+	var busy := []
+	for g in _route_groups():
+		if g.any(func(rid): return sim.map.routes[rid].in_service):
+			busy.append(g)
+			calls[_slip_of(g[0])] = calls.get(_slip_of(g[0]), 0) + 1
+	while true:
+		var best_g: Array = []
+		var best_i := -1
+		var best_score := INF
+		for g in busy:
+			var at := _slip_of(g[0])
+			if calls.get(at, 0) <= 1:
+				continue
+			var side := _departure_side(g)
+			for i in working:
+				if i == at or calls[i] + 1 >= calls[at] or not _group_fits(g, i) or _closed_for_good(i):
+					continue
+				# The emptiest slip, on the side the route heads off to.
+				var score: float = calls[i] * 10.0 - side * signf(town.slip_offset(i) - town.slip_offset(at))
+				if score < best_score:
+					best_score = score
+					best_g = g
+					best_i = i
+		if best_i < 0:
+			break
+		calls[_slip_of(best_g[0])] -= 1
+		calls[best_i] += 1
+		for rid in best_g:
+			if town.slip_index(rid) == best_i:
+				pending_routes.erase(rid)
+			else:
+				pending_routes[rid] = best_i
+
+
+## Whether slip `i` is closed for a refit (not a new slip whose crew is leaving).
+func _closed_for_good(i: int) -> bool:
+	return refit_stage != RefitStage.NONE and i == refit_slip and not (refit_new and refit_stage == RefitStage.LEAVING)
+
+
+## Which slip route `rid` calls at here, or will once it has moved.
+func _slip_of(rid: int) -> int:
+	return pending_routes.get(rid, town.slip_index(rid))
+
+
+## The routes calling here in groups that must share a slip: a boat that comes in
+## on one and leaves on another (a multi-stop schedule) joins them.
+func _route_groups() -> Array:
+	var parent := {}
+	for rid in town.route_ids():
+		parent[rid] = rid
+	var find := func(rid: int) -> int:
+		while parent[rid] != rid:
+			rid = parent[rid]
+		return rid
+	for f in sim.ferries:
+		for plan in [[f.stops, f.legs], [f.next_stops, f._next_legs]]:
+			var stops: Array = plan[0]
+			var legs: Array = plan[1]
+			if legs.size() != stops.size():
+				continue
+			for i in stops.size():
+				if stops[i] != town.id:
+					continue
+				var a: int = legs[(i - 1 + legs.size()) % legs.size()].id
+				var b: int = legs[i].id
+				if parent.has(a) and parent.has(b):
+					parent[find.call(a)] = find.call(b)
+	var groups := {}
+	for rid in parent:
+		var r: int = find.call(rid)
+		if not groups.has(r):
+			groups[r] = []
+		groups[r].append(rid)
+	return groups.values()
+
+
+## Whether every boat sailing a route in `g` fits slip `i`.
+func _group_fits(g: Array, i: int) -> bool:
+	for f in sim.ferries:
+		for r in f.legs + f._next_legs:
+			if r.id in g and not town.slips[i].fits(f.fc.size):
+				return false
+	return true
+
+
+## Which way (+1 / -1 across the slips, about 0 straight out) the routes of `g` head.
+func _departure_side(g: Array) -> float:
+	var total := 0.0
+	for rid in g:
+		var r := sim.map.routes[rid]
+		var s := minf(400.0, r.length * 0.4)
+		var p := r.curve.sample_baked(s if r.a == town.id else r.length - s)
+		total += (p - town.dock_center(rid)).normalized().dot(town.lateral())
+	return total / maxf(g.size(), 1)
+
+
+## Moves each group of routes waiting for another slip once no boat on them is
+## under way or at this terminal. A route whose new end would run over land stays.
+func _move_pending_routes() -> void:
+	for g in _route_groups():
+		var moving: Array = g.filter(func(rid): return pending_routes.has(rid))
+		if moving.is_empty():
+			continue
+		var clear := true
+		for f in sim.ferries:
+			if f.route.id in g and (f.state == Ferry.State.SAILING or f.here() == self):
+				clear = false
+		if not clear:
+			continue
+		var curves := {}
+		for rid in moving:
+			var to: int = pending_routes[rid]
+			var c := _reaimed_curve(sim.map.routes[rid], town.slip_offset(to) - town.slip_offset(town.slip_index(rid)))
+			if c == null:
+				push_warning("%s: route %d can't move to slip %d (land in the way)" % [town.name, rid, to])
+				curves.clear()
+				break
+			curves[rid] = c
+		if curves.is_empty():
+			for rid in moving:
+				pending_routes.erase(rid)
+			continue
+		for rid in moving:
+			var to: int = pending_routes[rid]
+			pending_routes.erase(rid)
+			town.slips[town.slip_index(rid)].routes.erase(rid)
+			town.slips[to].routes.append(rid)
+			slip_v[rid] = town.slip_offset(to)
+			if slip_ramps[to]:
+				ramps[rid] = slip_ramps[to]
+			else:
+				ramps.erase(rid)
+			var r := sim.map.routes[rid]
+			r.curve = curves[rid]
+			r.length = r.curve.get_baked_length()
+			for f in sim.ferries:
+				f.route_reshaped(r)
+		if sim.marine:
+			sim.marine.refresh_corridors()
+		sim.routes_changed.emit()
+
+
+## Route `r`'s curve with its end here moved `dv` across the slips: straight out of
+## the new slip for REAIM_HOLD, then easing back onto the old line. Null if that
+## would take it over land or the route is too short to ease back.
+func _reaimed_curve(r: MapData.Route, dv: float) -> Curve3D:
+	var blend := minf(REAIM_BLEND, r.length - REAIM_HOLD - 200.0)
+	if blend < 120.0:
+		return null
+	var pts := r.curve.get_baked_points()
+	var from_here := r.a == town.id
+	if not from_here:
+		pts.reverse()
+	var shift := town.lateral() * dv
+	var out := PackedVector3Array()
+	var d := 0.0
+	for k in pts.size():
+		if k > 0:
+			d += pts[k].distance_to(pts[k - 1])
+		var w := 1.0 - smoothstep(REAIM_HOLD, REAIM_HOLD + blend, d)
+		var p := pts[k] + shift * w
+		if w > 0.0 and d > 36.0 and k + 1 < pts.size():
+			var side := Vector3.UP.cross((pts[k + 1] - pts[k]).normalized()) * 18.0
+			for o: Vector3 in [Vector3.ZERO, side, -side]:
+				if sim.terrain.height_v(p + o) > -3.6:
+					return null
+		out.append(p)
+	if not from_here:
+		out.reverse()
+	var c := Curve3D.new()
+	c.bake_interval = r.curve.bake_interval
+	for p in out:
+		c.add_point(p)
+	return c
 
 
 ## Whether tie-up slip `i` is closed for a refit (no boat may make for it).
@@ -195,9 +601,9 @@ func slip_closed(rid: int) -> bool:
 func refit_progress() -> float:
 	match refit_stage:
 		RefitStage.ARRIVING:
-			return clampf((REFIT_ARRIVAL + REFIT_WORK + REFIT_DEPARTURE - refit_remaining) / REFIT_ARRIVAL, 0.0, 1.0)
+			return clampf((REFIT_ARRIVAL + refit_work + REFIT_DEPARTURE - refit_remaining) / REFIT_ARRIVAL, 0.0, 1.0)
 		RefitStage.WORKING:
-			return clampf((REFIT_WORK + REFIT_DEPARTURE - refit_remaining) / REFIT_WORK, 0.0, 1.0)
+			return clampf((refit_work + REFIT_DEPARTURE - refit_remaining) / refit_work, 0.0, 1.0)
 		RefitStage.LEAVING:
 			return clampf(1.0 - refit_remaining / REFIT_DEPARTURE, 0.0, 1.0)
 	return 0.0
@@ -216,15 +622,20 @@ func _advance_refit(delta: float) -> void:
 	refit_remaining = maxf(0.0, refit_remaining - delta)
 	if refit_remaining == 0.0:
 		refit_slip = -1
+		refit_new = false
 		_set_refit_stage(RefitStage.NONE)
 	elif refit_remaining <= REFIT_DEPARTURE and refit_stage != RefitStage.LEAVING:
-		# The work is done: the slip takes the next size up, with its new guides.
-		var slip := town.slips[refit_slip]
-		slip.size += 1
-		if slip_guides[refit_slip]:
-			slip_guides[refit_slip].fit(MapData.Slip.LARGEST_BOAT[slip.size])
+		if not refit_new:
+			# The work is done: the slip takes the next size up, with its new guides.
+			var slip := town.slips[refit_slip]
+			slip.size += 1
+			if slip_guides[refit_slip]:
+				slip_guides[refit_slip].fit(MapData.Slip.LARGEST_BOAT[slip.size])
 		_set_refit_stage(RefitStage.LEAVING)
-	elif refit_remaining <= REFIT_WORK + REFIT_DEPARTURE and refit_stage == RefitStage.ARRIVING:
+		if refit_new:
+			# A new slip is built: it comes into use as the crew leaves.
+			_open_slip(refit_slip)
+	elif refit_remaining <= refit_work + REFIT_DEPARTURE and refit_stage == RefitStage.ARRIVING:
 		_set_refit_stage(RefitStage.WORKING)
 
 
@@ -429,6 +840,8 @@ func _process(delta: float) -> void:
 		_advance_construction(delta)
 	if refit_stage != RefitStage.NONE:
 		_advance_refit(delta)
+	if not pending_routes.is_empty():
+		_move_pending_routes()
 	_spawn_acc += sim.demand_rate(town) * delta
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0

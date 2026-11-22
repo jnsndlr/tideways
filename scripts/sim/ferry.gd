@@ -1297,6 +1297,19 @@ func _press(g: SlipGuides) -> void:
 		f.target = clampf(into / FENDER_GIVE, 0.0, 1.0)
 
 
+## Route `r` was re-aimed at another slip (Terminal.spread_routes): her headings along
+## it are found afresh, and if she lies alongside on it (at its other end) she lies
+## where its new length puts her.
+func route_reshaped(r: MapData.Route) -> void:
+	_yaw_cache.erase(r.id)
+	_forecasts.clear()
+	_runs.clear()
+	if route == r:
+		_build_yaws()
+		if state != State.SAILING and berth == Berth.WORKING:
+			_place(_dock_s())
+
+
 ## The curve is a polyline of ~6 m chords, so its own direction turns in kinks
 ## and changes rate abruptly where each arc meets a straight. Two passes of a box
 ## filter over the (unwrapped) chord headings give a turn rate that ramps up,

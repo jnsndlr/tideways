@@ -50,6 +50,7 @@ if [[ $suite == traffic ]]; then
   check slip-conflict test --fixed-fps 30 --script tools/slip_conflict_test.gd -- --scenario=two_boats
   check tie-up-refit test --fixed-fps 30 --script tools/tie_up_refit_test.gd -- --scenario=shared_slip
   check slip-refit test --fixed-fps 30 --script tools/slip_refit_test.gd -- --scenario=opening
+  check slip-purchase test --fixed-fps 30 --script tools/slip_purchase_test.gd -- --scenario=shared_slip
   check marine-traffic test --fixed-fps 30 --script tools/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
   exit 0
 fi

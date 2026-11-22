@@ -132,6 +132,44 @@ func show_terminal(town: MapData.Town) -> void:
 	_sites.erase(town.id)
 
 
+## Builds slip `i` of `town`'s terminal, bought in play (stage 5), into the world
+## as it opens: its pier (or a tie-up's catwalk), lift, lights and buoys, and for a
+## working slip beyond the lot, a forecourt for cars to reach it. Nothing else moves.
+func build_bought_slip(town: MapData.Town, i: int) -> void:
+	var saved := glows
+	glows = GlowBuilder.new()
+	var mb := MeshBuilder.new()
+	mb.xform = town.terminal_xform()
+	glows.xform = mb.xform
+	var v := town.slip_offset(i)
+	if town.slips[i].tie_up:
+		_build_tie_up(mb, v)
+	else:
+		_build_slip(mb, v)
+		_forecourt(mb, town.lot_half_width, v)
+	_add_mesh(mb.commit(), "%s Slip %d" % [town.name, i])
+	if not glows.is_empty() and night_lights:
+		var mi := MeshInstance3D.new()
+		mi.name = "%s Slip %d Lights" % [town.name, i]
+		mi.mesh = glows.commit()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		night_lights.add_child(mi)
+	glows = saved
+
+
+## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
+## where cars cross from the lanes to the pier and back.
+func _forecourt(mb: MeshBuilder, hw: float, v: float) -> void:
+	var reach := absf(v) + 7.5 - hw
+	if reach <= 0.0:
+		return
+	var mid := signf(v) * (hw + reach * 0.5)
+	var u0 := Layout.LANE_HEAD + 1.5
+	var u1 := Layout.LOT_FRONT + 1.2
+	mb.box(Vector3(mid, Layout.LOT_Y - 0.9, (u0 + u1) * 0.5), Vector3(reach + 0.6, 1.8, u1 - u0), ASPHALT)
+	mb.box(Vector3(mid, Layout.LOT_Y - 1.35, (u0 + u1) * 0.5), Vector3(reach + 2.4, 2.4, u1 - u0 + 1.8), CONCRETE)
+
+
 func _add_mesh(mesh: Mesh, node_name: String, shadows := true) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -642,12 +680,18 @@ func _terminal_for(isl: MapData.Town) -> void:
 
 	_add_mesh(mb.commit(), isl.name + " Terminal")
 
-	# Keep trees and houses off the lot, piers and building.
+	# Keep trees and houses off the lot, piers and building, and off the shore either
+	# side where more slips may be bought (Terminal.new_slip_v).
 	var t := isl.lateral()
+	var spare := (Terminal.MAX_WORKING_SLIPS + Terminal.MAX_TIE_UPS - 1) * Layout.SLIP_SPACING + 12.0
 	var bu := Layout.LOT_BACK - 18.0
 	while bu < Layout.PIER_END:
 		var bvv := -hw - 9.0
-		while bvv < hw + 36.0:
+		var far := hw + 36.0
+		if bu > Layout.LANE_HEAD:
+			bvv = minf(bvv, -spare)
+			far = maxf(far, spare)
+		while bvv < far:
 			_block(isl.shore + isl.dock_dir * bu + t * bvv, 3.0)
 			bvv += 4.5
 		bu += 4.5

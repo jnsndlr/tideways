@@ -442,6 +442,13 @@ func _dress_terminal(terminal: Terminal) -> void:
 		var extension := HoldingLaneView.new()
 		terminal.add_child(extension)
 		extension.setup(terminal)
+	terminal.slip_built.connect(_on_slip_built.bind(terminal))
+
+
+## A slip bought at `terminal` is built: it goes into the world where it stands.
+func _on_slip_built(i: int, terminal: Terminal) -> void:
+	builder.build_bought_slip(terminal.town, i)
+	hud.show_toast("SLIP OPEN", "%s's new %s is in use." % [terminal.town.name, "tie-up slip" if terminal.town.slips[i].tie_up else "working slip"], 5.0)
 
 
 ## A terminal bought in play finished building: it was in the world all along,
