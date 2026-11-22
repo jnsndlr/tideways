@@ -10,6 +10,7 @@ extends Node3D
 ## own edge vertices (so the two meet without a crack), and each ring further out is
 ## a little larger, halving its samples twice so far ranges get broad facets.
 
+const MAINLAND_SLICE_USEC := 12500
 const LAND_SHADER := "res://shaders/backdrop.gdshader"
 
 const SAND := Color(0.8, 0.73, 0.54)
@@ -54,12 +55,14 @@ var _card_cols: Array[Color] = []
 
 
 func setup(t: Terrain, b: WorldBuilder = null, frame: Signal = Signal()) -> bool:
+	_frames.slice_usec = MAINLAND_SLICE_USEC
 	_frames.start(frame)
 	name = "Backdrop"
 	terrain = t
 	builder = b
 	_rng.seed = int(t.mainland.snowline * 1000.0)
 	await _build_land()
+	_frames.slice_usec = BuildFrameBudget.SLICE_USEC
 	if builder and not _frames.cancelled:
 		# The cards WorldBuilder put inside the map, on the mainland's shores.
 		for at in builder.edge_cards:

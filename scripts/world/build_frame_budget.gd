@@ -8,6 +8,12 @@ signal _resume
 var cancelled := false
 var _frame: Signal
 var _deadline := 0
+## Changing phases preserves the time already spent in the current frame.
+var slice_usec := SLICE_USEC:
+	set(value):
+		if _deadline > 0:
+			_deadline += value - slice_usec
+		slice_usec = value
 
 
 func start(frame: Signal) -> void:
@@ -15,7 +21,7 @@ func start(frame: Signal) -> void:
 	_frame = frame
 	if not frame.is_null():
 		frame.connect(_advance)
-		_deadline = Time.get_ticks_usec() + SLICE_USEC
+		_deadline = Time.get_ticks_usec() + slice_usec
 
 
 func can_continue() -> bool:
@@ -25,7 +31,7 @@ func can_continue() -> bool:
 
 
 func _advance() -> void:
-	_deadline = Time.get_ticks_usec() + SLICE_USEC
+	_deadline = Time.get_ticks_usec() + slice_usec
 	_resume.emit()
 
 
