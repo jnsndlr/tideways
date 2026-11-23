@@ -42,6 +42,7 @@ const EAGLE_SHORE := 45.0
 const EAGLE_CELL := 27.0
 
 var _frames := BuildFrameBudget.new()
+var _tie_up_piers := {}         # town id -> TieUpPier node
 
 var map: MapData
 var terrain: Terrain
@@ -149,12 +150,16 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 	glows.xform = mb.xform
 	var v := town.slip_offset(i)
 	if town.slips[i].tie_up:
-		_build_tie_up(mb, town, i)
+		if TieUpPier.available():
+			_rebuild_tie_up_pier(town, mb)
+		else:
+			_build_tie_up(mb, town, i)
 	else:
 		_build_slip(mb, town, v)
 		mb.xform = town.lot_xform()
 		_forecourt(mb, town.lot_half_width, v)
-	_add_mesh(mb.commit(), "%s Slip %d" % [town.name, i])
+	if not mb.is_empty():
+		_add_mesh(mb.commit(), "%s Slip %d" % [town.name, i])
 	if not glows.is_empty() and night_lights:
 		var mi := MeshInstance3D.new()
 		mi.name = "%s Slip %d Lights" % [town.name, i]
@@ -162,6 +167,38 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		night_lights.add_child(mi)
 	glows = saved
+
+
+func _rebuild_tie_up_pier(town: MapData.Town, mb: MeshBuilder) -> void:
+	var old: TieUpPier = _tie_up_piers.get(town.id)
+	var existing_rows: Array[float] = []
+	if is_instance_valid(old):
+		existing_rows = old.rows
+		old.get_parent().remove_child(old)
+		old.queue_free()
+		_tie_up_piers.erase(town.id)
+	var centres: Array[float] = []
+	for i in town.tie_ups():
+		centres.append(town.slip_offset(i))
+	if centres.is_empty():
+		return
+	centres.sort()
+	var pier := TieUpPier.new(centres, town)
+	pier.name = town.name + " Tie-up Pier"
+	root.add_child(pier)
+	pier.transform = town.terminal_xform()
+	_tie_up_piers[town.id] = pier
+	# Purchased slips retain their centres. Existing rows keep their navigation
+	# lantern and eagle lookout when a neighbouring berth extends this pier.
+	for v in pier.rows:
+		if existing_rows.has(v):
+			continue
+		var lookout := TieUpPier.SMALL_CAP + Vector3.RIGHT * v
+		eagle_perches.append(Eagles.Perch.new(mb.xform * lookout, Eagles.Kind.DOLPHIN))
+		var cap := TieUpPier.LARGE_CAP + Vector3.RIGHT * v
+		var mark := GlowBuilder.GREEN if v in pier.port_rows else GlowBuilder.RED
+		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
+		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 
 
 ## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
@@ -659,14 +696,16 @@ func _terminal_for(isl: MapData.Town) -> void:
 
 	if Models.mid_trestle:
 		_lot_edge(mb, isl)
-
 	mb.xform = isl.terminal_xform()
 	glows.xform = mb.xform
+	var timber_pier := not isl.tie_ups().is_empty() and TieUpPier.available()
 	for i in isl.slips.size():
-		if isl.slips[i].tie_up:
-			_build_tie_up(mb, isl, i)
-		else:
+		if not isl.slips[i].tie_up:
 			_build_slip(mb, isl, isl.slip_offset(i))
+		elif not timber_pier:
+			_build_tie_up(mb, isl, i)
+	if timber_pier:
+		_rebuild_tie_up_pier(isl, mb)
 	mb.xform = isl.lot_xform()
 	glows.xform = mb.xform
 
