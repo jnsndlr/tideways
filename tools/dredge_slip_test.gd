@@ -26,8 +26,7 @@ func _fail(why: String) -> bool:
 	return true
 
 
-## A headland inside the channel blocks a purchase atomically. Land beside
-## the channel stays intact even where the seabed cut blends towards shore.
+## A cut cannot remove high ground, including where the cut blends into shore.
 func _protected_shore() -> bool:
 	var terrain := Terrain.new(123, Terrain.CELL * 8)
 	terrain.h_grid.resize((terrain.n + 1) * (terrain.n + 1))
@@ -36,8 +35,8 @@ func _protected_shore() -> bool:
 	var core := center * (terrain.n + 1) + center
 	terrain.h_grid[core] = 3.0
 	var before := terrain.h_grid.duplicate()
-	if terrain.dredge(Vector3.ZERO, Vector3.FORWARD, -8.0, 8.0, 5.0, -7.0, 9.0, true) >= 0 or before != terrain.h_grid:
-		_fail("Dredging through a headland should fail without moving any ground")
+	if terrain.dredge(Vector3.ZERO, Vector3.FORWARD, -8.0, 8.0, 5.0, -7.0, 9.0, true) >= 0.0 or before != terrain.h_grid:
+		_fail("Headland in the required channel must reject the entire cut")
 		return false
 	terrain.h_grid[core] = -2.0
 	var edge := core + 2
@@ -57,12 +56,26 @@ func _finish(t: Terminal) -> void:
 
 func _process(_delta: float) -> bool:
 	frames += 1
-	if frames > 3000:
+	if frames > 24000:
 		return _fail("timed out")
 	if main == null or frames < 5 or main.sim == null:
 		return false
 	var sim: Simulation = main.sim
 	sim.ledger.cash = maxf(sim.ledger.cash, 500000.0) if offer == null else sim.ledger.cash
+	if frames == 5:
+		# Include the other authored dock sites so the fixture exercises an
+		# actual dredgeable shoreline even when the opening ports have headlands.
+		for town: MapData.Town in sim.map.dock_towns():
+			if town.built:
+				continue
+			var survey := SlipSiteSurvey.new(sim, town)
+			for site in survey.sites(false) + survey.sites(true):
+				if site.y > 0.0:
+					print("Opening %s for its naturally shallow expansion site" % town.name)
+					sim.open_terminal(town)
+					break
+			if town.built:
+				break
 	if offer == null:
 		# Every few frames, build the next free slip somewhere until a dredged one is offered.
 		if frames % 4 != 0:

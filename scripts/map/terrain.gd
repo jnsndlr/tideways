@@ -394,7 +394,7 @@ func dredge(origin: Vector3, dir: Vector3, u0: float, u1: float, half: float, de
 				continue
 			var k := j * (n + 1) + i
 			if h_grid[k] > DREDGE_MAX_HEIGHT:
-				if dd <= 0.0:
+				if dd == 0.0:
 					return -1.0
 				continue
 			var cut := minf(h_grid[k], lerpf(h_grid[k], depth, 1.0 - smoothstep(0.0, blend, dd)))
