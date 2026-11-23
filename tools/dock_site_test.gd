@@ -64,6 +64,9 @@ func _process(_delta: float) -> bool:
 		# A physically isolated site must not cost the company any money.
 		for town in docks:
 			if town.route_ids().is_empty() and not town.built:
+				_main.hud.select_town(town, false)
+				if _main.hud._dock_button.visible:
+					return _fail("The town panel offered a dock with no navigable routes")
 				var balance := sim.available_cash
 				if sim.dock_price(town) != 0 or sim.buy_dock(town) or sim.available_cash != balance:
 					return _fail("A site with no navigable routes was offered for purchase")
@@ -94,7 +97,13 @@ func _process(_delta: float) -> bool:
 		_cash_before = sim.available_cash
 		print("Opening: %d terminals of %d dock towns, %d routes; buying %s for $%d of $%d" % [
 			sim.terminals.size(), docks.size(), map.routes.size(), _cypress.name, _price, int(_cash_before)])
-		_main.buy_dock(_cypress)
+		_main.hud.select_town(_cypress, false)
+		var buy: Button = _main.hud._dock_button
+		if not buy.is_visible_in_tree() or buy.disabled or not buy.text.contains(Hud.fmt_money(_price)):
+			return _fail("The selected town did not offer the quoted purchase")
+		buy.pressed.emit()
+		if buy.visible or _main.hud._info_sub.text != "Terminal under construction":
+			return _fail("The purchase action did not switch the town panel to construction")
 		_bought_at = sim.abs_minutes()
 		if absf(sim.available_cash - (_cash_before - _price)) > 1.0:
 			return _fail("Cash %.0f after buying, expected %.0f" % [sim.available_cash, _cash_before - _price])
