@@ -1,14 +1,13 @@
 extends SceneTree
-## Dredging for a slip (stage 5): in the opening scenario, buys slips and tie-ups at
-## each terminal until one is offered only with dredging, then buys that one. Passes
-## once the seabed off it is cut deep, the dredging was charged in its price, the
-## terrain there was rebuilt in place, and the slip opens.
+## Cordova's third working slip leaves a naturally shallow tie-up site. Exercise
+## its quoted cost and duration, protected terrain, and completed in-place build.
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tools/dredge_slip_test.gd -- --scenario=opening
 
 var main: Node
 var frames := 0
 var term: Terminal
+var target: Terminal
 var offer: TerminalUpgrade
 var index := -1
 
@@ -61,29 +60,24 @@ func _process(_delta: float) -> bool:
 	if main == null or frames < 5 or main.sim == null:
 		return false
 	var sim: Simulation = main.sim
+	Engine.time_scale = 10.0
 	sim.ledger.cash = maxf(sim.ledger.cash, 500000.0) if offer == null else sim.ledger.cash
 	if frames == 5:
-		# Include the other authored dock sites so the fixture exercises an
-		# actual dredgeable shoreline even when the opening ports have headlands.
+		# The region authors placed a naturally shallow site at Cordova.
 		for town: MapData.Town in sim.map.dock_towns():
-			if town.built:
-				continue
-			var survey := SlipSiteSurvey.new(sim, town)
-			for site in survey.sites(false) + survey.sites(true):
-				if site.y > 0.0:
-					print("Opening %s for its naturally shallow expansion site" % town.name)
-					sim.open_terminal(town)
-					break
-			if town.built:
+			if town.name == "Cordova":
+				target = sim.terminals.get(town.id) if town.built else sim.open_terminal(town)
 				break
+		if target == null:
+			return _fail("Region is missing the Cordova fixture")
 	if offer == null:
-		# Every few frames, build the next free slip somewhere until a dredged one is offered.
+		# Build outward on Cordova’s unoccupied working side first.
 		if frames % 4 != 0:
 			return false
-		for t: Terminal in sim.terminals.values():
+		for t: Terminal in [target]:
 			if t.refit_stage != Terminal.RefitStage.NONE:
 				return false
-		for t: Terminal in sim.terminals.values():
+		for t: Terminal in [target]:
 			for u in t.upgrades():
 				if u.dredge_price > 0 and u.blocked == "":
 					term = t
@@ -113,7 +107,7 @@ func _process(_delta: float) -> bool:
 					print("Dredged %.0f m³ for $%d; terrain tiles %d -> %d" % [u.dredge_m3, u.dredge_price, tiles, main.builder.root.get_child_count()])
 					_finish(t)
 					return false
-		for t: Terminal in sim.terminals.values():
+		for t: Terminal in [target]:
 			for u in t.upgrades():
 				if u.kind in [TerminalUpgrade.Kind.SLIP, TerminalUpgrade.Kind.TIE_UP] and u.blocked == "" and u.dredge_price == 0:
 					t.buy(u)
