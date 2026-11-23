@@ -1,0 +1,100 @@
+// Asphalt, lane markings and gravel shoulders for the town roads (lit_vc.gdshaderinc,
+// ROAD; RoadMesh builds the strips). No textures: world-space noise for the grain,
+// patches and wear, and the markings drawn from the strip's UVs:
+//   UV.x   metres across from the centreline (+ right), out to the shoulder's edge
+//   UV.y   metres along the road
+//   UV2.x  how strongly the markings show (0 at junctions and the lot, so they fade out)
+//   UV2.y  marking style (RoadMesh.Style): 0 none, 1 dashed yellow centre, 2 dashed
+//          yellow and white edge lines, 3 double yellow and white edge lines
+// Every layer fades to its average once its detail nears a pixel, so it doesn't
+// shimmer zoomed out.
+
+// 0..1: how wet the roads are (CloudLayer, from the weather's storm).
+global uniform float road_wet;
+
+// Must match RoadMesh.ASPHALT_HALF.
+const float RD_ASPHALT_HALF = 3.7;
+const float RD_EDGE_LINE = 3.42;
+const float RD_DASH = 3.0;
+const float RD_DASH_PERIOD = 12.0;
+
+uniform vec3 gravel_color : source_color = vec3(0.5, 0.47, 0.42);
+uniform vec3 yellow_line : source_color = vec3(0.86, 0.66, 0.16);
+uniform vec3 white_line : source_color = vec3(0.86, 0.86, 0.83);
+
+// A line `hw` either side of 0, box-filtered over a pixel `fw` wide: its share of
+// the pixel, so a thin line far off fades to its average rather than sparkling.
+float rd_band(float d, float hw, float fw) {
+	fw = max(fw, 1e-4);
+	return clamp((d + hw) / fw + 0.5, 0.0, 1.0) - clamp((d - hw) / fw + 0.5, 0.0, 1.0);
+}
+
+// The road surface at world position `wp`: albedo (linear, in and out), roughness,
+// how glossy it is for the sun's highlight, and any glow of its own.
+void road_detail(vec3 wp, vec2 uv, vec2 uv2, vec2 fw, float mpp, inout vec3 albedo,
+		out float rough, out float gloss, out vec3 emit) {
+	float x = uv.x;
+	float ax = abs(x);
+	float s = uv.y;
+	float show = clamp(uv2.x, 0.0, 1.0);
+	int style = int(round(uv2.y));
+	vec2 p = wp.xz;
+	emit = vec3(0.0);
+
+	// Gravel shoulders, paved over where the markings fade out (junction mouths,
+	// the lot's apron).
+	float shoulder = step(RD_ASPHALT_HALF, ax) * step(0.5, show);
+	float grain = gd_octave(p, 2.6, mpp) + 0.7 * gd_octave(p, 6.5, mpp);
+	float mottle = gd_octave(p, 0.11, mpp) + 0.5 * gd_octave(p, 0.37, mpp);
+
+	// Asphalt: broad mottling, fine aggregate, darker newer patches and the polished
+	// tracks the tyres wear into each lane.
+	vec3 asphalt = albedo * (1.0 + 0.16 * mottle + 0.22 * grain);
+	vec2 off;
+	vec3 cell = gd_voronoi(p * 0.16, off);
+	float repair = step(0.84, cell.z) * smoothstep(0.02, 0.08, cell.y) * (1.0 - smoothstep(0.5, 0.9, mpp * 0.16));
+	asphalt *= 1.0 - 0.14 * repair;
+	float track = 1.0 - smoothstep(0.12, 0.5, min(abs(ax - 0.95), abs(ax - 2.75)));
+	track *= 1.0 - shoulder;
+	asphalt *= 1.0 - 0.07 * track;
+
+	vec3 gravel = gravel_color * (1.0 + 0.35 * grain + 0.12 * mottle);
+	albedo = mix(asphalt, gravel, shoulder);
+	rough = mix(mix(0.9, 0.8, track), 1.0, shoulder);
+
+	// Markings, worn in places.
+	float wear = mix(0.5, 1.0, smoothstep(0.25, 0.6, gd_noise(p * 1.7 + vec2(s * 0.05, 0.0))));
+	wear *= mix(0.8, 1.0, gd_noise(p * 0.21));
+	float yellow = 0.0;
+	if (style == 1 || style == 2) {
+		float along = mod(s, RD_DASH_PERIOD) - RD_DASH * 0.5;
+		yellow = rd_band(x, 0.07, fw.x) * rd_band(along, RD_DASH * 0.5, fw.y);
+	} else if (style == 3) {
+		yellow = rd_band(x - 0.16, 0.06, fw.x) + rd_band(x + 0.16, 0.06, fw.x);
+	}
+	float white = 0.0;
+	if (style >= 2) {
+		white = rd_band(ax - RD_EDGE_LINE, 0.07, fw.x);
+	}
+	yellow *= show * wear;
+	white *= show * wear * (1.0 - shoulder);
+	vec3 paint_y = yellow_line;
+	vec3 paint_w = white_line;
+	albedo = mix(albedo, paint_y, yellow);
+	albedo = mix(albedo, paint_w, white);
+	float paint = max(yellow, white);
+	rough = mix(rough, 0.7, paint);
+
+	// Wet: darker, glossy, with water standing in the tyre tracks and low spots.
+	float w = clamp(road_wet, 0.0, 1.0) * (1.0 - 0.6 * shoulder);
+	float low = gd_noise(p * 0.3) * 0.7 + gd_noise(p * 0.9) * 0.3;
+	float puddle = w * smoothstep(0.6, 0.72, low + 0.3 * track) * (1.0 - shoulder);
+	albedo *= mix(1.0, mix(0.6, 0.85, paint), w);
+	albedo *= 1.0 - 0.25 * puddle;
+	rough = mix(rough, 0.32, w);
+	rough = mix(rough, 0.06, puddle);
+	gloss = w * (0.35 + 0.65 * puddle);
+
+	// The paint's glass beads catch the light at night, just enough to show the lanes.
+	emit = (paint_y * yellow + paint_w * white) * night_lights * 0.05;
+}

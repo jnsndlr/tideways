@@ -8,6 +8,7 @@ extends RefCounted
 ## the edge's sample count twice, so the count must divide by 4.
 const CELL := 6600.0 / 1600.0
 const SEA_FLOOR := -16.5
+const DREDGE_MAX_HEIGHT := 1.5
 ## Lowest an inland valley comes with Lakes at 0 (m above the sea).
 const LAKE_FLOOR := 2.5
 
@@ -317,9 +318,111 @@ func add_flat(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1
 		"v0": v0, "v1": v1, "h": height, "blend": blend})
 
 
+## Keeps the ground under a trestle clear of its deck: within `u0..u1` along `dir` and
+## `v0..v1` across it from `origin`, never higher than `under.call(u)`, easing back
+## to the ground over `blend`. Only ever cuts down. Kept in `flats`, after the lot's.
+func add_cut(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1: float, under: Callable, blend: float) -> void:
+	flats.append({"o": origin, "n": dir, "t": Vector3.UP.cross(dir), "u0": u0, "u1": u1,
+		"v0": v0, "v1": v1, "h": 0.0, "blend": blend, "under": under})
+
+
 func apply_flats() -> void:
 	for f in flats:
-		_apply_flat(f)
+		if f.has("roads"):
+			_apply_roads(f)
+		else:
+			_apply_flat(f)
+
+
+## How far below its road the ground is graded, so the road never fights it.
+const ROAD_DROP := 0.20
+## Side slopes run out at least this far, and at most ROAD_SLOPE_MAX.
+const ROAD_SLOPE_MAX := 12.0
+
+## Grades the ground to a town's roads (centrelines at road height, together so
+## that where they meet each cell follows its nearest road): level just under the
+## road out to `core` either side, then a side slope of about 1 in 3 (cut or fill)
+## back to the ground, never shorter than `blend`. Past a road's far end the ground
+## only eases back over `blend`, so a street that stops at a hill doesn't dig a pit
+## into it. Kept in `flats`.
+func add_roads(lines: Array[PackedVector3Array], core: float, blend: float) -> void:
+	var f := {"roads": lines, "core": core, "blend": blend}
+	flats.append(f)
+	_apply_roads(f)
+
+
+func _apply_roads(f: Dictionary) -> void:
+	var lines: Array[PackedVector3Array] = f.roads
+	var core: float = f.core
+	var blend: float = f.blend
+	var reach := core + ROAD_SLOPE_MAX
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for line in lines:
+		for p in line:
+			lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.z))
+			hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.z))
+	if lo.x > hi.x:
+		return
+	var i0 := maxi(_index_of(lo.x - reach), 0)
+	var i1 := mini(_index_of(hi.x + reach) + 1, n)
+	var j0 := maxi(_index_of(lo.y - reach), 0)
+	var j1 := mini(_index_of(hi.y + reach) + 1, n)
+	var w := i1 - i0 + 1
+	var best_d := PackedFloat32Array()
+	best_d.resize(w * (j1 - j0 + 1))
+	best_d.fill(INF)
+	var best_y := PackedFloat32Array()
+	best_y.resize(best_d.size())
+	# How far past a road's far end the cell lies (0: beside the road).
+	var best_past := PackedFloat32Array()
+	best_past.resize(best_d.size())
+	# Nearest road point to each cell, segment by segment over just its own box.
+	for line in lines:
+		for s in line.size() - 1:
+			var last := s == line.size() - 2
+			var a := line[s]
+			var b := line[s + 1]
+			var a2 := Vector2(a.x, a.z)
+			var ab := Vector2(b.x, b.z) - a2
+			var len2 := maxf(ab.length_squared(), 1e-6)
+			var si0 := maxi(_index_of(minf(a.x, b.x) - reach), i0)
+			var si1 := mini(_index_of(maxf(a.x, b.x) + reach) + 1, i1)
+			var sj0 := maxi(_index_of(minf(a.z, b.z) - reach), j0)
+			var sj1 := mini(_index_of(maxf(a.z, b.z) + reach) + 1, j1)
+			for j in range(sj0, sj1 + 1):
+				var z := -half_size + j * CELL
+				for i in range(si0, si1 + 1):
+					var p := Vector2(-half_size + i * CELL, z)
+					var raw := (p - a2).dot(ab) / len2
+					var t := clampf(raw, 0.0, 1.0)
+					var d := p.distance_to(a2 + ab * t)
+					var k := (j - j0) * w + i - i0
+					if d < best_d[k]:
+						best_d[k] = d
+						best_y[k] = lerpf(a.y, b.y, t)
+						best_past[k] = (raw - 1.0) * sqrt(len2) if last and raw > 1.0 else 0.0
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var k := (j - j0) * w + i - i0
+			var d := best_d[k] - core
+			if d >= ROAD_SLOPE_MAX:
+				continue
+			var g := j * (n + 1) + i
+			var target := best_y[k] - ROAD_DROP
+			var past := best_past[k]
+			if past > 0.0:
+				var across := sqrt(maxf(best_d[k] * best_d[k] - past * past, 0.0))
+				var dd := maxf(past - CELL, across - core)
+				if dd < blend:
+					h_grid[g] = lerpf(target, h_grid[g], smoothstep(0.0, blend, dd))
+				continue
+			if d <= 0.0:
+				h_grid[g] = target
+				continue
+			var run := clampf(absf(h_grid[g] - target) * 3.0, blend, ROAD_SLOPE_MAX)
+			if d < run:
+				h_grid[g] = lerpf(target, h_grid[g], smoothstep(0.0, run, d))
 
 
 ## Levels the ground right away (not kept in `flats`): a house lot, the rect
@@ -340,6 +443,7 @@ func _apply_flat(f: Dictionary) -> void:
 	var v1: float = f.v1
 	var blend: float = f.blend
 	var target: float = f.h
+	var under: Callable = f.get("under", Callable())
 	var reach := maxf(absf(u0), absf(u1)) + maxf(absf(v0), absf(v1)) + blend
 	var i0 := _index_of(o.x - reach)
 	var i1 := _index_of(o.x + reach)
@@ -356,7 +460,65 @@ func _apply_flat(f: Dictionary) -> void:
 			if dd >= blend:
 				continue
 			var k := j * (n + 1) + i
+			if under.is_valid():
+				var cap: float = under.call(clampf(u, u0, u1))
+				if h_grid[k] > cap:
+					h_grid[k] = lerpf(h_grid[k], cap, 1.0 - smoothstep(0.0, blend, dd))
+				continue
 			h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
+
+
+## Dredging (a slip bought where the water is shallow, Terminal): the ground over
+## the rect `u0..u1` along `dir` and `-half..half` across it from `origin` cut down
+## to `depth`, easing back to the seabed round it over `blend`, never raised.
+## Returns the cubic metres that takes; with `apply` it is cut, and `touched` is the
+## grid rect it changed (for WorldBuilder.rebuild_terrain).
+var touched := Rect2i()
+
+
+func dredge(origin: Vector3, dir: Vector3, u0: float, u1: float, half: float, depth: float, blend: float, apply := false) -> float:
+	var td := Vector3.UP.cross(dir)
+	var reach := maxf(absf(u0), absf(u1)) + half + blend
+	var i0 := _index_of(origin.x - reach)
+	var i1 := _index_of(origin.x + reach)
+	var j0 := _index_of(origin.z - reach)
+	var j1 := _index_of(origin.z + reach)
+	var volume := 0.0
+	var cells := PackedInt32Array()
+	var heights := PackedFloat32Array()
+	if apply:
+		touched = Rect2i()
+	var lo := Vector2i(i1, j1)
+	var hi := Vector2i(i0, j0)
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var p := Vector3(-half_size + i * CELL, 0.0, -half_size + j * CELL) - origin
+			var u := p.dot(dir)
+			var v := p.dot(td)
+			var du := maxf(maxf(u0 - u, u - u1), 0.0)
+			var dv := maxf(absf(v) - half, 0.0)
+			var dd := sqrt(du * du + dv * dv)
+			if dd >= blend:
+				continue
+			var k := j * (n + 1) + i
+			if h_grid[k] > DREDGE_MAX_HEIGHT:
+				if dd == 0.0:
+					return -1.0
+				continue
+			var cut := minf(h_grid[k], lerpf(h_grid[k], depth, 1.0 - smoothstep(0.0, blend, dd)))
+			if cut >= h_grid[k] - 0.01:
+				continue
+			volume += (h_grid[k] - cut) * CELL * CELL
+			if apply:
+				cells.append(k)
+				heights.append(cut)
+				lo = Vector2i(mini(lo.x, i), mini(lo.y, j))
+				hi = Vector2i(maxi(hi.x, i), maxi(hi.y, j))
+	if apply:
+		for c in cells.size():
+			h_grid[cells[c]] = heights[c]
+		touched = Rect2i(lo, hi - lo + Vector2i.ONE) if hi.x >= lo.x else Rect2i()
+	return volume
 
 
 ## Irons the small bumps out of the ground around `center` (a town) so house lots
@@ -414,6 +576,30 @@ func _box_blur(g: PackedFloat32Array, w: int, h: int, along_x: bool) -> PackedFl
 			var sub := clampi(t - r, 0, span - 1)
 			sum += (g[l * w + add] - g[l * w + sub]) if along_x else (g[add * w + l] - g[sub * w + l])
 	return out
+
+
+## Lowers the land behind a ferry landing at `origin` (on the waterline, facing out
+## along `dir`) into a gentle valley: the ground rises from `low` at the shore at
+## `grade` inland for `length`, across `v0..v1`, easing back to the hills around over
+## `fade`. Only ever cuts down, so lower ground stays as it is.
+func carve_landing(origin: Vector3, dir: Vector3, v0: float, v1: float, length: float, low: float,
+		grade: float, fade: float) -> void:
+	var td := Vector3.UP.cross(dir)
+	var reach := length + maxf(absf(v0), absf(v1)) + fade
+	for j in range(_index_of(origin.z - reach), _index_of(origin.z + reach) + 1):
+		for i in range(_index_of(origin.x - reach), _index_of(origin.x + reach) + 1):
+			var p := Vector3(-half_size + i * CELL, 0.0, -half_size + j * CELL) - origin
+			var u := p.dot(dir)
+			var v := p.dot(td)
+			var du := maxf(maxf(-length - u, u - 12.0), 0.0)
+			var dv := maxf(maxf(v0 - v, v - v1), 0.0)
+			var dd := sqrt(du * du + dv * dv)
+			if dd >= fade:
+				continue
+			var k := j * (n + 1) + i
+			var target := low + grade * clampf(-u, 0.0, length)
+			if h_grid[k] > target:
+				h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, fade, dd))
 
 
 ## Cuts a pocket beach into the shore at `origin` (on the waterline), facing out

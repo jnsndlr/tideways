@@ -77,6 +77,8 @@ static func check(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Dicti
 	var my_slips := {}
 	for w in mine:
 		my_slips["%d:%d" % [w.island, w.slip]] = true
+	var calls := []
+	_append_calls(calls, f, mine, times.size())
 	for other: Ferry in f.sim.ferries:
 		if other == f:
 			continue
@@ -90,22 +92,41 @@ static func check(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Dicti
 				if r != null and my_slips.has("%d:%d" % [plan.ids[i], isl.slip_index(r.id)]) and other not in out.untimed:
 					out.untimed.append(other)
 			continue
-		var theirs := windows(other, plan.ids, plan.times, plan.pace)
-		for a in mine:
-			for b in theirs:
-				if a.island != b.island or a.slip != b.slip:
-					continue
-				for shift in [-Timetable.DAY, 0, Timetable.DAY]:
-					var bs: float = b.start + shift
-					var be: float = b.end + shift
-					if a.start < be + CLEAR and bs < a.end + CLEAR:
-						var she_holds: bool = a.start > bs
-						var at: float = a.start if she_holds else bs
-						var hold: float = (be if she_holds else a.end) + CLEAR - at
-						out.clashes.append({"other": other, "island": a.island, "sailing": a.sailing,
-							"other_sailing": b.sailing, "at": at, "hold": hold, "she_holds": she_holds,
-							"other_sailings": plan.times.size()})
+		_append_calls(calls, other, windows(other, plan.ids, plan.times, plan.pace), plan.times.size())
+	_assign_calls(f, calls, out.clashes)
 	return out
+
+
+## Include adjacent days so a call after midnight sees boats still alongside.
+static func _append_calls(calls: Array, ferry: Ferry, scheduled: Array, sailings: int) -> void:
+	for w in scheduled:
+		for shift: int in [-Timetable.DAY, 0, Timetable.DAY]:
+			calls.append({"boat": ferry, "town": w.island, "slip": w.slip, "sailing": w.sailing,
+				"sailings": sailings, "start": w.start + shift, "end": w.end + shift, "shift": shift})
+
+
+static func _assign_calls(f: Ferry, calls: Array, clashes: Array) -> void:
+	calls.sort_custom(func(a, b): return a.start < b.start if a.start != b.start else a.boat.fleet_key < b.boat.fleet_key)
+	var occupied := {}
+	for call in calls:
+		var term: Terminal = f.sim.terminals.get(call.town)
+		if term == null or call.slip < 0:
+			continue
+		var berths: Dictionary = occupied.get_or_add(call.town, {})
+		var busy := func(i: int):
+			return berths.has(i) and berths[i].boat != call.boat and berths[i].end + CLEAR > call.start
+		var berth := term.arrival_slip(call.slip, call.boat.fc.size, busy)
+		if busy.call(berth):
+			var previous: Dictionary = berths[berth]
+			var she_holds: bool = call.boat == f
+			var mine: Dictionary = call if she_holds else previous
+			if mine.boat == f and mine.shift == 0:
+				var other: Dictionary = previous if she_holds else call
+				clashes.append({"other": other.boat, "island": call.town, "sailing": mine.sailing,
+					"other_sailing": other.sailing, "at": call.start, "hold": previous.end + CLEAR - call.start,
+					"she_holds": she_holds, "other_sailings": other.sailings})
+		if not berths.has(berth) or berths[berth].end <= call.end:
+			berths[berth] = call
 
 
 ## The clashes on sailing `k` (of `check`'s result).

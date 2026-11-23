@@ -25,7 +25,7 @@ func delivery_slip(size: int) -> Array:
 		for term: Terminal in sim.terminals.values():
 			var town := term.town
 			for j in town.slips.size():
-				if town.slips[j].tie_up or not town.slips[j].fits(size) or term.tie_up_closed(j):
+				if town.slips[j].building or town.slips[j].tie_up or not town.slips[j].fits(size) or term.tie_up_closed(j):
 					continue
 				if berth_reserved(term, j) or _delivery_route(term) == null:
 					continue

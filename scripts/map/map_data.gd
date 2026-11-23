@@ -63,6 +63,11 @@ class Town:
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
 	var slips: Array[Slip] = []     # left → right along lateral()
 	var lot_half_width := 36.0
+	# The approach: the lot stands at lot_y on the ground behind the shore, a trestle of
+	# approach_bays (Layout.TRESTLE_BAY each, the last landing on the span's hinge)
+	# running down from it. Fitted to the ground by MapGenerator._fit_approaches().
+	var approach_bays := 1
+	var lot_y := Layout.LOT_Y
 	var open_lanes := 0             # lanes paved at the start (more are bought); 0: the whole lot
 	## A positive quote reserves one expansion site on the left of this lot.
 	var lane_extension_price := 0
@@ -83,23 +88,61 @@ class Town:
 	func terminal_xform() -> Transform3D:
 		return Transform3D(Basis(lateral(), Vector3.UP, dock_dir), shore)
 
+	## How far inland of where it used to stand the lot is set back, for the trestle.
+	func lot_shift() -> float:
+		return Layout.TRESTLE_BAY * approach_bays - (SlipRamp.HINGE_U - Layout.LOT_FRONT)
+
+	## The lot's frame within the terminal's: everything Layout puts on the lot (lanes,
+	## queue slots, the building, the toll plaza) at LOT_Y and LOT_* in this frame comes
+	## out on the raised lot behind the trestle.
+	func lot_offset() -> Transform3D:
+		return Transform3D(Basis.IDENTITY, Vector3(0.0, lot_y - Layout.LOT_Y, -lot_shift()))
+
+	func lot_xform() -> Transform3D:
+		return terminal_xform() * lot_offset()
+
+	## The lot's seaward edge, along the terminal frame's u (where the trestle starts).
+	func lot_front_u() -> float:
+		return SlipRamp.HINGE_U - Layout.TRESTLE_BAY * approach_bays
+
+	## The road's height at `u` (terminal frame) from the lot's edge out to the span's hinge.
+	func road_y(u: float) -> float:
+		return Layout.approach_y(u, lot_front_u(), lot_y, SlipRamp.HINGE_U, Layout.LOT_Y)
+
 	## Lateral offset of slip `i`. The working slips sit centred on the lot; tie-up
 	## slips come after them in `slips` and carry on along the shore to the right.
+	## A slip bought in play keeps the place it was built at (Slip.v), and so do
+	## the ones already there (freeze_slip_offsets).
 	func slip_offset(i: int) -> float:
-		return (i - (working_slips() - 1) * 0.5) * Layout.SLIP_SPACING
+		if not is_nan(slips[i].v):
+			return slips[i].v
+		var working := 0
+		for slip in slips:
+			if not slip.tie_up:
+				working += 1
+		if not slips[i].tie_up or i < working:
+			return (i - (working - 1) * 0.5) * Layout.SLIP_SPACING
+		# Tie-ups: the first a slip spacing on from the last working slip, then side by side.
+		return (working - 1) * 0.5 * Layout.SLIP_SPACING + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
 
+	## Pins every slip where it lies now, so adding one moves none of the others.
+	func freeze_slip_offsets() -> void:
+		for i in slips.size():
+			slips[i].v = slip_offset(i)
+
+	## Working slips in use (not one still being built).
 	func working_slips() -> int:
 		var n := 0
 		for slip in slips:
-			if not slip.tie_up:
+			if not slip.tie_up and not slip.building:
 				n += 1
 		return n
 
-	## Indices into `slips` of the tie-up slips.
+	## Indices into `slips` of the tie-up slips in use.
 	func tie_ups() -> Array[int]:
 		var out: Array[int] = []
 		for i in slips.size():
-			if slips[i].tie_up:
+			if slips[i].tie_up and not slips[i].building:
 				out.append(i)
 		return out
 
@@ -293,6 +336,11 @@ class Slip:
 	var size := 1                   # 1 small, 2 medium, 3 large
 	var routes: Array[int] = []
 	var tie_up := false
+	## Its lateral offset in the terminal frame once pinned (Town.slip_offset): NAN
+	## while it still lies where the slip count puts it.
+	var v := NAN
+	## Bought and still being built: no boat may use it yet (Terminal's slip works).
+	var building := false
 
 	func _init(slip_size := 1, is_tie_up := false) -> void:
 		size = clampi(slip_size, 1, 3)
