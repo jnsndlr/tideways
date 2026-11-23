@@ -65,9 +65,13 @@ check ferry-voyage test --script tools/ferry_voyage_test.gd
 check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
+check timetable-round test --script tools/timetable_round_test.gd
+check mission-goals test --script tools/mission_goals_test.gd
+check route-memo test --script tools/route_memo_test.gd
 check region-contract test --script tools/region_contract_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
+check coastal-town test --script tools/coastal_town_test.gd
 check forest-proximity test --script tools/forest_proximity_test.gd
 check schedule-slip-size test --script tools/schedule_slip_size_test.gd
 check eagle-departure test --script tools/eagle_departure_test.gd

@@ -26,20 +26,24 @@ var _near: Array[Vector2i] = []
 var _near_reach := 0.0
 
 
-func _init(t: Terrain, half_size: float) -> void:
+func _init(t: Terrain, half_size: float, should_stop := Callable()) -> void:
 	terrain = t
 	ext = half_size + 330.0
 	n = ceili(ext * 2.0 / CELL)
 	var land := PackedByteArray()
 	land.resize(n * n)
 	for j in n:
+		if should_stop.is_valid() and should_stop.call():
+			return
 		for i in n:
 			var c := center(Vector2i(i, j))
 			var h := terrain.height_at(c.x, c.y)
 			for o: Vector2 in [Vector2(-10, -10), Vector2(10, -10), Vector2(-10, 10), Vector2(10, 10)]:
 				h = maxf(h, terrain.height_at(c.x + o.x, c.y + o.y))
 			land[j * n + i] = 1 if h > LAND_DEPTH else 0
-	dist = NavGrid.distance_field(land, n, CELL)
+	dist = NavGrid.distance_field(land, n, CELL, should_stop)
+	if dist.is_empty():
+		return
 	_grid.region = Rect2i(0, 0, n, n)
 	_grid.cell_size = Vector2(CELL, CELL)
 	_grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
@@ -47,6 +51,8 @@ func _init(t: Terrain, half_size: float) -> void:
 	_grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	_grid.update()
 	for j in n:
+		if should_stop.is_valid() and should_stop.call():
+			return
 		for i in n:
 			if dist[j * n + i] < MIN_CLEAR:
 				_grid.set_point_solid(Vector2i(i, j))
@@ -75,7 +81,9 @@ static func need_at(p: Vector2, s: Vector2, g: Vector2, full: float, taper_from:
 
 ## A path from `s` to `g` keeping need_at(...) off land, as the fewest straight
 ## legs (s, corners..., g), or empty if there is none.
-func waypoints(s: Vector2, g: Vector2, full: float, taper_from: float, slope: float) -> PackedVector2Array:
+func waypoints(s: Vector2, g: Vector2, full: float, taper_from: float, slope: float, should_stop := Callable()) -> PackedVector2Array:
+	if should_stop.is_valid() and should_stop.call():
+		return PackedVector2Array()
 	_close_near(s, g, full, taper_from, slope)
 	var out := PackedVector2Array()
 	var ca := _nearest_open(cell(s))
@@ -87,7 +95,7 @@ func waypoints(s: Vector2, g: Vector2, full: float, taper_from: float, slope: fl
 			for c in ids:
 				raw.append(center(c))
 			raw.append(g)
-			out = _pull(raw)
+			out = _pull(raw, should_stop)
 	_open_near()
 	return out
 
@@ -125,10 +133,12 @@ func _nearest_open(c: Vector2i) -> Vector2i:
 
 
 ## Drops every point that can be skipped with a clear straight line.
-func _pull(raw: PackedVector2Array) -> PackedVector2Array:
+func _pull(raw: PackedVector2Array, should_stop: Callable) -> PackedVector2Array:
 	var out := PackedVector2Array([raw[0]])
 	var i := 0
 	while i < raw.size() - 1:
+		if should_stop.is_valid() and should_stop.call():
+			return PackedVector2Array()
 		var j := raw.size() - 1
 		while j > i + 1 and not _sight(raw[i], raw[j]):
 			j -= 1

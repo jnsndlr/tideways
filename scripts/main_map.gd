@@ -25,6 +25,11 @@ static var scenario_path := ""
 var editor: IslandEditor
 
 
+static func start_session(path: String) -> void:
+	scenario_path = path
+	_carry.clear()
+
+
 func _generation_job(gen: MapGenerator) -> Callable:
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
@@ -75,6 +80,7 @@ func _ready() -> void:
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
 	if scenario and scenario.mission:
+		scenario.mission.start(sim.day)
 		var panel := MissionPanel.new()
 		hud.root.add_child(panel)
 		panel.setup(self, scenario.mission)

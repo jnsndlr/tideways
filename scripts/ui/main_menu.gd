@@ -80,16 +80,18 @@ func _build() -> void:
 
 ## Play the main map from `scenario` ("" for the opening).
 func _play(scenario: String, caption := "Setting out for the islands") -> void:
-	MainMapScript.scenario_path = scenario
-	_start(Scenes.MAIN_MAP, caption)
+	if _start(Scenes.MAIN_MAP, caption):
+		MainMapScript.start_session(scenario)
 
 
-func _start(path: String, caption: String) -> void:
+func _start(path: String, caption: String) -> bool:
 	Engine.time_scale = 1.0
 	var screen := LoadingScreen.open(get_tree(), path, caption)
-	if screen:
-		_load_error.hide()
-		screen.load_failed.connect(_on_load_failed, CONNECT_ONE_SHOT)
+	if not screen:
+		return false
+	_load_error.hide()
+	screen.load_failed.connect(_on_load_failed, CONNECT_ONE_SHOT)
+	return true
 
 
 func _on_load_failed(message: String) -> void:

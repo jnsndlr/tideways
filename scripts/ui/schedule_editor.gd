@@ -122,7 +122,7 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	_add_sailing = _button("Add a sailing")
 	_add_sailing.pressed.connect(_on_add_sailing)
 	column.add_child(_add_sailing)
-	_clash_note = make_label.call("", 12, SlipConflicts.WARN, false)
+	_clash_note = make_label.call("", 12, SlipConflictText.WARN, false)
 	_clash_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_clash_note)
 	column.add_child(paces)
@@ -288,15 +288,16 @@ func _rebuild_timetable(offsets: Array[float]) -> void:
 
 
 ## The timetable with sailing `k` moved `step` minutes (kept in order), or [] if
-## it would leave the day.
+## it would leave the day or pass another sailing.
 func _moved(k: int, step: int) -> Array[int]:
 	var t := _times[k] + step
 	if t < 0 or t >= Timetable.DAY:
 		return []
+	if (k > 0 and t <= _times[k - 1]) or (k + 1 < _times.size() and t >= _times[k + 1]):
+		return []
 	var out: Array[int] = []
 	out.assign(_times)
 	out[k] = t
-	out.sort()
 	return out
 
 
@@ -304,14 +305,13 @@ func _moved(k: int, step: int) -> Array[int]:
 func _allowed(times: Array, round_min: float, red_now: Array[bool]) -> bool:
 	if times.is_empty():
 		return false
-	var sorted: Array[int] = []
-	sorted.assign(times)
-	sorted.sort()
-	var red := Timetable.too_soon(sorted, round_min)
-	var reds_now := red_now.count(true)
-	if red.count(true) > reds_now:
-		return false
-	return reds_now > 0 or not red.has(true)
+	var proposed: Array[int] = []
+	proposed.assign(times)
+	var red := Timetable.too_soon(proposed, round_min)
+	for i in red.size():
+		if red[i] and (i >= red_now.size() or not red_now[i]):
+			return false
+	return true
 
 
 ## A round after her last sailing, rounded up to 5 minutes; 6:00 AM for the first.
@@ -427,15 +427,7 @@ func _loop_text() -> String:
 func _add_problem(last: int, id: int) -> String:
 	if last < 0:
 		return ""
-	if id == last:
-		return "already her last stop"
-	var r := sim.route_between(last, id)
-	if r == null:
-		return "no route from " + _name(last)
-	var isl := sim.map.towns[id]
-	if not isl.slips[isl.slip_index(r.id)].fits(ferry.fc.size):
-		return "slip too small"
-	return ""
+	return sim.leg_problem(ferry, last, id)
 
 
 func _on_drop(i: int) -> void:
@@ -506,13 +498,10 @@ func _rebuild_cost(offsets: Array[float]) -> void:
 	if offsets.is_empty():
 		_cost.text = ""
 		return
-	var round_fuel := 0.0
-	for i in _draft.size():
-		round_fuel += ferry.leg_fuel(sim.route_between(_draft[i], _draft[(i + 1) % _draft.size()]), _pace)
 	var all_day := 24.0 * ferry.crew_per_hour()
 	if not _timed or _times.is_empty():
 		_cost.text = "Crew on all day: %s a day in wages, plus about %s fuel a round at %s." % [
-			_money(all_day), _money(round_fuel), Ferry.PACES[_pace][1].to_lower()]
+			_money(all_day), _money(ferry.round_fuel(_draft, _pace)), Ferry.PACES[_pace][1].to_lower()]
 		return
 	var draft := ferry.daily_cost(_draft, _times, _pace)
 	var total: float = draft.fuel + draft.crew
@@ -546,7 +535,7 @@ func _rebuild_clashes(offsets: Array[float]) -> void:
 	if offsets.is_empty() or not _timed or _times.is_empty():
 		return
 	var result := SlipConflicts.check(ferry, _draft, _times, _pace)
-	var lines := SlipConflicts.summary(ferry, result)
+	var lines := SlipConflictText.summary(ferry, result)
 	_clash_note.text = "\n".join(lines)
 	_clash_note.visible = not lines.is_empty()
 	var boxes := _sailings.get_children().filter(func(c): return not c.is_queued_for_deletion())
@@ -556,8 +545,8 @@ func _rebuild_clashes(offsets: Array[float]) -> void:
 			continue
 		var text: Array[String] = []
 		for c in clashes:
-			text.append(SlipConflicts.clash_text(sim, c))
-		var note: Label = _make_label.call("\n".join(text), 11, SlipConflicts.WARN, false)
+			text.append(SlipConflictText.clash_text(sim, c))
+		var note: Label = _make_label.call("\n".join(text), 11, SlipConflictText.WARN, false)
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		boxes[k].add_child(note)
 		# (room in the list for the note; _fit shortens it again if off screen)
