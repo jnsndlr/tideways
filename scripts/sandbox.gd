@@ -35,7 +35,7 @@ var eagles: Eagles
 var cam_attr: CameraAttributesPractical
 var tree_shadows: Array[MultiMeshInstance3D] = []
 var _tree_shadow_reach := -1.0
-var _args := {}
+var _args := Scenes.launch_options.values
 
 ## Frame caps: the sim is slow-paced, so 60 fps is plenty, and nobody is watching
 ## when the window is in the background. Headless runs (soak tests) stay uncapped.
@@ -65,7 +65,6 @@ signal world_ready
 
 
 func _ready() -> void:
-	_parse_args()
 	if not uncapped and DisplayServer.get_name() != "headless":
 		Engine.max_fps = MAX_FPS
 	set_process(false)
@@ -418,13 +417,6 @@ func _shift_demo(delta: float) -> void:
 		_demo_wait = 0.0
 		if f.berth == Ferry.Berth.WORKING and not f.lay_up_requested and f.can_lay_up():
 			f.request_lay_up()
-
-func _parse_args() -> void:
-	for a in OS.get_cmdline_user_args():
-		if a.begins_with("--"):
-			var kv := a.substr(2).split("=", true, 1)
-			_args[kv[0]] = kv[1] if kv.size() > 1 else "1"
-
 
 func _apply_debug_args() -> void:
 	if _args.has("aa"):
