@@ -5,8 +5,7 @@ generates an archipelago with towns, terminals and routes. Cars drive from town 
 the holding lots, queue in lanes, board double-ended ferries, cross, and drive off
 at the other side.
 
-Open the folder in Godot 4.7 and press **Play** (F5). The menu offers **Play** (the main map, still empty) and
-**Sandbox** (the procedural archipelago where features are prototyped first). Godot imports the project assets on first open.
+Open the folder in Godot 4.7 and press **Play** (F5). On the title screen, **Play** starts the opening company on the authored main map. **Sandbox** generates a region from a seed. Godot imports the project assets on first open.
 
 ## Working on Tideways
 
@@ -34,53 +33,15 @@ wind, tide).
 
 ## Architecture
 
-The map supplies authored or generated data. The simulation owns the clock, terminals and ferries. A ferry coordinates the loading and sailing sequence. Its deck owns space reservations, and the fare ledger owns receipts. The HUD presents those results and sends player actions to their owner. Put a new rule beside the state it governs and exercise it with a focused test. Use a seeded scene test when the outcome depends on several systems acting together.
+| Follow this path | Start here |
+| --- | --- |
+| Choose a region and start a session | The [menu](scripts/ui/main_menu.gd) opens the [loading screen](scripts/ui/loading_screen.gd). [Main Map](scripts/main_map.gd) supplies an authored layout and scenario. It inherits the construction and teardown code in [Sandbox](scripts/sandbox.gd). |
+| Change region data or terrain | [MapGenerator](scripts/map/map_generator.gd) produces [MapData](scripts/map/map_data.gd) from a seed or layout. [WorldBuilder](scripts/world/world_builder.gd) builds the scene from that geography. |
+| Change a rule or transaction | [Simulation](scripts/sim/simulation.gd) coordinates the live session. [CompanyLedger](scripts/sim/company_ledger.gd) records spending and receipts. [FleetMarket](scripts/sim/fleet_market.gd) validates purchases and sales. [FerryVoyage](scripts/sim/ferry_voyage.gd), [FerryDeck](scripts/sim/ferry_deck.gd) and [TerminalLane](scripts/sim/terminal_lane.gd) own crossing, deck and queue state. |
+| Change what the player sees or controls | [HUD](scripts/ui/hud.gd) connects panels to the simulation and camera. [VehicleFactory](scripts/world/vehicle_factory.gd) and [Models](scripts/world/models.gd) assemble visible vehicles. Editable art lives in [art](art/) and game-ready assets in [assets](assets/). |
+| Check a change | The [verification map](docs/verification.md) covers rule tests, seeded scenarios, UI and device checks. |
 
-
-```
-scripts/
-  scenes.gd               scene paths: menu, main map, sandbox
-  ui/main_menu.gd         title screen (Play → main map, Sandbox, Quit)
-  main_map.gd             the main game map (placeholder; systems move over from the sandbox)
-  sandbox.gd              procedural test map: generate → build world → start sim → HUD
-  map/map_data.gd         pure data: islands, terminals, marinas, towns, routes (editor-friendly)
-  map/map_generator.gd    procedural layout → MapData
-  map/terrain.gd          heightfield (island stamping, cliffs, terminal flattening)
-  world/world_builder.gd  MapData → meshes (terrain, water, terminals, towns, forests)
-  world/models.gd         procedural low-poly meshes (trees, houses, cars, ferry…)
-  world/mesh_builder.gd   flat-shaded vertex-coloured mesh helper
-  world/glow_builder.gd   night-light quads (glows, pools, beams, reflections) for glow.gdshader
-  world/night_lights.gd   dusk-to-dawn switching, car head/tail lights, ferry nav lights, bokeh focus
-  world/seagulls.gd       simulated gulls perching on lamps, lifts, ferries, water
-  world/cetaceans.gd          orca pods: formation, breathing rolls, blows, breaches, spyhops
-  sim/simulation.gd       clock (1 s = 1 game min), seasons, demand curve, fares, satisfaction
-  sim/wildlife.gd         species table, daily visits, sightings, island wildlife reputation
-  sim/terminal.gd         spawning, lane queues, boarding/exit paths
-  sim/vessel.gd           base for anything afloat: hull capsule, path lookahead, right of way
-  sim/company_ledger.gd   cash, fares, fuel, crew and purchases, by day
-  sim/ferry_deck.gd       capacity, lane preference and reservations for a crossing
-  sim/ferry.gd            load → sail → unload state machine along a Curve3D
-  sim/ferry_class.gd      the five ferry sizes: lanes, rows, hull, speed, fittings
-  sim/sailboat.gd         marina-to-marina sailing: back out, sail, wait for and enter a berth
-  sim/cargo_ship.gd       container ships transiting the map edge to edge
-  sim/marine_traffic.gd   all vessels: collision avoidance, ferry corridors, marina berths
-  sim/nav_grid.gd         A* water grids (small boats / ships) and path smoothing
-  sim/nav_path.gd         polyline walked by arc length
-  sim/vehicle.gd          waypoint-following car/truck
-  sim/layout.gd           shared terminal / ferry dimensions
-  camera/camera_rig.gd    RTS orbit camera
-  ui/hud.gd               all UI, built in code
-tools/vessel_soak_test.gd headless soak test: hulls touching, groundings, long holds
-tools/teaser_capture.sh   records the teaser's scripted shots and cuts them together (teaser_capture.gd)
-shaders/water.gdshader    depth-based shallow/deep colour + shoreline foam
-shaders/seagull.gdshader     gull wing flap/fold
-shaders/orca.gdshader     orca dorsal fin height/sweep and tail beat
-shaders/glow.gdshader     screen-space night lights with distance bokeh and water reflections
-```
-
-`MapData` is the seam for a future **map builder**: the generator only produces
-`MapData`, and the world builder and simulation only read it. A hand-authored or
-saved map can therefore replace `MapGenerator.generate()` without other changes.
+For current dependencies, the target boundaries and a worked Fleet purchase, see the [architecture guide](docs/architecture.md). The [decision record](docs/architecture-decisions.md) covers company resume, source art and legacy model flags.
 
 ## Traffic afloat
 
