@@ -70,6 +70,7 @@ check route-memo test --script tools/route_memo_test.gd
 check region-contract test --script tools/region_contract_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
+check coastal-town test --script tools/coastal_town_test.gd
 check forest-proximity test --script tools/forest_proximity_test.gd
 check schedule-slip-size test --script tools/schedule_slip_size_test.gd
 check eagle-departure test --script tools/eagle_departure_test.gd
