@@ -68,14 +68,19 @@ func center(c: Vector2i) -> Vector2:
 	return Vector2(-ext + (c.x + 0.5) * CELL, -ext + (c.y + 0.5) * CELL)
 
 
-## Chamfer distance (in metres) from every cell to the nearest land cell.
 func _distance(land: PackedByteArray, should_stop: Callable) -> PackedFloat32Array:
+	return distance_field(land, n, CELL, should_stop)
+
+
+## Chamfer distance (in metres) from every cell of an `n` × `n` grid of `cell`-metre
+## cells to the nearest land cell. Returns an empty array if `should_stop` says so.
+static func distance_field(land: PackedByteArray, n: int, cell: float, should_stop := Callable()) -> PackedFloat32Array:
 	var d := PackedFloat32Array()
 	d.resize(n * n)
 	for k in n * n:
 		d[k] = 0.0 if land[k] == 1 else INF
-	var o := CELL
-	var dg := CELL * sqrt(2.0)
+	var o := cell
+	var dg := cell * sqrt(2.0)
 	for j in n:
 		if should_stop.is_valid() and should_stop.call():
 			return PackedFloat32Array()

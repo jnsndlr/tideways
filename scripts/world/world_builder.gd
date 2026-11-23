@@ -587,28 +587,30 @@ func _build_terminals() -> void:
 		mb.xform = isl.lot_xform()
 		glows.xform = mb.xform
 
-		# Terminal building beside the lot
+		# The entry porch faces the holding lanes. The gulls sit along the hall ridge.
 		var bv := hw + 15.0
-		mb.box(Vector3(bv, ly + 3.6, -36.0), Vector3(21.0, 10.2, 36.0), Color(0.9, 0.9, 0.87))
-		mb.box(Vector3(bv, ly + 4.8, -36.0), Vector3(21.3, 2.7, 31.5), Models.WINDOW_LIT)
-		mb.box(Vector3(bv, ly + 9.3, -36.0), Vector3(23.4, 1.2, 38.4), Models.WSF_GREEN)
-		mb.box(Vector3(bv - 11.7, ly + 10.2, -18.0), Vector3(0.36, 15.0, 0.36), Color(0.8, 0.8, 0.8))
-		mb.box(Vector3(bv - 11.7, ly + 16.8, -16.65), Vector3(0.15, 1.8, 2.7), Models.WSF_GREEN)
-		_perch(mb.xform * Vector3(bv, ly + 9.9, -52.8), mb.xform * Vector3(bv, ly + 9.9, -19.2), 9.9, Seagulls.Kind.ROOF)
+		var hall := _terminal_model(preload("res://assets/models/ferry_passenger_terminal.glb"),
+			mb.xform.translated_local(Vector3(bv, ly, -36)))
+		_perch(hall.transform * Vector3(1, 10.59, -8.0),
+			hall.transform * Vector3(1, 10.59, 14.5), 0.0, Seagulls.Kind.ROOF)
+		glows.pool(Vector3(bv - 11, ly + 0.15, -34), GlowBuilder.WARM, 13.5, 0.3)
 
-		# Toll plaza on the approach road
-		var tu := Layout.LOT_BACK - 9.0
-		for v: float in [-8.1, 8.1]:
-			mb.box(Vector3(v, ly + 1.2, tu), Vector3(3.3, 7.8, 5.4), Color(0.92, 0.92, 0.9))
-			mb.box(Vector3(v, ly + 2.7, tu), Vector3(3.45, 1.8, 3.9), Models.WINDOW_LIT)
-			mb.box(Vector3(v * 1.45, ly + 3.3, tu), Vector3(0.9, 12.0, 0.9), Color(0.85, 0.85, 0.85))
-		mb.box(Vector3(0, ly + 9.75, tu), Vector3(25.8, 1.05, 10.2), Models.WSF_GREEN)
-		for v: float in [-8.1, 0.0, 8.1]:
-			mb.box(Vector3(v, ly + 9.18, tu), Vector3(2.1, 0.12, 2.1), Models.lamp_glass(GlowBuilder.LED))
-			glows.glow(Vector3(v, ly + 9.0, tu), GlowBuilder.LED, 0.48, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
-		glows.pool(Vector3(0, ly + 0.15, tu), GlowBuilder.SODIUM, 16.5, 0.3)
-		glows.glow(Vector3(bv - 11.7, ly + 16.8, -16.65), GlowBuilder.GREEN, 0.9, 2.5)
-		glows.pool(Vector3(bv - 13.5, ly + 0.15, -36.0), GlowBuilder.WARM, 13.5, 0.3)
+		var tu := Layout.TICKET_U
+		var plaza_y := ly
+		if isl.road_main_a.size() >= 2:
+			var near := mb.xform.affine_inverse() * isl.road_main_a[0]
+			for i in range(1, isl.road_main_a.size()):
+				var far := mb.xform.affine_inverse() * isl.road_main_a[i]
+				if far.z <= tu:
+					plaza_y = remap(tu, near.z, far.z, near.y, far.y)
+					break
+				near = far
+		_terminal_model(preload("res://assets/models/ferry_ticket_plaza.glb"),
+			mb.xform.translated_local(Vector3(0, plaza_y, tu)))
+		for v: float in Layout.TICKET_LANES:
+			mb.box(Vector3(v, plaza_y + 6.12, tu), Vector3(1.6, 0.12, 1.2), Models.lamp_glass(GlowBuilder.LED))
+			glows.glow(Vector3(v, plaza_y + 6.0, tu), GlowBuilder.LED, 0.48, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		glows.pool(Vector3(-6, plaza_y + 0.15, tu), GlowBuilder.SODIUM, 16.5, 0.3)
 
 		# Light poles
 		for v: float in [-hw + 1.2, hw - 1.2]:
@@ -634,10 +636,21 @@ func _build_terminals() -> void:
 			bu += 4.5
 
 
+func _terminal_model(scene: PackedScene, pose: Transform3D) -> Node3D:
+	var model: Node3D = scene.instantiate()
+	for part: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		for surface in part.mesh.get_surface_count():
+			var material := part.mesh.surface_get_material(surface)
+			if material.resource_name.ends_with("glazing"):
+				part.set_surface_override_material(surface, Models.vc_material())
+	root.add_child(model)
+	model.transform = pose
+	return model
+
+
 func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
-	var lf := isl.lot_front_u()
 	# With the mid-poly slip a trestle runs out from the lot to the transfer span's hinge
 	# (the span, apron and counterweights are SlipRamp's, the towers are scenery here).
 	var mid := Models.mid_slip
@@ -645,13 +658,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 	if Models.mid_trestle:
 		_build_trestle(mb, isl, v)
 	else:
-		mb.box(Vector3(v, ly - 0.6, (lf + deck_end) * 0.5), Vector3(15.0, 1.2, deck_end - lf + 1.2), CONCRETE)
-		mb.box(Vector3(v, ly + 0.03, (lf + deck_end) * 0.5), Vector3(0.36, 0.06, deck_end - lf - 1.5), LINE_YELLOW)
-		var u := lf + 3.0
-		while u < deck_end:
-			for side: float in [-6.6, 6.6]:
-				mb.box(Vector3(v + side, -4.2, u), Vector3(1.2, 12.6, 1.2), Models.WOOD)
-			u += 9.0 if not mid else 4.5
+		_build_plain_trestle(mb, isl, v, deck_end, mid)
 	# Tower lateral offset (the eagles sit over it) and how far the header's top runs.
 	var tower_x := 8.7
 	var beam_x := 8.7
@@ -709,6 +716,27 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 		glows.glow(Models.bulkhead_glow_at(lamp, out, LIFT_LAMP), GlowBuilder.WARM,
 			Models.bulkhead_glow_size(LIFT_LAMP), 5.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
+
+
+## When the authored deck is unavailable, the concrete deck still follows the
+## same profile as the vehicles, including the join to the raised lot.
+static func _build_plain_trestle(mb: MeshBuilder, isl: MapData.Island, v: float, end: float, mid: bool) -> void:
+	var front := isl.lot_front_u()
+	var deck := MeshBuilder.new()
+	var u := front
+	while u < end:
+		var next := minf(u + 4.0, end)
+		var center := (u + next) * 0.5
+		deck.box(Vector3(0, -0.6, center), Vector3(15.0, 1.2, next - u), CONCRETE)
+		deck.box(Vector3(0, 0.03, center), Vector3(0.36, 0.06, next - u), LINE_YELLOW)
+		u = next
+	Models.append_on_profile(mb, deck, mb.xform, v, 0.0, isl.road_y)
+	u = front + 3.0
+	while u < end:
+		for side: float in [-6.6, 6.6]:
+			var top := isl.road_y(u) - 1.2
+			mb.box(Vector3(v + side, (top - 10.5) * 0.5, u), Vector3(1.2, top + 10.5, 1.2), Models.WOOD)
+		u += 9.0 if not mid else 4.5
 
 
 ## The trestle from the lot's edge out to slip `v`'s span hinge (Models.trestle_part):
@@ -930,10 +958,11 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 func _build_roads() -> void:
 	var mb := MeshBuilder.new()
 	var lamps := MeshBuilder.new()
+	var aprons := MeshBuilder.new()
 	for isl in map.islands:
 		if isl.road_main_a.is_empty():
 			continue
-		# The main road runs on through the town centre; side streets leave it there.
+		_ticket_approach(aprons, isl)
 		var main := isl.road_main_a.duplicate()
 		var centre := RoadMesh.length_of(isl.road_main_a)
 		if isl.road_main_b.size() > 1:
@@ -961,6 +990,37 @@ func _build_roads() -> void:
 	mat.shader = load(ROAD_SHADER)
 	_add_mesh(mb.commit(mat), "Roads", false)
 	_add_mesh(lamps.commit(), "StreetLamps", false)
+	_add_mesh(aprons.commit(), "TicketApproaches", false)
+
+
+func _ticket_approach(mb: MeshBuilder, isl: MapData.Island) -> void:
+	# Widen the inbound shoulder into the three staffed channels. Build only
+	# the extra pavement so the existing through road retains its surface.
+	var lateral := isl.lateral()
+	var entrance := isl.road_main_a[0]
+	var length := (entrance - isl.road_main_a[-1]).dot(isl.dock_dir)
+	for i in range(1, isl.road_main_a.size()):
+		var a := isl.road_main_a[i - 1]
+		var b := isl.road_main_a[i]
+		var sa := Layout.ticket_spread((entrance - a).dot(isl.dock_dir), length)
+		var sb := Layout.ticket_spread((entrance - b).dot(isl.dock_dir), length)
+		if sa <= 0.0:
+			break
+		var inner_a := a - lateral * 5.1
+		var inner_b := b - lateral * 5.1
+		var outer_a := inner_a - lateral * 12.8 * sa
+		var outer_b := inner_b - lateral * 12.8 * sb
+		mb.quad(inner_a, outer_a, outer_b, inner_b, ROAD, Vector3.UP)
+		mb.quad(outer_a, outer_a - Vector3.UP * 1.5, outer_b - Vector3.UP * 1.5, outer_b, ROAD.darkened(0.25), -lateral)
+		# Broken white dividers follow the paved fan and stop at the booth islands.
+		if sa > 0.4 and (entrance - b).dot(isl.dock_dir) > 10.0:
+			for index in Layout.TICKET_LANES.size() - 1:
+				var divider: float = (Layout.TICKET_LANES[index] + Layout.TICKET_LANES[index + 1]) * 0.5
+				var p := a + lateral * lerpf(-Layout.EXIT_V, divider, sa) + Vector3.UP * 0.04
+				var q := b + lateral * lerpf(-Layout.EXIT_V, divider, sb) + Vector3.UP * 0.04
+				var tip := p.lerp(q, 0.55)
+				mb.quad(p - lateral * 0.10, p + lateral * 0.10, tip + lateral * 0.10, tip - lateral * 0.10, LINE_WHITE, Vector3.UP)
+		_block(outer_a, 4)
 
 
 ## Sodium lamps every LAMP_GAP along a road, alternating sides, none in the
@@ -996,11 +1056,17 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array, crossing: Vector3)
 		walked += seg
 
 
-const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall",
-	"brick_mercantile", "sunset_terrace", "harbor_office", "seafoam_cafe"]
-# Width and depth of each shell, before awnings or decks.
-const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7),
-	Vector2(9.8, 6.3), Vector2(12, 6), Vector2(10.5, 6), Vector2(9.1, 5.65)]
+const CITY_HALL := "city_hall"
+## Shell size before awnings and decks. Pair each foundation with its authored model.
+const SHOP_SHELLS := {
+	"salt_and_rye": Vector2(8, 5.8), "sound_chandlery": Vector2(7, 6.6),
+	"tideline_cafe": Vector2(8.4, 6), "harbor_inn": Vector2(11.6, 7),
+	"glass_hall": Vector2(11.2, 7), "brick_mercantile": Vector2(9.8, 6.3),
+	"sunset_terrace": Vector2(12, 6), "harbor_office": Vector2(10.5, 6),
+	"seafoam_cafe": Vector2(9.1, 5.65), "tidetable_books": Vector2(6.4, 5.6),
+	"post_office": Vector2(3.3, 5.4), "poppy_and_stem": Vector2(6.6, 5.8),
+	"sound_fish_market": Vector2(6.2, 5.4), CITY_HALL: Vector2(11, 7),
+}
 
 
 func _build_towns() -> void:
@@ -1021,14 +1087,18 @@ func _build_towns() -> void:
 				variants.append(Models.kit_house(kit_name, WALLS[n % WALLS.size()], ROOFS[(n * 3 + 1) % ROOFS.size()]))
 			kit_names.append(kit_name)
 	var houses := kit_names.size()
+	var shop_names := SHOP_SHELLS.keys()
+	shop_names.erase(CITY_HALL)
+	var city_hall_variant := houses + shop_names.size()
+	shop_names.append(CITY_HALL)
 	var shop_plans: Array[Rect2] = []
-	for i in SHOP_FILES.size():
+	for shop_name: String in shop_names:
 		if not await _frames.can_continue():
 			return
-		var path := "res://assets/models/coastal_shops/%s.glb" % SHOP_FILES[i]
+		var path := "res://assets/models/coastal_shops/%s.glb" % shop_name
 		var mb := MeshBuilder.new()
 		Models._append_part(mb, ModelParts.baked(path), Transform3D.IDENTITY)
-		var shell: Vector2 = SHOP_SHELLS[i]
+		var shell: Vector2 = SHOP_SHELLS[shop_name]
 		mb.box(Vector3(0, -KIT_MAX_DROP / 2, 0), Vector3(shell.x, KIT_MAX_DROP, shell.y), Models.KIT_FOUNDATION)
 		var mesh := mb.commit()
 		var bounds := mesh.get_aabb()
@@ -1047,6 +1117,7 @@ func _build_towns() -> void:
 		var inland := Vector3.UP.cross(t)  # perpendicular to the cross street
 		if isl.has_terminal:
 			inland = -isl.dock_dir
+		var has_city_hall := false
 		var town_r := sqrt(isl.population / 90.0) * 9.0
 		var spacing := 16.5
 		for b in range(-8, 9):
@@ -1082,7 +1153,8 @@ func _build_towns() -> void:
 				var vi := rng.randi_range(0, houses - 1)
 				var block := r < town_r * 0.4 and isl.population > 3500 and rng.randf() < 0.5
 				if block:
-					vi = houses + rng.randi_range(0, SHOP_FILES.size() - 1)
+					# Reserve the first suitable downtown lot for the civic landmark.
+					vi = rng.randi_range(houses, city_hall_variant - 1) if has_city_hall else city_hall_variant
 					basis = basis.scaled(Vector3.ONE * rng.randf_range(0.9, 1.1))
 				var bucket: Array[Transform3D] = per_variant[vi]
 				# Each building gets a level lot graded under its whole plan (porch and
@@ -1099,8 +1171,11 @@ func _build_towns() -> void:
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				bucket.append(xf)
 				if block:
-					var front_z: float = SHOP_SHELLS[vi - houses].y / 2
-					if SHOP_FILES[vi - houses] == "glass_hall":
+					if vi == city_hall_variant:
+						has_city_hall = true
+					var shop_name: String = shop_names[vi - houses]
+					var front_z: float = SHOP_SHELLS[shop_name].y / 2
+					if shop_name == "glass_hall":
 						front_z += 0.46
 					_entry_light(xf, Vector3(.83, 2.59, front_z + .30), Vector3(0, .34, front_z + .64), h < 15.0)
 				else:
@@ -1109,7 +1184,7 @@ func _build_towns() -> void:
 	var no_colors: Array[Color] = []
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
-		var group_name: String = "Houses%d" % i if i < houses else SHOP_FILES[i - houses]
+		var group_name: String = "Houses%d" % i if i < houses else shop_names[i - houses]
 		await _multimesh(variants[i], xforms, no_colors, group_name)
 
 
@@ -1152,18 +1227,45 @@ func _build_lighthouses() -> void:
 		var h := terrain.height_v(p)
 		if h < 3.6 or _is_blocked(p.x, p.z):
 			continue
-		Models.add_lighthouse(mb, Vector3(p.x, h - 0.3, p.z))
+		var variant := floori(_hash(p.x, p.z) * Models.LIGHTHOUSE_VARIANTS)
+		var gallery := Models.add_lighthouse(mb, Vector3(p.x, h - 0.3, p.z), variant, PI - ang)
+		if variant < Models.LIGHTHOUSE_VARIANTS / 2:
+			_place_keepers_house(mb, p, gallery.basis)
 		for k in 3:
-			var a := ang + PI + (k - 1) * 0.9
-			var seat := Vector3(p.x + cos(a) * 3.3, h + 20.85, p.z + sin(a) * 3.3)
+			var rail_angle := (k - 1) * TAU / 16.0
+			var seat := gallery * Vector3(cos(rail_angle) * Models.LIGHTHOUSE_RAIL_RADIUS,
+					Models.LIGHTHOUSE_RAIL_Y, sin(rail_angle) * Models.LIGHTHOUSE_RAIL_RADIUS)
 			_perch(seat, seat, 0.0, Seagulls.Kind.LIGHTHOUSE)
-		var lamp := Vector3(p.x, h + 22.2, p.z)
+		var lamp := gallery * (Vector3.UP * Models.LIGHTHOUSE_LENS_Y)
 		var beacon := Color(1.0, 0.92, 0.75)
 		glows.xform = Transform3D.IDENTITY
 		glows.glow(lamp, beacon, 2.4, 9.0, true, 0.0, Vector3.ZERO, 0.0)
 		glows.beam(lamp, beacon, 6.6, 225.0, 0.5, 0.3, _hash(p.x, p.z) * TAU)
 		_block(p, 18.0)
 	_add_mesh(mb.commit(), "Lighthouses")
+
+
+## Sample the house's own footprint so rising ground cannot swallow its windows.
+func _place_keepers_house(mb: MeshBuilder, tower: Vector3, basis: Basis) -> void:
+	var style := floori(_hash(tower.z, tower.x) * Models.LIGHTHOUSE_HOUSES.size())
+	for offset in [Vector3(10, 0, 3), Vector3(7, 0, 10), Vector3(7, 0, -10)]:
+		var center: Vector3 = tower + basis * offset
+		var high := terrain.height_v(center)
+		var low := high
+		var clear := true
+		# Include the widest eaves and the front porch in the site check.
+		for x in [-4.2, 0.0, 4.2]:
+			for z in [-2.9, 0.0, 4.4]:
+				var point := center + basis * Vector3(x, 0, z)
+				var ground := terrain.height_v(point)
+				high = maxf(high, ground)
+				low = minf(low, ground)
+				if _is_blocked(point.x, point.z):
+					clear = false
+		if clear and low > 2.0 and high - low < 2.1:
+			center.y = high - 0.25
+			Models.add_keepers_house(mb, Transform3D(basis, center), style)
+			return
 
 
 # --- Haul-outs -----------------------------------------------------------------------
@@ -1682,9 +1784,21 @@ func _pilot_station_props(mb: MeshBuilder, q: MapData.Wharf, _r: RandomNumberGen
 
 
 func _build_route_overlay() -> void:
+	route_overlay = _add_mesh(_route_overlay_mesh(), "RouteOverlay", false)
+
+
+## Redraws the dashes after a schedule change, for the routes now in service.
+func rebuild_route_overlay() -> void:
+	if route_overlay:
+		route_overlay.mesh = _route_overlay_mesh()
+
+
+func _route_overlay_mesh() -> Mesh:
 	var mb := MeshBuilder.new()
 	var col := Color(0.92, 0.96, 1.0, 0.1)
 	for r in map.routes:
+		if not r.in_service:
+			continue
 		var s := 42.0
 		while s < r.length - 48.0:
 			var a := r.curve.sample_baked(s)
@@ -1699,4 +1813,4 @@ func _build_route_overlay() -> void:
 	# sorting between them flips with the camera. Force the overlay to draw after it.
 	var mat := Models.unshaded_material()
 	mat.render_priority = 5
-	route_overlay = _add_mesh(mb.commit(mat), "RouteOverlay", false)
+	return mb.commit(mat)

@@ -20,17 +20,21 @@
 			"pinned": true,
 			"mainland": true,
 			"ferry": true,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": -275.823,
+					"v": 764.781,
+					"facing": 109.8321,
+					"tier": "standard"
+				}
+			]
 		},
 		{
 			"name": "Madrona Island",
 			"x": 145.0,
 			"z": -440.0,
 			"radius": 895.0,
-			"height": 1.6,
+			"height": 1.58,
 			"hills": 0.0,
 			"peak": 0.0,
 			"lakes": 0.0,
@@ -43,10 +47,29 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": true,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 900.904,
+					"v": -374.529,
+					"facing": 309.0,
+					"tier": "standard",
+					"town": "Thursday Cove"
+				},
+				{
+					"u": -338.867,
+					"v": 630.09,
+					"facing": 122.0,
+					"tier": "standard",
+					"town": "Pinewater"
+				},
+				{
+					"u": -346.735,
+					"v": -744.043,
+					"facing": 287.0,
+					"tier": "small",
+					"town": "Cattle Head Point"
+				}
+			]
 		},
 		{
 			"name": "Cypress Island",
@@ -54,7 +77,7 @@
 			"z": -1631.131,
 			"radius": 620.755,
 			"height": 0.6,
-			"hills": 1.6,
+			"hills": 1.59,
 			"peak": 0.0,
 			"lakes": 1.0,
 			"shape_seed": 68299,
@@ -66,10 +89,15 @@
 			"pinned": false,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 343.775,
+					"v": 282.391,
+					"facing": 93.0,
+					"tier": "small",
+					"town": "Port Two Tree"
+				}
+			]
 		},
 		{
 			"name": "Juniper Island",
@@ -89,10 +117,15 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": -408.905,
+					"v": -398.932,
+					"facing": 278.0,
+					"tier": "small",
+					"town": "Bellweather"
+				}
+			]
 		},
 		{
 			"name": "Bracken Island",
@@ -105,17 +138,22 @@
 			"lakes": 0.0,
 			"shape_seed": 57894,
 			"stretch": 1.4,
-			"angle": 92.0,
+			"angle": 93.0,
 			"roughness": 0.98,
-			"forest": 1.16,
-			"fields": 0.61,
+			"forest": 1.15,
+			"fields": 0.6,
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": -765.522,
+					"v": -268.371,
+					"facing": 239.0,
+					"tier": "standard",
+					"town": "Driftwood"
+				}
+			]
 		},
 		{
 			"name": "Kestrel Island",
@@ -135,10 +173,21 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
-			"dock": true,
-			"dock_x": 942.0,
-			"dock_z": -365.0,
-			"dock_angle": 3.0
+			"docks": [
+				{
+					"u": 108.963,
+					"v": -2779.295,
+					"facing": 259.495,
+					"tier": "standard"
+				},
+				{
+					"u": -65.452,
+					"v": -188.649,
+					"facing": 240.495,
+					"tier": "standard",
+					"town": "Squak Harbor"
+				}
+			]
 		},
 		{
 			"name": "Gullrock Island",
@@ -158,10 +207,15 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": true,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 283.083,
+					"v": -270.438,
+					"facing": 281.9312,
+					"tier": "standard",
+					"town": "Gullhaven"
+				}
+			]
 		},
 		{
 			"name": "San Vela Island",
@@ -181,14 +235,26 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": 624.033,
+					"v": -69.211,
+					"facing": 2.0,
+					"tier": "standard",
+					"town": "Eastdale"
+				},
+				{
+					"u": -431.673,
+					"v": 168.199,
+					"facing": 119.0,
+					"tier": "standard",
+					"town": "Iron Head"
+				}
+			]
 		},
 		{
 			"name": "Cordero Landing",
-			"x": 300.0,
+			"x": 315.0,
 			"z": 2325.0,
 			"radius": 675.0,
 			"height": 0.93,
@@ -199,15 +265,20 @@
 			"stretch": 1.16,
 			"angle": 100.0,
 			"roughness": 0.66,
-			"forest": 0.85,
+			"forest": 0.84,
 			"fields": 0.45,
 			"pinned": false,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": -432.257,
+					"v": 340.35,
+					"facing": 126.0,
+					"tier": "standard",
+					"town": "Cordova"
+				}
+			]
 		},
 		{
 			"name": "Eagle Island",
@@ -227,10 +298,22 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
-			"dock": false,
-			"dock_x": 0.0,
-			"dock_z": 0.0,
-			"dock_angle": 0.0
+			"docks": [
+				{
+					"u": -871.603,
+					"v": -507.647,
+					"facing": 255.0,
+					"tier": "hard",
+					"town": "Wingtip Point"
+				},
+				{
+					"u": 869.236,
+					"v": -199.501,
+					"facing": 292.0,
+					"tier": "standard",
+					"town": "Westsound"
+				}
+			]
 		}
 	]
 }

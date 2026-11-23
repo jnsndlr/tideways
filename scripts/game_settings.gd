@@ -44,7 +44,8 @@ static func set_volume(bus: String, v: float) -> void:
 
 
 ## On/off options under [display].
-const FLAGS := {"floating_costs": false}
+const FLAGS := {"floating_costs": false, "show_routes": true, "show_names": true,
+	"show_areas": true, "weather_pinned": true}
 
 
 static func flag(key: String) -> bool:

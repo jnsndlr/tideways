@@ -14,6 +14,10 @@ const LANE_HEAD := -15.0         # first queue slot in each lane
 const LANE_WIDTH := 7.2
 const EXIT_CLEAR := 8.7         # lanes keep clear of the central exit lane
 const EXIT_V := 2.4             # lateral position of the exit lane
+# Ticket-plaza model origin, vehicle centres and extent of its tapered approach.
+const TICKET_U := LOT_BACK - 6.0
+const TICKET_LANES := [-14.4, -8.4, -EXIT_V]
+const TICKET_FAN_LENGTH := 30.0
 const SLOT := 7.8               # spacing between queued cars
 # Far enough apart that ferries at neighbouring slips, lying alongside or
 # coming and going straight in and out, never come near each other.
@@ -194,3 +198,8 @@ static func lane_positions(half_width: float, slip_count: int) -> Array[PackedFl
 
 static func slots_per_lane() -> int:
 	return int((LANE_HEAD - (LOT_BACK + 10.5)) / SLOT) + 1
+
+
+## Fraction of the full ticket-lane spread at this distance inland from the lot.
+static func ticket_spread(inland: float, road_length: float) -> float:
+	return 1.0 - smoothstep(10.0, minf(TICKET_FAN_LENGTH, maxf(road_length, 11.0)), inland)

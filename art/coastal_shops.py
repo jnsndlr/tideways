@@ -1,4 +1,4 @@
-"""Run with blender -b -P art/coastal_shops.py. Select a study with -- followed by --waterfront-pair, --pier-restaurants or --commercial-trio."""
+"""Run with blender -b -P art/coastal_shops.py. Pass -- --town-square to build the city hall and Main Street shops."""
 from pathlib import Path
 from math import atan2, cos, sin, tau
 import sys
@@ -39,6 +39,7 @@ for name in ["Lamplight","Zinc"]:
     else:
         bsdf.inputs["Metallic"].default_value=.42
 
+square = "--town-square" in sys.argv
 parts = []
 
 def painted(obj, color):
@@ -67,6 +68,8 @@ def sign(words, y, z, size, width):
     box(0,y,z,width,.14,size*1.6,"Ink")
     bpy.ops.object.text_add(location=(0,y-.08,z), rotation=(tau/4,0,0))
     obj = bpy.context.object
+    if square:
+        obj.data.resolution_u = 3
     obj.data.body = words
     obj.data.align_x = obj.data.align_y = 'CENTER'
     obj.data.size = size
@@ -76,6 +79,20 @@ def sign(words, y, z, size, width):
 
 def window(x,y,z,w,h,side=False):
     def panel(dx, dy, dz, a,b,c, color):
+        # Paint the glass and sash onto thin, two-sided cards on the town kit.
+        # Opposite walls reuse these panels with mirrored positions.
+        if square and dy in (-.08,-.111,-.13) and color != "Cream":
+            depth = dy - b/2
+            verts = [(u,0,v) for u,v in [(-a/2,-c/2),(a/2,-c/2),(a/2,c/2),(-a/2,c/2)]]
+            mesh=bpy.data.meshes.new("Window detail")
+            mesh.from_pydata(verts,[],[(0,1,2,3),(3,2,1,0)])
+            obj=bpy.data.objects.new("Window detail",mesh)
+            bpy.context.collection.objects.link(obj)
+            obj.location=(x-depth,y+dx,z+dz) if side else (x+dx,y+depth,z+dz)
+            if side:
+                obj.rotation_euler.z=tau/4
+            painted(obj,color)
+            return
         if side:
             box(x-dy,y+dx,z+dz,b,a,c,color)
         else:
@@ -90,10 +107,11 @@ def window(x,y,z,w,h,side=False):
 def planter(x,y):
     box(x,y,.55,1.25,.56,.44,"Cedar")
     box(x,y,.79,1.34,.62,.10,"Honey")
-    for j in range(5):
-        dx = x+(j-2)*.22
-        cone(dx,y,.89,.23,.16,.24,"Leaf",7)
-        cone(dx,y-.07,.99,.12,.09,.14,"Bloom" if j%2 else "Brass",6)
+    count = 3 if square else 5
+    for j in range(count):
+        dx = x+(j-(count-1)/2)*(.35 if square else .22)
+        cone(dx,y,.89,.23,.16,.24,"Leaf",5 if square else 7)
+        cone(dx,y-.07,.99,.12,.09,.14,"Bloom" if j%2 else "Brass",5 if square else 6)
 
 def shell(w,d,h,color):
     box(0,0,.20,w+.14,d+.14,.40,"Oyster")
@@ -620,26 +638,26 @@ def flat_roof(x,y,z,w,d):
     box(x,y,z+.21,w+.22,d+.22,.055,"Zinc")
 
 
-def brick_skin(w,d,h):
+def brick_skin(w,d,h, length=.60, course=.18):
     # One quad per brick, with staggered courses and narrow mortar joints.
     verts,faces,tones=[],[],[]
     for side,(span,depth) in enumerate([(w,d),(d,w),(w,d),(d,w)]):
-        for row in range(int(h/.18)):
-            x=-span/2-.30*(row%2)
+        for row in range(int(h/course)):
+            x=-span/2-length*.5*(row%2)
             col=0
             while x<span/2:
                 a=max(x+.008,-span/2)
-                b=min(x+.59,span/2)
+                b=min(x+length-.01,span/2)
                 if b>a:
-                    z=.17+row*.18
+                    z=.17+row*course
                     face=[]
-                    for u,v in [(a,z),(b,z),(b,z+.167),(a,z+.167)]:
+                    for u,v in [(a,z),(b,z),(b,z+course-.013),(a,z+course-.013)]:
                         xy=[(u,-depth/2-.012),(depth/2+.012,u),(-u,depth/2+.012),(-depth/2-.012,-u)][side]
                         face.append(len(verts))
                         verts.append((*xy,v))
                     faces.append(face)
                     tones.append((col*37+row*17+(col*row)%7)%9)
-                x+=.60
+                x+=length
                 col+=1
     mesh=bpy.data.meshes.new("Running bond")
     mesh.from_pydata(verts,[],faces)
@@ -879,6 +897,222 @@ def harbor_office():
     deck_lamp(.83,-3.01,2.56)
 
 
+def turned_profile(x, y, rings, sides, color):
+    """Continuous ring mesh for stacked mouldings, open where the ends meet trim."""
+    verts = [(x+r*cos(i*tau/sides), y+r*sin(i*tau/sides), z)
+             for z,r in rings for i in range(sides)]
+    faces = []
+    for ring in range(len(rings)-1):
+        for i in range(sides):
+            a = ring*sides+i
+            b = ring*sides+(i+1)%sides
+            faces.append((a,b,b+sides,a+sides))
+    mesh = bpy.data.meshes.new("Turned moulding")
+    mesh.from_pydata(verts,[],faces)
+    obj = bpy.data.objects.new("Turned moulding",mesh)
+    bpy.context.collection.objects.link(obj)
+    painted(obj,color)
+
+
+def city_hall():
+    w, d = 11, 7
+    shell(w, d, 4.45, "Cream")
+    start = len(parts)
+    gable(d, w, 4.48, 2.05, "DeepTeal", "Cream", standing_seams=True)
+    turn = Matrix.Rotation(tau/4, 3, 'Z')
+    for obj in parts[start:]:
+        obj.location = turn @ obj.location
+        obj.rotation_euler = (turn @ obj.rotation_euler.to_matrix()).to_euler()
+    for x in (-4.35, 4.35):
+        window(x, -3.53, 2.50, 1.36, 2.42)
+    retail_bay(0, -3.55, 2, door=True)
+    for i in range(4):
+        depth = 2.82 - i*.31
+        box(0, -3.48-depth/2, .09+i*.18, 6.0, depth, .18, "Oyster")
+    for x in (-2.62, -1.31, 1.31, 2.62):
+        turned_profile(x,-5.07,[(.72,.29),(.92,.29),(1.08,.215),
+                                (3.91,.18),(4.08,.31)],8,"Ivory")
+        box(x, -5.07, 4.13, .64,.64,.15,"Cream")
+    box(0,-4.32,4.38,6.22,2.24,.45,"Ivory")
+    sign("CITY  HALL", -5.47, 4.4, .32, 3.18)
+    start = len(parts)
+    gable(6.12,3.5,4.63,1.44,"DeepTeal","Cream",standing_seams=True)
+    for obj in parts[start:]:
+        obj.location.y -= 3.45
+    for x in (-4.18,4.18):
+        hall_planter(x,-4.12)
+    # Square clock lantern above the roof ridge and a spun copper dome.
+    box(0,0,6.52,2.15,2.15,.36,"Ivory")
+    box(0,0,7.42,1.86,1.86,1.52,"Cream")
+    for k in range(4):
+        start = len(parts)
+        # The bezel and dial share a rim; the tower closes the back.
+        sides = 16
+        rings = [(-.92,.65),(-1.03,.65),(-1.03,.55)]
+        verts = [(r*cos(i*tau/sides), y, 7.43+r*sin(i*tau/sides))
+                 for y,r in rings for i in range(sides)]
+        faces = []
+        for ring in range(2):
+            for i in range(sides):
+                a = ring*sides+i
+                b = ring*sides+(i+1)%sides
+                faces.append((a,b,b+sides,a+sides))
+        faces.append(tuple(range(2*sides,3*sides)))
+        # Flat hands and hour markers are painted just above the dial.
+        def dial_mark(x0,z0,x1,z1,width,depth):
+            direction=Vector((x1-x0,z1-z0)).normalized()
+            dx,dz=-direction.y*width/2,direction.x*width/2
+            start_vertex=len(verts)
+            verts.extend([(x,depth,7.43+z) for x,z in
+                          [(x0+dx,z0+dz),(x0-dx,z0-dz),(x1-dx,z1-dz),(x1+dx,z1+dz)]])
+            faces.append(tuple(range(start_vertex,start_vertex+4)))
+        for j in range(12):
+            angle=j*tau/12
+            dial_mark(.42*sin(angle),.42*cos(angle),.49*sin(angle),.49*cos(angle),.038,-1.035)
+        dial_mark(0,0,-.23,.18,.071,-1.04)
+        dial_mark(0,0,.17,.37,.060,-1.045)
+        mesh=bpy.data.meshes.new("Clock face")
+        mesh.from_pydata(verts,[],faces)
+        clock=bpy.data.objects.new("Clock face",mesh)
+        bpy.context.collection.objects.link(clock)
+        painted(clock,"Cedar")
+        mesh.materials.append(mats["Ivory"])
+        mesh.materials.append(mats["Ink"])
+        mesh.polygons[2*sides].material_index=1
+        for face in list(mesh.polygons)[2*sides+1:]:
+            face.material_index=2
+        rot=Matrix.Rotation(k*tau/4,3,'Z')
+        for obj in parts[start:]:
+            obj.location=rot @ obj.location
+            obj.rotation_euler=(rot @ obj.rotation_euler.to_matrix()).to_euler()
+    box(0,0,8.23,2.18,2.18,.19,"Ivory")
+    dome = [(8.31,1.12),(8.49,1.12)]
+    for i in range(1,5):
+        angle=i*tau/16
+        dome.append((8.49+1.08*sin(angle),max(.04,1.1*cos(angle))))
+    turned_profile(0,0,dome,16,"Patina")
+    cone(0,0,9.83,.14,.028,.60,"Brass")
+
+
+def striped_awning(w, y, z, color):
+    # Join each stripe's slope to the valance, closing only the canopy ends.
+    section = [(y,z+.24),(y-1.41,z-.19),(y-1.41,z-.42),
+               (y-1.33,z-.42),(y-1.33,z-.25),(y,z+.15)]
+    verts = [(w*(i/15-.5),v,h) for i in range(16) for v,h in section]
+    faces, colors = [], []
+    for i in range(15):
+        for j in range(6):
+            a,b = i*6+j,i*6+(j+1)%6
+            faces.append((a,b,b+6,a+6))
+            colors.append(i%2)
+    faces.extend([tuple(reversed(range(6))),tuple(range(90,96))])
+    mesh=bpy.data.meshes.new("Striped canopy")
+    mesh.from_pydata(verts,[],faces)
+    obj=bpy.data.objects.new("Striped canopy",mesh)
+    bpy.context.collection.objects.link(obj)
+    painted(obj,color)
+    mesh.materials.append(mats["Ivory"])
+    for face,index in zip(mesh.polygons,colors):
+        face.material_index=index
+
+
+def bookshop():
+    shell(6.4,5.6,3.52,"Mint")
+    gable(6.4,5.6,3.54,1.76,"DeepTeal","Mint",standing_seams=True)
+    shopfront(6.4,5.6)
+    sign("TIDETABLE  BOOKS",-2.98,3.45,.32,4.35)
+    window(0,-2.86,4.36,.89,.83)
+    box(-1.64,1.36,5.02,.68,.73,1.47,"Clay")
+    box(-1.64,1.36,5.78,.84,.86,.15,"Kiln")
+    for x in (-2.07,2.07):
+        for j in range(7):
+            height=.27+.086*(j%3)
+            box(x+(j-3)*.15,-2.97,1.10+height/2,.13,.07,height,
+                ["Butter","Cedar","Mint","Vermilion"][j%4])
+
+
+def post_office():
+    w, d = 3.3, 5.4
+    face = -d/2
+    shell(w, d, 5.18, "Butter")
+    flat_roof(0, 0, 5.18, w, d)
+    # A shallow arched parapet frames the upper sash above the mail counter.
+    for x in (-1.48, 1.48):
+        box(x, face-.09, 2.93, .22, .22, 5.24, "Ivory")
+        box(x, face-.10, 5.56, .34, .36, .16, "Cream")
+    window(0, face-.10, 4.28, 1.35, 1.40)
+    for j in range(12):
+        a, b = j*tau/24, (j+1)*tau/24
+        rod((1.36*cos(a), face-.13, 5.13+.64*sin(a)),
+            (1.36*cos(b), face-.13, 5.13+.64*sin(b)), .14, "Ivory", .21)
+    retail_bay(-.63, face-.06, 1.36, door=True)
+    window(.79, face-.07, 1.81, 1.05, 1.30)
+    sign("POST  OFFICE", face-.24, 3.10, .29, 2.85)
+    # Freestanding pillar box with a projecting cap and letter slot.
+    x, y = 1.10, face-.49
+    cone(x, y, .12, .29, .26, .24, "Ink")
+    cone(x, y, .71, .23, .23, 1.04, "Signal")
+    cone(x, y, 1.28, .29, .19, .15, "Signal")
+    box(x, y-.22, .98, .23, .05, .065, "Ink")
+
+
+def florist():
+    w,d=6.6,5.8
+    box(0,0,3.04,w,d,6.08,"Mortar")
+    brick_skin(w,d,5.93, length=.87, course=.29)
+    flat_roof(0,0,6.06,w,d)
+    for x in (-1.62,1.62):
+        window(x,-2.96,4.84,1.45,1.36)
+        box(x,-3.09,4.10,1.66,.43,.26,"Leaf")
+    shopfront(w,d)
+    striped_awning(w+.14,-3,3.46,"Vermilion")
+    sign("POPPY  &  STEM",-3.34,3.88,.27,3.40)
+    for x in (-2.24,2.24):
+        hall_planter(x,-3.43)
+    for z,width in [(6.33,5.80),(6.69,4.88),(7.05,3.96)]:
+        box(0,-2.74,z,width,.46,.36,"Clay")
+        box(0,-2.74,z+.18,width+.14,.54,.09,"Cream")
+
+
+def fish_market():
+    w,d=6.2,5.4
+    shell(w,d,3.94,"Lagoon")
+    flat_roof(0,0,3.94,w,d)
+    # An arched false front carrying a gilded salmon silhouette.
+    profile = []
+    for j in range(17):
+        x=w*(j/16-.5)
+        profile.append((x,4.29+1.10*(1-(2*x/w)**2)))
+    outline_top = [(-w/2,3.95),(w/2,3.95)] + list(reversed(profile))
+    count = len(outline_top)
+    verts = [(x,y,z) for y in (-2.82,-2.54) for x,z in outline_top]
+    faces = [tuple(range(count)),tuple(reversed(range(count,2*count)))]
+    faces.extend((i,i+count,(i+1)%count+count,(i+1)%count) for i in range(count))
+    mesh=bpy.data.meshes.new("Market parapet")
+    mesh.from_pydata(verts,[],faces)
+    parapet=bpy.data.objects.new("Market parapet",mesh)
+    bpy.context.collection.objects.link(parapet)
+    painted(parapet,"DeepTeal")
+    for (x,z),(nx,nz) in zip(profile,profile[1:]):
+        rod((x,-2.68,z),(nx,-2.68,nz),.12,"Mint",.36)
+    outline=[(-1.18,.02),(-1.59,.35),(-1.48,0),(-1.59,-.35),
+             (-1.09,-.10),(-.41,-.33),(.39,-.31),(1.07,-.12),
+             (1.35,.07),(.93,.27),(.39,.34),(-.13,.32),(-.57,.53),(-.51,.26)]
+    mesh=bpy.data.meshes.new("Salmon")
+    mesh.from_pydata([(x,-2.86,4.62+z) for x,z in outline],[],[tuple(range(len(outline)))])
+    fish=bpy.data.objects.new("Salmon",mesh)
+    bpy.context.collection.objects.link(fish)
+    painted(fish,"Brass")
+    eye=cone(.85,-2.90,4.74,.065,.065,.045,"Ink")
+    eye.rotation_euler.x=tau/4
+    shopfront(w,d)
+    striped_awning(w+.12,-2.76,3.38,"Mint")
+    for x in (-2.34,2.30):
+        cone(x,-3.20,.40,.36,.40,.78,"Cedar")
+        for z in (.17,.64):
+            cone(x,-3.20,z,.40,.40,.055,"Ink")
+
+
 def export(name, build, offset):
     parts.clear()
     build()
@@ -911,6 +1145,11 @@ main_street = "--main-street-pair" in sys.argv
 if main_street:
     study = "main_street_pair"
     lineup = [("seafoam_cafe",seafoam_cafe,-5.95),("brick_mercantile",mercantile,5.95)]
+if square:
+    study = "town_square"
+    lineup = [("city_hall",city_hall,-11.2),("tidetable_books",bookshop,.1),
+              ("post_office",post_office,5.65),("poppy_and_stem",florist,11.0),
+              ("sound_fish_market",fish_market,17.81)]
 for name,build,x in lineup:
     export(name,build,(x,0,0))
     if main_street:
@@ -926,6 +1165,10 @@ camera=bpy.context.object
 aim(camera,(0,-.5,4.0 if main_street else 3.7 if trio else 2.1 if restaurants else 3.65 if pair else 2.6))
 camera.data.type='ORTHO'
 camera.data.ortho_scale=24.4 if main_street else 42.8 if trio else 36 if restaurants else 30 if pair else 35
+if square:
+    camera.location=(-12,-58,20)
+    aim(camera,(1.95,-.7,3.9))
+    camera.data.ortho_scale=42.5
 scene.camera=camera
 scene.render.engine='CYCLES'
 scene.cycles.samples=12
@@ -938,7 +1181,7 @@ light.data.energy=14500
 light.data.shape='DISK'
 light.data.size=15
 aim(light,(0,0,0))
-box(0,0,-1.75 if restaurants else -.16,420 if restaurants or trio or main_street else 90,420 if restaurants or trio or main_street else 90,.3,"Water" if restaurants else "Ivory" if trio or main_street else "Oyster")
+box(0,0,-1.75 if restaurants else -.16,420 if restaurants or trio or main_street or square else 90,420 if restaurants or trio or main_street or square else 90,.3,"Water" if restaurants else "Ivory" if trio or main_street or square else "Oyster")
 if restaurants:
     water=mats["Water"].node_tree
     surface=water.nodes.get("Principled BSDF")
@@ -958,6 +1201,8 @@ if restaurants:
     scene.view_settings.exposure=.55
 scene.render.resolution_x=2000 if trio else 1800 if restaurants else 1600
 scene.render.resolution_y=780 if main_street else 700 if trio else 680 if restaurants else 730 if pair else 590
+if square:
+    scene.render.resolution_x,scene.render.resolution_y=1600,700
 scene.render.resolution_percentage=100
 scene.render.filepath=str(ROOT/'art'/f'{study}_preview.png')
 bpy.context.preferences.filepaths.save_version=0

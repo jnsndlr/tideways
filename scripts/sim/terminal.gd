@@ -83,18 +83,25 @@ func can_stage_construction() -> bool:
 
 
 func buy_holding_lane() -> bool:
+	# An idle terminal (no boat scheduled to call) has nobody to queue in a new lane.
+	if not has_service():
+		return false
 	var ready := work_stage == WorkStage.IDLE or work_stage == WorkStage.OPEN and not site_lanes.is_empty()
 	if island.lane_extension_price <= 0 or not ready or not can_stage_construction():
 		return false
 	if sim.available_cash < island.lane_extension_price:
 		return false
 	sim.ledger.spend("purchases", island.lane_extension_price)
+	_start_lane_work()
+	return true
+
+
+func _start_lane_work() -> void:
 	if site_lanes.is_empty():
 		for i in island.construction_staging_lanes:
 			staging_lanes.append(lanes[lane_keys()[0]][i])
 	build_remaining = BUILD_MINUTES
 	_set_work_stage(WorkStage.DRAINING)
-	return true
 
 
 func _set_work_stage(stage: WorkStage) -> void:
@@ -129,17 +136,54 @@ func _advance_construction(delta: float) -> void:
 		return
 	build_remaining = maxf(0.0, build_remaining - delta)
 	if build_remaining == 0.0:
-		extra_lane = Lane.new(extension_offset())
-		paved.append(extra_lane.v)
-		if not site_lanes.is_empty():
-			site_lanes.pop_front()
-		lanes[lane_keys()[0]].append(extra_lane)
-		staging_lanes.clear()
-		_set_work_stage(WorkStage.OPEN)
+		_open_lane()
 	elif build_remaining <= DEPARTURE_MINUTES and work_stage != WorkStage.LEAVING:
 		_set_work_stage(WorkStage.LEAVING)
 	elif build_remaining <= BUILD_MINUTES - ARRIVAL_MINUTES and work_stage == WorkStage.ARRIVING:
 		_set_work_stage(WorkStage.PAVING)
+
+
+func _open_lane() -> void:
+	extra_lane = Lane.new(extension_offset())
+	paved.append(extra_lane.v)
+	if not site_lanes.is_empty():
+		site_lanes.pop_front()
+	lanes[lane_keys()[0]].append(extra_lane)
+	staging_lanes.clear()
+	_set_work_stage(WorkStage.OPEN)
+
+
+## Construction survives a region rebuild without retaining nodes from the old scene.
+class Works:
+	var opened: int
+	var lane_stage: WorkStage
+	var lane_minutes: float
+	var slip: int
+	var slip_stage: RefitStage
+	var slip_minutes: float
+
+	func _init(t: Terminal) -> void:
+		opened = t.paved.size()
+		lane_stage = t.work_stage
+		lane_minutes = t.build_remaining
+		slip = t.refit_slip
+		slip_stage = t.refit_stage
+		slip_minutes = t.refit_remaining
+
+	func resume(t: Terminal) -> void:
+		for i in opened:
+			t._open_lane()
+		if lane_stage not in [WorkStage.IDLE, WorkStage.OPEN]:
+			t._start_lane_work()
+			t.build_remaining = lane_minutes
+			if lane_stage != WorkStage.DRAINING:
+				t._set_work_stage(WorkStage.ARRIVING)
+				if lane_stage != WorkStage.ARRIVING:
+					t._set_work_stage(lane_stage)
+		if slip_stage != RefitStage.NONE:
+			t.refit_slip = slip
+			t.refit_remaining = slip_minutes
+			t._set_refit_stage(slip_stage)
 
 
 # --- Refitting a slip ---------------------------------------------------------------
@@ -302,6 +346,31 @@ func build_lanes(dests: Array[int]) -> void:
 		lanes[keys[i]] = arr
 
 
+## After a schedule change: divides the lanes the lot has now (bought ones too)
+## among `dests` again, left to right, keeping each lane and the cars in it. Cars
+## left in a lane that now goes somewhere else move to their own or go home
+## (sort_overflow), as they do when a shared boat leaves without them.
+func relane(dests: Array[int]) -> void:
+	var keys := dests.duplicate()
+	if keys.is_empty():
+		keys.append(MapData.NO_ROUTE)
+	if keys == lane_keys():
+		return
+	var all: Array[Lane] = []
+	for key in lanes:
+		all.append_array(lanes[key])
+	all.sort_custom(func(a: Lane, b: Lane): return a.v < b.v)
+	lanes.clear()
+	var start := 0
+	for i in keys.size():
+		var n := all.size() / keys.size() + (1 if i < all.size() % keys.size() else 0)
+		var arr: Array[Lane] = []
+		arr.assign(all.slice(start, start + n))
+		lanes[keys[i]] = arr
+		start += n
+	sort_overflow()
+
+
 ## The wing walls and dolphins of the slip `rid` calls at here (null if none).
 func guides_for(rid: int) -> SlipGuides:
 	var i := island.slip_index(rid)
@@ -337,7 +406,15 @@ func _build_road_paths() -> void:
 		var inbound := b.duplicate()
 		inbound.reverse()
 		inbound.append_array(to_lot)
-		_inbound.append(_keep_right(simplify(inbound, ROAD_TOLERANCE)))
+		var road_path := _keep_right(inbound)
+		var entrance := to_lot[-1]
+		var length := (entrance - to_lot[0]).dot(island.dock_dir)
+		for v: float in Layout.TICKET_LANES:
+			var ticket_path := road_path.duplicate()
+			for j in to_lot.size():
+				var inland := (entrance - to_lot[j]).dot(island.dock_dir)
+				ticket_path[b.size() + j] += island.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
+			_inbound.append(simplify(ticket_path, ROAD_TOLERANCE))
 		var outbound := island.road_main_a.duplicate()
 		outbound.append_array(b)
 		_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
@@ -501,7 +578,7 @@ func _spawn_car() -> void:
 		return
 	lane.enroute += car.slots
 	var path := _inbound[sim.rng.randi() % _inbound.size()].duplicate()
-	path.append(_local(-Layout.EXIT_V, Layout.LOT_BACK + 2.4))
+	path.append(_local(to_local(path[-1]).x, Layout.LOT_BACK + 2.4))
 	path.append(_local(lane.v, Layout.LOT_BACK + 4.8))
 	car.position = path[0]
 	if path.size() > 1:

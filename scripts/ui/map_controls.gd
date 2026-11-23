@@ -1,110 +1,68 @@
 class_name MapControls
 extends PanelContainer
-## The group at the screen edge: the weather illustration above one toggle for each
-## map layer the region supplies and a hide-all / show-all. It owns what the player
-## chose to see; the HUD applies those choices to the map. Weather visibility is
-## separate from the layers, and none of it touches the simulation.
+## The weather widget at the screen edge. The sidebar's WEATHER button opens or
+## collapses it; the pin on the widget keeps it open (and open next session).
+## Unpinned, it tucks away again when the player opens another panel or clicks
+## the map. Which map layers show lives in Settings (GameSettings), not here.
 ##
 ## It rests against the left or right edge, part-way down, for the session. A drag
 ## on the illustration picks the edge and the height.
 
 signal weather_toggled(shown: bool)
-signal layers_changed
 
 const GAP := 8.0
-const CELL := Vector2(89, 44)
-const ON := Color("255756")
+## Map layer id -> GameSettings flag.
+const LAYER_FLAGS := {"routes": "show_routes", "names": "show_names", "areas": "show_areas"}
 
 var widget := WeatherWidget.new()
 var weather_shown := true
+var pinned := false
 ## The screen edge it rests against (1 right, -1 left) and how far down that edge
 ## (0 top .. 1 bottom).
 var side := 1
 var fraction := 0.45
 
-var _shown := {}      # layer id -> bool
-var _buttons := {}    # layer id -> Button
-var _all: Button
 var _grab_y := 0.0
 var _bounds := Rect2()
 var _obstacles: Array[Rect2] = []
 
 
-## `layers` lists [id, label, hint] for each layer this region can show, in button order.
-func setup(layers: Array, sim: Simulation, day_cycle: DayCycle, font: Font, bold: Font) -> void:
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 2)
-	add_child(column)
+func setup(sim: Simulation, day_cycle: DayCycle, font: Font) -> void:
 	widget.setup(sim, day_cycle, font)
 	widget.tapped.connect(func() -> void: set_weather_shown(not weather_shown))
+	widget.pin_tapped.connect(func() -> void: set_pinned(not pinned))
 	widget.drag_started.connect(func(point: Vector2) -> void: _grab_y = point.y - position.y)
 	widget.drag_moved.connect(_on_drag_moved)
-	column.add_child(widget)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 2)
-	grid.add_theme_constant_override("v_separation", 2)
-	column.add_child(grid)
-	for layer: Array in layers:
-		var b := _button(layer[1], layer[2], bold)
-		b.toggle_mode = true
-		b.button_pressed = true
-		var on := StyleBoxFlat.new()
-		on.bg_color = ON
-		on.set_corner_radius_all(6)
-		b.add_theme_stylebox_override("pressed", on)
-		b.add_theme_stylebox_override("hover_pressed", on)
-		b.add_theme_color_override("font_color", Hud.MUTED)
-		# A drawn tick, since the system fonts on iPad lack some symbol glyphs.
-		var tick := Control.new()
-		tick.set_anchors_preset(Control.PRESET_FULL_RECT)
-		tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tick.draw.connect(_draw_tick.bind(tick, b))
-		b.add_child(tick)
-		b.toggled.connect(_on_layer_toggled.bind(layer[0]))
-		grid.add_child(b)
-		_shown[layer[0]] = true
-		_buttons[layer[0]] = b
-	_all = _button("Hide all", "Hide or show every map layer", bold)
-	_all.pressed.connect(_on_all_pressed)
-	_all.visible = not layers.is_empty()
-	# Fills the last cell of an odd grid, otherwise takes a row of its own.
-	(grid if layers.size() % 2 == 1 else column).add_child(_all)
+	add_child(widget)
+	pinned = GameSettings.flag("weather_pinned")
+	widget.pinned = pinned
+	visible = pinned
 
 
-func _button(text: String, hint: String, bold: Font) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.tooltip_text = hint
-	b.custom_minimum_size = CELL
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_override("font", bold)
-	b.add_theme_font_size_override("font_size", 13)
-	return b
+## Whether the player wants this map layer drawn (Settings > Map).
+static func shows(layer: String) -> bool:
+	return GameSettings.flag(LAYER_FLAGS[layer]) if LAYER_FLAGS.has(layer) else false
 
 
-func _draw_tick(tick: Control, b: Button) -> void:
-	if b.button_pressed:
-		var at := Vector2(11, tick.size.y * 0.5)
-		tick.draw_polyline(PackedVector2Array([at + Vector2(-4, 0), at + Vector2(-1, 3), at + Vector2(5, -4)]),
-			Hud.ACCENT, 2.0, true)
+## The sidebar button: open it, or collapse it (which also unpins it).
+func toggle_open() -> void:
+	if visible:
+		visible = false
+		set_pinned(false)
+	else:
+		visible = true
 
 
-## Whether the player wants this layer on the map. False for a layer the region lacks.
-func shows(layer: String) -> bool:
-	return _shown.get(layer, false)
+## Collapses it unless pinned, when the player turns their attention elsewhere.
+func dismiss() -> void:
+	if not pinned:
+		visible = false
 
 
-func any_shown() -> bool:
-	return _shown.values().has(true)
-
-
-func set_layer(layer: String, on: bool) -> void:
-	if not _shown.has(layer) or _shown[layer] == on:
-		return
-	_apply(layer, on)
-	_refresh_all()
-	layers_changed.emit()
+func set_pinned(on: bool) -> void:
+	pinned = on
+	widget.pinned = on
+	GameSettings.set_flag("weather_pinned", on)
 
 
 func set_weather_shown(on: bool) -> void:
@@ -155,30 +113,6 @@ func _is_clear(r: Rect2, obstacles: Array[Rect2]) -> bool:
 		if r.intersects(o.grow(GAP - 0.5)):
 			return false
 	return true
-
-
-func _apply(layer: String, on: bool) -> void:
-	_shown[layer] = on
-	(_buttons[layer] as Button).set_pressed_no_signal(on)
-	(_buttons[layer] as Button).get_child(0).queue_redraw()
-
-
-func _refresh_all() -> void:
-	_all.text = "Hide all" if any_shown() else "Show all"
-
-
-func _on_layer_toggled(on: bool, layer: String) -> void:
-	_apply(layer, on)
-	_refresh_all()
-	layers_changed.emit()
-
-
-func _on_all_pressed() -> void:
-	var on := not any_shown()
-	for layer: String in _shown:
-		_apply(layer, on)
-	_refresh_all()
-	layers_changed.emit()
 
 
 ## The group follows the finger: whichever edge is nearer, at the finger's height.

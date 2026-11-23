@@ -1,0 +1,17 @@
+{
+	"name": "Mission sandbox",
+	"cash": 50000,
+	"terminals": [
+		{"key": "island-1", "name": "Port Rosario", "lanes": 2},
+		{"key": "island-2", "name": "Madrona Island", "lanes": 2},
+		{"key": "island-7", "name": "Gullrock Island", "lanes": 2}
+	],
+	"fleet": [
+		{"key": "hull-0", "name": "Hiyu", "size": 2},
+		{"key": "hull-1", "name": "Heron", "size": 1}
+	],
+	"schedules": [
+		{"boat": "hull-0", "stops": ["island-1", "island-2"]},
+		{"boat": "hull-1", "stops": ["island-7", "island-2"]}
+	]
+}

@@ -39,6 +39,35 @@ var schedule: Scenario.Schedule     # the stops she runs (null when restored fro
 var stops: Array[int] = []
 var legs: Array[MapData.Route] = []
 var call := 0                       # index into stops: where she is, or is sailing to
+## A schedule change from the editor (stage 4), taken at her next call at one of
+## its stops: she finishes the crossing she is on first.
+var next_stops: Array[int] = []
+var _next_legs: Array[MapData.Route] = []
+var _next_timetable: Array[int] = []
+## When she leaves stops[0], in minutes after midnight (Timetable); empty: as soon
+## as she has loaded. Each departure is a round of her stops.
+var timetable: Array[int]:
+	get: return _timetable.departures
+var _timetable := Timetable.new()
+var _offsets: Array[float] = []  # plan_offsets(stops), cached
+var late_by := 0.0           # minutes late she left her last stop
+var _loading_since := 0.0    # game minute (Simulation.abs_minutes) she began loading
+## Crew come on this long before her first sailing of the day.
+const CREW_CALL := 30.0
+## Planned loading and unloading, per car of a full deck (game minutes).
+const PLAN_CAR_GAP := 0.8
+## On a timetable, the last car is let on this long before she is due (it has
+## the lane and the apron to drive), and the apron starts up APRON_LIFT before.
+const BOARD_CLOSE := 8.0
+const APRON_LIFT := 2.0
+## A timed boat back at her first stop with at least this long until her next
+## sailing moves to a free tie-up slip there, if she fits one, so the working
+## slip is free for other boats. Her crew stay on unless it is overnight.
+const GAP_TIE_UP := 150.0
+## She leaves the tie-up in time to be back at her working slip this long
+## before boarding opens (MAX_DWELL before she is due).
+const GAP_MARGIN := 5.0
+var _gap_due := -1.0         # tied up between sailings until she is due then (game minute); -1 otherwise
 ## Her +Z end faces the current route's B → A rather than A → B (she came onto
 ## this leg from one running the other way; a double-ended ferry never turns).
 var _rev := false
@@ -149,6 +178,14 @@ var _inset := 0.0
 var _yaws := PackedFloat32Array()
 const YAW_PAD := 120.0
 const YAW_EASE := 16.0      # m, each of the two box filters (so a turn eases in over ~32 m)
+# Lanes: two boats on one route pass each other mid-crossing, each keeping to her
+# own starboard lane off the line joining the docks (see lane_offset_on).
+const LANE_GAP := 50.0      # m, kept between two of the biggest hulls on opposite lanes
+const LANE_OUT := 60.0      # m out of the slip on the centreline before she eases over
+const LANE_EASE := 320.0    # m over which she eases onto her lane
+const LANE_SHIFT := 1.0 / 30.0   # of her lane per game minute, moving over when her route becomes shared (or stops being)
+static var _lane_w := -1.0
+var _lane_k := 0.0          # how far out on her lane she keeps (1 on a route she shares, 0 alone)
 
 
 func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
@@ -237,6 +274,62 @@ func set_legs(stop_ids: Array[int], leg_routes: Array[MapData.Route]) -> void:
 	_place(_dock_s())
 
 
+## The terminal she next comes alongside (where she is, if laid up).
+func next_dock() -> Terminal:
+	if berth != Berth.WORKING:
+		return here()
+	if state == State.SAILING:
+		return destination()
+	return sim.terminals[stops[(call + 1) % stops.size()]]
+
+
+## Gives her new stops from her next call at one of them (see next_stops).
+## `times`: her timetable from then (null keeps the one she has).
+func plan_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route], times = null) -> void:
+	next_stops = stop_ids
+	_next_legs = leg_routes
+	_next_timetable.assign(timetable if times == null else times)
+
+
+## Puts her on `times` at once (her stops stay as they are).
+func set_timetable(times: Array[int]) -> void:
+	_timetable.replace(times)
+	late_by = 0.0
+	if between_sailings():
+		# A ferry already away from her working slip must return for the new
+		# sailing, or at once if she now sails as loading allows.
+		var now := sim.abs_minutes()
+		_gap_due = now if timetable.is_empty() else _timetable.first_stop_due(now, MAX_DWELL)
+		return_requested = false
+
+
+## Takes the planned stops if she is at one of them. Cars aboard for a stop she
+## no longer reaches from here drive off here instead.
+func _take_next_stops() -> bool:
+	var term_id := here().island.id
+	if next_stops.is_empty() or term_id not in next_stops:
+		return false
+	var came_from := stops[(call - 1 + stops.size()) % stops.size()]
+	var k := next_stops.find(term_id)
+	for i in next_stops.size():
+		if next_stops[i] == term_id and next_stops[(i - 1 + next_stops.size()) % next_stops.size()] == came_from:
+			k = i
+	stops = next_stops
+	legs = _next_legs
+	call = k
+	set_timetable(_next_timetable)
+	_offsets.clear()
+	next_stops = []
+	_next_legs = []
+	_next_timetable = []
+	var ahead := _served_from(call)
+	for car in aboard:
+		if car.dest >= 0 and car.dest not in ahead:
+			car.dest = term_id
+	sim.stops_changed(self)
+	return true
+
+
 ## Where on the route curve her hull lies docked at the end she is at.
 func _dock_s() -> float:
 	return -_inset if at_a else route.length + _inset
@@ -289,6 +382,7 @@ func _take_leg() -> void:
 		for e in run[2]:
 			if e[1].owner == self:
 				e[1].owner = null
+	var old := route
 	route = next
 	term_a = sim.terminals[route.a]
 	term_b = sim.terminals[route.b]
@@ -297,6 +391,9 @@ func _take_leg() -> void:
 	_build_yaws()
 	_forecasts.clear()
 	_place(_dock_s())
+	# Off a route she no longer sails (new stops): its water is no longer shared with her.
+	if old not in legs:
+		sim.marine.refresh_corridors()
 	# And she holds the new route's water round it, as she would have docking.
 	for run in _corridor_runs():
 		if run[0] <= 3.0 and _run_blocks_dock(run, at_a):
@@ -497,6 +594,7 @@ func _process(delta: float) -> void:
 
 
 func _begin_unloading() -> void:
+	_take_next_stops()
 	state = State.UNLOADING
 	if _ramp(here()):
 		_ramp(here()).land()
@@ -529,8 +627,20 @@ func _tick_unloading(delta: float) -> void:
 			here().unloading_ferry = null
 		if lay_up_requested and free_tie_up(here()) >= 0:
 			_begin_tie_up()
+		elif _wants_gap_tie_up():
+			_gap_due = due()
+			_begin_tie_up()
 		else:
 			_begin_loading()
+
+
+## Whether, just unloaded at her first stop, her next sailing is far enough off
+## (GAP_TIE_UP) to lie at a free tie-up slip here until then.
+func _wants_gap_tie_up() -> bool:
+	if timetable.is_empty() or call != 0 or not aboard.is_empty() or not next_stops.is_empty():
+		return false
+	var d := due()
+	return d >= 0.0 and d - sim.abs_minutes() >= GAP_TIE_UP and free_tie_up(here()) >= 0
 
 
 ## Outbound vehicles cross the boarding approaches before joining the central
@@ -587,8 +697,11 @@ func _drive_off(car: Vehicle) -> void:
 
 
 func _begin_loading() -> void:
+	if aboard.is_empty():
+		_take_next_stops()
 	state = State.LOADING
 	_state_time = 0.0
+	_loading_since = sim.abs_minutes()
 	_dispatch_timer = 0.0
 	_last_sent = null
 	speed = 0.0
@@ -602,12 +715,28 @@ func _tick_loading(delta: float) -> void:
 		return
 	var serves := serves_from_here()
 	var fits := func(c: Vehicle): return _free_slot(c) >= 0
-	if _dispatch_timer <= 0.0 and _state_time < MAX_DWELL and not _casting_off and _ramp_down():
+	# On a timetable she boards from MAX_DWELL until BOARD_CLOSE before she is due,
+	# and sails on time. Late (in too late for MIN_DWELL before then), she sails
+	# as soon as she has loaded.
+	var due_at := due()
+	var now := sim.abs_minutes()
+	var timed := due_at >= 0.0
+	var late := timed and _loading_since > due_at - MIN_DWELL
+	var boarding_open := _state_time < MAX_DWELL
+	if timed and not late:
+		boarding_open = now >= due_at - MAX_DWELL and now < due_at - BOARD_CLOSE
+	if _dispatch_timer <= 0.0 and boarding_open and not _casting_off and _ramp_down():
 		var car := term.board_next(serves, fits)
 		if car != null:
 			_dispatch_timer = _gap_after(car)
 			_drive_on(car, term)
-	if _casting_off or _boarding == 0 and _state_time >= MIN_DWELL and (_state_time >= MAX_DWELL or not term.has_waiting(serves, fits)):
+	# (full: nothing waiting would fit)
+	var full := not term.has_waiting(serves, fits)
+	var queue_empty := not term.has_waiting(serves, func(_c: Vehicle): return true)
+	var loaded := _state_time >= MIN_DWELL and (full or queue_empty or _state_time >= MAX_DWELL)
+	if timed:
+		loaded = now >= due_at - APRON_LIFT and (not late or loaded)
+	if _casting_off or _boarding == 0 and loaded:
 		# Apron up before she goes.
 		_casting_off = true
 		var ramp := _ramp(term)
@@ -615,7 +744,12 @@ func _tick_loading(delta: float) -> void:
 			ramp.lift()
 			if not ramp.is_clear():
 				return
+		if timed and now < due_at:
+			return
 		_casting_off = false
+		late_by = maxf(now - due_at, 0.0) if timed else 0.0
+		if timed and call == 0:
+			_timetable.leave_first_stop()
 		captain = next_captain
 		_take_leg()
 		call = (call + 1) % stops.size()
@@ -690,7 +824,12 @@ func _tick_sailing(delta: float) -> void:
 	if rem < RAMP_LOWER_AT and _ramp(destination()):
 		_ramp(destination()).lower()
 	var was := traveled
-	voyage.advance(delta, speed, run_length())
+	# Onto her lane (or back to the centreline) gently when her route has just
+	# become shared (or stopped being).
+	_lane_k = move_toward(_lane_k, 1.0 if sim.marine.shared(route) else 0.0, delta * LANE_SHIFT)
+	# `traveled` counts along the centreline; out on her lane round a bend she has
+	# further (or less far) to go, at the same speed through the water.
+	voyage.advance(delta, speed / _lane_stretch(_route_s(traveled)), run_length())
 	_burn(traveled - was)
 	_place(_route_s(traveled))
 	_bob_time += delta
@@ -760,8 +899,11 @@ func _corridor_wait() -> float:
 	if traveled < 1.5 and _blocked_at_dock():
 		return 0.0
 	for run in _corridor_runs():
+		# (Not the water round the slip she is coming in to, if lying there she will
+		# be in another route's way: she keeps that when she docks, _dock_corridors.)
+		var keep := _kept_docked(run)
 		for e in run[2]:
-			if traveled > e[0] and e[1].owner == self:
+			if traveled > e[0] and e[1].owner == self and not keep:
 				e[1].owner = null
 		if traveled > run[1]:
 			continue
@@ -806,7 +948,7 @@ func _blocked_at_dock() -> bool:
 func _arriving_through(run: Array) -> Ferry:
 	for e in run[2]:
 		var c: MarineTraffic.Corridor = e[1]
-		for f: Ferry in c.ferry.values():
+		for f: Ferry in c.boats:
 			if f == self or f.state != State.SAILING or f.destination() != here() or f._waiting_for == self:
 				continue
 			var to_go := f.distance_to(c)
@@ -868,7 +1010,9 @@ func claim_corridors_at_start() -> void:
 				if at <= e[0]:
 					e[1].owner = self
 			return
-		if state != State.SAILING:
+		var was := traveled
+		var turned := state != State.SAILING
+		if turned:
 			at_a = not at_a
 			state = State.SAILING
 			_state_time = 0.0
@@ -880,8 +1024,38 @@ func claim_corridors_at_start() -> void:
 		traveled = maxf(at - fc.half_length, 0.0)
 		speed = 0.0
 		_place(_route_s(traveled))
-		claim_corridors_at_start()
+		# Try again from where she fell back to, unless she couldn't fall back any
+		# further (a run held by another boat starts at her route's very start):
+		# then she waits where she is.
+		if turned or traveled < was - 0.5:
+			claim_corridors_at_start()
 		return
+
+
+## After the corridors were found afresh (a boat took new stops): forgets the
+## runs she had worked out, and takes what she would hold now if it is free:
+## docked, the water round her slip that is in the way of others; under way,
+## the run she is in.
+func reclaim_corridors() -> void:
+	_runs.clear()
+	if berth != Berth.WORKING:
+		return
+	for run in _corridor_runs():
+		if state != State.SAILING:
+			if run[0] <= 3.0 and _run_blocks_dock(run, at_a) and _run_holder(run, 0.0) == null:
+				for e in run[2]:
+					if e[1].owner == null:
+						e[1].owner = self
+		elif traveled >= run[0] and traveled <= run[1] and _run_holder(run, traveled) == null:
+			for e in run[2]:
+				if traveled <= e[0]:
+					e[1].owner = self
+
+
+## Whether `run` reaches the slip she is sailing to and, lying there, she will be
+## in another route's way: she keeps it from coming in until she leaves again.
+func _kept_docked(run: Array) -> bool:
+	return run[1] >= run_length() - 3.0 and _run_blocks_dock(run, not at_a)
 
 
 ## Docking: if another route runs so close past this slip that the docked ferry
@@ -890,7 +1064,7 @@ func claim_corridors_at_start() -> void:
 ## again. Frees the rest.
 func _dock_corridors() -> void:
 	for run in _corridor_runs():
-		var keep: bool = run[1] >= run_length() - 3.0 and _run_blocks_dock(run, not at_a)
+		var keep := _kept_docked(run)
 		for e in run[2]:
 			if keep:
 				# (Never from another ferry: one that has taken a corridor this one
@@ -916,7 +1090,7 @@ func ahead(d: float) -> Vector2:
 	# Docked, `traveled` still counts the last crossing but at_a has flipped.
 	if state != State.SAILING:
 		return pos2()
-	var p := route_point(_route_s(minf(traveled + d, run_length())))
+	var p := lane_pose_on(route, _route_s(minf(traveled + d, run_length())), at_a, _lane_k)
 	return Vector2(p.x, p.z)
 
 
@@ -926,8 +1100,10 @@ func path_left() -> float:
 
 ## Positions the ferry at distance s along the route curve. +Z always faces A → B.
 func _place(s: float) -> void:
-	var p := route_point(s)
-	_base_xf = Transform3D(Basis(Vector3.UP, _yaw_at(s) + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
+	if state != State.SAILING and sim and sim.marine:
+		_lane_k = 1.0 if sim.marine.shared(route) else 0.0
+	var p := lane_pose_on(route, s, at_a, _lane_k)
+	_base_xf = Transform3D(Basis(Vector3.UP, p.w + (PI if _rev else 0.0)), Vector3(p.x, 0.0, p.z))
 	if state == State.SAILING:
 		_come_in(run_length() - traveled)
 	global_transform = _pose()
@@ -1129,23 +1305,28 @@ func _press(g: SlipGuides) -> void:
 ## filter over the (unwrapped) chord headings give a turn rate that ramps up,
 ## holds steady round the arc and ramps down again, as under helm.
 func _build_yaws() -> void:
-	if _yaw_cache.has(route.id):
-		_yaws = _yaw_cache[route.id]
-		return
-	var n := int(ceil(route.length + 2.0 * YAW_PAD)) + 1
+	_yaws = _yaws_of(route)
+
+
+## Her smoothed heading every metre along route `r` (A → B), cached per route.
+func _yaws_of(r: MapData.Route) -> PackedFloat32Array:
+	if _yaw_cache.has(r.id):
+		return _yaw_cache[r.id]
+	var n := int(ceil(r.length + 2.0 * YAW_PAD)) + 1
 	var raw := PackedFloat32Array()
 	raw.resize(n)
 	var prev := 0.0
 	for i in n:
 		var s := i - YAW_PAD
-		var d := route_point(s + 0.5) - route_point(s - 0.5)
+		var d := route_point_on(r, s + 0.5) - route_point_on(r, s - 0.5)
 		var y := atan2(d.x, d.z) if Vector2(d.x, d.z).length_squared() > 1e-8 else prev
 		if i > 0:
 			y = prev + angle_difference(prev, y)
 		raw[i] = y
 		prev = y
-	_yaws = _box(_box(raw, int(YAW_EASE)), int(YAW_EASE))
-	_yaw_cache[route.id] = _yaws
+	var ys := _box(_box(raw, int(YAW_EASE)), int(YAW_EASE))
+	_yaw_cache[r.id] = ys
+	return ys
 
 
 static func _box(a: PackedFloat32Array, w: int) -> PackedFloat32Array:
@@ -1163,9 +1344,72 @@ static func _box(a: PackedFloat32Array, w: int) -> PackedFloat32Array:
 
 
 func _yaw_at(s: float) -> float:
-	var f := clampf(s + YAW_PAD, 0.0, _yaws.size() - 1.001)
+	return _yaw_in(_yaws, s)
+
+
+static func _yaw_in(ys: PackedFloat32Array, s: float) -> float:
+	var f := clampf(s + YAW_PAD, 0.0, ys.size() - 1.001)
 	var i := int(f)
-	return lerpf(_yaws[i], _yaws[i + 1], f - i)
+	return lerpf(ys[i], ys[i + 1], f - i)
+
+
+## The width of her lane off the route's centreline, at `s` along route `r`, as
+## (offset to starboard sailing A → B, its rate per metre of s). Nothing for
+## LANE_OUT out of each slip, then she eases over (smoothstep) across lane_ease()
+## onto her lane, LANE_WIDTH off the centreline, and back again coming in.
+static func lane_offset_on(r: MapData.Route, s: float) -> Vector2:
+	var ease := lane_ease(r.length)
+	if ease < 1.0:
+		return Vector2.ZERO
+	var w := minf(lane_width(), ease * 0.3)
+	var u := minf(s, r.length - s)
+	var x := clampf((u - LANE_OUT) / ease, 0.0, 1.0)
+	var slope := w * 6.0 * x * (1.0 - x) / ease
+	return Vector2(w * x * x * (3.0 - 2.0 * x), slope if s < r.length * 0.5 else -slope)
+
+
+## How far she takes to ease over onto her lane on a route `length` long (less on
+## a short crossing, so she is on her lane for a good part of it).
+static func lane_ease(length: float) -> float:
+	return clampf((length * 0.5 - LANE_OUT) * 0.75, 0.0, LANE_EASE)
+
+
+## Centreline to the middle of a lane: two of the biggest hulls on opposite lanes
+## keep LANE_GAP between them.
+static func lane_width() -> float:
+	if _lane_w < 0.0:
+		var biggest := 0.0
+		for size: int in FerryClass.TABLE:
+			biggest = maxf(biggest, FerryClass.of(size).hull_radius)
+		_lane_w = LANE_GAP * 0.5 + biggest + 1.0
+	return _lane_w
+
+
+## How much further she goes on her lane than along the centreline, about `s`.
+func _lane_stretch(s: float) -> float:
+	if lane_offset_on(route, s).x * _lane_k < 0.5:
+		return 1.0
+	var a := lane_pose_on(route, s - 3.0, at_a, _lane_k)
+	var b := lane_pose_on(route, s + 3.0, at_a, _lane_k)
+	return clampf(Vector2(b.x - a.x, b.z - a.z).length() / 6.0, 0.5, 2.0)
+
+
+## Where her hull's centre lies at `s` along route `r` on the lane for sailing
+## A → B (`toward_b`) or B → A, and her heading there (yaw, facing A → B). Only
+## on a route two boats share: alone, she sails the centreline.
+## `k`: how far out on it (0 the centreline, 1 her lane).
+func lane_pose_on(r: MapData.Route, s: float, toward_b: bool, k := 1.0) -> Vector4:
+	var ys := _yaws if r == route else _yaws_of(r)
+	var theta := _yaw_in(ys, s)
+	var c := route_point_on(r, s)
+	if k <= 0.0:
+		return Vector4(c.x, c.y, c.z, theta)
+	var lo := lane_offset_on(r, s) * k
+	var side := 1.0 if toward_b else -1.0
+	var o := lo.x * side
+	# Starboard of A → B: her heading turned a quarter to the right.
+	var p := c + Vector3(-cos(theta), 0.0, sin(theta)) * o
+	return Vector4(p.x, p.y, p.z, theta - atan(lo.y * side))
 
 
 func _update_trail(delta: float) -> void:
@@ -1240,6 +1484,8 @@ func status_text() -> String:
 		Berth.TIED_UP:
 			if return_requested:
 				return "Tied up at %s · waiting for her slip" % here().island.name
+			if between_sailings():
+				return "Tied up at %s until her %s sailing" % [here().island.name, Timetable.text(int(round(fmod(_gap_due, Timetable.DAY))))]
 			return "Tied up at " + here().island.name
 		Berth.TO_WORKING:
 			return "Returning to service at " + here().island.name
@@ -1258,12 +1504,22 @@ func _service_text() -> String:
 	var holding := holding_text()
 	if holding != "":
 		return holding
+	var due_at := due()
 	match state:
 		State.UNLOADING:
 			return "Unloading at " + here().island.name
 		State.LOADING:
-			return "Boarding at " + here().island.name
-	return "En route to %s (%d min)" % [destination().island.name, ceili(eta_minutes())]
+			if due_at < 0.0:
+				return "Boarding at " + here().island.name
+			if off_shift():
+				return "Alongside at %s, crew off · first sailing %s" % [here().island.name, Timetable.text(due_at)]
+			if sim.abs_minutes() < due_at - MAX_DWELL:
+				return "Alongside at %s · sails %s" % [here().island.name, Timetable.text(due_at)]
+			return "Boarding at %s · sails %s" % [here().island.name, Timetable.text(due_at)]
+	var text := "En route to %s (%d min)" % [destination().island.name, ceili(eta_minutes())]
+	if late_by >= 2.0:
+		text += " · %d min late" % roundi(late_by)
+	return text
 
 
 func eta_minutes() -> float:
@@ -1274,6 +1530,7 @@ func eta_minutes() -> float:
 ## crossing under way is finished by the captain who began it).
 func assign_captain(c: Captain) -> void:
 	next_captain = c
+	_offsets.clear()
 	if state != State.SAILING:
 		captain = c
 		cruise = c.cruise(paced_cruise())
@@ -1296,13 +1553,18 @@ func best_captain() -> Captain:
 
 
 func minutes_until_departure_from(term: Terminal) -> float:
-	if berth != Berth.WORKING or lay_up_requested:
-		return INF
 	var crossing := crossing_minutes()
 	var turnaround := 16.0
+	if between_sailings() and not lay_up_requested:
+		var m := maxf(_gap_due - sim.abs_minutes(), 0.0)
+		return m if here() == term else m + crossing + turnaround
+	if berth != Berth.WORKING or lay_up_requested:
+		return INF
 	match state:
 		State.LOADING:
 			var m := maxf(MIN_DWELL + 2.0 - _state_time, 0.0)
+			if due() >= 0.0:
+				m = maxf(m, due() - sim.abs_minutes())
 			return m if here() == term else m + crossing + turnaround
 		State.UNLOADING:
 			var m := turnaround
@@ -1316,11 +1578,137 @@ func crossing_minutes() -> float:
 	return forecast_minutes(next_captain)
 
 
+# --- Timetable (stage 4) ------------------------------------------------------------
+
+## Planned time alongside at each call, as if every sailing were full: a whole
+## deck off, a whole deck on, and the last car aboard and the apron up.
+func planned_dwell() -> float:
+	var deck_minutes := fc.capacity * PLAN_CAR_GAP
+	return planned_unload() + clampf(deck_minutes, MIN_DWELL, MAX_DWELL) + BOARD_CLOSE
+
+
+## Of planned_dwell, the part she spends unloading a whole deck.
+func planned_unload() -> float:
+	return fc.capacity * PLAN_CAR_GAP + 2.0
+
+
+## Unhindered minutes for a leg on route `r`, at pace `p` under her next captain.
+func leg_minutes(r: MapData.Route, p := pace) -> float:
+	return next_captain.crossing_minutes(r.length + 2.0 * _inset, paced_cruise(p))
+
+
+## Fuel ($) for an unhindered leg on route `r` at pace `p` under her next captain,
+## burnt as she sails it (_burn), easing off into the slip included.
+func leg_fuel(r: MapData.Route, p := pace) -> float:
+	var burn := next_captain.crossing_burn(r.length + 2.0 * _inset, paced_cruise(p))
+	return FUEL_PRICE * fc.burn * burn / (fc.cruise * fc.cruise * METRES_PER_NM)
+
+
+## For a round of `ids` (island ids in turn): offsets[i] is how many minutes after
+## she leaves ids[0] she can leave ids[i], and offsets[n] when she can next leave
+## ids[0] (the shortest gap between two departures). Empty if a leg has no route.
+func plan_offsets(ids: Array[int], p := pace) -> Array[float]:
+	var out: Array[float] = [0.0]
+	var n := ids.size()
+	for i in n:
+		var r := sim.route_between(ids[i], ids[(i + 1) % n])
+		if r == null:
+			return []
+		out.append(out[i] + leg_minutes(r, p) + planned_dwell())
+	return out
+
+
+## How long after she leaves ids[0] on a round she is due back there and
+## unloaded, for a round with `offsets` (plan_offsets): her crew's shift ends
+## this long after the day's last sailing.
+func shift_tail(offsets: Array[float]) -> float:
+	return offsets[-1] - planned_dwell() + planned_unload()
+
+
+## Fuel for one complete round of a validated stop list.
+func round_fuel(ids: Array[int], p := pace) -> float:
+	var fuel := 0.0
+	for i in ids.size():
+		fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
+	return fuel
+
+
+## What a day on `times` (Timetable) round `ids` at pace `p` should cost her, on
+## the planning numbers the timetable is built from: each sailing makes every
+## leg once, unhindered, and her crew are on from CREW_CALL before the first
+## sailing until she is due back and unloaded after the last (off_shift).
+## {fuel, crew, hours (crew), sailings}; empty with no times or a leg with no route.
+func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
+	var o := plan_offsets(ids, p)
+	if o.is_empty() or times.is_empty():
+		return {}
+	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
+	var hours := minf(span, Timetable.DAY) / 60.0
+	return {"fuel": round_fuel(ids, p) * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
+
+
+## daily_cost of the timetable she runs now (or is taking at her next call).
+func planned_daily_cost() -> Dictionary:
+	if not next_stops.is_empty():
+		return daily_cost(next_stops, _next_timetable)
+	return daily_cost(stops, timetable)
+
+
+func _round_offsets() -> Array[float]:
+	if _offsets.is_empty():
+		_offsets = plan_offsets(stops)
+	return _offsets
+
+
+## The shortest gap her timetable can have between departures, at her pace now.
+func round_minutes() -> float:
+	var o := _round_offsets()
+	return o[-1] if not o.is_empty() else 0.0
+
+
+## Departures she can't make at her pace now (shown red on the timetable).
+func late_sailings() -> Array[bool]:
+	return Timetable.too_soon(timetable, round_minutes())
+
+
+## The game minute (Simulation.abs_minutes) she is due to leave the stop she is
+## at, or sailing to; -1 with no timetable, laid up, or before she has started a
+## timed round at her first stop.
+func due() -> float:
+	if timetable.is_empty() or berth != Berth.WORKING or lay_up_requested:
+		return -1.0
+	if call == 0:
+		return _timetable.first_stop_due(sim.abs_minutes(), MAX_DWELL)
+	return _timetable.call_due(call, _round_offsets())
+
+
+## Alongside at her first stop overnight: her crew are off from when she was
+## due back and unloaded after the day's last sailing (shift_tail; later if she
+## ran late) until shortly before the day's first sailing.
+func off_shift() -> bool:
+	if timetable.is_empty() or call != 0:
+		return false
+	# (or at a tie-up between sailings, from when she is tied up)
+	var d := _gap_due
+	if d < 0.0:
+		if berth != Berth.WORKING or state != State.LOADING or _boarding > 0:
+			return false
+		d = due()
+	elif berth != Berth.TIED_UP:
+		return false
+	if d < 0.0 or int(round(fmod(d, Timetable.DAY))) != timetable[0]:
+		return false
+	var now := sim.abs_minutes()
+	if _timetable.last_departure >= 0.0 and now < _timetable.last_departure + shift_tail(_round_offsets()):
+		return false
+	return d - now > CREW_CALL
+
+
 # --- Running costs ------------------------------------------------------------------
 
 ## The class's cruise speed at her pace setting; her captain then takes it from there.
-func paced_cruise() -> float:
-	return fc.cruise * PACES[pace][0]
+func paced_cruise(p := pace) -> float:
+	return fc.cruise * PACES[p][0]
 
 
 ## Open-water speed at her pace, under the captain who has (or is taking) the helm.
@@ -1333,6 +1721,7 @@ func set_pace(p: int) -> void:
 	pace = clampi(p, 0, PACES.size() - 1)
 	cruise = captain.cruise(paced_cruise())
 	_forecasts.clear()
+	_offsets.clear()
 
 
 func pace_name() -> String:
@@ -1361,10 +1750,11 @@ func crew_per_hour() -> float:
 	return fc.crew * CREW_WAGE
 
 
-## Crew are on the clock all day while she is in service (stood down while she
-## lies at a tie-up); `minutes` of game time.
+## Crew are on the clock all day while she is in service, stood down while she
+## lies at a tie-up or overnight between timetabled days (off_shift); `minutes`
+## of game time.
 func pay_crew(minutes: float) -> void:
-	if berth == Berth.TIED_UP:
+	if berth == Berth.TIED_UP and not between_sailings() or off_shift():
 		return
 	_crew_owed += crew_per_hour() * minutes / 60.0
 
@@ -1423,6 +1813,7 @@ func free_tie_up(term: Terminal) -> int:
 ## unloads, and ties up at the first terminal of her route with a free tie-up slip.
 func request_lay_up() -> void:
 	return_requested = false
+	_gap_due = -1.0   # tied up between sailings: she stays there
 	if berth == Berth.WORKING:
 		lay_up_requested = true
 
@@ -1430,12 +1821,20 @@ func request_lay_up() -> void:
 ## Back into service: from the tie-up to her working slip once it is free.
 func request_return() -> void:
 	lay_up_requested = false
+	# Back on her timetable from the next round due.
+	set_timetable(timetable)
 	if berth != Berth.WORKING:
 		return_requested = true
 
 
 func in_service() -> bool:
-	return berth == Berth.WORKING and not lay_up_requested
+	return (berth == Berth.WORKING or between_sailings()) and not lay_up_requested
+
+
+## At or moving to or from a tie-up slip between timed sailings (GAP_TIE_UP),
+## rather than laid up.
+func between_sailings() -> bool:
+	return _gap_due >= 0.0
 
 
 ## Starts the game already lying at a tie-up slip at `term` (one end of her route).
@@ -1514,6 +1913,8 @@ func _begin_tie_up() -> void:
 func _tick_berth(delta: float) -> void:
 	match berth:
 		Berth.TIED_UP:
+			if _gap_due >= 0.0 and sim.abs_minutes() >= _gap_due - MAX_DWELL - GAP_MARGIN - shift_minutes(_shift_length(tie_up)):
+				return_requested = true
 			if return_requested and not _shift_blocked(true):
 				return_requested = false
 				berth = Berth.TO_WORKING
@@ -1551,10 +1952,37 @@ func _tick_berth(delta: float) -> void:
 						e[1].owner = null
 		else:
 			berth = Berth.WORKING
+			_gap_due = -1.0
 			_place(_dock_s())
 			if _ramp(here()):
 				_ramp(here()).land()
 			_begin_loading()
+
+
+## Length of the way between her working slip and slip `i` at the terminal she is at.
+func _shift_length(i: int) -> float:
+	var path := _shift_path(_tie_up_point(i), _tie_up_point(here().island.slip_index(route.id)))
+	var length := 0.0
+	for k in range(1, path.size()):
+		length += path[k].distance_to(path[k - 1])
+	return length
+
+
+## About how far she goes between two slips `apart` metres apart along the shore
+## (_shift_path: out, along, and in again).
+static func shift_length(apart: float) -> float:
+	return 2.0 * SHIFT_OUT + apart
+
+
+## Game minutes to move `length` metres between slips at her pace (as _follow_shift does).
+func shift_minutes(length: float) -> float:
+	var top := cruise_speed() * SHIFT_PACE
+	var s := 0.0
+	var t := 0.0
+	while s < length - 0.01 and t < 600.0:
+		s += minf(top, maxf(0.15 * top, minf(s, length - s) * 0.08 + 0.15 * top)) * 0.25
+		t += 0.25
+	return t
 
 
 ## Moves her along `_shift`, easing off at each end. True once she is there.

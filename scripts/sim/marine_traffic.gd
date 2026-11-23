@@ -57,6 +57,7 @@ var anchorages: Array[Anchorage] = []
 var pilotage: Pilotage
 var berths := {}            # marina id -> Array of the MarinaBoat holding each berth (or null)
 var corridors := {}         # route id -> Array of the Corridors along it
+var _shared := {}           # route id -> true if two or more boats sail it (each keeps to her own lane)
 var _lock := {}             # harbour -> the vessel manoeuvring there
 var _queue := {}            # harbour -> the vessels waiting to go in, in the order they got there
 var _wait_spots := {}       # harbour -> where boats wait to go in (see wait_spot)
@@ -145,37 +146,102 @@ func remove(v: Vessel) -> void:
 class Corridor:
 	var span := {}
 	var docked := {}
-	var ferry := {}                 # route id -> the ferry on it
+	var boats: Array[Ferry] = []    # every boat on its routes
 	var owner: Ferry = null
+	var key := ""                   # the same for the corridor found afresh
+
+
+## Finds the corridors afresh, for the boats on the routes now (after one takes
+## new stops). Each keeps its owner if that boat still sails one of its routes.
+func refresh_corridors() -> void:
+	var owners := {}
+	for id in corridors:
+		for c: Corridor in corridors[id]:
+			if c.owner != null:
+				owners[c.key] = c.owner
+	_find_corridors()
+	for id in corridors:
+		for c: Corridor in corridors[id]:
+			var f: Ferry = owners.get(c.key)
+			if f != null and c.owner == null and f.route.id in c.span:
+				c.owner = f
+	for f in sim.ferries:
+		f.reclaim_corridors()
 
 
 func _find_corridors() -> void:
+	corridors.clear()
+	_shared.clear()
 	var routes := sim.map.routes
 	for r in routes:
 		corridors[r.id] = []
+		if boats_on(r).size() > 1:
+			_shared[r.id] = true
 	for i in routes.size():
 		for j in range(i + 1, routes.size()):
 			var r1 := routes[i]
 			var r2 := routes[j]
-			if ferry_on(r1) == null or ferry_on(r2) == null:
+			var f1 := biggest_on(r1)
+			var f2 := biggest_on(r2)
+			if f1 == null or f2 == null:
 				continue   # no boat sails it (its schedule could not be run)
-			var w1 := _in_the_way(ferry_on(r1), r1, ferry_on(r2), r2)
-			var w2 := _in_the_way(ferry_on(r2), r2, ferry_on(r1), r1)
+			var w1 := _in_the_way(f1, r1, f2, r2)
+			var w2 := _in_the_way(f2, r2, f1, r1)
 			var span1: Vector2 = w1[0]
 			var span2: Vector2 = w2[0]
 			if span1.x > span1.y or span2.x > span2.y:
 				continue
 			var c := Corridor.new()
+			c.key = "%d-%d" % [r1.id, r2.id]
 			c.span[r1.id] = span1
 			c.span[r2.id] = span2
 			c.docked[r1.id] = w1[1]
 			c.docked[r2.id] = w2[1]
-			c.ferry[r1.id] = ferry_on(r1)
-			c.ferry[r2.id] = ferry_on(r2)
+			c.boats = boats_on(r1) + boats_on(r2)
 			corridors[r1.id].append(c)
 			corridors[r2.id].append(c)
+	# Two boats on one route pass on their own lanes, but come in and go out of
+	# each slip on the centreline: one at a time there, from the slip out to
+	# where she is on her lane.
+	for r in routes:
+		var boats := boats_on(r)
+		if boats.size() < 2:
+			continue
+		var reach := minf(Ferry.LANE_OUT + Ferry.lane_ease(r.length) + 20.0, r.length * 0.5)
+		for end_a in [true, false]:
+			var c := Corridor.new()
+			c.key = "%d%s" % [r.id, "a" if end_a else "b"]
+			c.span[r.id] = Vector2(-60.0, reach) if end_a else Vector2(r.length - reach, r.length + 60.0)
+			c.docked[r.id] = Vector2i(1, 0) if end_a else Vector2i(0, 1)
+			c.boats = boats
+			corridors[r.id].append(c)
 
 
+## Whether two or more boats sail `r`, each on her own lane.
+func shared(r: MapData.Route) -> bool:
+	return _shared.has(r.id)
+
+
+## Every boat with `r` among her legs, or on it now (lying at a slip on the route
+## she sailed in on, before she takes new stops' first leg).
+func boats_on(r: MapData.Route) -> Array[Ferry]:
+	var out: Array[Ferry] = []
+	for f in sim.ferries:
+		if r in f.legs or f.route == r:
+			out.append(f)
+	return out
+
+
+## The biggest boat on `r` (the one whose hull reaches furthest), or null.
+func biggest_on(r: MapData.Route) -> Ferry:
+	var best: Ferry = null
+	for f in boats_on(r):
+		if best == null or f.half_seg + f.hull_radius > best.half_seg + best.hull_radius:
+			best = f
+	return best
+
+
+## The first boat on `r`, or null.
 func ferry_on(r: MapData.Route) -> Ferry:
 	for f in sim.ferries:
 		if r in f.legs:
@@ -187,8 +253,13 @@ func ferry_on(r: MapData.Route) -> Ferry:
 ## which its hull comes within reach of `other`'s hull anywhere along its route
 ## (empty, x > y, if none), whether `f` docked at its A / B end is (x / y)].
 func _in_the_way(f: Ferry, r: MapData.Route, other: Ferry, other_r: MapData.Route) -> Array:
-	var mine := _route_poses(f, r)
-	var theirs := _route_poses(other, other_r)
+	var ta := PackedVector2Array()
+	var tb := PackedVector2Array()
+	for way in _ways(other_r):
+		var poses := _route_poses(other, other_r, way[0], way[1])
+		ta.append_array(poses[0])
+		tb.append_array(poses[1])
+	var theirs := [ta, tb]
 	var gap := f.hull_radius + other.hull_radius + CORRIDOR_CLEAR
 	# Their poses bucketed by where they are; two hulls that close are within a
 	# bucket of each other.
@@ -203,41 +274,52 @@ func _in_the_way(f: Ferry, r: MapData.Route, other: Ferry, other_r: MapData.Rout
 	var lo := INF
 	var hi := -INF
 	var ends := Vector2i.ZERO
-	var last: int = mine[0].size() - 1
 	var s0 := -f.dock_inset()
-	for k in mine[0].size():
-		var a: Vector2 = mine[0][k]
-		var b: Vector2 = mine[1][k]
-		var mid := (a + b) * 0.5
-		var near := []
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				near.append_array(buckets.get(Vector2i(floori(mid.x / cell) + dx, floori(mid.y / cell) + dy), []))
-		for j in near:
-			if _seg_dist(a, b, theirs[0][j], theirs[1][j]) < gap:
-				lo = minf(lo, s0 + k * POSE_STEP)
-				hi = maxf(hi, s0 + k * POSE_STEP)
-				if k == 0:
-					ends.x = 1
-				if k == last:
-					ends.y = 1
-				break
+	for way in _ways(r):
+		var mine := _route_poses(f, r, way[0], way[1])
+		var last: int = mine[0].size() - 1
+		for k in mine[0].size():
+			var a: Vector2 = mine[0][k]
+			var b: Vector2 = mine[1][k]
+			var mid := (a + b) * 0.5
+			var near := []
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					near.append_array(buckets.get(Vector2i(floori(mid.x / cell) + dx, floori(mid.y / cell) + dy), []))
+			for j in near:
+				if _seg_dist(a, b, theirs[0][j], theirs[1][j]) < gap:
+					lo = minf(lo, s0 + k * POSE_STEP)
+					hi = maxf(hi, s0 + k * POSE_STEP)
+					if k == 0:
+						ends.x = 1
+					if k == last:
+						ends.y = 1
+					break
 	if lo > hi:
 		return [Vector2(1, 0), ends]
 	return [Vector2(maxf(lo - 12.0, s0), minf(hi + 12.0, r.length - s0)), ends]
 
 
-## A ferry's hull every POSE_STEP along its crossing, dock to dock, as [ends a, ends b].
-func _route_poses(f: Ferry, r: MapData.Route) -> Array:
+## A ferry's hull every POSE_STEP along its crossing, dock to dock, `k` out on
+## her lane A → B (`toward_b`) or B → A, as [ends a, ends b].
+## The ways a hull goes along `r`, as [toward B, how far out on her lane]: the
+## centreline, and on a shared route each lane (and the centreline, for a boat
+## still moving over).
+func _ways(r: MapData.Route) -> Array:
+	if not shared(r):
+		return [[true, 0.0]]
+	return [[true, 0.0], [true, 1.0], [false, 1.0]]
+
+
+func _route_poses(f: Ferry, r: MapData.Route, toward_b: bool, k: float) -> Array:
 	var ea := PackedVector2Array()
 	var eb := PackedVector2Array()
 	var half := f.half_seg
 	var s := -f.dock_inset()
 	var end := r.length + f.dock_inset()
 	while s <= end + 0.03:
-		var p := f.route_point_on(r, s)
-		var t := f.route_point_on(r, s + 4.5) - f.route_point_on(r, s - 4.5)
-		var t2 := Vector2(t.x, t.z).normalized() * half
+		var p := f.lane_pose_on(r, s, toward_b, k)
+		var t2 := Vector2(sin(p.w), cos(p.w)) * half
 		ea.append(Vector2(p.x, p.z) - t2)
 		eb.append(Vector2(p.x, p.z) + t2)
 		s += POSE_STEP

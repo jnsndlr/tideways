@@ -35,15 +35,22 @@ var _speed_buttons: Array[Button] = []
 var _speed_index := 1
 var _last_running_speed := 1
 var _info_panel: PanelContainer
+var _info_scroll: ScrollContainer
 var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
 ## The left-hand menu (COMPANY … SETTINGS); the island editor sits its toggle below it.
 var sidebar: PanelContainer
 var _lane_button := Button.new()
+## Buys the shown locked dock site on an island with no terminal yet (main map).
+var _dock_button := Button.new()
+var _site_button := Button.new()
+var _site_pick := 0
 var _refit_button := Button.new()
 var _tie_up_refit_button := Button.new()
 var _service_button := Button.new()
+var _stops_button := Button.new()
+var _schedule_editor: ScheduleEditor
 var _info_button: Button
 var _captain_box: VBoxContainer
 var _captain_why: Label
@@ -95,6 +102,9 @@ func setup(m: Node) -> void:
 	_build_terminal_bar()
 	_build_fleet_panel()
 	_build_finance_panel()
+	_schedule_editor = ScheduleEditor.new()
+	root.add_child(_schedule_editor)
+	_schedule_editor.setup(sim, _label)
 	_build_wildlife_panel()
 	_build_minimap(m.env)
 	_build_help()
@@ -254,8 +264,8 @@ func _build_sidebar() -> void:
 	col.add_theme_constant_override("separation", 2)
 	sidebar.add_child(col)
 	for item in [["COMPANY", "company"], ["RESEARCH", "research"], ["FLEET", "fleet"],
-			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["MAP", "map"],
-			["SETTINGS", "settings"]]:
+			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["WEATHER", "weather"],
+			["MAP", "map"], ["SETTINGS", "settings"]]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(96, 46)
@@ -284,7 +294,11 @@ func _build_help() -> void:
 
 
 func _on_sidebar(id: String) -> void:
+	if id != "weather":
+		map_controls.dismiss()
 	match id:
+		"weather":
+			map_controls.toggle_open()
 		"fleet":
 			_fleet_panel.visible = not _fleet_panel.visible
 			_wild_panel.visible = false
@@ -365,7 +379,7 @@ func _on_label_input(event: InputEvent, isl: MapData.Island) -> void:
 
 func _update_labels() -> void:
 	var cam := rig.camera
-	var named := map_controls.shows("names")
+	var named := MapControls.shows("names")
 	for isl in map.islands:
 		if not _labels.has(isl.id):
 			continue
@@ -381,6 +395,7 @@ func _update_labels() -> void:
 # --- Selection ----------------------------------------------------------------------
 
 func _on_ground_clicked(screen_pos: Vector2) -> void:
+	map_controls.dismiss()
 	var cam := rig.camera
 	var visit: Wildlife.Visit = main.pick_wildlife(screen_pos, cam)
 	if visit:
@@ -432,7 +447,10 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 func select_island(isl: MapData.Island, focus: bool) -> void:
 	_reset_selection()
 	selected_island = isl
-	if focus:
+	_site_pick = 0
+	if focus and not isl.has_terminal and not isl.dock_sites.is_empty() and main.has_method("buy_dock"):
+		_focus_site()
+	elif focus:
 		rig.focus_on(isl.town_center, 390.0)
 	_refresh_panels()
 
@@ -522,9 +540,14 @@ func _build_info_panel() -> void:
 	_info_panel.offset_top = 16
 	_info_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	root.add_child(_info_panel)
+	# Scrolls when the inspector is taller than the room above the minimap.
+	_info_scroll = ScrollContainer.new()
+	_info_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_info_panel.add_child(_info_scroll)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	_info_panel.add_child(v)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_info_scroll.add_child(v)
 	_info_title = _label("", 19, TEXT, true)
 	_info_sub = _label("", 12, MUTED)
 	v.add_child(_info_title)
@@ -558,9 +581,25 @@ func _build_info_panel() -> void:
 	_service_button.custom_minimum_size.y = 44
 	_service_button.pressed.connect(_toggle_service)
 	v.add_child(_service_button)
+	_stops_button.text = "Edit stops"
+	_stops_button.focus_mode = Control.FOCUS_NONE
+	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
+	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
+	v.add_child(_stops_button)
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
+	_site_button.focus_mode = Control.FOCUS_NONE
+	_site_button.custom_minimum_size.y = 40
+	_site_button.pressed.connect(func():
+		if selected_island:
+			_site_pick = (_site_pick + 1) % selected_island.dock_sites.size()
+			_focus_site()
+			_refresh_panels())
+	v.add_child(_site_button)
+	_dock_button.custom_minimum_size.y = 48
+	_dock_button.pressed.connect(_buy_dock)
+	v.add_child(_dock_button)
 	_refit_button.custom_minimum_size.y = 48
 	_refit_button.pressed.connect(_buy_refit)
 	v.add_child(_refit_button)
@@ -646,6 +685,39 @@ func _refresh_captains(f: Ferry) -> void:
 
 
 ## What a timed crossing took, and under whom.
+## "As loading allows", or her sailings from her first stop, with any she can't
+## make at her pace now (Ferry.late_sailings).
+func _timetable_text(f: Ferry) -> String:
+	if f.timetable.is_empty():
+		return "As loading allows"
+	var text := "%d sailing%s from %s" % [f.timetable.size(), "" if f.timetable.size() == 1 else "s", Timetable.text(f.timetable[0])]
+	var late := f.late_sailings().count(true)
+	if late > 0:
+		text += " · %d late at this pace" % late
+	var cost := f.daily_cost(f.stops, f.timetable)
+	if not cost.is_empty():
+		text += " · ~%s a day" % fmt_money(cost.fuel + cost.crew)
+	return text
+
+
+var _clash_cache := {}   # ferry -> [msec checked, text]
+
+
+## A short line when her timetable and another boat's want one slip at once
+## (SlipConflicts), checked once a second; "" if they don't.
+func _slip_clash_text(f: Ferry) -> String:
+	var now := Time.get_ticks_msec()
+	var hit: Array = _clash_cache.get(f, [-INF, ""])
+	if now - hit[0] < 1000.0:
+		return hit[1]
+	var text := ""
+	var plan := SlipConflicts.plan_of(f)
+	if not plan.is_empty() and not plan.times.is_empty():
+		text = SlipConflictText.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
+	_clash_cache[f] = [now, text]
+	return text
+
+
 func _crossing_text(minutes: float, c: Captain) -> String:
 	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
@@ -660,6 +732,21 @@ func _buy_refit(tie_up := false) -> void:
 	if i >= 0 and terminal.buy_refit(i):
 		rig.focus_on(terminal.to_global(Vector3(selected_island.slip_offset(i), 0.0, RefitCrew.WORK_U)), 260.0)
 		_refresh_panels()
+
+
+## Builds a terminal at the shown dock site (the main map rebuilds round it).
+func _buy_dock() -> void:
+	if selected_island == null or not main.has_method("buy_dock"):
+		return
+	main.buy_dock(selected_island, _site_pick)
+
+
+## Frames the shown dock site with the town it would serve.
+func _focus_site() -> void:
+	var site: MapData.DockSite = selected_island.dock_sites[_site_pick]
+	var town := selected_island.town_center
+	var t := Vector3(town.x, 0.0, town.z)
+	rig.focus_on(site.shore.lerp(t, 0.3), clampf(site.shore.distance_to(t) * 1.7, 520.0, 1600.0))
 
 
 func _buy_lane() -> void:
@@ -705,6 +792,7 @@ func _refresh_panels() -> void:
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
 	var offer_lane := false
+	var offer_dock := false
 	var offer_refit := false
 	var offer_tie_up_refit := false
 	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
@@ -714,9 +802,17 @@ func _refresh_panels() -> void:
 	if selected_ferry:
 		var f := selected_ferry
 		_info_title.text = f.ferry_name.to_upper()
-		_info_sub.text = "M/V · " + " – ".join(f.stops.map(func(id): return sim.map.islands[id].name.trim_suffix(" Island")))
-		_set_rows([
-			["Status", f.status_text()],
+		var stop_names := func(ids: Array[int]) -> String:
+			return " – ".join(ids.map(func(id): return sim.map.islands[id].name.trim_suffix(" Island")))
+		_info_sub.text = "M/V · " + stop_names.call(f.stops)
+		var rows := [["Status", f.status_text()]]
+		if not f.next_stops.is_empty():
+			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().island.name.trim_suffix(" Island")]])
+		rows.append(["Timetable", _timetable_text(f)])
+		var clash := _slip_clash_text(f)
+		if clash != "":
+			rows.append(["Slip clash", clash])
+		rows.append_array([
 			["Class", f.fc.label],
 			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],
 			["Speed", "%.1f kn" % Units.knots(f.speed)],
@@ -730,6 +826,7 @@ func _refresh_panels() -> void:
 			["Running cost today", fmt_money(f.fuel_today + f.crew_today)],
 			["Crossings", str(f.trips)],
 		])
+		_set_rows(rows)
 		for i in _pace_buttons.size():
 			_pace_buttons[i].set_pressed_no_signal(i == f.pace)
 		if f.in_service():
@@ -787,7 +884,7 @@ func _refresh_panels() -> void:
 		var term: Terminal = sim.terminals.get(isl.id)
 		var sat := term.satisfaction() if term else 70.0
 		_info_title.text = isl.name.to_upper()
-		var served := isl.route_ids().size()
+		var served := isl.route_ids().filter(func(rid): return sim.map.routes[rid].in_service).size()
 		_info_sub.text = ("No ferry service yet" if not term else
 			"Ferry terminal · idle slip" if served == 0 else
 			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
@@ -799,6 +896,23 @@ func _refresh_panels() -> void:
 		]
 		rows.append(["Wildlife draw", _draw_text(isl)])
 		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(isl))])
+		if not term and main.has_method("buy_dock"):
+			if isl.dock_sites.is_empty():
+				rows.append(["Dock sites", "None: no terminal can be built here"])
+			else:
+				_site_pick = clampi(_site_pick, 0, isl.dock_sites.size() - 1)
+				var site := isl.dock_sites[_site_pick]
+				var tier: Dictionary = MapLayout.DOCK_TIERS[site.tier]
+				rows.append(["Dock sites", "%d locked" % isl.dock_sites.size()])
+				rows.append(["Site %d" % (_site_pick + 1), "%s · %s" % [tier["name"], fmt_money(site.price())]])
+				rows.append(["Available cash", fmt_money(sim.available_cash)])
+				_dock_button.text = "Build terminal at site %d · %s" % [_site_pick + 1, fmt_money(site.price())]
+				_dock_button.disabled = sim.available_cash < site.price()
+				_site_button.text = "Show next site (%d of %d)" % [_site_pick + 1, isl.dock_sites.size()]
+				_site_button.visible = isl.dock_sites.size() > 1
+				offer_dock = true
+		elif term and isl.dock_sites.size() > 1:
+			rows.append(["Other dock sites", "%d (one terminal per island for now)" % (isl.dock_sites.size() - 1)])
 		if term:
 			rows.append(["Vehicles waiting", str(term.total_queued())])
 			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
@@ -831,7 +945,7 @@ func _refresh_panels() -> void:
 					_tie_up_refit_button.disabled = sim.available_cash < price
 					offer_tie_up_refit = true
 			rows.append(["Lanes", _lanes_text(term)])
-			if isl.lane_extension_price > 0:
+			if isl.lane_extension_price > 0 and term.has_service():
 				var destination := sim.map.islands[term.lane_keys()[0]].name
 				rows.append(["Extra lane to", destination])
 				var building := term.build_remaining > 0.0 or term.work_stage == Terminal.WorkStage.DRAINING
@@ -873,10 +987,18 @@ func _refresh_panels() -> void:
 		if term:
 			_update_terminal_bar(term)
 	_lane_button.visible = offer_lane
+	_dock_button.visible = offer_dock
+	if not offer_dock:
+		_site_button.visible = false
+	if main.has_method("show_dock_sites"):
+		main.show_dock_sites(selected_island if offer_dock else null, _site_pick)
 	_refit_button.visible = offer_refit
 	_tie_up_refit_button.visible = offer_tie_up_refit
 	_pace_row.visible = selected_ferry != null
 	_service_button.visible = selected_ferry != null
+	_stops_button.visible = selected_ferry != null and selected_ferry.in_service()
+	if _schedule_editor.visible and selected_ferry != _schedule_editor.ferry:
+		_schedule_editor.hide()
 
 
 func _staging_loss(count: int, slots: int) -> String:
@@ -1152,8 +1274,11 @@ func _build_toast() -> void:
 	_toast.offset_bottom = -262
 	_toast.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	# A finger meant for the panel under it goes through.
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_toast)
 	var v := VBoxContainer.new()
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_toast.add_child(v)
 	_toast_title = _label("", 15, TEXT, true)
 	_toast_body = _label("", 13, MUTED)
@@ -1174,15 +1299,10 @@ func show_toast(title: String, body: String, seconds := 6.0) -> void:
 # --- Map controls (screen edge) ----------------------------------------------------
 
 func _build_map_controls() -> void:
-	var layers := []
-	if area_overlay:
-		layers.append(["areas", "Areas", "Water areas"])
-	layers.append(["routes", "Routes", "Ferry route lines"])
-	layers.append(["names", "Names", "Town names"])
 	map_controls = MapControls.new()
 	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 4, 4))
 	root.add_child(map_controls)
-	map_controls.setup(layers, sim, main.day_cycle, font, bold)
+	map_controls.setup(sim, main.day_cycle, font)
 	map_controls.weather_toggled.connect(_on_weather_toggled)
 
 
@@ -1190,6 +1310,21 @@ func _build_map_controls() -> void:
 func _on_weather_toggled(shown: bool) -> void:
 	main.clouds.set_shown(shown)
 	show_toast("WEATHER", "Map weather shown." if shown else "Map weather hidden. Conditions keep changing.", 2.5)
+
+
+## The inspector and the minimap share the right edge: the inspector stops a gap
+## above the minimap and scrolls the rest, so neither covers the other.
+func _fit_info_panel() -> void:
+	if not _info_panel.visible:
+		return
+	var content := _info_scroll.get_child(0) as Control
+	var frame := _info_panel.get_theme_stylebox("panel").get_minimum_size().y
+	var bottom := _minimap_panel.get_rect().position.y - 10.0 if _minimap_panel.visible else _usable_rect().end.y
+	var room := maxf(120.0, bottom - _info_panel.position.y - frame)
+	var height := minf(content.get_combined_minimum_size().y, room)
+	if not is_equal_approx(_info_scroll.custom_minimum_size.y, height):
+		_info_scroll.custom_minimum_size.y = height
+		_info_panel.size.y = 0.0
 
 
 ## Keeps the group inside the screen's safe area and clear of whichever panels are
@@ -1325,10 +1460,12 @@ func _process(delta: float) -> void:
 	_update_labels()
 	_minimap_overlay.queue_redraw()
 	if route_overlay:
-		route_overlay.visible = map_controls.shows("routes")
+		route_overlay.visible = MapControls.shows("routes")
 	if area_overlay:
-		area_overlay.visible = map_controls.shows("areas")
-	_place_map_controls()
+		area_overlay.visible = MapControls.shows("areas")
+	_fit_info_panel()
+	if map_controls.visible:
+		_place_map_controls()
 
 	var real_dt := delta / maxf(Engine.time_scale, 0.001) if Engine.time_scale > 0.0 else 1.0 / 60.0
 	if _toast.visible:
@@ -1354,7 +1491,7 @@ func _process(delta: float) -> void:
 	_stat["cash"].add_theme_color_override("font_color", FinancePanel.LOSS if sim.available_cash < 0.0 else TEXT)
 	_stat["revenue"].text = fmt_money(sim.revenue_today)
 	_stat["vessels"].text = str(sim.ferries.size())
-	_stat["routes"].text = str(map.routes.size())
+	_stat["routes"].text = str(map.routes.filter(func(r): return r.in_service).size())
 	_stat["sat"].text = "%d%%" % roundi(sim.satisfaction())
 	_stat["queue"].text = fmt_int(sim.total_queued())
 	_stat["date"].text = sim.date_text()
@@ -1383,6 +1520,8 @@ func _slips_text(isl: MapData.Island) -> String:
 		var names: PackedStringArray = []
 		for rid in slip.routes:
 			var r: MapData.Route = sim.map.routes[rid]
+			if not r.in_service:
+				continue
 			names.append(sim.map.islands[r.b if r.a == isl.id else r.a].name.trim_suffix(" Island"))
 		parts.append("%s: %s" % [slip.size_name().capitalize(), ", ".join(names) if not names.is_empty() else "idle"])
 	return " · ".join(parts)
