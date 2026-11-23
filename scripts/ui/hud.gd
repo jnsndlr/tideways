@@ -52,6 +52,7 @@ var _refit_button := Button.new()
 var _tie_up_refit_button := Button.new()
 var _service_button := Button.new()
 var _stops_button := Button.new()
+var _sell_button := Button.new()
 var _schedule_editor: ScheduleEditor
 var _info_button: Button
 var _captain_box: VBoxContainer
@@ -117,6 +118,8 @@ func setup(m: Node) -> void:
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
 	sim.running_costs_posted.connect(_on_running_costs)
+	sim.ferry_delivered.connect(_on_ferry_delivered)
+	sim.ferry_removed.connect(_on_ferry_removed)
 	set_speed(1)
 	var intro: Array = main.intro(_labels.size())
 	show_toast(intro[0], intro[1])
@@ -611,6 +614,10 @@ func _build_info_panel() -> void:
 	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
 	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
 	v.add_child(_stops_button)
+	_sell_button.focus_mode = Control.FOCUS_NONE
+	_sell_button.custom_minimum_size.y = 44
+	_sell_button.pressed.connect(_sell_selected)
+	v.add_child(_sell_button)
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
@@ -842,16 +849,25 @@ func _refresh_panels() -> void:
 			["Crew", "%d · %s / hr" % [f.fc.crew, fmt_money(f.crew_per_hour())]],
 			["Running cost today", fmt_money(f.fuel_today + f.crew_today)],
 			["Crossings", str(f.trips)],
+			["Resale value", "%s · %d%% of %s new" % ["$" + fmt_int(f.resale_value()), roundi(Ferry.RESALE_SHARE * f.condition * 100.0), "$" + fmt_int(f.fc.price())]],
 		])
 		_set_rows(rows)
 		for i in _pace_buttons.size():
 			_pace_buttons[i].set_pressed_no_signal(i == f.pace)
-		if f.in_service():
-			_service_button.text = "Lay up at a tie-up slip" if f.can_lay_up() else "No tie-up slip on her route"
+		if f.berth == Ferry.Berth.DELIVERING:
+			_service_button.text = "Under tow · %s to go" % _hours_text(f.tow.minutes_left()) if f.tow else "Under tow"
+			_service_button.disabled = true
+		elif not f.assigned:
+			_service_button.text = "Give her stops to start her"
+			_service_button.disabled = true
+		elif f.in_service():
+			_service_button.text = "Lay up" if f.can_lay_up() else "Nowhere free on her route to lay her up"
 			_service_button.disabled = not f.can_lay_up()
 		else:
 			_service_button.text = "Return to service"
 			_service_button.disabled = f.return_requested
+		_sell_button.text = "Sell for %s" % ("$" + fmt_int(f.resale_value())) if f.can_sell() else "Sell · lay her up first"
+		_sell_button.disabled = not f.can_sell()
 		_refresh_captains(f)
 		if f.trips != _crossings_seen:
 			if _crossings_seen >= 0 and f.last_crossing >= 0.0 and f.last_crossing_captain == f.captain:
@@ -924,6 +940,8 @@ func _refresh_panels() -> void:
 				rows.append(["Dock site", "None: no terminal can be built here"])
 			elif building >= 0.0:
 				rows.append(["Opens in", _hours_text(building)])
+			elif sim.dock_price(isl) <= 0:
+				rows.append(["Dock site", "No navigable ferry route reaches this site"])
 			else:
 				var price := sim.dock_price(isl)
 				var tier: Dictionary = MapLayout.DOCK_TIERS[island.dock_sites[isl.site].tier]
@@ -1014,7 +1032,9 @@ func _refresh_panels() -> void:
 	_tie_up_refit_button.visible = offer_tie_up_refit
 	_pace_row.visible = selected_ferry != null
 	_service_button.visible = selected_ferry != null
-	_stops_button.visible = selected_ferry != null and selected_ferry.in_service()
+	# (A boat bought in play gets her first stops laid up, or still under tow.)
+	_stops_button.visible = selected_ferry != null and (selected_ferry.in_service() or not selected_ferry.assigned)
+	_sell_button.visible = selected_ferry != null
 	if _schedule_editor.visible and selected_ferry != _schedule_editor.ferry:
 		_schedule_editor.hide()
 
@@ -1096,8 +1116,45 @@ func _build_finance_panel() -> void:
 func _build_fleet_panel() -> void:
 	_fleet_panel = FleetPanel.new()
 	root.add_child(_fleet_panel)
-	_fleet_panel.setup(_label("FLEET", 13, MUTED, true))
+	_fleet_panel.setup(_label("FLEET", 13, MUTED, true), sim)
 	_fleet_panel.ferry_selected.connect(select_ferry)
+	_fleet_panel.buy_requested.connect(_buy_ferry)
+
+
+## Buys a boat of `size`, and follows her in under tow.
+func _buy_ferry(size: int) -> void:
+	var f := sim.buy_ferry(size)
+	if f == null:
+		var reason := sim.purchase_problem(size)
+		show_toast("COULDN'T BUY HER", reason if reason != "" else "No safe towing route to the berth.", 5.0)
+		return
+	var term := f.here()
+	select_ferry(f)
+	show_toast("%s BOUGHT" % f.ferry_name.to_upper(), "%s for %s. A tug is towing her in to %s, about %s." % [
+		f.fc.label, "$" + fmt_int(f.fc.price()), term.town.name, _hours_text(f.tow.minutes_left())], 8.0)
+
+
+func _on_ferry_delivered(f: Ferry) -> void:
+	show_toast("%s DELIVERED" % f.ferry_name.to_upper(),
+		"She lies laid up at %s. Give her stops with Edit stops to put her in service." % f.here().town.name, 8.0)
+
+
+func _on_ferry_removed(f: Ferry) -> void:
+	if selected_ferry == f or rig.follow == f:
+		clear_selection()
+	if _fleet_panel.visible:
+		_fleet_panel.refresh(sim.ferries)
+
+
+func _sell_selected() -> void:
+	var f := selected_ferry
+	if f == null:
+		return
+	var value := f.resale_value()
+	var nm := f.ferry_name
+	var share := roundi(value * 100.0 / f.fc.price())
+	if sim.sell_ferry(f):
+		show_toast("%s SOLD" % nm.to_upper(), "For %s, %d%% of her price new. A tug is coming to tow her away." % ["$" + fmt_int(value), share], 6.0)
 
 
 # --- Floating running costs ----------------------------------------------------------

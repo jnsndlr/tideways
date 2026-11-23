@@ -20,6 +20,9 @@ var length := 0.0
 ## handles. Geometry is independent of the ferry's live movement state.
 static func build(from: Vector3, to: Vector3, town: MapData.Town, half_length: float) -> SlipShiftPath:
 	var result := SlipShiftPath.new()
+	if from.distance_to(to) < 1.0:
+		result.points = PackedVector3Array([from, to])
+		return result
 	var out := town.dock_dir.normalized()
 	var side := to - from
 	side.y = 0.0
@@ -68,5 +71,7 @@ static func _bezier(c: Array, t: float) -> Vector3:
 ## About how far she goes between two slips `apart` metres apart along the shore
 ## (build: straight out past the buoys, round, and straight in again).
 static func estimated_length(apart: float) -> float:
+	if apart < 1.0:
+		return 0.0
 	var straight := maxf(Layout.CHANNEL_BUOY_U - SHIFT_MARGIN - Layout.DOCK_U, 20.0)
 	return 2.0 * straight + 2.6 * SHIFT_OUT + 1.4 * apart

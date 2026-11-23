@@ -20,7 +20,7 @@ var static_lights: MeshInstance3D
 var _car_mat: ShaderMaterial
 var _cars := {}            # Vehicle.model -> MultiMesh of its lights
 var _car_mmis: Array[MultiMeshInstance3D] = []
-var _ferry_lights: Array[MeshInstance3D] = []
+var _ferry_lights := {}    # Ferry -> her navigation lights
 var _deck_lights: Array[OmniLight3D] = []
 var _bufs := {}            # Vehicle.model -> its MultiMesh's buffer
 var _on := true
@@ -33,34 +33,48 @@ func setup(s: Simulation, r: CameraRig, d: DayCycle, fixed: MeshInstance3D) -> v
 	day_cycle = d
 	static_lights = fixed
 	for f in sim.ferries:
-		var mi := MeshInstance3D.new()
-		mi.mesh = Models.ferry_lights(f.fc)
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.layers = LAYER
-		f.add_child(mi)
-		_ferry_lights.append(mi)
-		# Real lights in the enclosed car deck, so its floor, walls, deckhead and the
-		# cars aboard all show lit (shadowless: they stay short enough not to reach
-		# the water past the hull).
-		for p in f.fc.deck_lights:
-			var l := OmniLight3D.new()
-			l.position = p
-			l.light_color = DECK_LIGHT_COLOR
-			l.omni_range = DECK_LIGHT_RANGE
-			l.omni_attenuation = 1.4
-			l.shadow_enabled = false
-			l.light_specular = 0.2
-			l.distance_fade_enabled = true
-			l.distance_fade_begin = 700.0
-			l.distance_fade_length = 150.0
-			l.layers = LAYER
-			f.add_child(l)
-			_deck_lights.append(l)
-
+		_light_ferry(f)
+	# A boat bought in play gets hers; one sold takes hers with her.
+	sim.ferry_added.connect(_light_ferry)
+	sim.ferry_removed.connect(_unlight_ferry)
 	_car_mat = GlowBuilder.material().duplicate() as ShaderMaterial
 	_car_mat.set_shader_parameter("instance_gate", true)
 	static_lights.layers = LAYER
 	_set_on(false)
+
+
+## Her navigation and deck lights.
+func _light_ferry(f: Ferry) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = Models.ferry_lights(f.fc)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.layers = LAYER
+	f.add_child(mi)
+	_ferry_lights[f] = mi
+	mi.visible = _on
+	# Real lights in the enclosed car deck, so its floor, walls, deckhead and the
+	# cars aboard all show lit (shadowless: they stay short enough not to reach
+	# the water past the hull).
+	for p in f.fc.deck_lights:
+		var l := OmniLight3D.new()
+		l.position = p
+		l.light_color = DECK_LIGHT_COLOR
+		l.omni_range = DECK_LIGHT_RANGE
+		l.omni_attenuation = 1.4
+		l.shadow_enabled = false
+		l.light_specular = 0.2
+		l.distance_fade_enabled = true
+		l.distance_fade_begin = 700.0
+		l.distance_fade_length = 150.0
+		l.layers = LAYER
+		f.add_child(l)
+		_deck_lights.append(l)
+		l.visible = _on
+
+
+func _unlight_ferry(f: Ferry) -> void:
+	_ferry_lights.erase(f)
+	_deck_lights.assign(_deck_lights.filter(func(l): return is_instance_valid(l) and l.get_parent() != f))
 
 
 ## The multimesh drawing the lights of every car of `model`, made the first time one turns up.
@@ -91,7 +105,7 @@ func _set_on(on: bool) -> void:
 	static_lights.visible = on
 	for mmi in _car_mmis:
 		mmi.visible = on
-	for mi in _ferry_lights:
+	for mi: MeshInstance3D in _ferry_lights.values():
 		mi.visible = on
 	for l in _deck_lights:
 		l.visible = on
@@ -112,11 +126,11 @@ func _process(_delta: float) -> void:
 		l.light_energy = deck
 	# Cargo ships come and go through the night.
 	_vessel_lights(true)
-	for i in sim.ferries.size():
-		var f := sim.ferries[i]
+	for f in sim.ferries:
 		# Sidelights: only the bow end's pair is lit, +Z heading A → B, -Z on the way back.
 		var flip := 1.0 if f.at_a else -1.0
-		_ferry_lights[i].set_instance_shader_parameter("nav_flip", flip)
+		if _ferry_lights.has(f):
+			_ferry_lights[f].set_instance_shader_parameter("nav_flip", flip)
 		f.hull.set_instance_shader_parameter("nav_flip", flip)
 	_update_cars()
 

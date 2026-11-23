@@ -222,13 +222,14 @@ func _rebuild() -> void:
 	if problem == "" and Timetable.any_too_soon(_times, offsets[-1]):
 		problem = "A sailing in red comes too soon after the one before: a round takes %d min" % ceili(offsets[-1])
 	var stops_same := _draft == ferry.stops and ferry.next_stops.is_empty()
-	var unchanged := stops_same and _times == ferry.timetable and _pace == ferry.pace
+	# (A boat bought in play has placeholder stops until her first are applied.)
+	var unchanged := ferry.assigned and stops_same and _times == ferry.timetable and _pace == ferry.pace
 	_problem.text = problem
 	_problem.visible = problem != ""
 	_apply.disabled = problem != "" or unchanged
 	_apply.text = "Apply"
 	if problem == "" and not unchanged:
-		_apply.text = "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
+		_apply.text = "Apply · she starts from %s" % _name(ferry.here().town.id) if not ferry.assigned else "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
 	_fit.call_deferred()
 
 

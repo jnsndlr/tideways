@@ -61,6 +61,13 @@ func _round_trip() -> String:
 	restored.free()
 	if not error.is_empty():
 		return error
+	var legacy := CompanyNetwork.new()
+	var previous := FileAccess.get_file_as_string("res://tools/fixtures/company_network_islands_seed123.json")
+	error = legacy.read(previous, region)
+	if not error.is_empty():
+		return error
+	if legacy.fleet.size() != 4 or legacy.fleet[0].key != "hull-0" or legacy.fleet[0].route.key != route_key:
+		return "Legacy island-keyed fleet lost its original route assignment"
 	return _reject_corruption(region, fresh.terrain, saved)
 
 
