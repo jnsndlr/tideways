@@ -22,7 +22,11 @@ var route_overlay: Node3D
 ## Water zones drawn on the map, if this region has any (the sandbox has none).
 var area_overlay: Node3D
 var map_controls: MapControls
-var selected_island: MapData.Island
+## The town selected (its terminal, or its dock site for sale).
+var selected_town: MapData.Town
+## The selected town's island.
+var selected_island: MapData.Island:
+	get: return map.island_of(selected_town) if selected_town else null
 var selected_ferry: Ferry
 var selected_vessel: Vessel   # anything afloat but a ferry
 
@@ -44,8 +48,6 @@ var sidebar: PanelContainer
 var _lane_button := Button.new()
 ## Buys the shown locked dock site on an island with no terminal yet (main map).
 var _dock_button := Button.new()
-var _site_button := Button.new()
-var _site_pick := 0
 var _refit_button := Button.new()
 var _tie_up_refit_button := Button.new()
 var _service_button := Button.new()
@@ -351,9 +353,7 @@ func set_speed(i: int) -> void:
 # --- Island labels ------------------------------------------------------------------
 
 func _build_labels() -> void:
-	for isl in map.islands:
-		if not isl.inhabited or isl.is_mainland:
-			continue
+	for isl in map.towns:
 		var p := PanelContainer.new()
 		p.add_theme_stylebox_override("panel", _panel_style(Color(0.06, 0.09, 0.11, 0.86), 6, 10, 5))
 		p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -361,7 +361,7 @@ func _build_labels() -> void:
 		v.add_theme_constant_override("separation", -3)
 		var title := HBoxContainer.new()
 		title.add_theme_constant_override("separation", 6)
-		if isl.has_terminal:
+		if isl.built:
 			title.add_child(_label("•", 13, ACCENT))
 		title.add_child(_label(isl.name.to_upper(), 13, TEXT, true))
 		v.add_child(title)
@@ -372,24 +372,32 @@ func _build_labels() -> void:
 		_labels[isl.id] = p
 
 
-func _on_label_input(event: InputEvent, isl: MapData.Island) -> void:
+func _on_label_input(event: InputEvent, isl: MapData.Town) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		select_island(isl, true)
+		select_town(isl, true)
+
+
+## A terminal opened in play: its label gets the dot (rebuilt with the rest).
+func refresh_labels() -> void:
+	for p in _labels.values():
+		p.queue_free()
+	_labels.clear()
+	_build_labels()
 
 
 func _update_labels() -> void:
 	var cam := rig.camera
 	var named := MapControls.shows("names")
-	for isl in map.islands:
+	for isl in map.towns:
 		if not _labels.has(isl.id):
 			continue
 		var p: PanelContainer = _labels[isl.id]
-		var off := not named or cam.is_position_behind(isl.label_pos) or (rig.distance < 135.0 and isl != selected_island)
+		var off := not named or cam.is_position_behind(isl.label_pos) or (rig.distance < 135.0 and isl != selected_town)
 		p.visible = not off
 		if off:
 			continue
 		p.position = cam.unproject_position(isl.label_pos) - Vector2(p.size.x * 0.5, p.size.y)
-		p.modulate = Color(1.15, 1.25, 1.15) if isl == selected_island else Color.WHITE
+		p.modulate = Color(1.15, 1.25, 1.15) if isl == selected_town else Color.WHITE
 
 
 # --- Selection ----------------------------------------------------------------------
@@ -438,20 +446,37 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 		if d < nearest_d:
 			nearest_d = d
 			nearest = isl
-	if nearest:
-		select_island(nearest, false)
-	else:
+	if nearest == null or nearest.towns.is_empty():
 		clear_selection()
+		return
+	# The island's town nearest where it was clicked.
+	var town: MapData.Town = null
+	for id in nearest.towns:
+		var t := map.towns[id]
+		if town == null or t.town_center.distance_to(hp) < town.town_center.distance_to(hp):
+			town = t
+	select_town(town, false)
 
 
+## Selects `isl`'s town with a terminal (else its first).
 func select_island(isl: MapData.Island, focus: bool) -> void:
+	if isl.towns.is_empty():
+		return
+	var town := map.towns[isl.towns[0]]
+	for id in isl.towns:
+		if map.towns[id].built:
+			town = map.towns[id]
+			break
+	select_town(town, focus)
+
+
+func select_town(town: MapData.Town, focus: bool) -> void:
 	_reset_selection()
-	selected_island = isl
-	_site_pick = 0
-	if focus and not isl.has_terminal and not isl.dock_sites.is_empty() and main.has_method("buy_dock"):
+	selected_town = town
+	if focus and town.has_dock and not town.built and main.has_method("buy_dock"):
 		_focus_site()
 	elif focus:
-		rig.focus_on(isl.town_center, 390.0)
+		rig.focus_on(town.town_center, 390.0)
 	_refresh_panels()
 
 
@@ -459,7 +484,7 @@ func select_ferry(f: Ferry) -> void:
 	_reset_selection()
 	selected_ferry = f
 	_crossings_seen = -1
-	selected_island = null
+	selected_town = null
 	selected_vessel = null
 	rig.follow = f
 	if rig.target_dist > 540.0:
@@ -485,7 +510,7 @@ func clear_selection() -> void:
 
 
 func _reset_selection() -> void:
-	selected_island = null
+	selected_town = null
 	selected_ferry = null
 	selected_vessel = null
 	rig.follow = null
@@ -589,14 +614,6 @@ func _build_info_panel() -> void:
 	_lane_button.custom_minimum_size.y = 48
 	_lane_button.pressed.connect(_buy_lane)
 	v.add_child(_lane_button)
-	_site_button.focus_mode = Control.FOCUS_NONE
-	_site_button.custom_minimum_size.y = 40
-	_site_button.pressed.connect(func():
-		if selected_island:
-			_site_pick = (_site_pick + 1) % selected_island.dock_sites.size()
-			_focus_site()
-			_refresh_panels())
-	v.add_child(_site_button)
 	_dock_button.custom_minimum_size.y = 48
 	_dock_button.pressed.connect(_buy_dock)
 	v.add_child(_dock_button)
@@ -725,34 +742,34 @@ func _crossing_text(minutes: float, c: Captain) -> String:
 ## Refits the terminal's smallest working (or with `tie_up`, tie-up) slip that can
 ## still grow (Terminal.next_refit).
 func _buy_refit(tie_up := false) -> void:
-	if selected_island == null:
+	if selected_town == null:
 		return
-	var terminal: Terminal = sim.terminals.get(selected_island.id)
+	var terminal: Terminal = sim.terminals.get(selected_town.id)
 	var i := terminal.next_refit(tie_up) if terminal else -1
 	if i >= 0 and terminal.buy_refit(i):
-		rig.focus_on(terminal.to_global(Vector3(selected_island.slip_offset(i), 0.0, RefitCrew.WORK_U)), 260.0)
+		rig.focus_on(terminal.to_global(Vector3(selected_town.slip_offset(i), 0.0, RefitCrew.WORK_U)), 260.0)
 		_refresh_panels()
 
 
-## Builds a terminal at the shown dock site (the main map rebuilds round it).
+## Starts building a terminal at the selected town's dock site (Simulation.buy_dock).
 func _buy_dock() -> void:
-	if selected_island == null or not main.has_method("buy_dock"):
+	if selected_town == null or not main.has_method("buy_dock"):
 		return
-	main.buy_dock(selected_island, _site_pick)
+	main.buy_dock(selected_town)
+	_refresh_panels()
 
 
-## Frames the shown dock site with the town it would serve.
+## Frames the selected town's dock site with the town it would serve.
 func _focus_site() -> void:
-	var site: MapData.DockSite = selected_island.dock_sites[_site_pick]
-	var town := selected_island.town_center
-	var t := Vector3(town.x, 0.0, town.z)
-	rig.focus_on(site.shore.lerp(t, 0.3), clampf(site.shore.distance_to(t) * 1.7, 520.0, 1600.0))
+	var shore := selected_town.shore
+	var t := Vector3(selected_town.town_center.x, 0.0, selected_town.town_center.z)
+	rig.focus_on(shore.lerp(t, 0.3), clampf(shore.distance_to(t) * 1.7, 520.0, 1600.0))
 
 
 func _buy_lane() -> void:
-	if selected_island == null:
+	if selected_town == null:
 		return
-	var terminal: Terminal = sim.terminals.get(selected_island.id)
+	var terminal: Terminal = sim.terminals.get(selected_town.id)
 	if terminal and terminal.buy_holding_lane():
 		rig.focus_on(terminal.lot_point(terminal.extension_offset(), -40), 180.0)
 		_refresh_panels()
@@ -763,8 +780,8 @@ func _on_info_button() -> void:
 		rig.follow = null if rig.follow == selected_ferry else selected_ferry
 	elif selected_vessel:
 		rig.follow = null if rig.follow == selected_vessel else selected_vessel
-	elif selected_island:
-		rig.focus_on(selected_island.town_center, 390.0)
+	elif selected_town:
+		rig.focus_on(selected_town.town_center, 390.0)
 	_refresh_panels()
 
 
@@ -795,19 +812,19 @@ func _refresh_panels() -> void:
 	var offer_dock := false
 	var offer_refit := false
 	var offer_tie_up_refit := false
-	_info_panel.visible = selected_island != null or selected_ferry != null or selected_vessel != null
-	_terminal_bar.visible = selected_island != null and sim.terminals.has(selected_island.id)
+	_info_panel.visible = selected_town != null or selected_ferry != null or selected_vessel != null
+	_terminal_bar.visible = selected_town != null and sim.terminals.has(selected_town.id)
 	_help.visible = not _terminal_bar.visible
 	_captain_box.visible = selected_ferry != null
 	if selected_ferry:
 		var f := selected_ferry
 		_info_title.text = f.ferry_name.to_upper()
 		var stop_names := func(ids: Array[int]) -> String:
-			return " – ".join(ids.map(func(id): return sim.map.islands[id].name.trim_suffix(" Island")))
+			return " – ".join(ids.map(func(id): return sim.map.towns[id].name.trim_suffix(" Island")))
 		_info_sub.text = "M/V · " + stop_names.call(f.stops)
 		var rows := [["Status", f.status_text()]]
 		if not f.next_stops.is_empty():
-			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().island.name.trim_suffix(" Island")]])
+			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().town.name.trim_suffix(" Island")]])
 		rows.append(["Timetable", _timetable_text(f)])
 		var clash := _slip_clash_text(f)
 		if clash != "":
@@ -841,7 +858,7 @@ func _refresh_panels() -> void:
 				var body := "%d min under Captain %s." % [roundi(f.last_crossing), f.captain.surname()]
 				if f.previous_crossing >= 0.0 and f.previous_crossing_captain != f.captain:
 					body += "\nThe crossing before took %d min under Captain %s." % [roundi(f.previous_crossing), f.previous_crossing_captain.surname()]
-				show_toast("%s DOCKED AT %s" % [f.ferry_name.to_upper(), f.here().island.name.to_upper()], body, 8.0)
+				show_toast("%s DOCKED AT %s" % [f.ferry_name.to_upper(), f.here().town.name.to_upper()], body, 8.0)
 			_crossings_seen = f.trips
 		_info_button.text = "Stop following" if rig.follow == f else "Follow"
 	elif selected_vessel:
@@ -879,40 +896,45 @@ func _refresh_panels() -> void:
 					rows.append(["Escort", esc])
 		_set_rows(rows)
 		_info_button.text = "Stop following" if rig.follow == v else "Follow"
-	elif selected_island:
-		var isl := selected_island
+	elif selected_town:
+		var isl := selected_town
+		var island := map.island_of(isl)
 		var term: Terminal = sim.terminals.get(isl.id)
 		var sat := term.satisfaction() if term else 70.0
+		var building := sim.dock_building(isl)
 		_info_title.text = isl.name.to_upper()
 		var served := isl.route_ids().filter(func(rid): return sim.map.routes[rid].in_service).size()
-		_info_sub.text = ("No ferry service yet" if not term else
+		_info_sub.text = ("Terminal under construction" if building >= 0.0 else
+			"No ferry service yet" if not term else
 			"Ferry terminal · idle slip" if served == 0 else
 			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
-		var rows := [
+		var rows := []
+		if isl.name != island.name:
+			rows.append(["Island", island.name])
+		rows.append_array([
 			["Population", fmt_int(isl.population)],
 			["Satisfaction", "%d%%" % roundi(sat)],
-			["Growth", "%+.1f%% / yr" % (isl.growth + (sat - 70.0) * 0.05)],
+			["Growth", "%+.1f%% / yr" % (island.growth + (sat - 70.0) * 0.05)],
 			["Demand", sim.demand_label(isl) if term else "-"],
-		]
-		rows.append(["Wildlife draw", _draw_text(isl)])
-		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(isl))])
+		])
+		rows.append(["Wildlife draw", _draw_text(island)])
+		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(island))])
 		if not term and main.has_method("buy_dock"):
-			if isl.dock_sites.is_empty():
-				rows.append(["Dock sites", "None: no terminal can be built here"])
+			if not isl.has_dock:
+				rows.append(["Dock site", "None: no terminal can be built here"])
+			elif building >= 0.0:
+				rows.append(["Opens in", _hours_text(building)])
+			elif sim.dock_price(isl) <= 0:
+				rows.append(["Dock site", "No navigable ferry route reaches this site"])
 			else:
-				_site_pick = clampi(_site_pick, 0, isl.dock_sites.size() - 1)
-				var site := isl.dock_sites[_site_pick]
-				var tier: Dictionary = MapLayout.DOCK_TIERS[site.tier]
-				rows.append(["Dock sites", "%d locked" % isl.dock_sites.size()])
-				rows.append(["Site %d" % (_site_pick + 1), "%s · %s" % [tier["name"], fmt_money(site.price())]])
+				var price := sim.dock_price(isl)
+				var tier: Dictionary = MapLayout.DOCK_TIERS[island.dock_sites[isl.site].tier]
+				rows.append(["Dock site", "%s · %s" % [tier["name"], fmt_money(price)]])
+				rows.append(["Build time", _hours_text(Simulation.DOCK_BUILD_MINUTES)])
 				rows.append(["Available cash", fmt_money(sim.available_cash)])
-				_dock_button.text = "Build terminal at site %d · %s" % [_site_pick + 1, fmt_money(site.price())]
-				_dock_button.disabled = sim.available_cash < site.price()
-				_site_button.text = "Show next site (%d of %d)" % [_site_pick + 1, isl.dock_sites.size()]
-				_site_button.visible = isl.dock_sites.size() > 1
+				_dock_button.text = "Build terminal · %s" % fmt_money(price)
+				_dock_button.disabled = sim.available_cash < price
 				offer_dock = true
-		elif term and isl.dock_sites.size() > 1:
-			rows.append(["Other dock sites", "%d (one terminal per island for now)" % (isl.dock_sites.size() - 1)])
 		if term:
 			rows.append(["Vehicles waiting", str(term.total_queued())])
 			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
@@ -946,12 +968,12 @@ func _refresh_panels() -> void:
 					offer_tie_up_refit = true
 			rows.append(["Lanes", _lanes_text(term)])
 			if isl.lane_extension_price > 0 and term.has_service():
-				var destination := sim.map.islands[term.lane_keys()[0]].name
+				var destination := sim.map.towns[term.lane_keys()[0]].name
 				rows.append(["Extra lane to", destination])
-				var building := term.build_remaining > 0.0 or term.work_stage == Terminal.WorkStage.DRAINING
-				if term.extra_lane != null and not building:
+				var lane_work := term.build_remaining > 0.0 or term.work_stage == Terminal.WorkStage.DRAINING
+				if term.extra_lane != null and not lane_work:
 					rows.append(["In newest lane", "%d waiting · %d spaces inbound" % [term.extra_lane.queue.size(), term.extra_lane.enroute]])
-				if building:
+				if lane_work:
 					var count := term.staging_lanes.size()
 					var phase: String = {
 						Terminal.WorkStage.DRAINING: "Clearing the lanes",
@@ -988,10 +1010,8 @@ func _refresh_panels() -> void:
 			_update_terminal_bar(term)
 	_lane_button.visible = offer_lane
 	_dock_button.visible = offer_dock
-	if not offer_dock:
-		_site_button.visible = false
 	if main.has_method("show_dock_sites"):
-		main.show_dock_sites(selected_island if offer_dock else null, _site_pick)
+		main.show_dock_sites(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
 	_refit_button.visible = offer_refit
 	_tie_up_refit_button.visible = offer_tie_up_refit
 	_pace_row.visible = selected_ferry != null
@@ -1048,7 +1068,7 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 
 func _update_terminal_bar(term: Terminal) -> void:
-	_tb_set("terminal", term.island.name.to_upper() + " TERMINAL",
+	_tb_set("terminal", term.town.name.to_upper() + " TERMINAL",
 		"Queue: %d vehicles" % term.total_queued(),
 		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
@@ -1057,7 +1077,7 @@ func _update_terminal_bar(term: Terminal) -> void:
 		var mins: float = nd[0]
 		var when := "Boarding now" if f.state == Ferry.State.LOADING and f.here() == term else sim.clock_text(sim.minutes + mins)
 		var dest := f.term_b if f.term_a == term else f.term_a
-		_tb_set("departure", "NEXT DEPARTURE", when, "%s to %s" % [f.ferry_name, dest.island.name])
+		_tb_set("departure", "NEXT DEPARTURE", when, "%s to %s" % [f.ferry_name, dest.town.name])
 	else:
 		_tb_set("departure", "NEXT DEPARTURE", "-", "")
 	_tb_set("weather", "WEATHER", sim.weather.label(), "%d°C" % sim.temperature())
@@ -1443,8 +1463,8 @@ func _draw_minimap() -> void:
 		var at := _to_minimap(v.pos)
 		o.draw_circle(at, 4.0, Color(0.05, 0.06, 0.07, 0.9))
 		o.draw_arc(at, 5.5, 0, TAU, 16, WILD, 1.5)
-	if selected_island:
-		o.draw_arc(_to_minimap(selected_island.town_center), 9.0, 0, TAU, 24, ACCENT, 1.5)
+	if selected_town:
+		o.draw_arc(_to_minimap(selected_town.town_center), 9.0, 0, TAU, 24, ACCENT, 1.5)
 
 
 func _on_minimap_input(event: InputEvent) -> void:
@@ -1505,15 +1525,23 @@ func _process(delta: float) -> void:
 		_finance_panel.refresh(sim)
 
 
+## "12 h" or "3 h 20 min" of game time.
+func _hours_text(minutes: float) -> String:
+	var m := ceili(minutes)
+	if m < 60:
+		return "%d min" % m
+	return "%d h" % (m / 60) if m % 60 == 0 else "%d h %d min" % [m / 60, m % 60]
+
+
 ## "2 small · 1 idle" style summary of a terminal's slips.
-func _slips_text(isl: MapData.Island) -> String:
+func _slips_text(isl: MapData.Town) -> String:
 	var parts: PackedStringArray = []
 	for i in isl.slips.size():
 		var slip := isl.slips[i]
 		if slip.tie_up:
 			var boat := "free"
 			for f: Ferry in sim.ferries:
-				if f.berth != Ferry.Berth.WORKING and f.here().island == isl and f.tie_up == i:
+				if f.berth != Ferry.Berth.WORKING and f.here().town == isl and f.tie_up == i:
 					boat = f.ferry_name
 			parts.append("Tie-up (%s): %s" % [slip.size_name(), boat])
 			continue
@@ -1522,7 +1550,7 @@ func _slips_text(isl: MapData.Island) -> String:
 			var r: MapData.Route = sim.map.routes[rid]
 			if not r.in_service:
 				continue
-			names.append(sim.map.islands[r.b if r.a == isl.id else r.a].name.trim_suffix(" Island"))
+			names.append(sim.map.towns[r.b if r.a == isl.id else r.a].name.trim_suffix(" Island"))
 		parts.append("%s: %s" % [slip.size_name().capitalize(), ", ".join(names) if not names.is_empty() else "idle"])
 	return " · ".join(parts)
 
@@ -1539,6 +1567,6 @@ func _lanes_text(term: Terminal) -> String:
 				var car := instance_from_id(waiting.vehicle_id) as Vehicle
 				if car.dest != key:
 					guests += 1
-		var name: String = sim.map.islands[key].name.trim_suffix(" Island")
+		var name: String = sim.map.towns[key].name.trim_suffix(" Island")
 		parts.append("%s %d%s" % [name, term.lanes[key].size(), " (%d sharing)" % guests if guests > 0 else ""])
 	return " · ".join(parts) if not parts.is_empty() else "-"

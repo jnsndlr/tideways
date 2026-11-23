@@ -239,7 +239,7 @@ func _process(delta: float) -> void:
 		Terminal.RefitStage.LEAVING:
 			u = lerpf(work, OFFSHORE, eased)
 	_bob += delta
-	var v := terminal.island.slip_offset(terminal.refit_slip)
+	var v := terminal.town.slip_offset(terminal.refit_slip)
 	# Heading in towards the shore (-u) the whole time: she backs out to leave.
 	var tow_at := Vector3(v, 0, u)
 	_tow.transform = Transform3D(Basis(Vector3.UP, PI), tow_at + Vector3(0, swell(to_global(tow_at)) + sin(_bob * 1.1) * 0.12, 0))

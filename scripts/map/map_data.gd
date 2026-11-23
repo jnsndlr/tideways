@@ -31,8 +31,34 @@ class Island:
 	var forest := 1.0
 	var fields := 0.4
 
-	# Ferry terminal (valid when has_terminal)
-	var has_terminal := false
+	var ferry := true               # with no scenario: built at its first dock site
+	## Dock sites locked by hand in the layout (MapLayout.DockSpec), in the world.
+	## On an authored map a terminal can only stand at one of them, and every one
+	## is its own town (MapData.Town). Empty on a generated map.
+	var dock_sites: Array[DockSite] = []
+	## Its towns (ids into MapData.towns): one per dock site, or one with no dock.
+	var towns: Array[int] = []
+
+
+## A town and the ferry terminal that serves it (TID-319). On an authored map
+## every locked dock site is a town of its own, and everything it needs (the
+## lot's ground, the town, its roads and a route to every other dock) is built
+## with the map, whether the company owns the terminal yet or not. Buying one
+## builds it in place: `built` turns on when it opens. A town with no dock
+## site (`has_dock` false) is just houses.
+class Town:
+	var key := ""                   # "<island key>/<n>": n is its dock site (or 0)
+	var id := 0
+	var island := 0                 # island id
+	var name := ""
+	var population := 0
+
+	# Ferry terminal (when has_dock)
+	var has_dock := false
+	## The company's terminal stands here and is open (bought and finished).
+	var built := false
+	var site := -1                  # which of its island's dock_sites (-1: generated)
+	var center := Vector2.ZERO      # where planning measures from (island centre or shore)
 	var shore := Vector3.ZERO       # where the pier meets land, y = 0
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
 	var slips: Array[Slip] = []     # left → right along lateral()
@@ -43,12 +69,6 @@ class Island:
 	var approach_bays := 1
 	var lot_y := Layout.LOT_Y
 	var open_lanes := 0             # lanes paved at the start (more are bought); 0: the whole lot
-	var ferry := true               # with no scenario: built at its first dock site
-	## Dock sites locked by hand in the layout (MapLayout.DockSpec), in the world.
-	## On an authored map the terminal can only stand at one of them; the rest
-	## can be bought in play. Empty on a generated map.
-	var dock_sites: Array[DockSite] = []
-	var site := -1                  # which of dock_sites the terminal stands at
 	## A positive quote reserves one expansion site on the left of this lot.
 	var lane_extension_price := 0
 	## Contiguous holding lanes needed alongside the extension for materials and machines.
@@ -141,6 +161,7 @@ class Island:
 ## way it points out to sea, and what it costs to build (MapLayout.DOCK_TIERS).
 class DockSite:
 	var key := ""                   # "<island key>/<index>", as scenarios name it
+	var town := ""                  # its town's name, as Jon wrote it ("": the island's)
 	var shore := Vector3.ZERO
 	var dir := Vector3.FORWARD
 	var tier := "standard"
@@ -316,7 +337,7 @@ class Slip:
 class Route:
 	var key := ""                   # independent of the runtime array position
 	var id := 0
-	var a := 0      # island id
+	var a := 0      # town id
 	var b := 0
 	var curve: Curve3D
 	var length := 0.0
@@ -328,6 +349,8 @@ class Route:
 var map_seed := 0
 var half_size := 3300.0
 var islands: Array[Island] = []
+## Every town, each with its dock (if any) and terminal (once built).
+var towns: Array[Town] = []
 var routes: Array[Route] = []
 
 ## Lane groups are keyed by route id; an idle terminal's one group by this.
@@ -336,6 +359,36 @@ const NO_ROUTE := -1
 
 static func is_route(key: int) -> bool:
 	return key >= 0
+
+
+## The towns with a terminal open, in id order.
+func terminal_towns() -> Array[Town]:
+	var out: Array[Town] = []
+	for t in towns:
+		if t.built:
+			out.append(t)
+	return out
+
+
+## The towns with a dock site, built or not.
+func dock_towns() -> Array[Town]:
+	var out: Array[Town] = []
+	for t in towns:
+		if t.has_dock:
+			out.append(t)
+	return out
+
+
+func town_by_key(key: String) -> Town:
+	for t in towns:
+		if t.key == key:
+			return t
+	return null
+
+
+## The island a town stands on.
+func island_of(t: Town) -> Island:
+	return islands[t.island]
 var marinas: Array[Marina] = []
 var quays: Array[FishQuay] = []
 var stations: Array[PilotStation] = []

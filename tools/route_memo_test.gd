@@ -37,8 +37,9 @@ func _initialize() -> void:
 
 	var layout := MapLayout.new()
 	var scenario := Scenario.new()
+	scenario.terminals = ["island-2/0"]
 	var first_site := MapGenerator._route_cache_key(layout, scenario)
-	scenario.docks["island-2"] = 2
+	scenario.terminals[0] = "island-2/2"
 	_check(MapGenerator._route_cache_key(layout, scenario) != first_site, "Moving a terminal to another dock must invalidate the route plan.")
 	var generator := InterruptedSearch.new()
 	generator._scenario = Scenario.new()

@@ -47,7 +47,7 @@ func setup(site: Terminal) -> void:
 	# Turn off the access road behind the toll booths, then enter from the
 	# extension side. The temporary gravel drive keeps both machines off live lanes.
 	var entrance := PackedVector3Array()
-	var road := terminal.island.road_main_a
+	var road := terminal.town.road_main_a
 	for i in range(road.size() - 1, -1, -1):
 		var point: Vector3 = get_parent().to_local(road[i])
 		if point.z < Layout.LOT_BACK - 15:

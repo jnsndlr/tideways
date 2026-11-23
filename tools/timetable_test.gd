@@ -31,7 +31,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -50,7 +50,7 @@ func _process(_delta: float) -> bool:
 		if not Timetable.any_too_soon([360], Timetable.DAY + 1):
 			return _fail("A daily sailing cannot complete a round longer than a day")
 		Engine.time_scale = 6.0
-		var ids: Array[int] = [rosario.island.id, madrona.island.id]
+		var ids: Array[int] = [rosario.town.id, madrona.town.id]
 		_offsets = hiyu.plan_offsets(ids)
 		var round_min := _offsets[-1]
 		print("Hiyu: leg %.1f min, dwell %.1f min (full deck), round %.1f min, at %s" % [
@@ -81,14 +81,14 @@ func _process(_delta: float) -> bool:
 		_unload_from = sim.minutes
 		_unload_cars = hiyu._unload_queue.size()
 	if hiyu.state == Ferry.State.LOADING and _unload_from >= 0.0:
-		print("  Unloaded %d cars at %s in %.1f min" % [_unload_cars, hiyu.here().island.name, sim.minutes - _unload_from])
+		print("  Unloaded %d cars at %s in %.1f min" % [_unload_cars, hiyu.here().town.name, sim.minutes - _unload_from])
 		_unload_from = -1.0
 	var sailing := hiyu.state == Ferry.State.SAILING
 	if sailing and not _was_sailing:
 		var now := fmod(sim.minutes, 1440.0)
 		var from := hiyu.stops[(hiyu.call - 1 + hiyu.stops.size()) % hiyu.stops.size()]
 		var due: float = _times[_departures / 2] + _offsets[_departures % 2]
-		print("Left %s at %s (due %s) · %s" % [sim.map.islands[from].name, sim.clock_text(), Timetable.text(due), hiyu.status_text()])
+		print("Left %s at %s (due %s) · %s" % [sim.map.towns[from].name, sim.clock_text(), Timetable.text(due), hiyu.status_text()])
 		if now < due - 0.01:
 			return _fail("Left %.1f min early" % (due - now))
 		if now > due + 3.0:

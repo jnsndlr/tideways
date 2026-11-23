@@ -42,7 +42,7 @@ func _process(_delta: float) -> bool:
 		return false
 	if _term == null:
 		for t: Terminal in main.sim.terminals.values():
-			if t.island.name.begins_with("Madrona"):
+			if t.town.key.begins_with("island-2/"):
 				_term = t
 		_term.buy_refit(_term.next_refit())
 		_crew = _term.get_node("SlipRefitCrew")

@@ -80,7 +80,7 @@ static func _others(result: Dictionary) -> Array:
 
 ## One line for a clash on a sailing.
 static func clash_text(sim: Simulation, c: Dictionary) -> String:
-	var where := sim.map.islands[c.island].name.trim_suffix(" Island")
+	var where := sim.map.towns[c.island].name.trim_suffix(" Island")
 	var mins := maxi(1, roundi(c.hold))
 	if c.she_holds:
 		return "%s %s: the %s is alongside · she holds ~%d min offshore" % [where, Timetable.text(c.at), c.other.ferry_name, mins]
@@ -90,7 +90,7 @@ static func clash_text(sim: Simulation, c: Dictionary) -> String:
 static func _slip_names(sim: Simulation, cs: Array) -> String:
 	var names: Array[String] = []
 	for c in cs:
-		var n := sim.map.islands[c.island].name.trim_suffix(" Island")
+		var n := sim.map.towns[c.island].name.trim_suffix(" Island")
 		if n not in names:
 			names.append(n)
 	return " and ".join(names)

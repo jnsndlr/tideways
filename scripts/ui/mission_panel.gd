@@ -125,6 +125,9 @@ static func _goal_label(sim: Simulation, goal: Dictionary) -> String:
 
 
 static func _name(sim: Simulation, key: String) -> String:
+	for town in sim.map.towns:
+		if town.key == key:
+			return town.name
 	for isl in sim.map.islands:
 		if isl.key == key:
 			return isl.name

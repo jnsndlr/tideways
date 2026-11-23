@@ -139,9 +139,8 @@ func _mark_lanes(map: MapData) -> void:
 
 ## The terminal, its slips, dolphins and channel buoys.
 func _close_terminals(map: MapData) -> void:
-	for isl in map.islands:
-		if not isl.has_terminal:
-			continue
+	# Every dock site, built or not: a terminal can open there in play.
+	for isl in map.dock_towns():
 		var reach := isl.lot_half_width
 		for i in isl.slips.size():
 			reach = maxf(reach, absf(isl.slip_offset(i)) + Layout.DOLPHIN_OUTER.y)

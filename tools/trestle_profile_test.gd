@@ -3,7 +3,7 @@ extends SceneTree
 
 
 func _initialize() -> void:
-	var island := MapData.Island.new()
+	var island := MapData.Town.new()
 	island.approach_bays = Layout.TRESTLE_MAX_BAYS
 	island.lot_y = Layout.LOT_Y + Layout.approach_rise(island.approach_bays)
 	var front := island.lot_front_u()

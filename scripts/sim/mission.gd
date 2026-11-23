@@ -10,6 +10,7 @@ extends RefCounted
 ##       {"kind": "cash", "target": 60000},            cash in hand
 ##       {"kind": "terminal", "island": "island-3"},   a terminal open there
 ##       {"kind": "serve", "island": "island-3"}       a boat scheduled to call there
+## An "island" key names any of its towns, or one town ("island-2/1").
 ##     ]
 ##   }
 ## Each goal may give its own "label".
@@ -65,7 +66,7 @@ func carried(sim: Simulation) -> int:
 
 static func _terminal_at(sim: Simulation, key: String) -> bool:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if _is(t.town, key):
 			return true
 	return false
 
@@ -73,6 +74,11 @@ static func _terminal_at(sim: Simulation, key: String) -> bool:
 static func _served(sim: Simulation, key: String) -> bool:
 	for f in sim.ferries:
 		for id in f.stops + f.next_stops:
-			if sim.map.islands[id].key == key:
+			if _is(sim.map.towns[id], key):
 				return true
 	return false
+
+
+## Whether town `t` is the one `key` names, or on the island it names.
+static func _is(t: MapData.Town, key: String) -> bool:
+	return t.key == key or t.key.begins_with(key + "/")

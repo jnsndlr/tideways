@@ -12,7 +12,7 @@ func _initialize() -> void:
 	for seed_value: int in SEEDS:
 		var gen := MapGenerator.new()
 		var map := gen.generate(seed_value)
-		for isl in map.islands:
+		for isl in map.towns:
 			if isl.road_main_a.is_empty():
 				continue
 			var failure := _check(isl, gen.terrain)
@@ -30,7 +30,7 @@ func _initialize() -> void:
 	quit(0)
 
 
-func _check(isl: MapData.Island, t: Terrain) -> String:
+func _check(isl: MapData.Town, t: Terrain) -> String:
 	var main := isl.road_main_a
 	if absf(main[0].y - isl.lot_y) > 0.01:
 		return "main road starts at %.2f, lot at %.2f" % [main[0].y, isl.lot_y]

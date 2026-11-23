@@ -27,7 +27,7 @@ func _fail(msg: String) -> bool:
 
 func _term(sim: Simulation, key: String) -> Terminal:
 	for t: Terminal in sim.terminals.values():
-		if t.island.key == key:
+		if t.town.key.begins_with(key + "/"):
 			return t
 	return null
 
@@ -47,29 +47,29 @@ func _process(_delta: float) -> bool:
 		print("Routes planned %d, in service %d" % [sim.map.routes.size(), served])
 		if served != 1:
 			return _fail("Expected only the scheduled route in service, got %d" % served)
-		if sim.route_between(madrona.island.id, gullrock.island.id) == null:
+		if sim.route_between(madrona.town.id, gullrock.town.id) == null:
 			return _fail("No candidate route between Madrona and Gullrock")
 		# Cypress Island lies between these two: the route goes round it.
-		if sim.route_between(rosario.island.id, gullrock.island.id) == null:
+		if sim.route_between(rosario.town.id, gullrock.town.id) == null:
 			return _fail("No route round Cypress Island between Port Rosario and Gullrock")
-		var ids: Array[int] = [rosario.island.id, madrona.island.id, gullrock.island.id, madrona.island.id]
+		var ids: Array[int] = [rosario.town.id, madrona.town.id, gullrock.town.id, madrona.town.id]
 		var problem := sim.stops_problem(hiyu, ids)
 		if problem != "":
 			return _fail("Editor rejected the new stops: " + problem)
-		var bad: Array[int] = [rosario.island.id, rosario.island.id]
+		var bad: Array[int] = [rosario.town.id, rosario.town.id]
 		if sim.stops_problem(hiyu, bad) == "":
 			return _fail("Editor accepted a stop listed twice in a row")
 		sim.reschedule(hiyu, ids)
-		print("Planned %s, next call %s" % [hiyu.next_stops, hiyu.next_dock().island.name])
+		print("Planned %s, next call %s" % [hiyu.next_stops, hiyu.next_dock().town.name])
 	var yaw := hiyu.global_rotation.y
 	if _last_yaw != INF and hiyu.berth == Ferry.Berth.WORKING and (absf(angle_difference(_last_yaw, yaw)) > 0.25 or hiyu.global_position.distance_to(_last_pos) > 6.0):
-		return _fail("Hiyu jumped at %s: yaw %.2f -> %.2f" % [hiyu.here().island.name, _last_yaw, yaw])
+		return _fail("Hiyu jumped at %s: yaw %.2f -> %.2f" % [hiyu.here().town.name, _last_yaw, yaw])
 	_last_yaw = yaw
 	_last_pos = hiyu.global_position
 	if not _switched and hiyu.next_stops.is_empty() and hiyu.stops.size() == 4:
 		_switched = true
-		print("Switched at %s, frame %d. Madrona lanes: %s" % [hiyu.here().island.name, frames,
-			madrona.lanes.keys().map(func(k): return "%s×%d" % [sim.map.islands[k].name, madrona.lanes[k].size()])])
+		print("Switched at %s, frame %d. Madrona lanes: %s" % [hiyu.here().town.name, frames,
+			madrona.lanes.keys().map(func(k): return "%s×%d" % [sim.map.towns[k].name, madrona.lanes[k].size()])])
 		if madrona.lanes.size() != 2:
 			return _fail("Madrona's lanes did not divide between two destinations")
 	if _switched and hiyu.state != Ferry.State.SAILING and hiyu.here() == gullrock:

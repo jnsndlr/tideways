@@ -13,34 +13,38 @@ class Assignment:
 var fleet: Array[Assignment] = []
 
 
-static func _island_record(map: MapData, island: MapData.Island) -> Dictionary:
+static func _town_record(map: MapData, town: MapData.Town, legacy := false) -> Dictionary:
 	var slips: Array[String] = []
-	for slip in island.slips:
+	for slip in town.slips:
 		var keys: PackedStringArray = []
 		for route_id in slip.routes:
-			keys.append(map.routes[route_id].key)
+			keys.append(_route_record(map, map.routes[route_id], true).key if legacy else map.routes[route_id].key)
 		slips.append("+".join(keys) if not keys.is_empty() else "idle")
-	return {"key": island.key, "terminal": island.has_terminal, "slips": slips}
+	return {"key": map.island_of(town).key if legacy else town.key, "terminal": town.built, "slips": slips}
 
 
-static func _route_record(map: MapData, route: MapData.Route) -> Dictionary:
-	return {"key": route.key, "a": map.islands[route.a].key, "b": map.islands[route.b].key}
+static func _route_record(map: MapData, route: MapData.Route, legacy := false) -> Dictionary:
+	if legacy:
+		var a := map.island_of(map.towns[route.a]).key
+		var b := map.island_of(map.towns[route.b]).key
+		return {"key": "link-%s-%s" % [a, b], "a": a, "b": b}
+	return {"key": route.key, "a": map.towns[route.a].key, "b": map.towns[route.b].key}
 
 
 static func capture(sim: Simulation) -> String:
 	var map := sim.map
-	var islands := []
+	var towns := []
 	var routes := []
 	var ferries := []
-	for island in map.islands:
-		islands.append(_island_record(map, island))
+	for town in map.towns:
+		towns.append(_town_record(map, town))
 	for route in map.routes:
 		routes.append(_route_record(map, route))
 	for ferry in sim.ferries:
 		ferries.append({"key": ferry.fleet_key, "route": ferry.route.key,
 			"name": ferry.ferry_name, "size": ferry.fc.size})
 	# JSON numbers are parsed as doubles. Keep the entire int64 seed.
-	return JSON.stringify({"seed": str(map.map_seed), "islands": islands,
+	return JSON.stringify({"seed": str(map.map_seed), "towns": towns,
 		"routes": routes, "ferries": ferries})
 
 
@@ -48,18 +52,33 @@ func read(saved_json: String, map: MapData) -> String:
 	var saved = JSON.parse_string(saved_json)
 	if not saved is Dictionary or saved.get("seed") != str(map.map_seed):
 		return "Invalid company network or wrong region seed"
-	var expected_islands := {}
-	for island in map.islands:
-		expected_islands[island.key] = _island_record(map, island)
-	var error := _match_records(saved.get("islands"), expected_islands, map.islands.size(), "island")
-	if not error.is_empty():
-		return error
+	# Older generated-company records identify one terminal by its island. Validate
+	# their original topology, then resolve the saved assignments to current routes.
+	var legacy: bool = saved.has("islands") and not saved.has("towns")
 	var expected_routes := {}
 	var route_by_key := {}
 	for route in map.routes:
-		expected_routes[route.key] = _route_record(map, route)
-		route_by_key[route.key] = route
-	error = _match_records(saved.get("routes"), expected_routes, map.routes.size(), "route")
+		var record := _route_record(map, route, legacy)
+		expected_routes[record.key] = record
+		route_by_key[record.key] = route
+	var error := _match_records(saved.get("routes"), expected_routes, map.routes.size(), "route")
+	if not error.is_empty():
+		return error
+	if legacy:
+		var islands := {}
+		for island in map.islands:
+			if island.towns.size() > 1:
+				return "Legacy island assignment is ambiguous on a multi-town region"
+			var record := {"key": island.key, "terminal": false, "slips": []}
+			if not island.towns.is_empty():
+				record = _town_record(map, map.towns[island.towns[0]], true)
+			islands[island.key] = record
+		error = _match_records(saved.islands, islands, map.islands.size(), "island")
+	else:
+		var towns := {}
+		for town in map.towns:
+			towns[town.key] = _town_record(map, town)
+		error = _match_records(saved.get("towns"), towns, map.towns.size(), "town")
 	if not error.is_empty():
 		return error
 	if not saved.get("ferries") is Array:

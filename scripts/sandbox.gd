@@ -154,14 +154,8 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	if not await _setup_frames.can_continue():
 		return
 	for terminal: Terminal in sim.terminals.values():
-		if RefitCrew.available():
-			var crew := RefitCrew.new()
-			terminal.add_child(crew)
-			crew.setup(terminal)
-		if terminal.island.lane_extension_price > 0:
-			var extension := HoldingLaneView.new()
-			terminal.add_child(extension)
-			extension.setup(terminal)
+		_dress_terminal(terminal)
+	sim.terminal_opened.connect(_on_terminal_opened)
 	clouds = CloudLayer.new()
 	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
 	add_child(clouds)
@@ -429,7 +423,7 @@ func _apply_debug_args() -> void:
 		var k := int(_args["select"])
 		var terms: Array = sim.terminals.values()
 		if k < terms.size():
-			hud.select_island((terms[k] as Terminal).island, true)
+			hud.select_island(sim.map.island_of((terms[k] as Terminal).town), true)
 			rig.snap()
 	if _args.has("follow"):
 		var k := int(_args["follow"])
@@ -490,3 +484,24 @@ func _take_screenshot(path: String, delay: float) -> void:
 	img.save_png(path)
 	print("Saved screenshot to ", path)
 	get_tree().quit()
+
+
+## The crews and lane views a terminal's purchases show with.
+func _dress_terminal(terminal: Terminal) -> void:
+	if RefitCrew.available():
+		var crew := RefitCrew.new()
+		terminal.add_child(crew)
+		crew.setup(terminal)
+	if terminal.town.lane_extension_price > 0:
+		var extension := HoldingLaneView.new()
+		terminal.add_child(extension)
+		extension.setup(terminal)
+
+
+## A terminal bought in play finished building: it was in the world all along,
+## hidden, so it only has to show (TID-319).
+func _on_terminal_opened(terminal: Terminal) -> void:
+	builder.show_terminal(terminal.town)
+	_dress_terminal(terminal)
+	hud.refresh_labels()
+	hud.show_toast("TERMINAL OPEN", "%s's terminal is open. Edit a boat's stops to call there." % terminal.town.name, 6.0)

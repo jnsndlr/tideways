@@ -39,7 +39,7 @@ func check_wind() -> void:
 
 func check_demand() -> void:
 	var sim := Simulation.new()
-	var island := MapData.Island.new()
+	var island := MapData.Town.new()
 	island.population = 5200
 	sim.minutes = 2 * 60
 	var overnight := sim.demand_rate(island)

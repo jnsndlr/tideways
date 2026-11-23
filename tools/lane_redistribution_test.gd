@@ -55,7 +55,7 @@ func _check(sim: Simulation) -> String:
 	var gullrock := hiyu.stops[2]
 
 	_empty_lot(rosario)
-	var shared: Terminal.Lane = rosario.lanes[madrona.island.id][0]
+	var shared: Terminal.Lane = rosario.lanes[madrona.town.id][0]
 	var staying := _park(rosario, shared, gullrock)
 	_depart(hiyu)
 	if hiyu.state != Ferry.State.SAILING or shared.queue.size() != 1 or shared.queue[0].vehicle_id != staying.get_instance_id():
@@ -69,7 +69,7 @@ func _check(sim: Simulation) -> String:
 	shuttle.route = hiyu.route
 	shuttle.term_a = hiyu.term_a
 	shuttle.term_b = hiyu.term_b
-	shuttle.set_legs([madrona.island.id, rosario.island.id], [hiyu.route, hiyu.route])
+	shuttle.set_legs([madrona.town.id, rosario.town.id], [hiyu.route, hiyu.route])
 	shuttle.call = 1
 	shuttle.state = Ferry.State.SAILING
 	rosario.slots_per_lane = 1
@@ -77,13 +77,13 @@ func _check(sim: Simulation) -> String:
 	var own: Terminal.Lane = rosario.lanes[gullrock][0]
 	var returning := _park(rosario, borrowed, gullrock)
 	var turned := _park(rosario, borrowed, gullrock)
-	var resident := _park(rosario, borrowed, madrona.island.id)
-	if rosario.next_loader(madrona.island.id) != hiyu:
+	var resident := _park(rosario, borrowed, madrona.town.id)
+	if rosario.next_loader(madrona.town.id) != hiyu:
 		return "Hiyu should serve the borrowed lane before she leaves"
 	var original_arrival := returning.lot_arrival
 	var turns_before := rosario.turned_recent
 	_depart(hiyu)
-	if rosario.next_loader(madrona.island.id) != shuttle or borrowed.queue.size() != 1 or borrowed.queue[0].vehicle_id != resident.get_instance_id():
+	if rosario.next_loader(madrona.town.id) != shuttle or borrowed.queue.size() != 1 or borrowed.queue[0].vehicle_id != resident.get_instance_id():
 		return "Ineligible guests should leave while the resident keeps its place"
 	if own.enroute != returning.slots or not own.queue.is_empty() or rosario.turned_recent != turns_before + 1:
 		return "The first guest should reserve the last space and the second should turn away"

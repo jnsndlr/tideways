@@ -25,11 +25,16 @@ func _initialize() -> void:
 	sim.ledger.cars_total = 250
 	sim.ledger.cash = 60000
 	var terminal := Terminal.new()
-	terminal.island = island
+	var town := MapData.Town.new()
+	town.key = "island-3/0"
+	town.name = "Port Two Tree"
+	sim.map.towns.append(town)
+	terminal.town = town
 	sim.add_child(terminal)
-	sim.terminals[island.id] = terminal
+	sim.terminals[town.id] = terminal
+	_check(panel._name(sim, town.key) == town.name, "Qualified mission goal must resolve the dock town.")
 	var ferry := Ferry.new()
-	ferry.next_stops.append(island.id)
+	ferry.next_stops.append(town.id)
 	sim.add_child(ferry)
 	sim.ferries.append(ferry)
 	for goal in mission.goals:

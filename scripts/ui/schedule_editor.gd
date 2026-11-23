@@ -184,7 +184,7 @@ static func _clear(box: Node) -> void:
 
 
 func _name(id: int) -> String:
-	return sim.map.islands[id].name.trim_suffix(" Island")
+	return sim.map.towns[id].name.trim_suffix(" Island")
 
 
 func _rebuild() -> void:
@@ -204,7 +204,7 @@ func _rebuild() -> void:
 	_loop_note.text = _loop_text()
 	var last := _draft[-1] if not _draft.is_empty() else -1
 	for term: Terminal in sim.terminals.values():
-		var id := term.island.id
+		var id := term.town.id
 		var why := _add_problem(last, id)
 		var b := _button(_name(id) if why == "" else "%s · %s" % [_name(id), why])
 		b.disabled = why != ""
@@ -228,7 +228,7 @@ func _rebuild() -> void:
 	_apply.disabled = problem != "" or unchanged
 	_apply.text = "Apply"
 	if problem == "" and not unchanged:
-		_apply.text = "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().island.id)
+		_apply.text = "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
 	_fit.call_deferred()
 
 

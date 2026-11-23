@@ -89,7 +89,7 @@ func _terminal_shots() -> bool:
 	if _wait > frames and Engine.time_scale > 1.0:
 		return false
 	Engine.time_scale = 1.0
-	var isl: MapData.Island = (terms[shot] as Terminal).island
+	var isl: MapData.Town = (terms[shot] as Terminal).town
 	if _wait < 0 or frames > _wait + 1:
 		main.rig.follow = null
 		main.rig.target_pos = isl.shore + isl.dock_dir * 72.0

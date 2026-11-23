@@ -6,7 +6,7 @@ var crew: PavingCrew
 
 
 func setup(terminal: Terminal) -> void:
-	transform = terminal.island.lot_offset()  # in the lot's frame, like everything on the lot
+	transform = terminal.town.lot_offset()  # in the lot's frame, like everything on the lot
 	terminal.extension_changed.connect(_refresh.bind(terminal))
 
 

@@ -15,11 +15,11 @@ func check_drain(staging_count: int) -> String:
 	var term := Terminal.new()
 	sim.add_child(term)
 	term.sim = sim
-	term.island = MapData.Island.new()
-	term.island.add_route_slip(0)
-	term.island.add_route_slip(1)
-	term.island.lane_extension_price = 100
-	term.island.construction_staging_lanes = staging_count
+	term.town = MapData.Town.new()
+	term.town.add_route_slip(0)
+	term.town.add_route_slip(1)
+	term.town.lane_extension_price = 100
+	term.town.construction_staging_lanes = staging_count
 	sim.ledger.cash = 200
 	var first := Terminal.Lane.new(-30)
 	var second := Terminal.Lane.new(-23)
@@ -103,7 +103,7 @@ func _process(_dt: float) -> bool:
 		terminal = game.sim.terminals.values()[0]
 		original_capacity = terminal.capacity()
 		served_at_purchase = terminal.served_today
-		var price := terminal.island.lane_extension_price
+		var price := terminal.town.lane_extension_price
 		var initial_funds: float = game.sim.available_cash
 		game.sim.ledger.cash = 0.0
 		if terminal.buy_holding_lane():
@@ -114,7 +114,7 @@ func _process(_dt: float) -> bool:
 		var before: float = game.sim.available_cash
 		if not terminal.buy_holding_lane() or terminal.buy_holding_lane():
 			return fail("Expected exactly one successful purchase")
-		if not is_equal_approx(before - price, game.sim.available_cash) or terminal.capacity() != original_capacity - terminal.island.construction_staging_lanes * terminal.slots_per_lane:
+		if not is_equal_approx(before - price, game.sim.available_cash) or terminal.capacity() != original_capacity - terminal.town.construction_staging_lanes * terminal.slots_per_lane:
 			return fail("Wrong charge or premature capacity increase")
 		Engine.time_scale = 8.0
 	if terminal.work_stage == Terminal.WorkStage.PAVING:
@@ -133,7 +133,7 @@ func _process(_dt: float) -> bool:
 				if observed.has(car.get_instance_id()):
 					if car.dest != terminal.lane_keys()[0]:
 						return fail("Vehicle boarded the wrong service")
-					print("New lane at %s: observed %d queued vehicles; one boarded %s on frame %d." % [terminal.island.name, observed.size(), ferry.ferry_name, frame])
+					print("New lane at %s: observed %d queued vehicles; one boarded %s on frame %d." % [terminal.town.name, observed.size(), ferry.ferry_name, frame])
 					print("TEST PASSED")
 					quit(0)
 					return false

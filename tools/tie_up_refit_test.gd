@@ -31,12 +31,12 @@ func _process(_delta: float) -> bool:
 	var sim: Simulation = main.sim
 	if frames == 5:
 		for t: Terminal in sim.terminals.values():
-			if t.island.name.begins_with("Madrona"):
+			if t.town.key.begins_with("island-2/"):
 				madrona = t
 		if madrona == null:
 			return _fail("no Madrona terminal")
 		tie = madrona.next_refit(true)
-		if tie < 0 or not madrona.island.slips[tie].tie_up or madrona.island.slips[tie].size != 1:
+		if tie < 0 or not madrona.town.slips[tie].tie_up or madrona.town.slips[tie].size != 1:
 			return _fail("Madrona has no small tie-up to refit")
 		if madrona.slip_guides[tie] == null:
 			return _fail("the tie-up has no live dolphins to refit")
@@ -56,7 +56,7 @@ func _process(_delta: float) -> bool:
 	for s in [Terminal.RefitStage.CLEARING, Terminal.RefitStage.ARRIVING, Terminal.RefitStage.WORKING, Terminal.RefitStage.LEAVING]:
 		if not stages.has(s):
 			return _fail("never went through %s" % Terminal.RefitStage.keys()[s])
-	var slip := madrona.island.slips[tie]
+	var slip := madrona.town.slips[tie]
 	if slip.size != 2:
 		return _fail("tie-up is %s after the refit, not medium" % slip.size_name())
 	var face: float = madrona.slip_guides[tie].fenders[0].face

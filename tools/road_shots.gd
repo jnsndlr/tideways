@@ -38,7 +38,7 @@ func _initialize() -> void:
 
 func _plan() -> void:
 	var n := 0
-	for isl: MapData.Island in main.map.islands:
+	for isl: MapData.Town in main.map.towns:
 		if n >= towns or isl.road_main_a.size() < 4:
 			continue
 		var road := isl.road_main_a

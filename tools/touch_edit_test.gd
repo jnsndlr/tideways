@@ -237,7 +237,7 @@ func _run() -> void:
 	await _tap(removes[1])
 	if ed._draft.size() != 1:
 		return _fail("A tap on Remove left %d stops" % ed._draft.size())
-	await _tap(_button("Gullrock"))
+	await _tap(_button(main.sim.map.town_by_key("island-7/0").name))
 	await _tap(_button(madrona))
 	if ed._draft.size() != 3:
 		return _fail("Taps on Add a stop gave %d stops" % ed._draft.size())

@@ -119,7 +119,7 @@ enum Berth { WORKING, TO_TIE_UP, TIED_UP, TO_WORKING }
 var berth := Berth.WORKING
 var lay_up_requested := false     # tie up once she has unloaded at a terminal with a free tie-up slip
 var return_requested := false     # back into service once her working slip is free
-var tie_up := -1                  # index into here().island.slips while laid up
+var tie_up := -1                  # index into here().town.slips while laid up
 var _shift := PackedVector3Array()  # the way between her working slip and the tie-up
 var _shift_s := 0.0
 var deck: FerryDeck
@@ -254,7 +254,7 @@ func start_staggered(i: int) -> void:
 					break
 				_take_slots(slot, car)
 				_set_parked(car, _park_xform(slot, car))
-				car.dest = destination().island.id
+				car.dest = destination().town.id
 				aboard.append(car)
 			_place(_route_s(traveled))
 		2:
@@ -270,7 +270,7 @@ func set_legs(stop_ids: Array[int], leg_routes: Array[MapData.Route]) -> void:
 	stops = stop_ids
 	legs = leg_routes
 	call = 0
-	at_a = term_a.island.id == stops[0]
+	at_a = term_a.town.id == stops[0]
 	_place(_dock_s())
 
 
@@ -306,7 +306,7 @@ func set_timetable(times: Array[int]) -> void:
 ## Takes the planned stops if she is at one of them. Cars aboard for a stop she
 ## no longer reaches from here drive off here instead.
 func _take_next_stops() -> bool:
-	var term_id := here().island.id
+	var term_id := here().town.id
 	if next_stops.is_empty() or term_id not in next_stops:
 		return false
 	var came_from := stops[(call - 1 + stops.size()) % stops.size()]
@@ -338,7 +338,7 @@ func _dock_s() -> float:
 func calls_at(term: Terminal) -> bool:
 	if stops.is_empty():
 		return term == term_a or term == term_b
-	return term.island.id in stops
+	return term.town.id in stops
 
 
 ## The islands she carries cars to from call `i`, in the order she reaches them:
@@ -363,7 +363,7 @@ func serves_from_here() -> Array[int]:
 func serves_next_call_at(term: Terminal) -> Array[int]:
 	for k in stops.size():
 		var i := (call + k) % stops.size()
-		if stops[i] == term.island.id:
+		if stops[i] == term.town.id:
 			return _served_from(i)
 	return []
 
@@ -375,8 +375,8 @@ func _take_leg() -> void:
 		return
 	var term := here()
 	var minus := _minus
-	if term.island.slip_index(next.id) != term.island.slip_index(route.id):
-		push_warning("%s's legs at %s use different slips" % [ferry_name, term.island.name])
+	if term.town.slip_index(next.id) != term.town.slip_index(route.id):
+		push_warning("%s's legs at %s use different slips" % [ferry_name, term.town.name])
 	# Whatever water she held round the slip on the old route is free.
 	for run in _corridor_runs():
 		for e in run[2]:
@@ -602,7 +602,7 @@ func _begin_unloading() -> void:
 	_dispatch_timer = 0.0
 	_last_sent = null
 	# Only the cars for this stop drive off; the rest stay aboard for later stops.
-	var stop := here().island.id
+	var stop := here().town.id
 	_unload_queue = aboard.filter(func(c: Vehicle): return c.dest == stop or c.dest < 0)
 	aboard = aboard.filter(func(c: Vehicle): return not (c.dest == stop or c.dest < 0))
 	var exit_sign := -1.0 if _minus else 1.0
@@ -1480,15 +1480,15 @@ func kind_text() -> String:
 func status_text() -> String:
 	match berth:
 		Berth.TO_TIE_UP:
-			return "Moving to the tie-up slip at " + here().island.name
+			return "Moving to the tie-up slip at " + here().town.name
 		Berth.TIED_UP:
 			if return_requested:
-				return "Tied up at %s · waiting for her slip" % here().island.name
+				return "Tied up at %s · waiting for her slip" % here().town.name
 			if between_sailings():
-				return "Tied up at %s until her %s sailing" % [here().island.name, Timetable.text(int(round(fmod(_gap_due, Timetable.DAY))))]
-			return "Tied up at " + here().island.name
+				return "Tied up at %s until her %s sailing" % [here().town.name, Timetable.text(int(round(fmod(_gap_due, Timetable.DAY))))]
+			return "Tied up at " + here().town.name
 		Berth.TO_WORKING:
-			return "Returning to service at " + here().island.name
+			return "Returning to service at " + here().town.name
 	if lay_up_requested and state != State.UNLOADING:
 		return ("Laying up at the next tie-up · " if can_lay_up() else "Laying up · ") + _service_text()
 	return _service_text()
@@ -1496,7 +1496,7 @@ func status_text() -> String:
 
 func _service_text() -> String:
 	if state == State.SAILING and speed < 0.6 and _refit_wait() < 30.0:
-		return "Holding off %s while her slip is refitted" % destination().island.name
+		return "Holding off %s while her slip is refitted" % destination().town.name
 	if state == State.SAILING and speed < 0.6 and _waiting_for:
 		if _giving_way:
 			return "Holding in for %s to come in" % _waiting_for.ferry_name
@@ -1507,16 +1507,16 @@ func _service_text() -> String:
 	var due_at := due()
 	match state:
 		State.UNLOADING:
-			return "Unloading at " + here().island.name
+			return "Unloading at " + here().town.name
 		State.LOADING:
 			if due_at < 0.0:
-				return "Boarding at " + here().island.name
+				return "Boarding at " + here().town.name
 			if off_shift():
-				return "Alongside at %s, crew off · first sailing %s" % [here().island.name, Timetable.text(due_at)]
+				return "Alongside at %s, crew off · first sailing %s" % [here().town.name, Timetable.text(due_at)]
 			if sim.abs_minutes() < due_at - MAX_DWELL:
-				return "Alongside at %s · sails %s" % [here().island.name, Timetable.text(due_at)]
-			return "Boarding at %s · sails %s" % [here().island.name, Timetable.text(due_at)]
-	var text := "En route to %s (%d min)" % [destination().island.name, ceili(eta_minutes())]
+				return "Alongside at %s · sails %s" % [here().town.name, Timetable.text(due_at)]
+			return "Boarding at %s · sails %s" % [here().town.name, Timetable.text(due_at)]
+	var text := "En route to %s (%d min)" % [destination().town.name, ceili(eta_minutes())]
 	if late_by >= 2.0:
 		text += " · %d min late" % roundi(late_by)
 	return text
@@ -1789,16 +1789,16 @@ const SHIFT_CLEAR := 450.0
 ## Whether either end of her route has a tie-up slip she fits.
 func can_lay_up() -> bool:
 	for term: Terminal in [term_a, term_b]:
-		for i in term.island.tie_ups():
-			if term.island.slips[i].fits(fc.size):
+		for i in term.town.tie_ups():
+			if term.town.slips[i].fits(fc.size):
 				return true
 	return false
 
 
 ## A tie-up slip at `term` she fits and no other boat holds (-1 if none).
 func free_tie_up(term: Terminal) -> int:
-	for i in term.island.tie_ups():
-		if not term.island.slips[i].fits(fc.size) or term.tie_up_closed(i):
+	for i in term.town.tie_ups():
+		if not term.town.slips[i].fits(fc.size) or term.tie_up_closed(i):
 			continue
 		var taken := false
 		for f in sim.ferries:
@@ -1857,7 +1857,7 @@ func start_tied_up(term: Terminal) -> bool:
 
 ## Where her hull lies at slip `i` of the terminal she is at (y = 0).
 func _tie_up_point(i: int) -> Vector3:
-	var isl := here().island
+	var isl := here().town
 	var p := route_point(_dock_s())
 	p.y = 0.0
 	return p + isl.lateral() * (isl.slip_offset(i) - isl.slip_offset(isl.slip_index(route.id)))
@@ -1866,7 +1866,7 @@ func _tie_up_point(i: int) -> Vector3:
 ## Out from the slip, along the shore and in again, keeping her heading (she is
 ## double-ended and the slips lie side by side).
 func _shift_path(from: Vector3, to: Vector3) -> PackedVector3Array:
-	var out := here().island.dock_dir * SHIFT_OUT
+	var out := here().town.dock_dir * SHIFT_OUT
 	var path := PackedVector3Array([from])
 	for k in range(1, 9):
 		path.append(from + out * sin(k / 8.0 * PI * 0.5))
@@ -1882,7 +1882,7 @@ func _shift_path(from: Vector3, to: Vector3) -> PackedVector3Array:
 ## her working slip, so moving between slips now would put her in its way.
 func _shift_blocked(into_working: bool) -> bool:
 	var term := here()
-	var mine := term.island.slip_index(route.id)
+	var mine := term.town.slip_index(route.id)
 	for f in sim.ferries:
 		if f == self:
 			continue
@@ -1892,7 +1892,7 @@ func _shift_blocked(into_working: bool) -> bool:
 			var near := f.path_left() if f.destination() == term else (f.traveled if f.here() == term else INF)
 			if near < SHIFT_CLEAR:
 				return true
-		elif into_working and f.berth == Berth.WORKING and f.here() == term and term.island.slip_index(f.route.id) == mine:
+		elif into_working and f.berth == Berth.WORKING and f.here() == term and term.town.slip_index(f.route.id) == mine:
 			return true
 	if into_working:
 		for run in _corridor_runs():
@@ -1924,7 +1924,7 @@ func _tick_berth(delta: float) -> void:
 						for e in run[2]:
 							if e[1].owner == null:
 								e[1].owner = self
-				var working := _tie_up_point(here().island.slip_index(route.id))
+				var working := _tie_up_point(here().town.slip_index(route.id))
 				_shift = _shift_path(global_position, working)
 				_shift_s = 0.0
 			return
@@ -1961,7 +1961,7 @@ func _tick_berth(delta: float) -> void:
 
 ## Length of the way between her working slip and slip `i` at the terminal she is at.
 func _shift_length(i: int) -> float:
-	var path := _shift_path(_tie_up_point(i), _tie_up_point(here().island.slip_index(route.id)))
+	var path := _shift_path(_tie_up_point(i), _tie_up_point(here().town.slip_index(route.id)))
 	var length := 0.0
 	for k in range(1, path.size()):
 		length += path[k].distance_to(path[k - 1])
