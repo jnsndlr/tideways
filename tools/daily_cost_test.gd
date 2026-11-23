@@ -81,8 +81,9 @@ func _process(_delta: float) -> bool:
 		var fuel := _fuel(hiyu) - _fuel0
 		var crew := _crew(hiyu) - _crew0
 		print("Actual at %s: fuel $%.2f, crew $%.2f" % [sim.clock_text(), fuel, crew])
-		if absf(fuel - _plan.fuel) > _plan.fuel * 0.02:
-			return _fail("Fuel $%.2f is off the projected $%.2f" % [fuel, _plan.fuel])
+		var expected_fuel: float = _plan.fuel - _plan.morning_fuel
+		if absf(fuel - expected_fuel) > expected_fuel * 0.02:
+			return _fail("Fuel $%.2f is off the projected $%.2f" % [fuel, expected_fuel])
 		# (She started the day at her slip, not brought back from the tie-up overnight.)
 		var expect: float = _plan.crew - _plan.morning_crew
 		if absf(crew - expect) > expect * 0.01:

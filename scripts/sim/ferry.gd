@@ -1717,27 +1717,28 @@ func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
 	# Overnight at a tie-up (GAP_TIE_UP): her crew move her over after the last
 	# sailing, and come on early enough to bring her back before the first.
-	var night := _overnight_shift(ids, times, o)
+	var distance := _overnight_distance(ids, times, o)
+	var night := shift_minutes(distance, p)
+	var move_fuel := _shift_fuel(distance, p)
 	var morning := maxf(0.0, MAX_DWELL + GAP_MARGIN + night - CREW_CALL) if night > 0.0 else 0.0
 	span += night + morning
 	var hours := minf(span, Timetable.DAY) / 60.0
-	return {"fuel": round_fuel(ids, p) * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
+	return {"fuel": round_fuel(ids, p) * times.size() + 2.0 * move_fuel, "morning_fuel": move_fuel, "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
 			"morning_crew": morning / 60.0 * crew_per_hour()}
 
 
-## Minutes moving to the tie-up at her first stop after the day's last sailing,
+## Metres moving to the tie-up at her first stop after the day's last sailing,
 ## if the night is long enough to lie there (GAP_TIE_UP) and one is free; 0 if not.
-func _overnight_shift(ids: Array[int], times: Array[int], o: Array[float]) -> float:
+func _overnight_distance(ids: Array[int], times: Array[int], o: Array[float]) -> float:
 	if not sim.terminals.has(ids[0]):
 		return 0.0
 	var term: Terminal = sim.terminals[ids[0]]
 	var tie := free_tie_up(term)
 	if tie < 0 or Timetable.DAY - float(times.max() - times.min()) - shift_tail(o) < GAP_TIE_UP:
 		return 0.0
-	var r := sim.route_between(ids[0], ids[1 % ids.size()])
+	var r := sim.route_between(ids[0], ids[1])
 	var town := term.town
-	return shift_minutes(SlipShiftPath.estimated_length(absf(town.slip_offset(tie) - town.slip_offset(town.slip_index(r.id)))))
-
+	return _move_length(town.berth_center(tie), town.berth_center(town.slip_index(r.id)), town)
 
 
 ## daily_cost of the timetable she runs now (or is taking at her next call).
@@ -2183,6 +2184,10 @@ func _shift_length(i: int) -> float:
 	var town := here().town
 	var from := _tie_up_point(i)
 	var to := _tie_up_point(town.slip_index(route.id))
+	return _move_length(from, to, town)
+
+
+func _move_length(from: Vector3, to: Vector3, town: MapData.Town) -> float:
 	# Parallel slips produce the same path length for the same separation and
 	# hull length. Reuse it while waiting instead of rebuilding each frame.
 	var apart := from.distance_to(to)
@@ -2194,10 +2199,10 @@ func _shift_length(i: int) -> float:
 
 
 ## Game minutes to move `length` metres between slips at her pace (as _follow_shift does).
-func shift_minutes(length: float) -> float:
+func shift_minutes(length: float, p := pace) -> float:
 	# Roughly: half the way astern and half ahead, each leg gathering way from a
 	# stop and losing it again (_follow_shift).
-	var c := cruise_speed()
+	var c := next_captain.cruise(paced_cruise(p))
 	var acc := c * SHIFT_ACCEL
 	var t := 0.0
 	for top: float in [c * SHIFT_ASTERN, c * SHIFT_PACE]:
@@ -2205,6 +2210,20 @@ func shift_minutes(length: float) -> float:
 		var ramp: float = top * top / acc   # gathering way and losing it again
 		t += 2.0 * top / acc + (leg - ramp) / top if leg > ramp else 2.0 * sqrt(leg / acc)
 	return t
+
+
+## Fuel for backing out and coming ahead. Each leg accelerates and brakes:
+## burn per metre scales with speed squared, linearly with distance on each ramp.
+func _shift_fuel(length: float, p: int) -> float:
+	var cruise_at_pace := next_captain.cruise(paced_cruise(p))
+	var acceleration := cruise_at_pace * SHIFT_ACCEL
+	var leg := length * 0.5
+	var cost := 0.0
+	for fraction: float in [SHIFT_ASTERN, SHIFT_PACE]:
+		var top := minf(cruise_at_pace * fraction, sqrt(acceleration * leg))
+		var ramps := top * top / acceleration
+		cost += FUEL_PRICE * burn_at(top) * (leg - 0.5 * ramps) / METRES_PER_NM
+	return cost
 
 
 ## Moves her along `_shift`, gathering way and slowing to each stop (the start,
