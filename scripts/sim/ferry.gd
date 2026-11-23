@@ -1992,12 +1992,16 @@ func _shift_blocked(into_working: bool) -> bool:
 	for f in sim.ferries:
 		if f == self:
 			continue
-		# Its next call is the working slip she'd take (sailing there, or still
-		# alongside at the far end): that water is its, so wait for it to call and
-		# leave rather than meet it there.
+		# Its next call is the working slip she'd take (sailing there, or leaving
+		# the far end shortly): that water is its, so wait for it to call and
+		# leave rather than meet it there. A timed boat sitting alongside for a
+		# later sailing hours away doesn't hold the slip.
 		if into_working and f.berth == Berth.WORKING and f.destination() == term \
 				and term.town.slip_index(f.route.id) == mine:
-			return true
+			var f_due := f.due()
+			if f.state == State.SAILING or f_due < 0.0 \
+					or f_due - sim.abs_minutes() < MAX_DWELL + shift_minutes(_shift_length(tie_up)):
+				return true
 		if f.state == State.SAILING:
 			if f._waiting_for == self and f.speed < 0.5:
 				continue   # holding off for the water she has; she is leaving it
