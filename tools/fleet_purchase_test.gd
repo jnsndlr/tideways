@@ -78,6 +78,9 @@ func _process(_delta: float) -> bool:
 			var spare := rosario.town.slips.size()
 			rosario.town.slips.append(MapData.Slip.new(1))
 			var offer := sim.delivery_slip(1)
+			rosario.town.slips[-1].building = true
+			if sim.delivery_slip(1) == [rosario, spare]:
+				return _fail("Offered a berth still under construction")
 			rosario.town.slips.pop_back()
 			if offer != [rosario, spare]:
 				return _fail("Delivery skipped the available working slip without an assigned route")
@@ -104,6 +107,15 @@ func _process(_delta: float) -> bool:
 					return _fail("%s isn't lying where she was brought" % f.ferry_name)
 			if sim.occupant(gullrock, second.tie_up, null) != second:
 				return _fail("Gullrock's slip isn't held by the boat lying in it")
+			# The arrival planner also sees the laid-up boat. A free second
+			# working berth must allow a caller through.
+			var alternate := gullrock.town.slips.size()
+			gullrock.town.slips.append(MapData.Slip.new(1))
+			var selected := gullrock.arrival_slip(second.tie_up, boat.fc.size,
+				func(i: int): return gullrock.slip_user(i, boat) != null)
+			gullrock.town.slips.pop_back()
+			if selected != alternate:
+				return _fail("Arriving ferry would use the berth occupied by a delivered boat")
 			var stops: Array[int] = [rosario.town.id, madrona.town.id]
 			var why := sim.stops_problem(boat, stops)
 			if why != "" or not sim.reschedule(boat, stops):
