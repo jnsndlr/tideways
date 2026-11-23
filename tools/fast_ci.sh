@@ -15,6 +15,12 @@ check() {
     { gsub(/\033\[[0-9;]*m/, ""); sub(/\r$/, "") }
     /^TEST PASSED$/ { completed = 1 }
     /^[[:space:]]*WARNING: .*ObjectDB instances? .*leaked at exit/ { failed = 1 }
+    # This test deliberately loads a scene whose external dependency is missing.
+    phase == "region-load-recovery" {
+      if ($0 ~ /^ERROR: Cannot open file \047user:\/\/region_part_[0-9]+\.tscn\047\.$/ ||
+          $0 ~ /^ERROR: Failed loading resource: user:\/\/region_(part|retry)_[0-9]+\.tscn\.$/ ||
+          $0 ~ /^ERROR: user:\/\/region_retry_[0-9]+\.tscn:3 - Parse Error: \[ext_resource\] referenced non-existent resource at: user:\/\/region_part_[0-9]+\.tscn\.$/) next
+    }
     /^[[:space:]]*(SCRIPT ERROR|ERROR):/ { failed = 1 }
     END {
       if (expected == "test" && !completed) {
@@ -70,9 +76,11 @@ check eagle-departure test --script tools/eagle_departure_test.gd
 check shared-forecourt test --script tools/shared_forecourt_test.gd
 check refit-crane test --script tools/refit_crane_test.gd
 check model-parts test --script tools/model_parts_test.gd
+check slip-guide-mesh test --script tools/slip_guide_mesh_test.gd
 check lane-redistribution test --script tools/lane_redistribution_test.gd -- --scenario=lane_sharing
 check opening-scenario test --script tools/opening_scenario_test.gd
 check full-network-opening test --script tools/opening_scenario_test.gd -- --full-network
+check region-load-recovery test --fixed-fps 30 --script tools/region_load_recovery_test.gd
 check opening-economy-ui test --fixed-fps 30 --script tools/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
@@ -82,4 +90,9 @@ check holding-lane test --fixed-fps 30 --script tools/holding_lane_test.gd -- --
 check wake-bounds test --script tools/wake_bounds_test.gd
 check frame-budget test --fixed-fps 30 --script tools/frame_budget_test.gd -- --seed=123
 check vehicle-journey test --fixed-fps 30 --script tools/vehicle_journey_test.gd -- --seed=123
+check simulation-shutdown test --fixed-fps 30 --script tools/simulation_shutdown_test.gd
+check marine-shutdown test --fixed-fps 30 --script tools/marine_shutdown_test.gd
+check backdrop-shutdown test --fixed-fps 30 --script tools/backdrop_shutdown_test.gd
+check world-build-shutdown test --fixed-fps 30 --script tools/world_build_shutdown_test.gd
+check generation-shutdown test --fixed-fps 30 --script tools/generation_shutdown_test.gd
 check leaving-sandbox test --fixed-fps 30 --script tools/scene_cycle_test.gd

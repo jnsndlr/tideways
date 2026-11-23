@@ -37,10 +37,10 @@ var place := ""                # "in a cove on Fox Island"
 
 
 ## Finds the map's coves. Deterministic for a map (no RNG).
-static func find_all(t: MarineTraffic) -> Array[Anchorage]:
-	var map := t.sim.map
-	var terrain := t.sim.terrain
-	var nav := t.nav
+static func find_all(charts: MarineCharts) -> Array[Anchorage]:
+	var map := charts.map
+	var terrain := charts.terrain
+	var nav := charts.nav
 	var hs := map.half_size
 	# A coarse land mask to march the rays over.
 	var n := ceili(hs * 2.0 / STEP) + 1
@@ -49,6 +49,8 @@ static func find_all(t: MarineTraffic) -> Array[Anchorage]:
 	var depth := PackedFloat32Array()
 	depth.resize(n * n)
 	for j in n:
+		if charts.cancelled():
+			return []
 		for i in n:
 			var h := terrain.height_at(-hs + i * STEP, -hs + j * STEP)
 			depth[j * n + i] = h
@@ -63,7 +65,7 @@ static func find_all(t: MarineTraffic) -> Array[Anchorage]:
 		for v: float in [-Layout.QUAY_RUN, 0.0, Layout.QUAY_RUN]:
 			var a := q.at(Layout.QUAY_LANE_U, v)
 			avoid.append(Vector2(a.x, a.z))
-	for g in t.grounds:
+	for g in charts.grounds:
 		avoid.append(g.center)
 	var seals: Array[Vector2] = []
 	for h in map.haul_outs:
@@ -80,6 +82,8 @@ static func find_all(t: MarineTraffic) -> Array[Anchorage]:
 	var cands: Array = []
 	var near_cells := ceili(NEAR_LAND / STEP)
 	for j in range(2, n - 2):
+		if charts.cancelled():
+			return []
 		for i in range(2, n - 2):
 			var h := depth[j * n + i]
 			if h < DEPTH.x or h > DEPTH.y:
@@ -100,8 +104,10 @@ static func find_all(t: MarineTraffic) -> Array[Anchorage]:
 			cands.append([sh, p])
 	cands.sort_custom(func(a: Array, b: Array): return a[0] > b[0])
 	var out: Array[Anchorage] = []
-	var reach_from := _reach_from(t)
+	var reach_from := _reach_from(charts)
 	for c: Array in cands:
+		if charts.cancelled():
+			return []
 		if out.size() >= COUNT:
 			break
 		var p: Vector2 = c[1]
@@ -156,8 +162,8 @@ func free_spots() -> int:
 
 ## Somewhere every small boat can get to (a marina's approach), to check a cove
 ## is reachable from the rest of the water.
-static func _reach_from(t: MarineTraffic) -> Vector2:
-	for m in t.sim.map.marinas:
+static func _reach_from(charts: MarineCharts) -> Vector2:
+	for m in charts.map.marinas:
 		var a := m.at(Layout.MARINA_APPROACH_U + 30.0, 0.0)
 		return Vector2(a.x, a.z)
 	return Vector2.INF
