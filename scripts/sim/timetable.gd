@@ -1,10 +1,49 @@
 class_name Timetable
+extends RefCounted
 ## A boat's timetable (stage 4): the minutes after midnight she leaves her first
 ## stop, sorted. Each departure is one round of her stops; the times at her other
 ## stops follow from the leg and dwell times (Ferry.plan_offsets). Empty: she
 ## sails as fast as loading allows.
 
 const DAY := 1440
+
+var departures: Array[int] = []
+var last_departure := -1.0
+var _round_start := -1.0
+
+
+func replace(times: Array[int]) -> void:
+	departures = times.duplicate()
+	departures.sort()
+	last_departure = -1.0
+	_round_start = -1.0
+
+
+## A fresh schedule may run a recently missed round late. Once underway, run
+## every round in order, even when the boat is more than one sailing behind.
+func first_stop_due(now: float, grace: float) -> float:
+	if departures.is_empty():
+		return -1.0
+	if _round_start > last_departure:
+		return _round_start
+	var after := last_departure if last_departure >= 0.0 else now - grace
+	var midnight := floori(maxf(after, 0.0) / DAY) * DAY
+	for departure in departures:
+		if midnight + departure > after:
+			_round_start = midnight + departure
+			return _round_start
+	_round_start = midnight + DAY + departures[0]
+	return _round_start
+
+
+func leave_first_stop() -> void:
+	last_departure = _round_start
+
+
+func call_due(call_index: int, offsets: Array[float]) -> float:
+	if _round_start < 0.0 or call_index < 0 or call_index >= offsets.size():
+		return -1.0
+	return _round_start + offsets[call_index]
 
 
 ## Which departures come too soon after the one before (wrapping from the day
