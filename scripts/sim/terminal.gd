@@ -92,12 +92,16 @@ func buy_holding_lane() -> bool:
 	if sim.available_cash < island.lane_extension_price:
 		return false
 	sim.ledger.spend("purchases", island.lane_extension_price)
+	_start_lane_work()
+	return true
+
+
+func _start_lane_work() -> void:
 	if site_lanes.is_empty():
 		for i in island.construction_staging_lanes:
 			staging_lanes.append(lanes[lane_keys()[0]][i])
 	build_remaining = BUILD_MINUTES
 	_set_work_stage(WorkStage.DRAINING)
-	return true
 
 
 func _set_work_stage(stage: WorkStage) -> void:
@@ -132,17 +136,54 @@ func _advance_construction(delta: float) -> void:
 		return
 	build_remaining = maxf(0.0, build_remaining - delta)
 	if build_remaining == 0.0:
-		extra_lane = Lane.new(extension_offset())
-		paved.append(extra_lane.v)
-		if not site_lanes.is_empty():
-			site_lanes.pop_front()
-		lanes[lane_keys()[0]].append(extra_lane)
-		staging_lanes.clear()
-		_set_work_stage(WorkStage.OPEN)
+		_open_lane()
 	elif build_remaining <= DEPARTURE_MINUTES and work_stage != WorkStage.LEAVING:
 		_set_work_stage(WorkStage.LEAVING)
 	elif build_remaining <= BUILD_MINUTES - ARRIVAL_MINUTES and work_stage == WorkStage.ARRIVING:
 		_set_work_stage(WorkStage.PAVING)
+
+
+func _open_lane() -> void:
+	extra_lane = Lane.new(extension_offset())
+	paved.append(extra_lane.v)
+	if not site_lanes.is_empty():
+		site_lanes.pop_front()
+	lanes[lane_keys()[0]].append(extra_lane)
+	staging_lanes.clear()
+	_set_work_stage(WorkStage.OPEN)
+
+
+## Construction survives a region rebuild without retaining nodes from the old scene.
+class Works:
+	var opened: int
+	var lane_stage: WorkStage
+	var lane_minutes: float
+	var slip: int
+	var slip_stage: RefitStage
+	var slip_minutes: float
+
+	func _init(t: Terminal) -> void:
+		opened = t.paved.size()
+		lane_stage = t.work_stage
+		lane_minutes = t.build_remaining
+		slip = t.refit_slip
+		slip_stage = t.refit_stage
+		slip_minutes = t.refit_remaining
+
+	func resume(t: Terminal) -> void:
+		for i in opened:
+			t._open_lane()
+		if lane_stage not in [WorkStage.IDLE, WorkStage.OPEN]:
+			t._start_lane_work()
+			t.build_remaining = lane_minutes
+			if lane_stage != WorkStage.DRAINING:
+				t._set_work_stage(WorkStage.ARRIVING)
+				if lane_stage != WorkStage.ARRIVING:
+					t._set_work_stage(lane_stage)
+		if slip_stage != RefitStage.NONE:
+			t.refit_slip = slip
+			t.refit_remaining = slip_minutes
+			t._set_refit_stage(slip_stage)
 
 
 # --- Refitting a slip ---------------------------------------------------------------

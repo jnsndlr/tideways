@@ -22,8 +22,7 @@ func _initialize() -> void:
 	_check(not mission.late(sim) and mission.day_of(sim) == mission.days, "Deadline should include its final day after a rebuild.")
 	sim.day += 1
 	_check(mission.late(sim), "The day after the deadline should be late.")
-	mission.carried_before = 240
-	sim.ledger.cars_total = 10
+	sim.ledger.cars_total = 250
 	sim.ledger.cash = 60000
 	var terminal := Terminal.new()
 	terminal.island = island

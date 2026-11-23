@@ -19,7 +19,8 @@ static var _carry := {}
 ## The company carried across a rebuild after buying a dock site: its scenario
 ## (terminals, schedules, cash after the purchase) and the clock.
 static var _company: Scenario
-static var _clock := []
+const DockRebuild := preload("res://scripts/sim/dock_rebuild.gd")
+static var _progress: DockRebuild
 ## Dock sites bought in play, "<island key>" -> site index (keys the route cache).
 static var _bought := {}
 ## Pins on the shown island's locked dock sites.
@@ -36,7 +37,7 @@ var editor: IslandEditor
 static func start_session(path: String) -> void:
 	scenario_path = path
 	_company = null
-	_clock.clear()
+	_progress = null
 	_bought.clear()
 	_carry.clear()
 	_plan = "opening"
@@ -96,10 +97,9 @@ func _ready() -> void:
 				rig.snap()
 				break
 	_carry.clear()
-	if not _clock.is_empty():
-		sim.day = _clock[0]
-		sim.minutes = _clock[1]
-		_clock = []
+	if _progress:
+		_progress.resume(sim)
+		_progress = null
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
 	if scenario and scenario.mission:
@@ -119,22 +119,21 @@ func buy_dock(isl: MapData.Island, k: int) -> void:
 	if sim.available_cash < price:
 		return
 	var sc := sim.scenario
-	sc.cash = sim.available_cash - price
+	sim.ledger.spend("purchases", price)
+	sc.cash = sim.available_cash
 	sc.terminals.append(isl.key)
 	sc.docks[isl.key] = k
 	sc.slips[isl.key] = [1]
 	sc.tie_ups[isl.key] = []
 	sc.lanes[isl.key] = 2
 	_bought[isl.key] = k
-	if sc.mission:
-		sc.mission.carried_before = sc.mission.carried(sim)
 	_company = sc
-	_clock = [sim.day, sim.minutes]
 	hud.show_toast("NEW TERMINAL", "Building %s's terminal at site %d. Planning its routes…" % [isl.name, k + 1], 4.0)
 	var tree := get_tree()
 	await tree.process_frame
 	await tree.process_frame
 	if is_inside_tree() and tree.current_scene == self:
+		_progress = DockRebuild.new(sim)
 		rebuild()
 
 

@@ -9,7 +9,8 @@ extends SceneTree
 
 var frames := 0
 var _bought := false
-var _cash_before := 0.0
+var _opening_balance := 0.0
+var _prior_purchases := 0.0
 var _price := 0
 var _day := 0
 
@@ -35,6 +36,8 @@ func _island(map: MapData, nm: String) -> MapData.Island:
 
 func _process(_delta: float) -> bool:
 	frames += 1
+	if frames > 30000:
+		return _fail("Timed out waiting for the purchased dock to open")
 	var main = current_scene
 	if main == null or main.get("sim") == null or not main.built:
 		return false
@@ -55,11 +58,23 @@ func _process(_delta: float) -> bool:
 		var cypress := _island(map, "Cypress Island")
 		if cypress.has_terminal or cypress.dock_sites.is_empty():
 			return _fail("Expected Cypress Island to start with a locked site and no terminal")
+		var port: Terminal = sim.terminals[_island(map, "Port Rosario").id]
+		if not port.buy_holding_lane():
+			return _fail("Could not start a lane before buying the new dock")
+		port._advance_construction(1.0)
+		port._advance_construction(Terminal.BUILD_MINUTES)
+		if port.paved.size() != 1 or not port.buy_holding_lane():
+			return _fail("Could not queue the next paid lane after paving the first")
+		if not port.buy_refit(0):
+			return _fail("Could not order a slip refit before buying the site")
+		sim.ferries[0].set_pace(0)
+		sim.ledger.credit_flat(false)
 		_price = cypress.dock_sites[0].price()
-		_cash_before = sim.available_cash
+		_opening_balance = sim.available_cash - CompanyLedger.net(sim.ledger.today)
+		_prior_purchases = sim.ledger.today["purchases"]
 		_day = sim.day
 		print("Opening: %d terminals, %d routes; buying Cypress site 1 for $%d of $%d" % [
-			sim.terminals.size(), map.routes.size(), _price, int(_cash_before)])
+			sim.terminals.size(), map.routes.size(), _price, int(sim.available_cash)])
 		_bought = true
 		main.buy_dock(cypress, 0)
 		return false
@@ -73,10 +88,19 @@ func _process(_delta: float) -> bool:
 	var off := Vector2(cypress.shore.x, cypress.shore.z).distance_to(spec.dock_at(spec.docks[0]))
 	if off > 0.01:
 		return _fail("Cypress's new terminal is %.2f m off its site" % off)
-	if absf(sim.available_cash - (_cash_before - _price)) > 1.0:
-		return _fail("Cash %.0f after buying, expected %.0f" % [sim.available_cash, _cash_before - _price])
+	if not is_equal_approx(sim.available_cash, _opening_balance + CompanyLedger.net(sim.ledger.today)):
+		return _fail("Cash after buying does not reconcile to the day’s opening balance and transactions")
 	if sim.day != _day:
 		return _fail("The clock didn't carry over")
+	var rebuilt_port: Terminal = sim.terminals[_island(map, "Port Rosario").id]
+	if rebuilt_port.paved.size() != 1 or rebuilt_port.work_stage in [Terminal.WorkStage.IDLE, Terminal.WorkStage.OPEN]:
+		return _fail("Dock purchase discarded the paid lane construction at Port Rosario")
+	if rebuilt_port.refit_stage == Terminal.RefitStage.NONE or rebuilt_port.refit_slip != 0:
+		return _fail("Dock purchase discarded a paid slip refit")
+	if sim.ledger.cars_total < 1 or sim.ledger.today["purchases"] != _prior_purchases + _price:
+		return _fail("Dock rebuild lost fare history or charged the wrong purchase total")
+	if sim.ferries[0].pace != 0:
+		return _fail("Dock rebuild reset the assigned pace")
 	var routes := map.routes.filter(func(r): return r.a == cypress.id or r.b == cypress.id).size()
 	if routes == 0:
 		return _fail("No candidate routes from the new terminal")

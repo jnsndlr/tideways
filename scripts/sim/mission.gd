@@ -18,9 +18,6 @@ var title := ""
 var brief := ""
 var days := 0                  # 0: no limit
 var goals: Array[Dictionary] = []
-## Vehicles carried before the map was last rebuilt (buying a dock site resets
-## the ledger's count with the scene).
-var carried_before := 0
 var start_day := -1
 
 
@@ -63,7 +60,7 @@ func late(sim: Simulation) -> bool:
 
 
 func carried(sim: Simulation) -> int:
-	return carried_before + sim.ledger.cars_total
+	return sim.ledger.cars_total
 
 
 static func _terminal_at(sim: Simulation, key: String) -> bool:
