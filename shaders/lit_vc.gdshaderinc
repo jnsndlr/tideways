@@ -95,6 +95,13 @@ vec3 srgb_to_linear(vec3 c) {
 	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThan(c, vec3(0.04045)));
 }
 
+#ifdef ROAD
+#include "res://shaders/ground_detail.gdshaderinc"
+#include "res://shaders/road_detail.gdshaderinc"
+// How glossy the road is under the sun (road_detail): wet asphalt and puddles.
+varying float road_gloss;
+#endif
+
 float hash13(vec3 p) {
 	p = fract(p * 0.1031);
 	p += dot(p, p.zyx + 31.32);
@@ -174,8 +181,20 @@ void fragment() {
 		NORMAL = normalize(NORMAL + (VIEW_MATRIX * vec4(dn, 0.0)).xyz);
 	}
 #endif
-#ifndef NET
-	// (A net's alpha is its give in the wind, not glass.)
+#ifdef ROAD
+	{
+		float mpp = length(fwidth(world_pos)) * 0.7;
+		float rough;
+		float gloss;
+		vec3 glow;
+		road_detail(world_pos, UV, UV2, fwidth(UV), mpp, ALBEDO, rough, gloss, glow);
+		ROUGHNESS = rough;
+		road_gloss = gloss;
+		EMISSION = glow;
+	}
+#endif
+#if !defined(NET) && !defined(ROAD)
+	// (A net's alpha is its give in the wind, not glass; a road's has no glass.)
 	if (COLOR.a < 0.99 && night_lights > 0.0) {
 		float h = hash13(room_key);
 		// Always-lit glass comes on with the first lights; rooms one by one after.
@@ -216,4 +235,13 @@ void light() {
 		shade = 1.0 - cloud_shadow(world_pos, cloud_time);
 	}
 	DIFFUSE_LIGHT += clamp(dot(NORMAL, LIGHT), 0.0, 1.0) * ATTENUATION * LIGHT_COLOR / PI * shade;
+#ifdef ROAD
+	// Wet roads catch the sun (and the low sun most, down the road towards it).
+	if (road_gloss > 0.0) {
+		vec3 hv = normalize(VIEW + LIGHT);
+		float power = mix(24.0, 600.0, clamp(1.0 - ROUGHNESS * 2.0, 0.0, 1.0));
+		float spec = pow(clamp(dot(NORMAL, hv), 0.0, 1.0), power) * (power + 8.0) / (8.0 * PI);
+		SPECULAR_LIGHT += spec * road_gloss * 0.25 * clamp(dot(NORMAL, LIGHT), 0.0, 1.0) * ATTENUATION * LIGHT_COLOR * shade;
+	}
+#endif
 }

@@ -373,10 +373,49 @@ func _build_road_paths() -> void:
 			for j in to_lot.size():
 				var inland := (entrance - to_lot[j]).dot(town.dock_dir)
 				ticket_path[b.size() + j] += town.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
-			_inbound.append(ticket_path)
+			_inbound.append(simplify(ticket_path, ROAD_TOLERANCE))
 		var outbound := town.road_main_a.duplicate()
 		outbound.append_array(b)
-		_outbound.append(_keep_right(outbound))
+		_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
+
+
+## How far a driven road path may stray from the road's points every couple of
+## metres: few enough points that Vehicle rounds the town's corners, enough that
+## cars keep to the road's rise and fall.
+const ROAD_TOLERANCE := 0.06
+
+
+## Douglas-Peucker: the fewest of `pts` (ends kept) that stay within `tol` of the rest.
+static func simplify(pts: PackedVector3Array, tol: float) -> PackedVector3Array:
+	if pts.size() < 3:
+		return pts
+	var keep := PackedByteArray()
+	keep.resize(pts.size())
+	keep[0] = 1
+	keep[pts.size() - 1] = 1
+	var stack: Array[Vector2i] = [Vector2i(0, pts.size() - 1)]
+	while not stack.is_empty():
+		var span: Vector2i = stack.pop_back()
+		var a := pts[span.x]
+		var ab := pts[span.y] - a
+		var len2 := maxf(ab.length_squared(), 1e-9)
+		var worst := -1
+		var far := tol
+		for i in range(span.x + 1, span.y):
+			var t := clampf((pts[i] - a).dot(ab) / len2, 0.0, 1.0)
+			var d := pts[i].distance_to(a + ab * t)
+			if d > far:
+				far = d
+				worst = i
+		if worst >= 0:
+			keep[worst] = 1
+			stack.append(Vector2i(span.x, worst))
+			stack.append(Vector2i(worst, span.y))
+	var out := PackedVector3Array()
+	for i in pts.size():
+		if keep[i]:
+			out.append(pts[i])
+	return out
 
 
 ## Offsets a centre-line path onto the right-hand lane.
@@ -392,8 +431,27 @@ static func _keep_right(pts: PackedVector3Array) -> PackedVector3Array:
 	return out
 
 
+## A point on the lot (Layout's lot coordinates, in the lot's raised, set-back frame).
 func _local(v: float, u: float) -> Vector3:
-	return to_global(Vector3(v, Layout.LOT_Y, u))
+	return to_global(town.lot_offset() * Vector3(v, Layout.LOT_Y, u))
+
+
+func lot_point(v: float, u: float) -> Vector3:
+	return _local(v, u)
+
+
+## Down the trestle at `v` (terminal frame) from the lot's edge to the span's hinge,
+## every few metres on the road's profile (reversed: back up it).
+func _approach(v: float, reverse := false) -> PackedVector3Array:
+	var pts := PackedVector3Array()
+	var u0 := town.lot_front_u()
+	var steps := maxi(1, ceili((SlipRamp.HINGE_U - u0) / 4.0))
+	for k in range(1, steps + 1):
+		var u := lerpf(u0, SlipRamp.HINGE_U, float(k) / steps)
+		pts.append(to_global(Vector3(v, town.road_y(u), u)))
+	if reverse:
+		pts.reverse()
+	return pts
 
 
 ## Where `car` waits with `ahead` slots taken in front of it: the middle of its slots,
@@ -692,14 +750,14 @@ func boarding_path(car: Vehicle, rid: int) -> PackedVector3Array:
 	var path := PackedVector3Array([
 		_local(car.lane_v, Layout.LANE_HEAD + 6.0),
 		_local(entrance, Layout.LOT_FRONT + 1.5),
-		_local(entrance, SlipRamp.HINGE_U),
 	])
+	path.append_array(_approach(entrance))
 	if ramps.has(rid):
 		# Up the span to its tip, a little above the ferry's deck (the apron slopes down onto it).
 		var ramp: SlipRamp = ramps[rid]
 		path.append(to_global(ramp.crossing(-3.0)[1]))
 	else:
-		path.append(_local(sv - 3.0, Layout.PIER_END))
+		path.append(to_global(Vector3(sv - 3.0, Layout.LOT_Y, Layout.PIER_END)))
 	return path
 
 
@@ -712,7 +770,8 @@ func exit_path(rid: int) -> PackedVector3Array:
 		path.append(to_global(over[1]))
 		path.append(to_global(over[0]))
 	else:
-		path.append(_local(sv + 3.0, Layout.PIER_END))
+		path.append(to_global(Vector3(sv + 3.0, Layout.LOT_Y, Layout.PIER_END)))
+	path.append_array(_approach(sv + 3.0, true))
 	path.append_array(PackedVector3Array([
 		_local(sv + 3.0, Layout.LOT_FRONT + 1.5),
 		_local(Layout.EXIT_V, Layout.LANE_HEAD + 6.0),

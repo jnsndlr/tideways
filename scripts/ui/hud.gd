@@ -778,7 +778,7 @@ func _buy_lane() -> void:
 		return
 	var terminal: Terminal = sim.terminals.get(selected_town.id)
 	if terminal and terminal.buy_holding_lane():
-		rig.focus_on(terminal.to_global(Vector3(terminal.extension_offset(), Layout.LOT_Y, -40)), 180.0)
+		rig.focus_on(terminal.lot_point(terminal.extension_offset(), -40), 180.0)
 		_refresh_panels()
 
 
