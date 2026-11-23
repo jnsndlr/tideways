@@ -723,7 +723,7 @@ func _slip_clash_text(f: Ferry) -> String:
 	var text := ""
 	var plan := SlipConflicts.plan_of(f)
 	if not plan.is_empty() and not plan.times.is_empty():
-		text = SlipConflicts.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
+		text = SlipConflictText.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
 	_clash_cache[f] = [now, text]
 	return text
 
@@ -906,6 +906,8 @@ func _refresh_panels() -> void:
 				rows.append(["Dock site", "None: no terminal can be built here"])
 			elif building >= 0.0:
 				rows.append(["Opens in", _hours_text(building)])
+			elif sim.dock_price(isl) <= 0:
+				rows.append(["Dock site", "No navigable ferry route reaches this site"])
 			else:
 				var price := sim.dock_price(isl)
 				var tier: Dictionary = MapLayout.DOCK_TIERS[island.dock_sites[isl.site].tier]

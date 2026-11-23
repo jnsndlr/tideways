@@ -2,6 +2,8 @@ extends "res://tools/ui_test_driver.gd"
 ## Exercise the real menu and ResourceLoader, including a failed dependency
 ## repaired in place. PID-specific fixtures keep concurrent runs independent.
 
+const MainMapScript := preload("res://scripts/main_map.gd")
+
 var fixture := "user://region_retry_%d.tscn" % OS.get_process_id()
 var dependency := "user://region_part_%d.tscn" % OS.get_process_id()
 var transitions := 0
@@ -51,11 +53,15 @@ func exercise() -> bool:
 		return fail("A stale region request replaced the menu")
 	if repaired.get_ref() != null:
 		return fail("Repaired scene was retained after returning to the menu")
+	# Simulate a previous company's editor state.
+	MainMapScript._carry["editor_open"] = true
 	if not await press("Play"):
 		return false
+	if not MainMapScript._carry.is_empty():
+		return fail("Play inherited the previous editor state")
 	# A second activation may already be queued before the overlay takes input.
 	for button: Button in current_scene.find_children("*", "Button", true, false):
-		if button.text == "Play":
+		if button.text in ["Play", "Mission sandbox"]:
 			button.pressed.emit()
 	var overlays := 0
 	for layer in root.get_children():
@@ -65,6 +71,8 @@ func exercise() -> bool:
 		return fail("Two Play requests created %d loading screens" % overlays)
 	if not await wait_for_destination(Scenes.MAIN_MAP) or transitions != 3 or not current_scene.built:
 		return fail("Double Play did not produce one playable session")
+	if current_scene.sim.ferries.size() != 1 or current_scene.sim.ferries[0].ferry_name != "Hiyu":
+		return fail("An ignored mission request changed the opening selected by Play")
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
 	# Exit while the fresh resource request is still owned by the overlay.
