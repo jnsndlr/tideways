@@ -19,8 +19,7 @@ func delivery_slip(size: int) -> Array:
 		return []
 	for term: Terminal in sim.terminals.values():
 		for i in term.town.tie_ups():
-			if term.town.slips[i].fits(size) and not term.tie_up_closed(i) and sim.occupant(term, i, null) == null \
-					and not _tow_bound(term, i) and _delivery_route(term) != null:
+			if term.town.slips[i].fits(size) and not term.tie_up_closed(i) and not berth_reserved(term, i) and _delivery_route(term) != null:
 				return [term, i]
 	for idle_only in [true, false]:
 		for term: Terminal in sim.terminals.values():
@@ -28,7 +27,7 @@ func delivery_slip(size: int) -> Array:
 			for j in town.slips.size():
 				if town.slips[j].tie_up or not town.slips[j].fits(size) or term.tie_up_closed(j):
 					continue
-				if sim.occupant(term, j, null) != null or _tow_bound(term, j) or _delivery_route(term) == null:
+				if berth_reserved(term, j) or _delivery_route(term) == null:
 					continue
 				if idle_only and Ferry.idle_slip(term, size) != j:
 					continue
@@ -36,10 +35,12 @@ func delivery_slip(size: int) -> Array:
 	return []
 
 
-## Whether a tow is already bringing a boat in to slip `slip` of `term`.
-func _tow_bound(term: Terminal, slip: int) -> bool:
+## Reserve inbound deliveries from purchase, and outbound sales until clear.
+func berth_reserved(term: Terminal, slip: int, except: Ferry = null) -> bool:
+	if sim.occupant(term, slip, except) != null:
+		return true
 	for t in sim.tows:
-		if not t.outbound and is_instance_valid(t.ferry) and t.ferry.here() == term and t.ferry.tie_up == slip:
+		if not t.outbound and is_instance_valid(t.ferry) and t.ferry != except and t.ferry.tow == t and t.ferry.here() == term and t.ferry.tie_up == slip:
 			return true
 	return false
 

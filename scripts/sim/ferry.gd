@@ -1902,11 +1902,7 @@ func free_tie_up(term: Terminal) -> int:
 	for i in term.town.tie_ups():
 		if not term.town.slips[i].fits(fc.size) or term.tie_up_closed(i):
 			continue
-		var taken := false
-		for f in sim.ferries:
-			if f != self and f.berth != Berth.WORKING and f.here() == term and f.tie_up == i:
-				taken = true
-		if not taken:
+		if not sim.fleet_market.berth_reserved(term, i, self):
 			return i
 	return -1
 

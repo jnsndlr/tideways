@@ -74,6 +74,13 @@ func _process(_delta: float) -> bool:
 				return _fail("Port Rosario's lanes changed for a boat with no stops")
 			_log(sim, "Bought %s for $%d, %.0f min out: %s" % [boat.ferry_name, price, boat.tow.minutes_left(), boat.status_text()])
 			sim.ledger.cash += price
+			# A newly built spare berth may have no route assigned to it.
+			var spare := rosario.town.slips.size()
+			rosario.town.slips.append(MapData.Slip.new(1))
+			var offer := sim.delivery_slip(1)
+			rosario.town.slips.pop_back()
+			if offer != [rosario, spare]:
+				return _fail("Delivery skipped the available working slip without an assigned route")
 			second = sim.buy_ferry(1)
 			if second == null or second.here() != gullrock or gullrock.town.slips[second.tie_up].tie_up:
 				return _fail("The second boat isn't bound for Gullrock's idle slip")
@@ -133,6 +140,8 @@ func _process(_delta: float) -> bool:
 					return _fail("A second sale was accepted for a ferry already under tow")
 				if not is_equal_approx(sim.available_cash, _cash + value) or sim.ledger.today["sales"] != value:
 					return _fail("The sale didn't credit $%d to sales" % value)
+				if not sim.fleet_market.berth_reserved(boat.here(), boat.tie_up):
+					return _fail("The berth of the departing sold ferry was offered again too soon")
 				if sim.tows.is_empty():
 					return _fail("No tug came for her")
 				_log(sim, "Sold for $%d: %s" % [value, boat.status_text()])
