@@ -55,6 +55,9 @@ func _process(_delta: float) -> bool:
 			if sim.purchase_problem(3) == "":
 				return _fail("A size 3 boat ($100,000) could be bought with $50,000")
 			_cash = sim.available_cash
+			for invalid_size in [0, FerryClass.MAX_SIZE + 1]:
+				if sim.buy_ferry(invalid_size) != null or sim.available_cash != _cash:
+					return _fail("Invalid ferry size changed the fleet or cash")
 			_bought_at = sim.abs_minutes()
 			var lanes_before := sim._lane_destinations(rosario)
 			boat = sim.buy_ferry(1)
@@ -126,7 +129,9 @@ func _process(_delta: float) -> bool:
 					return _fail("Couldn't sell her laid up")
 				if sim.ferries.size() != n - 1 or boat in sim.ferries:
 					return _fail("Still in the fleet after the sale")
-				if sim.available_cash < _cash + value - 0.01 or sim.ledger.today["sales"] < value:
+				if sim.sell_ferry(boat):
+					return _fail("A second sale was accepted for a ferry already under tow")
+				if not is_equal_approx(sim.available_cash, _cash + value) or sim.ledger.today["sales"] != value:
 					return _fail("The sale didn't credit $%d to sales" % value)
 				if sim.tows.is_empty():
 					return _fail("No tug came for her")

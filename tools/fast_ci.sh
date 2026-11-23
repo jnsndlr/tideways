@@ -79,6 +79,7 @@ check lane-redistribution test --script tools/lane_redistribution_test.gd -- --s
 check opening-scenario test --script tools/opening_scenario_test.gd
 check full-network-opening test --script tools/opening_scenario_test.gd -- --full-network
 check region-load-recovery test --fixed-fps 30 --script tools/region_load_recovery_test.gd
+check fleet-purchase-ui test --fixed-fps 30 --script tools/fleet_purchase_ui_test.gd
 check opening-economy-ui test --fixed-fps 30 --script tools/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd

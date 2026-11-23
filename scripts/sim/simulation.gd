@@ -24,6 +24,7 @@ var docks_building := {}
 var ferries: Array[Ferry] = []
 ## Tugs delivering boats bought, or taking sold ones away (DeliveryTow).
 var tows: Array[DeliveryTow] = []
+var fleet_market := FleetMarket.new(self)
 ## How the company started; its schedules are the only links between terminals.
 var scenario: Scenario
 var moving_vehicles: Array[Vehicle] = []
@@ -217,13 +218,21 @@ func stops_problem(f: Ferry, ids: Array[int]) -> String:
 ## being towed into it or out of it close in (a boat bought, or one sold). Boats
 ## for that slip hold off until she's gone (Ferry._occupied_wait).
 func occupant(term: Terminal, slip: int, except: Ferry) -> Ferry:
-	for o in ferries + tows.map(func(t): return t.ferry).filter(func(f): return is_instance_valid(f) and f not in ferries):
-		if o == except or o.berth == Ferry.Berth.WORKING or o.here() != term or o.tie_up != slip:
-			continue
-		if o.berth == Ferry.Berth.DELIVERING and not (o.tow and o.tow.committed):
-			continue
-		return o
+	for boat in ferries:
+		if _occupies(boat, term, slip, except):
+			return boat
+	for tug in tows:
+		if tug.outbound and _occupies(tug.ferry, term, slip, except):
+			return tug.ferry
 	return null
+
+
+static func _occupies(boat: Ferry, term: Terminal, slip: int, except: Ferry) -> bool:
+	if not is_instance_valid(boat) or boat == except or boat.berth == Ferry.Berth.WORKING:
+		return false
+	if boat.tie_up != slip or boat.here() != term:
+		return false
+	return boat.berth != Ferry.Berth.DELIVERING or (boat.tow and boat.tow.committed)
 
 
 ## Whether a working boat lies at slip `slip` of `term`, or is coming in to it
@@ -351,146 +360,20 @@ func _tie_up_laid_up() -> void:
 			push_warning("%s starts laid up but %s has no free tie-up slip for her" % [f.ferry_name, term.town.name])
 
 
-# --- Buying and selling boats (stage 6) ----------------------------------------------
-
-## Where a boat of `size` bought now is delivered to lie, as [Terminal, slip],
-## or [] if nowhere: a free tie-up slip she fits (the opening's is at Port
-## Rosario), else a working slip she fits that no boat calls at, else any working
-## slip she fits that no boat lies in. A boat working that slip then has to hold
-## off until she is given stops: the player's call.
 func delivery_slip(size: int) -> Array:
-	for term: Terminal in terminals.values():
-		for i in term.town.tie_ups():
-			if term.town.slips[i].fits(size) and not term.tie_up_closed(i) and occupant(term, i, null) == null \
-					and not _tow_bound(term, i) and _delivery_route(term, i) != null:
-				return [term, i]
-	for idle_only in [true, false]:
-		for term: Terminal in terminals.values():
-			var town := term.town
-			for j in town.slips.size():
-				if town.slips[j].tie_up or not town.slips[j].fits(size) or term.tie_up_closed(j):
-					continue
-				if occupant(term, j, null) != null or _tow_bound(term, j) or _delivery_route(term, j) == null:
-					continue
-				if idle_only and Ferry.idle_slip(term, size) != j:
-					continue
-				return [term, j]
-	return []
+	return fleet_market.delivery_slip(size)
 
 
-## Whether a tow is already bringing a boat in to slip `slip` of `term`.
-func _tow_bound(term: Terminal, slip: int) -> bool:
-	for t in tows:
-		if not t.outbound and is_instance_valid(t.ferry) and t.ferry.here() == term and t.ferry.tie_up == slip:
-			return true
-	return false
-
-
-## The route she is delivered on: from `term` to another open terminal, calling at
-## slip `slip` if that is a working one; the shortest such. Null if none.
-func _delivery_route(term: Terminal, slip: int) -> MapData.Route:
-	var town := term.town
-	var best: MapData.Route
-	for r in map.routes:
-		if r.a != town.id and r.b != town.id:
-			continue
-		if not terminals.has(r.b if r.a == town.id else r.a):
-			continue
-		var at := town.slip_index(r.id)
-		if at < 0 or (not town.slips[slip].tie_up and at != slip):
-			continue
-		if best == null or r.length < best.length:
-			best = r
-	return best
-
-
-## Why a boat of `size` can't be bought now, or "".
 func purchase_problem(size: int) -> String:
-	if delivery_slip(size).is_empty():
-		return "No free slip she fits"
-	if available_cash < FerryClass.of(size).price():
-		return "Needs %s" % _money(FerryClass.of(size).price())
-	return ""
+	return fleet_market.offer_problem(size, delivery_slip(size))
 
 
-static func _money(v: float) -> String:
-	var digits := str(roundi(absf(v)))
-	var out := ""
-	while digits.length() > 3:
-		out = "," + digits.right(3) + out
-		digits = digits.left(digits.length() - 3)
-	return "$" + digits + out
-
-
-## Buys a new boat of `size` (FerryClass.price on the ledger's purchases) and has
-## a tug tow her in to delivery_slip, where she lies laid up until she is given
-## stops (Edit stops). Returns her, or null if she can't be bought.
 func buy_ferry(size: int) -> Ferry:
-	if purchase_problem(size) != "":
-		return null
-	var where := delivery_slip(size)
-	var term: Terminal = where[0]
-	var slip: int = where[1]
-	var route := _delivery_route(term, slip)
-	var key := ""
-	var n := ferries.size()
-	while key == "" or ferries.any(func(f): return f.fleet_key == key):
-		key = "hull-%d" % n
-		n += 1
-	var display_name := ""
-	for nm in FERRY_NAMES:
-		if not ferries.any(func(f): return f.ferry_name == nm):
-			display_name = nm
-			break
-	if display_name == "":
-		display_name = "Hull %d" % n
-	_spawn_ferry(key, route, display_name, size)
-	var f := ferries[-1]
-	f.start_delivery(term, slip)
-	var pts := DeliveryTow.plan(self, f.global_position, term.town.dock_dir, f.fc.half_beam)
-	if pts.size() < 2:
-		ferries.pop_back()
-		f.free()
-		return null
-	ledger.spend("purchases", f.fc.price())
-	var tug := DeliveryTow.new()
-	add_child(tug)
-	tug.setup(self, f, pts)
-	tows.append(tug)
-	if marine:
-		marine.register(f, MarineTraffic.RANK_FERRY)
-		marine.register(tug, MarineTraffic.RANK_FERRY)
-	ferry_added.emit(f)
-	return f
+	return fleet_market.buy_ferry(size)
 
 
-## Sells laid-up boat `f` for her resale value (Ferry.resale_value) and takes her
-## out of the game. False unless she lies laid up.
 func sell_ferry(f: Ferry) -> bool:
-	if not f.can_sell() or f not in ferries:
-		return false
-	ledger.receive("sales", f.resale_value())
-	f.post_costs(false)
-	ferries.erase(f)
-	if marine:
-		marine.remove(f)
-	ferry_removed.emit(f)
-	for car in f.aboard:
-		car.queue_free()
-	f.aboard.clear()
-	stops_changed(f)
-	# A tug comes for her and tows her away out to sea (DeliveryTow, outbound).
-	var pts := DeliveryTow.plan(self, f.global_position, f.here().town.dock_dir, f.fc.half_beam) if marine else PackedVector2Array()
-	if pts.size() < 2:
-		f.queue_free()
-		return true
-	f.berth = Ferry.Berth.DELIVERING
-	var tug := DeliveryTow.new()
-	add_child(tug)
-	tug.setup(self, f, pts, true)
-	tows.append(tug)
-	marine.register(tug, MarineTraffic.RANK_FERRY)
-	return true
+	return fleet_market.sell_ferry(f)
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:

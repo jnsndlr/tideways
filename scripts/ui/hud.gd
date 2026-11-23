@@ -1123,7 +1123,8 @@ func _build_fleet_panel() -> void:
 func _buy_ferry(size: int) -> void:
 	var f := sim.buy_ferry(size)
 	if f == null:
-		show_toast("COULDN'T BUY HER", sim.purchase_problem(size), 5.0)
+		var reason := sim.purchase_problem(size)
+		show_toast("COULDN'T BUY HER", reason if reason != "" else "No safe towing route to the berth.", 5.0)
 		return
 	var term := f.here()
 	select_ferry(f)

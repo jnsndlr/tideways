@@ -19,7 +19,7 @@ var _where_title := Label.new()
 var _size := 0                 # the class picked (0: none yet)
 
 
-func setup(title: Label, s: Simulation = null) -> void:
+func setup(title: Label, s: Simulation) -> void:
 	sim = s
 	position = Vector2(132, 112)
 	custom_minimum_size = Vector2(340, 0)
@@ -28,9 +28,6 @@ func setup(title: Label, s: Simulation = null) -> void:
 	add_child(column)
 	column.add_child(title)
 	column.add_child(_list)
-	if sim == null:
-		hide()
-		return
 	column.add_child(HSeparator.new())
 	_buy_button.text = "Buy a boat"
 	_buy_button.focus_mode = Control.FOCUS_NONE
@@ -92,8 +89,8 @@ func _refresh_buy() -> void:
 	if _size == 0:
 		_where_title.text = "Pick a class. A tug tows her in to a free tie-up, or an open slip if there's none, where she lies laid up until you give her stops."
 		return
-	var why := sim.purchase_problem(_size)
 	var where := sim.delivery_slip(_size)
+	var why := sim.fleet_market.offer_problem(_size, where)
 	if where.is_empty():
 		_where_title.text = "No free slip she fits."
 	else:
