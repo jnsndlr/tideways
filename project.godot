@@ -80,6 +80,10 @@ cloud_storm={
 "type": "float",
 "value": 0.0
 }
+road_wet={
+"type": "float",
+"value": 0.0
+}
 cloud_time={
 "type": "float",
 "value": 0.0

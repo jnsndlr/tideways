@@ -84,6 +84,8 @@ func _publish() -> void:
 	RenderingServer.global_shader_parameter_set("cloud_shadow_strength", weather.shadow_strength())
 	RenderingServer.global_shader_parameter_set("horizon_clouds", weather.horizon)
 	RenderingServer.global_shader_parameter_set("cloud_storm", weather.storm)
+	# Overcast skies leave the roads damp; storms soak them.
+	RenderingServer.global_shader_parameter_set("road_wet", smoothstep(0.05, 0.8, weather.storm) if shown else 0.0)
 	visual_mat.set_shader_parameter("opacity", weather.cloud_opacity())
 	far_mat.set_shader_parameter("opacity", weather.cloud_opacity())
 

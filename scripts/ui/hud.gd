@@ -738,7 +738,7 @@ func _buy_upgrade(terminal: Terminal, u: TerminalUpgrade) -> void:
 	if terminal == null or not terminal.buy(u):
 		return
 	if u.kind == TerminalUpgrade.Kind.LANE:
-		rig.focus_on(terminal.to_global(Vector3(terminal.extension_offset(), Layout.LOT_Y, -40)), 180.0)
+		rig.focus_on(terminal.lot_point(terminal.extension_offset(), -40), 180.0)
 	else:
 		rig.focus_on(terminal.to_global(Vector3(selected_town.slip_offset(terminal.refit_slip), 0.0, RefitCrew.WORK_U)), 260.0)
 	_refresh_panels()

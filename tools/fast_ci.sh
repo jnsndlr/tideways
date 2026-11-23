@@ -69,8 +69,10 @@ check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
 check timetable-round test --script tools/timetable_round_test.gd
 check mission-goals test --script tools/mission_goals_test.gd
+check route-sample-grid test --script tools/route_sample_grid_test.gd
 check route-memo test --script tools/route_memo_test.gd
 check region-contract test --script tools/region_contract_test.gd
+check road-grade test --script tools/road_grade_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
 check coastal-town test --script tools/coastal_town_test.gd
@@ -80,6 +82,7 @@ check eagle-departure test --script tools/eagle_departure_test.gd
 check shared-forecourt test --script tools/shared_forecourt_test.gd
 check refit-crane test --script tools/refit_crane_test.gd
 check model-parts test --script tools/model_parts_test.gd
+check trestle-profile test --script tools/trestle_profile_test.gd
 check slip-guide-mesh test --script tools/slip_guide_mesh_test.gd
 check lane-redistribution test --script tools/lane_redistribution_test.gd -- --scenario=lane_sharing
 check opening-scenario test --script tools/opening_scenario_test.gd
