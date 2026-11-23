@@ -884,8 +884,12 @@ def build():
     return obs
 
 
-_here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else \
-    (os.path.dirname(bpy.data.filepath) or "/Users/jon/Documents/GitHub/lowpoly/art")
+if "__file__" in globals():
+    _here = os.path.dirname(os.path.abspath(__file__))
+elif bpy.data.filepath:
+    _here = os.path.dirname(bpy.data.filepath)
+else:
+    raise RuntimeError("Run art/trawler_mid.py from disk or open the saved trawler .blend file first.")
 built = build()
 _glb = os.path.normpath(os.path.join(_here, "..", "assets", "models", "trawler_mid.glb"))
 for o in bpy.data.objects: o.select_set(o in built)
