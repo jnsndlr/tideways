@@ -91,11 +91,11 @@ func _init(map_seed: int, half: float) -> void:
 
 ## Which sides of the channel have a mainland port (points on them), then stamps
 ## those shores into the grid. Call once, before any island stamps.
-func set_mainland_ports(ports: Array[Vector2]) -> void:
+func set_mainland_ports(ports: Array[Vector2], should_stop := Callable()) -> void:
 	for p in ports:
 		mainland.port_side[0 if mainland.side_of(p.x, p.y) > 0.0 else 1] = true
 	var all := Rect2i(0, 0, n + 1, n + 1)
-	_mainland_into(all)
+	_mainland_into(all, should_stop)
 	_dirty.append(all)
 
 
@@ -120,12 +120,12 @@ static func shape_offset(shape_seed: int) -> Vector2:
 	return Vector2(float(h & 0xffff), float((h >> 16) & 0xffff)) * 7.3 + Vector2(40000.0, 40000.0)
 
 
-func stamp(s: Stamp) -> void:
+func stamp(s: Stamp, should_stop := Callable()) -> void:
 	s.setup()
 	stamps.append(s)
 	var r := stamp_rect(s)
 	_dirty.append(r)
-	_stamp_into(stamps.size() - 1, r)
+	_stamp_into(stamps.size() - 1, r, should_stop)
 
 
 ## The grid points a stamp can reach (vertex indices).
@@ -160,7 +160,7 @@ func replace_stamp(idx: int, s: Stamp) -> Rect2i:
 	return r
 
 
-func _stamp_into(idx: int, clip: Rect2i) -> void:
+func _stamp_into(idx: int, clip: Rect2i, should_stop := Callable()) -> void:
 	var s := stamps[idx]
 	var i0 := clip.position.x
 	var j0 := clip.position.y
@@ -173,6 +173,8 @@ func _stamp_into(idx: int, clip: Rect2i) -> void:
 	var coarse := PackedFloat32Array()
 	coarse.resize(cw * ch)
 	for cj in ch:
+		if should_stop.is_valid() and should_stop.call():
+			return
 		var z := -half_size + (j0 + cj * WARP_STEP) * CELL - s.center.y + s.offset.y
 		for ci in cw:
 			coarse[cj * cw + ci] = warp.get_noise_2d(-half_size + (i0 + ci * WARP_STEP) * CELL - s.center.x + s.offset.x, z)
@@ -184,6 +186,8 @@ func _stamp_into(idx: int, clip: Rect2i) -> void:
 	var qa := s.ax.x * s.ax.x / s2 + s.ay.x * s.ay.x * s2
 	var rr := s.radius * (1.0 + amp)
 	for j in range(j0, j1 + 1):
+		if should_stop.is_valid() and should_stop.call():
+			return
 		var pz := -half_size + j * CELL - s.center.y
 		var qb := 2.0 * pz * (s.ax.x * s.ax.y / s2 + s.ay.x * s.ay.y * s2)
 		var qc := pz * pz * (s.ax.y * s.ax.y / s2 + s.ay.y * s.ay.y * s2) - rr * rr
@@ -229,9 +233,11 @@ func mainland_e(x: float, z: float) -> Vector2:
 
 ## Stamps the mainland's shores into the grid inside `r` (vertex indices): the
 ## strips along the channel's sides where they come in past the edge.
-func _mainland_into(r: Rect2i) -> void:
+func _mainland_into(r: Rect2i, should_stop := Callable()) -> void:
 	var reach := half_size - Mainland.INSET - Mainland.INSET_VARY - MAINLAND_RAGGED - Mainland.SHORE_E / Mainland.SHORE_SLOPE - 40.0
 	for j in range(r.position.y, r.end.y):
+		if should_stop.is_valid() and should_stop.call():
+			return
 		var z := -half_size + j * CELL
 		for i in range(r.position.x, r.end.x):
 			var x := -half_size + i * CELL
@@ -248,12 +254,14 @@ func _mainland_into(r: Rect2i) -> void:
 ## Turns elevation into heights, for the parts stamped since the last call (the
 ## rest is open sea, or already done). The grid's edge needs no fade: the Backdrop
 ## carries the land on from it (outer_height), so the mainland runs on past it.
-func finalize() -> void:
+func finalize(should_stop := Callable()) -> void:
 	if h_grid.is_empty():
 		h_grid.resize(e_grid.size())
 		h_grid.fill(SEA_FLOOR)
 	for r in _dirty:
 		for j in range(r.position.y, r.end.y):
+			if should_stop.is_valid() and should_stop.call():
+				return
 			var z := -half_size + j * CELL
 			for i in range(r.position.x, r.end.x):
 				var k := j * (n + 1) + i

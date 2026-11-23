@@ -15,6 +15,7 @@ var terrain: Terrain
 var rng := RandomNumberGenerator.new()
 var minutes := 6.0 * 60.0
 var day := 12
+var slip_guide_parts := SlipGuides.MeshParts.new()
 var terminals := {}             # town id -> Terminal
 ## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
 const DOCK_BUILD_MINUTES := 12.0 * 60.0
@@ -52,9 +53,9 @@ var _tide_phase := 0.0
 
 
 ## Starts from `sc`, or with no scenario puts a boat on every route of the map.
-func setup(m: MapData, t: Terrain, sc: Scenario = null) -> void:
+func setup(m: MapData, t: Terrain, sc: Scenario = null, charts: MarineCharts = null, frames: BuildFrameBudget = null) -> void:
 	scenario = sc
-	_start(m, t, null)
+	await _start(m, t, null, charts, frames if frames else BuildFrameBudget.new())
 
 
 ## Restore just the fleet and route identities into a fresh simulation.
@@ -66,11 +67,11 @@ func setup_from_network(m: MapData, t: Terrain, saved_json: String) -> String:
 	var error := network.read(saved_json, m)
 	if not error.is_empty():
 		return error
-	_start(m, t, network)
+	_start(m, t, network, null, BuildFrameBudget.new())
 	return ""
 
 
-func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
+func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineCharts, frames: BuildFrameBudget) -> void:
 	map = m
 	terrain = t
 	rng.seed = m.map_seed + 99
@@ -83,6 +84,8 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	add_child(traffic)
 	for town in map.terminal_towns():
 		_add_terminal(town)
+		if not await frames.can_continue():
+			return
 	if network == null:
 		if scenario == null:
 			scenario = Scenario.from_network(map, FERRY_NAMES, _ferry_sizes())
@@ -91,10 +94,14 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	else:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
+	if not await frames.can_continue():
+		return
 	_build_lanes()
 	_mark_routes_in_service()
 	for term: Terminal in terminals.values():
 		term.prefill()
+		if not await frames.can_continue():
+			return
 	for i in ferries.size():
 		ferries[i].start_staggered(i)
 	_tie_up_laid_up()
@@ -102,10 +109,12 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork) -> void:
 	wildlife.name = "Wildlife"
 	add_child(wildlife)
 	wildlife.setup(self)
+	if not await frames.can_continue():
+		return
 	if marine == null:
 		marine = MarineTraffic.new()
 	add_child(marine)
-	marine.setup(self)
+	marine.setup(self, charts)
 
 
 func _add_terminal(town: MapData.Town) -> Terminal:

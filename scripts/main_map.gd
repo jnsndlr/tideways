@@ -25,7 +25,7 @@ static var scenario_path := ""
 var editor: IslandEditor
 
 
-func _generate(gen: MapGenerator) -> MapData:
+func _generation_job(gen: MapGenerator) -> Callable:
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
 		if layout == null:
@@ -43,11 +43,13 @@ func _generate(gen: MapGenerator) -> MapData:
 	# Every dock site's routes are in them, so buying one plans nothing (TID-319).
 	if not unsaved:
 		gen.route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
-	return gen.generate_from(layout, scenario)
+	return gen.generate_from.bind(layout, scenario)
 
 
 func _ready() -> void:
 	await super._ready()
+	if not built:
+		return
 	editor = IslandEditor.new()
 	add_child(editor)
 	editor.setup(self)
