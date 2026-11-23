@@ -26,6 +26,25 @@ const EASE := 2.5
 const PILE_SINK := 0.6
 
 
+## One set per loaded region. Only immutable, model-local geometry is shared.
+## Node paths distinguish authored parts with different material overrides.
+class MeshParts:
+	var fixed: Dictionary[String, Dictionary] = {}
+	var deformable: Dictionary[String, Dictionary] = {}
+
+	func triangles(glb: String, path: NodePath, node: MeshInstance3D) -> MeshBuilder:
+		var parts: Dictionary = fixed.get_or_add(glb, {})
+		if not parts.has(path):
+			parts[path] = ModelParts.painted(node)
+		return parts[path]
+
+	func live_mesh(glb: String, path: NodePath, node: MeshInstance3D) -> ArrayMesh:
+		var parts: Dictionary = deformable.get_or_add(glb, {})
+		if not parts.has(path):
+			parts[path] = ModelParts.painted_live(node)
+		return parts[path]
+
+
 class Fender:
 	var mesh: MeshInstance3D
 	var side := 1.0
@@ -56,6 +75,7 @@ var walls: Array[Wall] = []
 # Deck tops of the inner and outer dolphins (slip frame), for the wildlife's perches.
 var inner_caps: Array[Vector3] = []
 var outer_caps: Array[Vector3] = []
+var _parts: MeshParts
 var _terrain: Terrain
 var _world := Transform3D.IDENTITY
 
@@ -64,10 +84,11 @@ static func available() -> bool:
 	return Models.mid_slip_guides
 
 
-func _init(slip_v: float, terminal_xform: Transform3D, terrain: Terrain) -> void:
+func _init(slip_v: float, terminal_xform: Transform3D, terrain: Terrain, parts: MeshParts) -> void:
 	name = "SlipGuides"
 	v = slip_v
 	position.x = slip_v
+	_parts = parts
 	_terrain = terrain
 	_world = terminal_xform * Transform3D(Basis.IDENTITY, position)
 
@@ -273,9 +294,9 @@ func _place(mb: MeshBuilder, glb: String, xf: Transform3D) -> Node3D:
 	var riding := MeshBuilder.new()
 	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
 		if (mi.mesh as ArrayMesh).get_blend_shape_count() > 0:
-			mi.mesh = ModelParts.painted_live(mi)
+			mi.mesh = _parts.live_mesh(glb, root.get_path_to(mi), mi)
 			continue
-		var part := ModelParts.painted(mi)
+		var part := _parts.triangles(glb, root.get_path_to(mi), mi)
 		if travel and travel.is_ancestor_of(mi):
 			Models._append_part(riding, part, ModelParts.relative_xform(mi, travel))
 		else:

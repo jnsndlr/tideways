@@ -265,7 +265,7 @@ func setup(s: Simulation, isl: MapData.Island) -> void:
 		slip_ramps.append(ramp)
 		var g: SlipGuides = null
 		if SlipGuides.available():
-			g = SlipGuides.new(isl.slip_offset(i), transform, s.terrain)
+			g = SlipGuides.new(isl.slip_offset(i), transform, s.terrain, s.slip_guide_parts)
 			add_child(g)
 			g.fit(MapData.Slip.LARGEST_BOAT[isl.slips[i].size])
 		slip_guides.append(g)

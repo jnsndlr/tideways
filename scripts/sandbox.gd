@@ -15,6 +15,7 @@ static var map_seed := 0
 
 var map: MapData
 var terrain: Terrain
+var _building_backdrop: Backdrop
 var builder: WorldBuilder
 var sim: Simulation
 ## How the company starts (null: a boat on every planned route).
@@ -49,6 +50,11 @@ var uncapped := false
 ## several frames, the heavy parts on a worker thread, so the loading screen keeps
 ## animating. Left off, _ready builds everything at once (tools rely on that).
 var async_build := false
+## Data workers are joined before the scene releases their inputs.
+var _data_thread: Thread
+var _generating: MapGenerator
+var _building_charts: MarineCharts
+var _setup_frames := BuildFrameBudget.new()
 ## The stage being built runs from build_from to build_to (0..1 of the whole
 ## build); the loading screen sails the ferry between them.
 var build_from := 0.0
@@ -67,26 +73,39 @@ func _ready() -> void:
 	var gen := MapGenerator.new()
 	# Stage ends are measured shares of the build (main map, threaded: ~4.1 s generate,
 	# ~5.6 s world, ~1.3 s sea charts, ~0.6 s simulation, ~2.1 s backdrop).
-	await _stage(0.3, true, func():
-		map = _generate(gen)
-		terrain = gen.terrain)
+	_generating = gen
+	await _data_stage(0.3, _generation_job(gen))
+	_generating = null
+	if not is_inside_tree():
+		return
+	map = gen.map
+	terrain = gen.terrain
 	_setup_environment()
 	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
-	# on the rendering thread before the worker starts placing instances.
+	# before assembling the world and backdrop.
 	if async_build:
 		Models.tree_variants(false)
 		Models.tree_variants(true)
 	builder = WorldBuilder.new(map, terrain)
-	var world := []  # lambdas capture locals by value; the array carries the result out
-	await _stage(0.71, true, func(): world.append(builder.build()))
+	build_from = build_to
+	build_to = 0.71
+	var world := await builder.build(get_tree().process_frame if async_build else Signal())
+	if world == null:
+		return
 	# Finish the backdrop while its tree meshes are still off the live render tree.
+	build_from = build_to
+	build_to = 0.855
 	var backdrop := Backdrop.new()
-	await _stage(0.855, true, func(): backdrop.setup(terrain, builder))
-	add_child(world[0])
+	_building_backdrop = backdrop
+	var backdrop_ready := await backdrop.setup(terrain, builder, get_tree().process_frame if async_build else Signal())
+	_building_backdrop = null
+	if not backdrop_ready:
+		world.free()
+		return
+	add_child(world)
 	add_child(backdrop)
 	route_overlay = builder.route_overlay
 	tree_shadows = builder.tree_shadows
-	var fixed_lights := builder.night_lights
 	water_mat = builder.water_material
 	print("Map %d built in %d ms: %d islands, %d routes" % [map.map_seed, Time.get_ticks_msec() - t0, map.islands.size(), map.routes.size()])
 
@@ -95,18 +114,44 @@ func _ready() -> void:
 	rig.bounds = map.half_size * 0.8
 	add_child(rig)
 	_setup_dof()
+	var charts := MarineCharts.new(map, terrain)
+	_building_charts = charts
+	await _data_stage(0.95, charts.build)
+	_building_charts = null
+	if not is_inside_tree():
+		return
+	# Scene-owned nodes can now be attached in batches without advancing the
+	# clock, vessels or presentation before the first playable frame.
+	build_from = build_to
+	build_to = 0.99
+	var previous_mode := process_mode
+	process_mode = Node.PROCESS_MODE_DISABLED
+	_setup_frames.start(get_tree().process_frame if async_build else Signal())
+	await _setup_simulation(charts)
+	_setup_frames.finish()
+	if _setup_frames.cancelled:
+		return
+	process_mode = previous_mode
+	_apply_debug_args()
+	set_process(true)
+	build_from = 1.0
+	build_to = 1.0
+	built = true
+	world_ready.emit()
+	Music.set_mood(get_tree(), Music.Mood.SOFT)
+	RadioChatter.on_game(get_tree())
+	UiSounds.install(get_tree())
+
+
+func _setup_simulation(charts: MarineCharts) -> void:
 	sim = Simulation.new()
 	sim.name = "Simulation"
-	# Marine traffic's charts (nav grid, fishing grounds, anchorages) are pure data.
-	sim.map = map
-	sim.terrain = terrain
-	sim.marine = MarineTraffic.new()
-	await _stage(0.95, true, func(): sim.marine.prepare(sim))
-	sim.process_mode = Node.PROCESS_MODE_DISABLED
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
-	await _stage(0.99, false, func(): sim.setup(map, terrain, scenario))
+	await sim.setup(map, terrain, scenario, charts, _setup_frames)
+	if not await _setup_frames.can_continue():
+		return
 	for terminal: Terminal in sim.terminals.values():
 		if RefitCrew.available():
 			var crew := RefitCrew.new()
@@ -122,6 +167,8 @@ func _ready() -> void:
 	var grass := Grass.new()
 	grass.setup(terrain, builder, rig, sim)
 	add_child(grass)
+	if not await _setup_frames.can_continue():
+		return
 	day_cycle = DayCycle.new()
 	day_cycle.name = "DayCycle"
 	day_cycle.sim = sim
@@ -137,7 +184,7 @@ func _ready() -> void:
 	add_child(wakes)
 	var lights := NightLights.new()
 	add_child(lights)
-	lights.setup(sim, rig, day_cycle, fixed_lights)
+	lights.setup(sim, rig, day_cycle, builder.night_lights)
 	var gulls := Seagulls.new()
 	add_child(gulls)
 	for terminal: Terminal in sim.terminals.values():
@@ -145,6 +192,8 @@ func _ready() -> void:
 			if g:
 				g.add_perches(builder.gull_perches, builder.eagle_perches)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
+	if not await _setup_frames.can_continue():
+		return
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"
 	ambience.setup(rig, gulls, day_cycle, builder)
@@ -162,38 +211,43 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
-	sim.process_mode = Node.PROCESS_MODE_INHERIT
-	_apply_debug_args()
-	set_process(true)
-	build_from = 1.0
-	build_to = 1.0
-	built = true
-	world_ready.emit()
-	Music.set_mood(get_tree(), Music.Mood.SOFT)
-	RadioChatter.on_game(get_tree())
-	UiSounds.install(get_tree())
 
 
-## Runs one stage of the world build. With async_build, `work` runs on a worker
-## thread (`threaded`) or on the main thread after a frame has been drawn, and the
-## progress window moves on to end at `to`. Without it, `work` just runs.
-func _stage(to: float, threaded: bool, work: Callable) -> void:
+## Run data preparation on the worker during Play, or inline for direct loads.
+func _data_stage(to: float, work: Callable) -> void:
 	if not async_build:
 		work.call()
 		return
 	build_from = build_to
 	build_to = to
-	if not threaded:
-		await get_tree().process_frame
-		work.call()
-		return
 	var thread := Thread.new()
+	_data_thread = thread
 	if thread.start(work) != OK:
+		_data_thread = null
 		work.call()
 		return
 	while thread.is_alive():
 		await get_tree().process_frame
-	thread.wait_to_finish()
+	if thread.is_started():
+		thread.wait_to_finish()
+	_data_thread = null
+
+
+func _exit_tree() -> void:
+	_setup_frames.cancel()
+	if _building_backdrop != null:
+		# Let setup unwind before disposing of the node receiving cancel_build.
+		var pending := _building_backdrop
+		pending.cancel_build()
+		pending.free()
+	if builder != null:
+		builder.cancel_build()
+	if _generating != null:
+		_generating.cancel()
+	if _building_charts != null:
+		_building_charts.cancel()
+	if _data_thread != null and _data_thread.is_started():
+		_data_thread.wait_to_finish()
 
 
 ## The wildlife group whose animal is nearest `screen` (and showing), if any.
@@ -205,10 +259,10 @@ func pick_wildlife(screen: Vector2, cam: Camera3D) -> Wildlife.Visit:
 
 
 ## The map to build: a random one from the seed (--seed=N, or a new one each time).
-func _generate(gen: MapGenerator) -> MapData:
+func _generation_job(gen: MapGenerator) -> Callable:
 	if map_seed == 0:
 		map_seed = int(_args["seed"]) if _args.has("seed") else randi_range(1, 99999)
-	return gen.generate(map_seed)
+	return gen.generate.bind(map_seed)
 
 
 ## The HUD's opening toast: [title, body].
