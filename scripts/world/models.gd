@@ -884,9 +884,12 @@ static func pick_paint(u: float) -> int:
 
 ## Vehicle `model` (a VehicleData key) in paint `paint`, at its modelled (real) size.
 static func vehicle(model: String, paint: int) -> ArrayMesh:
+	var lib := ModelParts.library(VEHICLES_GLB)
+	var key := model.replace("_", "")
+	# Only the body and accent take paint. A fixed trailer can share its mesh across liveries.
+	if TRAILERS.has(model) and not lib.has(key + "body") and not lib.has(key + "accent"):
+		paint = 0
 	return _cached("%s_%d" % [model, paint], func():
-		var lib := ModelParts.library(VEHICLES_GLB)
-		var key := model.replace("_", "")
 		var mb := MeshBuilder.new()
 		_append_part(mb, lib[key + "fixed"], Transform3D.IDENTITY)
 		var col: Color = PAINTS[paint % PAINTS.size()][0]
