@@ -138,6 +138,45 @@ func show_terminal(town: MapData.Town) -> void:
 	_sites.erase(town.id)
 
 
+## Builds slip `i` of `town`'s terminal, bought in play (stage 5), into the world
+## as it opens: its pier (or a tie-up's catwalk), lift, lights and buoys, and for a
+## working slip beyond the lot, a forecourt for cars to reach it. Nothing else moves.
+func build_bought_slip(town: MapData.Town, i: int) -> void:
+	var saved := glows
+	glows = GlowBuilder.new()
+	var mb := MeshBuilder.new()
+	mb.xform = town.terminal_xform()
+	glows.xform = mb.xform
+	var v := town.slip_offset(i)
+	if town.slips[i].tie_up:
+		_build_tie_up(mb, town, i)
+	else:
+		_build_slip(mb, town, v)
+		mb.xform = town.lot_xform()
+		_forecourt(mb, town.lot_half_width, v)
+	_add_mesh(mb.commit(), "%s Slip %d" % [town.name, i])
+	if not glows.is_empty() and night_lights:
+		var mi := MeshInstance3D.new()
+		mi.name = "%s Slip %d Lights" % [town.name, i]
+		mi.mesh = glows.commit()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		night_lights.add_child(mi)
+	glows = saved
+
+
+## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
+## where cars cross from the lanes to the pier and back.
+func _forecourt(mb: MeshBuilder, hw: float, v: float) -> void:
+	var reach := absf(v) + 7.5 - hw
+	if reach <= 0.0:
+		return
+	var mid := signf(v) * (hw + reach * 0.5)
+	var u0 := Layout.LANE_HEAD + 1.5
+	var u1 := Layout.LOT_FRONT + 1.2
+	mb.box(Vector3(mid, Layout.LOT_Y - 0.9, (u0 + u1) * 0.5), Vector3(reach + 0.6, 1.8, u1 - u0), ASPHALT)
+	mb.box(Vector3(mid, Layout.LOT_Y - 1.35, (u0 + u1) * 0.5), Vector3(reach + 2.4, 2.4, u1 - u0 + 1.8), CONCRETE)
+
+
 func cancel_build() -> void:
 	_frames.cancel()
 
@@ -625,7 +664,7 @@ func _terminal_for(isl: MapData.Town) -> void:
 	glows.xform = mb.xform
 	for i in isl.slips.size():
 		if isl.slips[i].tie_up:
-			_build_tie_up(mb, isl, isl.slip_offset(i))
+			_build_tie_up(mb, isl, i)
 		else:
 			_build_slip(mb, isl, isl.slip_offset(i))
 	mb.xform = isl.lot_xform()
@@ -669,12 +708,18 @@ func _terminal_for(isl: MapData.Town) -> void:
 
 	_add_mesh(mb.commit(), isl.name + " Terminal")
 
-	# Keep trees and houses off the lot, piers and building.
+	# Keep trees and houses off the lot, piers and building, and off the shore either
+	# side where more slips may be bought (Terminal.new_slip_v).
 	var t := isl.lateral()
+	var spare := (Terminal.MAX_WORKING_SLIPS + Terminal.MAX_TIE_UPS - 1) * Layout.SLIP_SPACING + 12.0
 	var bu := Layout.LOT_BACK - isl.lot_shift() - 18.0
 	while bu < Layout.PIER_END:
 		var bvv := -hw - 9.0
-		while bvv < hw + 36.0:
+		var far := hw + 36.0
+		if bu > Layout.LANE_HEAD:
+			bvv = minf(bvv, -spare)
+			far = maxf(far, spare)
+		while bvv < far:
 			_block(isl.shore + isl.dock_dir * bu + t * bvv, 3.0)
 			bvv += 4.5
 		bu += 4.5
@@ -846,9 +891,12 @@ func _lot_edge(mb: MeshBuilder, isl: MapData.Town) -> void:
 			x += 2.0
 
 
-## A tie-up slip: dolphins and fendered wing walls to lie against, and a
-## catwalk out from the shore for the crew, but no transfer span (it loads no cars).
-func _build_tie_up(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
+## A tie-up slip: a catwalk out from the shore for the crew, and a pair of dolphins
+## either side to lie against, but no transfer span (it loads no cars). Tie-ups lie
+## side by side (Layout.TIE_UP_SPACING, as at Eagle Harbor), so neighbours share the
+## dolphins between them: tie-up `i` leaves out a side an earlier one has built.
+func _build_tie_up(mb: MeshBuilder, isl: MapData.Town, i: int) -> void:
+	var v := isl.slip_offset(i)
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
 	var lf := isl.lot_front_u()
@@ -870,21 +918,20 @@ func _build_tie_up(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 			var pile_top := isl.road_y(u) - 0.45
 			mb.box(Vector3(v + side, (pile_top - 10.5) * 0.5, u), Vector3(0.6, pile_top + 10.5, 0.6), Models.WOOD)
 		u += 6.0
-	# The modelled wing walls and dolphins are the slip's own live part (SlipGuides),
-	# fitted to its size and refitted with it, as a working slip's are.
-	if SlipGuides.available():
-		return
+	# A fendered head across the catwalk's end, where her end lies.
+	mb.box(Vector3(v, ly - 0.6, pe), Vector3(12.0, 1.2, 2.4), CONCRETE)
+	mb.box(Vector3(v, ly - 1.8, pe + 1.4), Vector3(10.0, 3.0, 0.5), Models.HULL_DARK)
 	for side: float in [-1.0, 1.0]:
-		var ww: Array = Layout.WING_WALL
-		for k in ww.size() - 1:
-			var w0: Vector2 = ww[k]
-			var w1: Vector2 = ww[k + 1]
-			_wing_wall(mb, Vector2(w0.x, v + side * w0.y), Vector2(w1.x, v + side * w1.y), side)
-		var inner := Layout.DOLPHIN_INNER
-		var inner_cap := _dolphin(mb, Vector3(v + side * inner.y, 0, inner.x), inner.z, 6)
+		var dv := v + side * Layout.TIE_UP_SPACING * 0.5
+		var shared := false
+		for j in i:
+			if isl.slips[j].tie_up and absf(isl.slip_offset(j) - side * Layout.TIE_UP_SPACING * 0.5 - dv) < 1.0:
+				shared = true
+		if shared:
+			continue
+		var inner_cap := _dolphin(mb, Vector3(dv, 0, pe + 22.0), 2.4, 6)
 		eagle_perches.append(Eagles.Perch.new(mb.xform * inner_cap, Eagles.Kind.DOLPHIN))
-		var outer := Layout.DOLPHIN_OUTER
-		var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8)
+		var cap := _dolphin(mb, Vector3(dv, 0, pe + 62.0), 3.15, 8)
 		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
 		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
 		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
