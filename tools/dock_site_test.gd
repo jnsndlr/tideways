@@ -12,6 +12,8 @@ var _main: Node
 var _cypress: MapData.Town
 var _cash_before := 0.0
 var _price := 0
+var _purchases := 0.0
+var _port: Terminal
 var _bought_at := -1.0
 
 
@@ -29,6 +31,8 @@ func _fail(msg: String) -> bool:
 
 func _process(_delta: float) -> bool:
 	frames += 1
+	if frames > 30000:
+		return _fail("Timed out waiting for dock construction")
 	if current_scene != _main:
 		return _fail("The scene was replaced: buying a dock must not rebuild the map")
 	if _main.get("sim") == null or not _main.built:
@@ -70,6 +74,16 @@ func _process(_delta: float) -> bool:
 		if routes < reached - 3:
 			return _fail("Cypress has %d planned routes; %d other docks have routes" % [routes, reached])
 		print("Cypress: routes to %d of the %d other docks with any" % [routes, reached])
+		_port = sim.terminals[map.town_by_key("island-1/0").id]
+		if not _port.buy_holding_lane():
+			return _fail("Could not buy the first lane")
+		_port._advance_construction(1.0)
+		_port._advance_construction(Terminal.BUILD_MINUTES)
+		if _port.paved.size() != 1 or not _port.buy_holding_lane() or not _port.buy_refit(0):
+			return _fail("Could not stage consecutive lane work and a slip refit")
+		sim.ledger.credit_flat(false)
+		sim.ferries[0].set_pace(0)
+		_purchases = sim.ledger.today["purchases"]
 		_price = sim.dock_price(_cypress)
 		_cash_before = sim.available_cash
 		print("Opening: %d terminals of %d dock towns, %d routes; buying %s for $%d of $%d" % [
@@ -82,6 +96,10 @@ func _process(_delta: float) -> bool:
 			return _fail("Buying should start a build, not open the terminal at once")
 		if sim.buy_dock(_cypress):
 			return _fail("The same site was bought twice")
+		if sim.ledger.today["purchases"] != _purchases + _price or sim.ledger.cars_total < 1:
+			return _fail("Dock purchase changed fare history or was charged incorrectly")
+		if _port.paved.size() != 1 or _port.work_stage == Terminal.WorkStage.IDLE or _port.refit_slip != 0:
+			return _fail("Dock purchase displaced lane or slip construction")
 		Engine.time_scale = 60.0
 		return false
 	if not sim.terminals.has(_cypress.id):
@@ -89,6 +107,8 @@ func _process(_delta: float) -> bool:
 			return _fail("Cypress never opened (%.0f min left)" % sim.dock_building(_cypress))
 		return false
 	Engine.time_scale = 1.0
+	if sim.terminals[_port.town.id] != _port or _port.paved.size() != 2 or sim.ferries[0].pace != 0:
+		return _fail("Opening the new terminal lost paid work or the assigned service pace")
 	var took := sim.abs_minutes() - _bought_at
 	if took < Simulation.DOCK_BUILD_MINUTES - 1.0:
 		return _fail("Cypress opened after %.0f min, before its %.0f min build" % [took, Simulation.DOCK_BUILD_MINUTES])

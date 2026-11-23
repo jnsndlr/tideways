@@ -730,7 +730,7 @@ func _slip_clash_text(f: Ferry) -> String:
 	var text := ""
 	var plan := SlipConflicts.plan_of(f)
 	if not plan.is_empty() and not plan.times.is_empty():
-		text = SlipConflicts.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
+		text = SlipConflictText.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
 	_clash_cache[f] = [now, text]
 	return text
 
