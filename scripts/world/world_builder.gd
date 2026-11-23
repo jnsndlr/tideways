@@ -536,7 +536,9 @@ func _build_terminals() -> void:
 		if not isl.has_terminal:
 			continue
 		var mb := MeshBuilder.new()
-		mb.xform = isl.terminal_xform()
+		# The lot and everything on it in the lot's frame (raised and set back behind
+		# the trestle); the slips in the terminal's.
+		mb.xform = isl.lot_xform()
 		glows.xform = mb.xform
 		var hw := isl.lot_half_width
 		var ly := Layout.LOT_Y
@@ -569,11 +571,18 @@ func _build_terminals() -> void:
 			mb.box(Vector3(0, ly + 0.03, u), Vector3(0.42, 0.06, 3.6), LINE_YELLOW)
 			u += 7.2
 
+		if Models.mid_trestle:
+			_lot_edge(mb, isl)
+
+		mb.xform = isl.terminal_xform()
+		glows.xform = mb.xform
 		for i in isl.slips.size():
 			if isl.slips[i].tie_up:
-				_build_tie_up(mb, isl.slip_offset(i))
+				_build_tie_up(mb, isl, isl.slip_offset(i))
 			else:
-				_build_slip(mb, isl.slip_offset(i))
+				_build_slip(mb, isl, isl.slip_offset(i))
+		mb.xform = isl.lot_xform()
+		glows.xform = mb.xform
 
 		# The entry porch faces the holding lanes. The gulls sit along the hall ridge.
 		var bv := hw + 15.0
@@ -615,7 +624,7 @@ func _build_terminals() -> void:
 
 		# Keep trees and houses off the lot, piers and building.
 		var t := isl.lateral()
-		var bu := Layout.LOT_BACK - 18.0
+		var bu := Layout.LOT_BACK - isl.lot_shift() - 18.0
 		while bu < Layout.PIER_END:
 			var bvv := -hw - 9.0
 			while bvv < hw + 36.0:
@@ -636,29 +645,26 @@ func _terminal_model(scene: PackedScene, pose: Transform3D) -> Node3D:
 	return model
 
 
-func _build_slip(mb: MeshBuilder, v: float) -> void:
+func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
-	var lf := Layout.LOT_FRONT
-	# With the mid-poly slip a short trestle runs out to the transfer span's hinge
+	# With the mid-poly slip a trestle runs out from the lot to the transfer span's hinge
 	# (the span, apron and counterweights are SlipRamp's, the towers are scenery here).
 	var mid := Models.mid_slip
 	var deck_end := SlipRamp.HINGE_U if mid else pe
-	mb.box(Vector3(v, ly - 0.6, (lf + deck_end) * 0.5), Vector3(15.0, 1.2, deck_end - lf + 1.2), CONCRETE)
-	mb.box(Vector3(v, ly + 0.03, (lf + deck_end) * 0.5), Vector3(0.36, 0.06, deck_end - lf - 1.5), LINE_YELLOW)
-	var u := lf + 3.0
-	while u < deck_end:
-		for side: float in [-6.6, 6.6]:
-			mb.box(Vector3(v + side, -4.2, u), Vector3(1.2, 12.6, 1.2), Models.WOOD)
-		u += 9.0 if not mid else 4.5
+	if Models.mid_trestle:
+		_build_trestle(mb, isl, v)
+	else:
+		_build_plain_trestle(mb, isl, v, deck_end, mid)
 	# Tower lateral offset (the eagles sit over it) and how far the header's top runs.
 	var tower_x := 8.7
 	var beam_x := 8.7
 	if mid:
-		# The hinge bent: a concrete cap on piles carrying the span's hinge pin.
-		mb.box(Vector3(v, ly - 1.9, deck_end), Vector3(15.6, 1.4, 1.5), CONCRETE)
-		for side: float in [-6.0, -2.0, 2.0, 6.0]:
-			mb.box(Vector3(v + side, -4.5, deck_end), Vector3(1.0, 9.0, 1.0), CONCRETE.darkened(0.2))
+		if not Models.mid_trestle:
+			# The hinge bent: a concrete cap on piles carrying the span's hinge pin.
+			mb.box(Vector3(v, ly - 1.9, deck_end), Vector3(15.6, 1.4, 1.5), CONCRETE)
+			for side: float in [-6.0, -2.0, 2.0, 6.0]:
+				mb.box(Vector3(v + side, -4.5, deck_end), Vector3(1.0, 9.0, 1.0), CONCRETE.darkened(0.2))
 		Models._append_part(mb, Models.slip_part("towers"), mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, 0, 0)))
 		tower_x = SlipRamp.TOWER_X
 		beam_x = 8.0
@@ -709,17 +715,113 @@ func _build_slip(mb: MeshBuilder, v: float) -> void:
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
 
 
+## When the authored deck is unavailable, the concrete deck still follows the
+## same profile as the vehicles, including the join to the raised lot.
+static func _build_plain_trestle(mb: MeshBuilder, isl: MapData.Island, v: float, end: float, mid: bool) -> void:
+	var front := isl.lot_front_u()
+	var deck := MeshBuilder.new()
+	var u := front
+	while u < end:
+		var next := minf(u + 4.0, end)
+		var center := (u + next) * 0.5
+		deck.box(Vector3(0, -0.6, center), Vector3(15.0, 1.2, next - u), CONCRETE)
+		deck.box(Vector3(0, 0.03, center), Vector3(0.36, 0.06, next - u), LINE_YELLOW)
+		u = next
+	Models.append_on_profile(mb, deck, mb.xform, v, 0.0, isl.road_y)
+	u = front + 3.0
+	while u < end:
+		for side: float in [-6.6, 6.6]:
+			var top := isl.road_y(u) - 1.2
+			mb.box(Vector3(v + side, (top - 10.5) * 0.5, u), Vector3(1.2, top + 10.5, 1.2), Models.WOOD)
+		u += 9.0 if not mid else 4.5
+
+
+## The trestle from the lot's edge out to slip `v`'s span hinge (Models.trestle_part):
+## the abutment at the lot, deck bays lifted onto the road's profile (Island.road_y),
+## the landing onto the hinge last, pile bents under the joints and light poles on the
+## barrier every other bay. Terminal frame.
+func _build_trestle(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
+	var n := isl.approach_bays
+	var u0 := isl.lot_front_u()
+	var road := isl.road_y
+	Models._append_part(mb, Models.trestle_part("abutment"), mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, isl.lot_y, u0)))
+	var lamp := Models.trestle_part("lamp")
+	for i in n:
+		var u := u0 + i * Layout.TRESTLE_BAY
+		var part := Models.trestle_part("landing" if i == n - 1 else "bay")
+		Models.append_on_profile(mb, part, mb.xform, v, u, road)
+		if i > 0:
+			Models._append_part(mb, Models.trestle_part("bent"),
+				mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, isl.road_y(u) - Layout.TRESTLE_SLAB, u)))
+		if i % 2 == 1 or n == 1:
+			var lu := u + Layout.TRESTLE_BAY * 0.5
+			var foot := Vector3(v + Layout.TRESTLE_LAMP_V, isl.road_y(lu) + Layout.TRESTLE_LAMP_Y, lu)
+			Models._append_part(mb, lamp, mb.xform * Transform3D(Basis.IDENTITY, foot))
+			var head := foot + Vector3(-3.75, 9.8, 0.0)
+			glows.glow(head, GlowBuilder.SODIUM, 0.6, 5.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			glows.pool(Vector3(head.x, isl.road_y(lu) + 0.15, lu), GlowBuilder.SODIUM, 12.0, 0.22)
+			_perch(mb.xform * (head + Vector3(0, 0.4, 0)), mb.xform * (head + Vector3(0, 0.4, 0)), 0.0, Seagulls.Kind.LAMP)
+
+
+## Along the lot's seaward edge, where it stands over the bank: a low concrete wall
+## with a pipe rail, open where each trestle (or tie-up catwalk) leaves. Lot frame.
+func _lot_edge(mb: MeshBuilder, isl: MapData.Island) -> void:
+	var hw := isl.lot_half_width
+	var ly := Layout.LOT_Y
+	var u := Layout.LOT_FRONT + 0.3
+	var gaps: Array[Vector2] = []
+	for i in isl.slips.size():
+		var sv := isl.slip_offset(i)
+		if isl.slips[i].tie_up:
+			gaps.append(Vector2(sv - 1.5, sv + 1.5))
+		else:
+			gaps.append(Vector2(sv + Layout.TRESTLE_V_WALK, sv + Layout.TRESTLE_V_OUT))
+	gaps.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+	var runs: Array[Vector2] = []
+	var from := -hw - 1.8
+	for g in gaps:
+		if g.x > from:
+			runs.append(Vector2(from, minf(g.x, hw + 1.8)))
+		from = maxf(from, g.y)
+	if from < hw + 1.8:
+		runs.append(Vector2(from, hw + 1.8))
+	for r in runs:
+		if r.y - r.x < 0.5:
+			continue
+		var mid := (r.x + r.y) * 0.5
+		var w := r.y - r.x
+		mb.box(Vector3(mid, ly - 0.6, u), Vector3(w, 2.1, 0.6), CONCRETE)
+		mb.box(Vector3(mid, ly + 1.1, u), Vector3(w, 0.08, 0.08), Color(0.68, 0.69, 0.68))
+		mb.box(Vector3(mid, ly + 0.75, u), Vector3(w, 0.06, 0.06), Color(0.68, 0.69, 0.68))
+		var x := r.x + 0.2
+		while x <= r.y:
+			mb.box(Vector3(x, ly + 0.75, u), Vector3(0.08, 0.7, 0.08), Color(0.68, 0.69, 0.68))
+			x += 2.0
+
+
 ## A tie-up slip: dolphins and fendered wing walls to lie against, and a
 ## catwalk out from the shore for the crew, but no transfer span (it loads no cars).
-func _build_tie_up(mb: MeshBuilder, v: float) -> void:
+func _build_tie_up(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
-	var lf := Layout.LOT_FRONT
-	mb.box(Vector3(v, ly - 0.3, (lf + pe) * 0.5), Vector3(2.4, 0.3, pe - lf), Models.WOOD)
+	var lf := isl.lot_front_u()
+	# The catwalk follows the road's profile down from the lot, then runs level.
+	var cu := lf
+	while cu < pe - 0.01:
+		var cu1 := minf(cu + 6.0, pe)
+		var y0 := isl.road_y(cu)
+		var y1 := isl.road_y(cu1)
+		var a := Vector3(v, (y0 + y1) * 0.5 - 0.3, (cu + cu1) * 0.5)
+		var saved := mb.xform
+		mb.xform = saved * Transform3D(Basis(Vector3.RIGHT, atan2(y0 - y1, cu1 - cu)), a)
+		mb.box(Vector3.ZERO, Vector3(2.4, 0.3, Vector2(cu1 - cu, y1 - y0).length() + 0.05), Models.WOOD)
+		mb.xform = saved
+		cu = cu1
 	var u := lf + 3.0
 	while u < pe:
 		for side: float in [-1.2, 1.2]:
-			mb.box(Vector3(v + side, -4.2, u), Vector3(0.6, 12.6, 0.6), Models.WOOD)
+			var pile_top := isl.road_y(u) - 0.45
+			mb.box(Vector3(v + side, (pile_top - 10.5) * 0.5, u), Vector3(0.6, pile_top + 10.5, 0.6), Models.WOOD)
 		u += 6.0
 	# The modelled wing walls and dolphins are the slip's own live part (SlipGuides),
 	# fitted to its size and refitted with it, as a working slip's are.
@@ -998,7 +1100,7 @@ func _build_towns() -> void:
 				var r := Vector2(a, b).length() * spacing
 				if rng.randf() > exp(-pow(r / town_r, 2.0)) * 1.15:
 					continue
-				if isl.has_terminal and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - 12.0:
+				if isl.has_terminal and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - isl.lot_shift() - 12.0:
 					continue
 				if _is_blocked(p.x, p.z):
 					continue

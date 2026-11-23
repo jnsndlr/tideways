@@ -84,6 +84,49 @@ static func _hull_face_v(size: int, u: float) -> float:
 	return hw * cos(LIE_SWING) + arm * sin(LIE_SWING)
 const DECK_Y := LOT_Y
 
+# The approach (art/trestle_mid.py): the holding lot stands on the ground behind the
+# shore, at the island's lot_y, and a trestle of whole TRESTLE_BAYs runs down from its
+# seaward edge to the transfer span's hinge (SlipRamp.HINGE_U, at LOT_Y). The road's
+# height along it is approach_y(): level at the lot, a vertical curve TRESTLE_VC long
+# into a steady grade, another out of it, level again at the hinge, so the lot, the
+# trestle and the span meet without a step or a kink. The lot keeps its own frame
+# (Island.lot_offset()): this terminal frame moved inland and up.
+const TRESTLE_BAY := 12.0
+const TRESTLE_VC := 18.0
+const TRESTLE_MAX_GRADE := 0.075
+const TRESTLE_MAX_BAYS := 8
+const TRESTLE_SLAB := 0.7          # deck top to the underside of its slab
+# The trestle's deck edges across its slip's centreline (walkway on -v, barrier on +v).
+const TRESTLE_V_WALK := -9.2
+const TRESTLE_V_OUT := 7.55
+const TRESTLE_LAMP_V := 7.41       # the light poles stand on the barrier
+const TRESTLE_LAMP_Y := 0.85
+
+
+## The road's height at `u` from the lot's edge (u0, h0) to the span's hinge (u1, h1).
+static func approach_y(u: float, u0: float, h0: float, u1: float, h1: float) -> float:
+	var length := u1 - u0
+	if length <= 0.0:
+		return h1
+	var t := clampf((u - u0) / length, 0.0, 1.0)
+	var a := minf(TRESTLE_VC / length, 0.5)
+	var m := 1.0 / (1.0 - a)
+	var f: float
+	if t < a:
+		f = m * t * t / (2.0 * a)
+	elif t < 1.0 - a:
+		f = m * (t - a * 0.5)
+	else:
+		f = 1.0 - m * (1.0 - t) * (1.0 - t) / (2.0 * a)
+	return lerpf(h0, h1, f)
+
+
+## How far above the hinge a lot may stand behind a trestle of `bays`, at the steepest
+## grade allowed.
+static func approach_rise(bays: int) -> float:
+	var length := TRESTLE_BAY * bays
+	return TRESTLE_MAX_GRADE * length * (1.0 - minf(TRESTLE_VC / length, 0.5))
+
 # Marina frame, like a terminal's: origin where the pier meets the shore, +Z ("u")
 # out along the pier. The pier ends in a T-head; sailboats lie bow-in against its
 # seaward face, side by side, and back straight out to MARINA_BACKOUT_U to leave.

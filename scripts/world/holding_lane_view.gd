@@ -1,11 +1,12 @@
 class_name HoldingLaneView
 extends MeshInstance3D
-## Local to the terminal. Construction begins after the traffic lanes clear.
+## Local to the terminal's lot (Island.lot_offset()). Construction begins after the traffic lanes clear.
 
 var crew: PavingCrew
 
 
 func setup(terminal: Terminal) -> void:
+	transform = terminal.island.lot_offset()  # in the lot's frame, like everything on the lot
 	terminal.extension_changed.connect(_refresh.bind(terminal))
 
 

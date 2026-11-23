@@ -77,6 +77,7 @@ check eagle-departure test --script tools/eagle_departure_test.gd
 check shared-forecourt test --script tools/shared_forecourt_test.gd
 check refit-crane test --script tools/refit_crane_test.gd
 check model-parts test --script tools/model_parts_test.gd
+check trestle-profile test --script tools/trestle_profile_test.gd
 check slip-guide-mesh test --script tools/slip_guide_mesh_test.gd
 check lane-redistribution test --script tools/lane_redistribution_test.gd -- --scenario=lane_sharing
 check opening-scenario test --script tools/opening_scenario_test.gd

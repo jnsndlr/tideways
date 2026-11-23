@@ -37,6 +37,11 @@ class Island:
 	var dock_dir := Vector3.FORWARD # horizontal unit vector pointing out to sea
 	var slips: Array[Slip] = []     # left → right along lateral()
 	var lot_half_width := 36.0
+	# The approach: the lot stands at lot_y on the ground behind the shore, a trestle of
+	# approach_bays (Layout.TRESTLE_BAY each, the last landing on the span's hinge)
+	# running down from it. Fitted to the ground by MapGenerator._fit_approaches().
+	var approach_bays := 1
+	var lot_y := Layout.LOT_Y
 	var open_lanes := 0             # lanes paved at the start (more are bought); 0: the whole lot
 	var ferry := true               # with no scenario: built at its first dock site
 	## Dock sites locked by hand in the layout (MapLayout.DockSpec), in the world.
@@ -62,6 +67,27 @@ class Island:
 
 	func terminal_xform() -> Transform3D:
 		return Transform3D(Basis(lateral(), Vector3.UP, dock_dir), shore)
+
+	## How far inland of where it used to stand the lot is set back, for the trestle.
+	func lot_shift() -> float:
+		return Layout.TRESTLE_BAY * approach_bays - (SlipRamp.HINGE_U - Layout.LOT_FRONT)
+
+	## The lot's frame within the terminal's: everything Layout puts on the lot (lanes,
+	## queue slots, the building, the toll plaza) at LOT_Y and LOT_* in this frame comes
+	## out on the raised lot behind the trestle.
+	func lot_offset() -> Transform3D:
+		return Transform3D(Basis.IDENTITY, Vector3(0.0, lot_y - Layout.LOT_Y, -lot_shift()))
+
+	func lot_xform() -> Transform3D:
+		return terminal_xform() * lot_offset()
+
+	## The lot's seaward edge, along the terminal frame's u (where the trestle starts).
+	func lot_front_u() -> float:
+		return SlipRamp.HINGE_U - Layout.TRESTLE_BAY * approach_bays
+
+	## The road's height at `u` (terminal frame) from the lot's edge out to the span's hinge.
+	func road_y(u: float) -> float:
+		return Layout.approach_y(u, lot_front_u(), lot_y, SlipRamp.HINGE_U, Layout.LOT_Y)
 
 	## Lateral offset of slip `i`. The working slips sit centred on the lot; tie-up
 	## slips come after them in `slips` and carry on along the shore to the right.

@@ -317,6 +317,14 @@ func add_flat(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1
 		"v0": v0, "v1": v1, "h": height, "blend": blend})
 
 
+## Keeps the ground under a trestle clear of its deck: within `u0..u1` along `dir` and
+## `v0..v1` across it from `origin`, never higher than `under.call(u)`, easing back
+## to the ground over `blend`. Only ever cuts down. Kept in `flats`, after the lot's.
+func add_cut(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1: float, under: Callable, blend: float) -> void:
+	flats.append({"o": origin, "n": dir, "t": Vector3.UP.cross(dir), "u0": u0, "u1": u1,
+		"v0": v0, "v1": v1, "h": 0.0, "blend": blend, "under": under})
+
+
 func apply_flats() -> void:
 	for f in flats:
 		_apply_flat(f)
@@ -340,6 +348,7 @@ func _apply_flat(f: Dictionary) -> void:
 	var v1: float = f.v1
 	var blend: float = f.blend
 	var target: float = f.h
+	var under: Callable = f.get("under", Callable())
 	var reach := maxf(absf(u0), absf(u1)) + maxf(absf(v0), absf(v1)) + blend
 	var i0 := _index_of(o.x - reach)
 	var i1 := _index_of(o.x + reach)
@@ -356,6 +365,11 @@ func _apply_flat(f: Dictionary) -> void:
 			if dd >= blend:
 				continue
 			var k := j * (n + 1) + i
+			if under.is_valid():
+				var cap: float = under.call(clampf(u, u0, u1))
+				if h_grid[k] > cap:
+					h_grid[k] = lerpf(h_grid[k], cap, 1.0 - smoothstep(0.0, blend, dd))
+				continue
 			h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
 
 
@@ -414,6 +428,30 @@ func _box_blur(g: PackedFloat32Array, w: int, h: int, along_x: bool) -> PackedFl
 			var sub := clampi(t - r, 0, span - 1)
 			sum += (g[l * w + add] - g[l * w + sub]) if along_x else (g[add * w + l] - g[sub * w + l])
 	return out
+
+
+## Lowers the land behind a ferry landing at `origin` (on the waterline, facing out
+## along `dir`) into a gentle valley: the ground rises from `low` at the shore at
+## `grade` inland for `length`, across `v0..v1`, easing back to the hills around over
+## `fade`. Only ever cuts down, so lower ground stays as it is.
+func carve_landing(origin: Vector3, dir: Vector3, v0: float, v1: float, length: float, low: float,
+		grade: float, fade: float) -> void:
+	var td := Vector3.UP.cross(dir)
+	var reach := length + maxf(absf(v0), absf(v1)) + fade
+	for j in range(_index_of(origin.z - reach), _index_of(origin.z + reach) + 1):
+		for i in range(_index_of(origin.x - reach), _index_of(origin.x + reach) + 1):
+			var p := Vector3(-half_size + i * CELL, 0.0, -half_size + j * CELL) - origin
+			var u := p.dot(dir)
+			var v := p.dot(td)
+			var du := maxf(maxf(-length - u, u - 12.0), 0.0)
+			var dv := maxf(maxf(v0 - v, v - v1), 0.0)
+			var dd := sqrt(du * du + dv * dv)
+			if dd >= fade:
+				continue
+			var k := j * (n + 1) + i
+			var target := low + grade * clampf(-u, 0.0, length)
+			if h_grid[k] > target:
+				h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, fade, dd))
 
 
 ## Cuts a pocket beach into the shore at `origin` (on the waterline), facing out
