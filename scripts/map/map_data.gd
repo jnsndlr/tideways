@@ -120,10 +120,6 @@ class Town:
 				out.append(i)
 		return out
 
-	## Half the water a tie-up slip keeps clear between its neighbouring dolphin rows.
-	func tie_up_half_width(_i: int) -> float:
-		return (Layout.TIE_UP_SPACING - Layout.TIE_UP_ROW) * 0.5
-
 	## Where a hull lies centred at slip `i`, in the world (y = 0).
 	func berth_center(i: int) -> Vector3:
 		return shore + dock_dir * Layout.DOCK_U + lateral() * slip_offset(i)

@@ -148,7 +148,7 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 	var v := town.slip_offset(i)
 	if town.slips[i].tie_up:
 		if TieUpPier.available():
-			_rebuild_tie_up_pier(town)
+			_rebuild_tie_up_pier(town, mb)
 		else:
 			_build_tie_up(mb, town, i)
 	else:
@@ -165,22 +165,36 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 	glows = saved
 
 
-func _rebuild_tie_up_pier(town: MapData.Town) -> void:
-	if _tie_up_piers.has(town.id):
-		var old: Node3D = _tie_up_piers[town.id]
-		if is_instance_valid(old):
-			old.queue_free()
+func _rebuild_tie_up_pier(town: MapData.Town, mb: MeshBuilder) -> void:
+	var old: TieUpPier = _tie_up_piers.get(town.id)
+	var existing_rows: Array[float] = []
+	if is_instance_valid(old):
+		existing_rows = old.rows
+		old.get_parent().remove_child(old)
+		old.queue_free()
 		_tie_up_piers.erase(town.id)
-	var ties := town.tie_ups()
-	if ties.is_empty():
+	var centres: Array[float] = []
+	for i in town.tie_ups():
+		centres.append(town.slip_offset(i))
+	if centres.is_empty():
 		return
-	var berths: Array = ties.map(func(idx): return Vector2(town.slip_offset(idx), town.tie_up_half_width(idx)))
-	berths.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
-	var pier := TieUpPier.new(berths)
+	centres.sort()
+	var pier := TieUpPier.new(centres)
 	pier.name = town.name + " Tie-up Pier"
 	root.add_child(pier)
 	pier.transform = town.terminal_xform()
 	_tie_up_piers[town.id] = pier
+	# Purchased slips retain their centres. Existing rows keep their navigation
+	# lantern and eagle lookout when a neighbouring berth extends this pier.
+	for v in pier.rows:
+		if existing_rows.has(v):
+			continue
+		var lookout := TieUpPier.SMALL_CAP + Vector3.RIGHT * v
+		eagle_perches.append(Eagles.Perch.new(mb.xform * lookout, Eagles.Kind.DOLPHIN))
+		var cap := TieUpPier.LARGE_CAP + Vector3.RIGHT * v
+		var mark := GlowBuilder.GREEN if v in pier.port_rows else GlowBuilder.RED
+		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
+		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 
 
 ## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
@@ -674,13 +688,14 @@ func _terminal_for(isl: MapData.Town) -> void:
 		mb.box(Vector3(0, ly + 0.03, u), Vector3(0.42, 0.06, 3.6), LINE_YELLOW)
 		u += 7.2
 
+	var timber_pier := not isl.tie_ups().is_empty() and TieUpPier.available()
 	for i in isl.slips.size():
 		if not isl.slips[i].tie_up:
 			_build_slip(mb, isl.slip_offset(i))
-		elif not TieUpPier.available():
+		elif not timber_pier:
 			_build_tie_up(mb, isl, i)
-	if TieUpPier.available() and not isl.tie_ups().is_empty():
-		_rebuild_tie_up_pier(isl)
+	if timber_pier:
+		_rebuild_tie_up_pier(isl, mb)
 
 	# The entry porch faces the holding lanes. The gulls sit along the hall ridge.
 	var bv := hw + 15.0

@@ -10,10 +10,10 @@ const MAIN_WIDTH := 4.0
 const FINGER_WIDTH := 2.0
 const LOW := 0.48
 const HIGH := 1.98
-const CLEAT := preload("res://assets/models/dock_kit/cleat.glb")
+const CLEAT := "res://assets/models/dock_kit/cleat.glb"
 const PIECES := [
-	[preload("res://assets/models/dock_kit/main_deck.glb"), preload("res://assets/models/dock_kit/main_floats.glb"), preload("res://assets/models/dock_kit/main_piles.glb"), preload("res://assets/models/dock_kit/main_ramp.glb")],
-	[preload("res://assets/models/dock_kit/finger_deck.glb"), preload("res://assets/models/dock_kit/finger_floats.glb"), preload("res://assets/models/dock_kit/finger_piles.glb"), preload("res://assets/models/dock_kit/finger_ramp.glb")],
+	["res://assets/models/dock_kit/main_deck.glb", "res://assets/models/dock_kit/main_floats.glb", "res://assets/models/dock_kit/main_piles.glb", "res://assets/models/dock_kit/main_ramp.glb"],
+	["res://assets/models/dock_kit/finger_deck.glb", "res://assets/models/dock_kit/finger_floats.glb", "res://assets/models/dock_kit/finger_piles.glb", "res://assets/models/dock_kit/finger_ramp.glb"],
 ]
 
 
@@ -39,12 +39,30 @@ class Section:
 
 
 var _sections: Array[Section] = []
+var _pieces := {}
+
+
+static func available() -> bool:
+	if not ResourceLoader.exists(CLEAT, "PackedScene"):
+		return false
+	for width in PIECES:
+		for path: String in width:
+			if not ResourceLoader.exists(path, "PackedScene"):
+				return false
+	return true
+
+
+## Hold a copy of each resource used by this assembly while placing its sections.
+func _piece(path: String) -> Node3D:
+	if not _pieces.has(path):
+		_pieces[path] = load(path)
+	return (_pieces[path] as PackedScene).instantiate()
 
 
 func add_deck(width: Width, start: Vector3, direction: Vector2, support: Support) -> Vector3:
 	var end := _place(width, start, direction, start.y, false)
 	if end != start:
-		var foundation: Node3D = PIECES[width][1 + support].instantiate()
+		var foundation: Node3D = _piece(PIECES[width][1 + support])
 		add_child(foundation)
 		foundation.transform = Transform3D(Basis.looking_at(end - start), start)
 	return end
@@ -60,7 +78,7 @@ func _place(width: Width, start: Vector3, direction: Vector2, end_height: float,
 		return start
 	var forward := Vector3(direction.x, 0, direction.y).normalized()
 	var rise := end_height - start.y
-	var model: Node3D = PIECES[width][3 if ramp else 0].instantiate()
+	var model: Node3D = _piece(PIECES[width][3 if ramp else 0])
 	add_child(model)
 	# Shearing the level ramp keeps the posts plumb and the projected run fixed.
 	model.transform = Transform3D(Basis(forward.cross(Vector3.UP), Vector3.UP,
@@ -98,7 +116,7 @@ func _place(width: Width, start: Vector3, direction: Vector2, end_height: float,
 		model.add_child(section.cleats)
 		for side: float in [-1.0, 1.0]:
 			for along: float in [1.5, 4.5]:
-				var cleat: Node3D = CLEAT.instantiate()
+				var cleat: Node3D = _piece(CLEAT)
 				section.cleats.add_child(cleat)
 				cleat.position = Vector3(side * (half_width - 0.16), 0, -along)
 	_sections.append(section)

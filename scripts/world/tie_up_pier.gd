@@ -1,31 +1,49 @@
 class_name TieUpPier
 extends Node3D
 
-## One timber pier along the shore that every tie-up slip lies against, like a
-## ferry system's lay-up dock: a catwalk from the lot, a long main deck at the
-## end of the slips, finger catwalks between the hulls and timber mooring
-## dolphins out along each side. Built in the terminal frame (x across, z out).
+## Adjacent lay-up berths share a timber deck, access ramp and mooring dolphins.
+## Working slips separate decks. Coordinates are in the terminal frame (x across, z out).
 
 const Kit := preload("res://scripts/world/dock_kit.gd")
-const DOLPHIN_LARGE := preload("res://assets/models/timber_dolphin_large.glb")
-const DOLPHIN_SMALL := preload("res://assets/models/timber_dolphin_small.glb")
+const DOLPHIN_LARGE := "res://assets/models/timber_dolphin_large.glb"
+const DOLPHIN_SMALL := "res://assets/models/timber_dolphin_small.glb"
 const DOLPHIN_SCALE := 1.8
+# Tops measured on the authored models, relative to their waterline origins.
+const SMALL_CAP := Vector3(0, 2.67 * DOLPHIN_SCALE, Layout.PIER_END + 10.0)
+const LARGE_CAP := Vector3(0, 3.74 * DOLPHIN_SCALE, Layout.PIER_END + 52.0)
 const PIER_U := Layout.PIER_END - Kit.MAIN_WIDTH * 0.5  # deck centre; seaward edge at PIER_END
 const END_REACH := 6.0           # how far the main deck runs past the outer dolphin rows
 
 
+## Deck groups separated by a working slip keep its apron and approach open.
+var rows: Array[float] = []
+var port_rows: Array[float] = []
+
+
 static func available() -> bool:
-	return ResourceLoader.exists("res://assets/models/dock_kit/main_deck.glb") \
-		and ResourceLoader.exists("res://assets/models/timber_dolphin_large.glb")
+	return Kit.available() and ResourceLoader.exists(DOLPHIN_LARGE, "PackedScene") and ResourceLoader.exists(DOLPHIN_SMALL, "PackedScene")
 
 
-func _init(berths: Array) -> void:
-	# Each berth is (centre v, half width); they arrive in shore order.
-	var lo: float = berths.front().x - berths.front().y - Layout.TIE_UP_ROW * 0.5
-	var top: float = berths.back().x + berths.back().y + Layout.TIE_UP_ROW * 0.5
+func _init(centres: Array[float]) -> void:
+	var small: PackedScene = load(DOLPHIN_SMALL)
+	var large: PackedScene = load(DOLPHIN_LARGE)
+	var first := 0
+	for i in centres.size():
+		if i + 1 < centres.size() and centres[i + 1] - centres[i] <= Layout.TIE_UP_SPACING + 0.01:
+			continue
+		_build_group(centres, first, i)
+		first = i + 1
+	for v in rows:
+		_dolphin(small, Vector3(v, 0, SMALL_CAP.z))
+		_dolphin(large, Vector3(v, 0, LARGE_CAP.z))
+
+
+func _build_group(centres: Array[float], first: int, last: int) -> void:
+	var lo := centres[first] - Layout.TIE_UP_SPACING * 0.5
+	var top := centres[last] + Layout.TIE_UP_SPACING * 0.5
 	var kit := Kit.new()
 	kit.name = "Deck"
-	add_child(kit)
+	add_child(kit, true)
 	var hi := Kit.HIGH
 
 	# The main deck: square to the shore, the hull ends lie up against its seaward edge.
@@ -37,20 +55,20 @@ func _init(berths: Array) -> void:
 		p = kit.add_deck(Kit.Width.MAIN, p, Vector2.RIGHT, Kit.Support.PILES)
 
 	# The catwalk from the lot front comes down a ramp to the deck's landward side.
-	var walk := Vector3(deck_lo + Kit.RUN * 0.5, Layout.LOT_Y, PIER_U - Kit.MAIN_WIDTH * 0.5 - Kit.RUN * 5)
+	var shore_edge := PIER_U - Kit.MAIN_WIDTH * 0.5
+	var walk_runs := ceili((shore_edge - Layout.LOT_FRONT) / Kit.RUN)
+	var nearest := clampi(floori(-deck_lo / Kit.RUN), 0, runs - 1)
+	var walk := Vector3(deck_lo + (nearest + 0.5) * Kit.RUN, Layout.LOT_Y, shore_edge - walk_runs * Kit.RUN)
 	walk = kit.add_ramp(Kit.Width.FINGER, walk, Vector2(0, 1), hi)
-	for k in 4:
+	for k in walk_runs - 1:
 		walk = kit.add_deck(Kit.Width.FINGER, walk, Vector2(0, 1), Kit.Support.PILES)
 
 	# A row of dolphins either side of each berth, shared between neighbours:
 	# a small one near the pier and a large one out towards the hull's far end.
-	var rows: Array[float] = [lo]
-	for k in berths.size() - 1:
-		rows.append(berths[k].x + berths[k].y + Layout.TIE_UP_ROW * 0.5)
-	rows.append(top)
-	for v in rows:
-		_dolphin(DOLPHIN_SMALL, Vector3(v, 0, Layout.PIER_END + 10.0))
-		_dolphin(DOLPHIN_LARGE, Vector3(v, 0, Layout.PIER_END + 52.0))
+	rows.append(lo)
+	port_rows.append(lo)
+	for i in range(first, last + 1):
+		rows.append(centres[i] + Layout.TIE_UP_SPACING * 0.5)
 
 
 func _dolphin(scene: PackedScene, at: Vector3) -> void:
