@@ -150,6 +150,7 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
 	await sim.setup(map, terrain, scenario, charts, _setup_frames)
+	sim.routes_changed.connect(builder.rebuild_route_overlay)
 	if not await _setup_frames.can_continue():
 		return
 	for terminal: Terminal in sim.terminals.values():

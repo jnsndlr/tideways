@@ -26,6 +26,8 @@ var wildlife: Wildlife
 var marine: MarineTraffic
 ## A boat's running costs went on the ledger (`trip`: as she docked).
 signal running_costs_posted(ferry: Ferry, fuel: float, crew: float, trip: bool)
+## Which routes are in service changed (a schedule was edited).
+signal routes_changed
 
 var ledger := CompanyLedger.new()
 var available_cash: float:
@@ -91,6 +93,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 	if not await frames.can_continue():
 		return
 	_build_lanes()
+	_mark_routes_in_service()
 	for term: Terminal in terminals.values():
 		term.prefill()
 		if not await frames.can_continue():
@@ -140,6 +143,100 @@ func _spawn_scheduled() -> void:
 		for key in schedule.stops:
 			stop_ids.append(island_by_key[key])
 		ferries[-1].set_legs(stop_ids, leg_routes)
+		ferries[-1].set_timetable(schedule.departures)
+
+
+## The route between two islands (either way round), or null if none was planned.
+func route_between(a: int, b: int) -> MapData.Route:
+	for r in map.routes:
+		if (r.a == a and r.b == b) or (r.a == b and r.b == a):
+			return r
+	return null
+
+
+## Returns the first reason the ferry cannot sail this leg, checking both berths.
+func leg_problem(f: Ferry, a: int, b: int) -> String:
+	if a < 0 or b < 0 or a >= map.islands.size() or b >= map.islands.size():
+		return "Unknown stop"
+	if a == b:
+		return "%s is listed twice in a row" % map.islands[a].name
+	var route := route_between(a, b)
+	if route == null:
+		return "No route between %s and %s" % [map.islands[a].name, map.islands[b].name]
+	for id in [a, b]:
+		var island := map.islands[id]
+		var berth := island.slip_index(route.id)
+		if berth < 0:
+			return "%s has no slip for this route" % island.name
+		var slip := island.slips[berth]
+		if not slip.fits(f.fc.size):
+			return "%s's %s slip is too small for her" % [island.name, slip.size_name()]
+	return ""
+
+
+## Why boat `f` can't run `ids` (island ids in turn), or "" if she can.
+func stops_problem(f: Ferry, ids: Array[int]) -> String:
+	if ids.size() < 2:
+		return "Give her at least two stops"
+	for i in ids.size():
+		var reason := leg_problem(f, ids[i], ids[(i + 1) % ids.size()])
+		if reason != "":
+			return reason
+	if f.next_dock().island.id not in ids:
+		return "Keep %s, where she calls next" % f.next_dock().island.name
+	return ""
+
+
+## Puts boat `f` on `ids` from her next call (Ferry.plan_stops), and on the
+## departures `times` (Timetable; null keeps hers). New times on the stops she
+## already runs start at once. False if she can't run them.
+func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
+	if stops_problem(f, ids) != "":
+		return false
+	var new_times: Array[int] = []
+	new_times.assign(times if times != null else (f._next_timetable if not f.next_stops.is_empty() else f.timetable))
+	new_times.sort()
+	if not new_times.is_empty() and (new_times[0] < 0 or new_times[-1] >= Timetable.DAY):
+		return false
+	var offsets := f.plan_offsets(ids)
+	if Timetable.any_too_soon(new_times, offsets[-1]):
+		return false
+	var n := ids.size()
+	var leg_routes: Array[MapData.Route] = []
+	for i in n:
+		leg_routes.append(route_between(ids[i], ids[(i + 1) % n]))
+	if ids == f.stops:
+		f.next_stops = []
+		f._next_legs = []
+		if new_times != f.timetable:
+			f.set_timetable(new_times)
+	else:
+		f.plan_stops(ids, leg_routes, new_times)
+	if f.schedule:
+		f.schedule.stops.assign(ids.map(func(id): return map.islands[id].key))
+		f.schedule.departures = new_times
+	_mark_routes_in_service()
+	return true
+
+
+## A boat took new stops: the lanes divide again among the new destinations.
+func stops_changed(_f: Ferry) -> void:
+	for term: Terminal in terminals.values():
+		term.relane(_lane_destinations(term))
+	# And the water she shares with other boats is found afresh for her new routes.
+	if marine:
+		marine.refresh_corridors()
+	_mark_routes_in_service()
+
+
+## Routes a boat sails, or will once she takes her planned stops, are in service.
+func _mark_routes_in_service() -> void:
+	for r in map.routes:
+		r.in_service = false
+	for f in ferries:
+		for r in f.legs + f._next_legs:
+			r.in_service = true
+	routes_changed.emit()
 
 
 ## A multi-stop schedule can call at a different slip on each leg.
@@ -159,23 +256,27 @@ func _schedule_fits(boat: Scenario.Boat, legs: Array[MapData.Route]) -> bool:
 ## network lays out as before), then anywhere further a boat carries cars to.
 func _build_lanes() -> void:
 	for term: Terminal in terminals.values():
-		var served: Array[int] = []
-		for f in ferries:
-			for i in f.stops.size():
-				if f.stops[i] == term.island.id:
-					for d in f._served_from(i):
-						if d not in served:
-							served.append(d)
-		var dests: Array[int] = []
-		for rid in term.island.route_ids():
-			var r := map.routes[rid]
-			var other := r.b if r.a == term.island.id else r.a
-			if other in served and other not in dests:
-				dests.append(other)
-		for d in served:
-			if d not in dests:
-				dests.append(d)
-		term.build_lanes(dests)
+		term.build_lanes(_lane_destinations(term))
+
+
+func _lane_destinations(term: Terminal) -> Array[int]:
+	var served: Array[int] = []
+	for f in ferries:
+		for i in f.stops.size():
+			if f.stops[i] == term.island.id:
+				for d in f._served_from(i):
+					if d not in served:
+						served.append(d)
+	var dests: Array[int] = []
+	for rid in term.island.route_ids():
+		var r := map.routes[rid]
+		var other := r.b if r.a == term.island.id else r.a
+		if other in served and other not in dests:
+			dests.append(other)
+	for d in served:
+		if d not in dests:
+			dests.append(d)
+	return dests
 
 
 ## Boats whose schedule starts laid up lie at a tie-up slip at its first stop.
@@ -257,6 +358,11 @@ func collect_fare(car: Vehicle) -> void:
 		ledger.credit_flat(car.is_truck)
 	else:
 		ledger.credit_measured(car.length_metres())
+
+
+## Game minutes since the start of day 0, running on past midnight.
+func abs_minutes() -> float:
+	return day * 1440.0 + minutes
 
 
 func hour() -> float:

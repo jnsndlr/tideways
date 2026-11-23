@@ -121,8 +121,9 @@ func drag_control(control: Control, local_point: Vector2, by: Vector2) -> void:
 	root.push_input(event, true)
 
 
-## The edge group: weather visibility, independent layers, hide all, room beside
-## the inspector, and a drag that neither taps nor pans.
+## Map layers from Settings, and the weather widget: the WEATHER sidebar button,
+## its pin, weather visibility, room beside the inspector, and a drag that neither
+## taps nor pans.
 func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 	await frames(2)
 	var controls := hud.map_controls
@@ -130,24 +131,20 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 	var art := widget.size * Vector2(0.5, 0.35)
 	var clouds: CloudLayer = current_scene.clouds
 	var minutes := hud.sim.minutes
-	if not click_control(widget, art, "Weather widget"):
-		return false
-	if controls.weather_shown or clouds.shown or clouds.visible:
-		return fail("Tapping the weather widget left map weather showing")
+	# Layer flags are set in memory only, so the test never rewrites the player's file.
+	var cfg := GameSettings._cfg
+	for key: String in ["show_routes", "show_names", "show_areas"]:
+		cfg.set_value("display", key, true)
 	hud.rig.target_dist = 2000.0
 	hud.rig.distance = 2000.0
-	await frames(3)
-	if hud.sim.minutes <= minutes:
-		return fail("Hiding map weather stopped the clock")
+	await frames(2)
 	if not hud.route_overlay.visible or not any_town_label(hud):
 		return fail("Routes and town names should start visible from the overview")
-	if not await press("Names"):
-		return false
+	cfg.set_value("display", "show_names", false)
 	await frames(2)
 	if any_town_label(hud) or not hud.route_overlay.visible:
 		return fail("Names off should hide town names and leave routes")
-	if not await press("Routes"):
-		return false
+	cfg.set_value("display", "show_routes", false)
 	for distance: float in [2000.0, 120.0]:
 		hud.rig.target_dist = distance
 		hud.rig.distance = distance
@@ -156,35 +153,45 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 			return fail("Hidden routes came back at camera distance %d" % distance)
 	hud.rig.target_dist = 2000.0
 	hud.rig.distance = 2000.0
-	if not await press("Routes"):
-		return false
-	await frames(2)
-	if not hud.route_overlay.visible or any_town_label(hud):
-		return fail("Routes on with names off did not hold as a mixed state")
-	hud.rig.target_dist = 120.0
-	hud.rig.distance = 120.0
-	await frames(2)
-	if not hud.route_overlay.visible:
-		return fail("Shown routes disappeared close in")
-	hud.rig.target_dist = 2000.0
-	hud.rig.distance = 2000.0
-	if not await press("Hide all"):
-		return false
-	await frames(2)
-	if controls.any_shown() or hud.route_overlay.visible or any_town_label(hud):
-		return fail("Hide all left a map layer visible")
-	if not await press("Show all"):
-		return false
+	cfg.set_value("display", "show_routes", true)
+	cfg.set_value("display", "show_names", true)
 	await frames(2)
 	if not hud.route_overlay.visible or not any_town_label(hud):
-		return fail("Show all did not restore the map layers")
-	if controls.weather_shown or clouds.shown:
-		return fail("Hide all or Show all changed weather visibility")
+		return fail("Turning layers back on did not restore them")
+
+	# The sidebar opens and collapses the widget; unpinned, a map click tucks it away.
+	controls.pinned = false
+	controls.visible = false
+	if not await press("WEATHER") or not controls.visible:
+		return fail("WEATHER did not open the weather widget")
+	if not await press("WEATHER") or controls.visible:
+		return fail("WEATHER did not collapse the weather widget")
+	if not await press("WEATHER"):
+		return false
+	hud._on_ground_clicked(Vector2(-1000, -1000))
+	if controls.visible:
+		return fail("An unpinned weather widget stayed open after a map click")
+	controls.visible = true
+	controls.pinned = true
+	hud._on_ground_clicked(Vector2(-1000, -1000))
+	if not controls.visible:
+		return fail("A pinned weather widget closed on a map click")
+	await frames(2)
+
+	if not click_control(widget, art, "Weather widget"):
+		return false
+	if controls.weather_shown or clouds.shown or clouds.visible:
+		return fail("Tapping the weather widget left map weather showing")
+	await frames(3)
+	if hud.sim.minutes <= minutes:
+		return fail("Hiding map weather stopped the clock")
 
 	hud.select_ferry(boat)
 	await frames(3)
 	if controls.get_rect().intersects(hud._info_panel.get_rect()):
 		return fail("Map controls overlap the open inspector")
+	if hud._info_panel.get_rect().intersects(hud._minimap_panel.get_rect()):
+		return fail("The ferry inspector overlaps the minimap at %s" % hud._info_panel.get_rect())
 	if not click_control(widget, art, "Weather widget beside the inspector"):
 		return false
 	if not controls.weather_shown or not clouds.shown:
