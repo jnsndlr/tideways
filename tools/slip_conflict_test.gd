@@ -99,7 +99,7 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 	var clashes := SlipConflicts.on_sailing(result, 0)
 	if clashes.size() != 1 or not clashes[0].she_holds or clashes[0].other != hiyu or clashes[0].island != madrona:
 		return _fail("Expected one clash with the Heron holding for the Hiyu at %s, got %s" % [shared.town.name, result.clashes])
-	print("Clash: %s" % SlipConflicts.clash_text(sim, clashes[0]))
+	print("Clash: %s" % SlipConflictText.clash_text(sim, clashes[0]))
 	if not ed._clash_note.visible or "holds offshore for the Hiyu" not in ed._clash_note.text:
 		return _fail("The editor shows no recurring hold warning: '%s'" % ed._clash_note.text)
 	print("Editor: %s" % ed._clash_note.text)
@@ -107,6 +107,23 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 		return _fail("The clashing sailing carries no warning")
 	if ed._apply.disabled:
 		return _fail("A slip clash disabled Apply")
+	# A second working berth can take the later boat. A berth still being
+	# built cannot absorb the conflict, nor can a tie-up berth.
+	var spare := MapData.Slip.new(1, false)
+	shared.town.slips.append(spare)
+	ed._rebuild()
+	if _sailing_warned(ed, 0):
+		return _fail("Timed boats were warned despite a second free working berth")
+	spare.building = true
+	ed._rebuild()
+	if not _sailing_warned(ed, 0):
+		return _fail("The timetable relied on a working berth under construction")
+	spare.building = false
+	spare.tie_up = true
+	ed._rebuild()
+	if not _sailing_warned(ed, 0):
+		return _fail("The timetable treated a lay-up berth as a working slip")
+	shared.town.slips.pop_back()
 	# Moved a round later the warning goes.
 	ed._times.assign([heron_t + 120])
 	ed._rebuild()

@@ -45,10 +45,7 @@ var _info_sub: Label
 var _info_grid: GridContainer
 ## The left-hand menu (COMPANY … SETTINGS); the island editor sits its toggle below it.
 var sidebar: PanelContainer
-# The terminal upgrades view (stage 5): every upgrade the selected terminal can
-# take, one button each (Terminal.upgrades), reused as the panel refreshes.
-var _upgrades_box := VBoxContainer.new()
-var _upgrade_offers: Array[TerminalUpgrade] = []
+var _upgrades_box := TerminalUpgradesPanel.new()
 ## Buys the shown locked dock site on an island with no terminal yet (main map).
 var _dock_button := Button.new()
 var _service_button := Button.new()
@@ -612,7 +609,8 @@ func _build_info_panel() -> void:
 	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
 	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
 	v.add_child(_stops_button)
-	_upgrades_box.add_theme_constant_override("separation", 4)
+	_upgrades_box.setup(_label("TERMINAL UPGRADES", 11, MUTED, true))
+	_upgrades_box.purchase_requested.connect(_buy_upgrade)
 	_upgrades_box.visible = false
 	v.add_child(_upgrades_box)
 	_dock_button.custom_minimum_size.y = 48
@@ -725,7 +723,7 @@ func _slip_clash_text(f: Ferry) -> String:
 	var text := ""
 	var plan := SlipConflicts.plan_of(f)
 	if not plan.is_empty() and not plan.times.is_empty():
-		text = SlipConflicts.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
+		text = SlipConflictText.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
 	_clash_cache[f] = [now, text]
 	return text
 
@@ -734,53 +732,13 @@ func _crossing_text(minutes: float, c: Captain) -> String:
 	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
 
-## The upgrades view: a heading, then a button (title and price) and a line (build
-## time, or what stops it) for each of `term`'s upgrades.
-func _show_upgrades(term: Terminal) -> void:
-	_upgrade_offers = term.upgrades()
-	var need := 1 + _upgrade_offers.size() * 2
-	if _upgrades_box.get_child_count() != need:
-		for c in _upgrades_box.get_children():
-			_upgrades_box.remove_child(c)
-			c.queue_free()
-		_upgrades_box.add_child(HSeparator.new())
-		for k in _upgrade_offers.size():
-			var b := Button.new()
-			b.focus_mode = Control.FOCUS_NONE
-			b.custom_minimum_size.y = 44
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.pressed.connect(_buy_upgrade.bind(k))
-			_upgrades_box.add_child(b)
-			var l := _label("", 12, MUTED)
-			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			_upgrades_box.add_child(l)
-		var head := _label("TERMINAL UPGRADES", 11, MUTED, true)
-		_upgrades_box.add_child(head)
-		_upgrades_box.move_child(head, 0)
-	for k in _upgrade_offers.size():
-		var u := _upgrade_offers[k]
-		var b := _upgrades_box.get_child(2 + k * 2) as Button
-		var l := _upgrades_box.get_child(3 + k * 2) as Label
-		var researched := sim.has_research(u.research)
-		b.text = "%s · %s" % [u.title, fmt_money(u.price)]
-		b.disabled = u.blocked != "" or not researched or sim.available_cash < u.price
-		var detail := u.detail()
-		if not researched:
-			detail = "Needs research: " + u.research
-		elif u.blocked == "" and sim.available_cash < u.price:
-			detail += " · %s short" % fmt_money(u.price - sim.available_cash)
-		l.text = detail
-
-
-func _buy_upgrade(k: int) -> void:
-	if selected_town == null or k >= _upgrade_offers.size():
+func _buy_upgrade(terminal: Terminal, u: TerminalUpgrade) -> void:
+	if selected_town == null or terminal != sim.terminals.get(selected_town.id):
 		return
-	var terminal: Terminal = sim.terminals.get(selected_town.id)
-	var u := _upgrade_offers[k]
 	if terminal == null or not terminal.buy(u):
 		return
 	if u.kind == TerminalUpgrade.Kind.LANE:
-		rig.focus_on(terminal.to_global(Vector3(terminal.extension_offset(), Layout.LOT_Y, -40)), 180.0)
+		rig.focus_on(terminal.lot_point(terminal.extension_offset(), -40), 180.0)
 	else:
 		rig.focus_on(terminal.to_global(Vector3(selected_town.slip_offset(terminal.refit_slip), 0.0, RefitCrew.WORK_U)), 260.0)
 	_refresh_panels()
@@ -948,6 +906,8 @@ func _refresh_panels() -> void:
 				rows.append(["Dock site", "None: no terminal can be built here"])
 			elif building >= 0.0:
 				rows.append(["Opens in", _hours_text(building)])
+			elif sim.dock_price(isl) <= 0:
+				rows.append(["Dock site", "No navigable ferry route reaches this site"])
 			else:
 				var price := sim.dock_price(isl)
 				var tier: Dictionary = MapLayout.DOCK_TIERS[island.dock_sites[isl.site].tier]
@@ -1002,7 +962,7 @@ func _refresh_panels() -> void:
 		_info_button.text = "Center view"
 		if term:
 			_update_terminal_bar(term)
-			_show_upgrades(term)
+			_upgrades_box.refresh(term)
 			offer_upgrades = true
 	_upgrades_box.visible = offer_upgrades
 	_dock_button.visible = offer_dock

@@ -12,6 +12,8 @@ func _initialize() -> void:
 func run() -> void:
 	var town := MapData.Town.new()
 	town.name = "Pier test"
+	town.approach_bays = 4
+	town.lot_y = Layout.LOT_Y + 6.0
 	town.shore = Vector3(82, 0, -18)
 	town.dock_dir = Vector3.RIGHT
 	_add_slip(town, 0.0, false)
@@ -48,7 +50,7 @@ func run() -> void:
 		var reaches_shore := false
 		for section in kit._sections:
 			_check(signf(section.start.x) == signf(section.end.x), "A timber deck must not pass through the working slip.")
-			if section.start.z <= Layout.LOT_FRONT and is_equal_approx(section.start.y, Layout.LOT_Y):
+			if section.start.z <= town.lot_front_u() and is_equal_approx(section.start.y, town.lot_y):
 				reaches_shore = absf(section.start.x) <= town.lot_half_width
 		_check(reaches_shore, "Each pier's access ramp must reach the shore at lot height.")
 	_check(groups == 2, "Working water between tie-ups must split the pier into two groups.")
