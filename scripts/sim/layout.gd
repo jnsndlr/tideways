@@ -23,6 +23,10 @@ const SLOT := 7.8               # spacing between queued cars
 # Far enough apart that ferries at neighbouring slips, lying alongside or
 # coming and going straight in and out, never come near each other.
 const SLIP_SPACING := 60.0
+# Tie-ups lie side by side, closer than working slips (as at Eagle Harbor): boats
+# berth there slowly and one at a time, so the widest hull (a Jumbo, 39 m across as
+# modelled) and a few metres between neighbours, with shared dolphins.
+const TIE_UP_SPACING := 45.0
 const FERRY_HALF := 45.0
 const DOCK_U := PIER_END + FERRY_HALF + 0.4  # centre of a 90 m hull docked (route ends)
 const CHANNEL_BUOY_U := PIER_END + 138.0     # each slip's pair of channel buoys

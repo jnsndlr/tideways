@@ -111,21 +111,38 @@ class Town:
 
 	## Lateral offset of slip `i`. The working slips sit centred on the lot; tie-up
 	## slips come after them in `slips` and carry on along the shore to the right.
+	## A slip bought in play keeps the place it was built at (Slip.v), and so do
+	## the ones already there (freeze_slip_offsets).
 	func slip_offset(i: int) -> float:
-		return (i - (working_slips() - 1) * 0.5) * Layout.SLIP_SPACING
+		if not is_nan(slips[i].v):
+			return slips[i].v
+		var working := 0
+		for slip in slips:
+			if not slip.tie_up:
+				working += 1
+		if not slips[i].tie_up or i < working:
+			return (i - (working - 1) * 0.5) * Layout.SLIP_SPACING
+		# Tie-ups: the first a slip spacing on from the last working slip, then side by side.
+		return (working - 1) * 0.5 * Layout.SLIP_SPACING + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
 
+	## Pins every slip where it lies now, so adding one moves none of the others.
+	func freeze_slip_offsets() -> void:
+		for i in slips.size():
+			slips[i].v = slip_offset(i)
+
+	## Working slips in use (not one still being built).
 	func working_slips() -> int:
 		var n := 0
 		for slip in slips:
-			if not slip.tie_up:
+			if not slip.tie_up and not slip.building:
 				n += 1
 		return n
 
-	## Indices into `slips` of the tie-up slips.
+	## Indices into `slips` of the tie-up slips in use.
 	func tie_ups() -> Array[int]:
 		var out: Array[int] = []
 		for i in slips.size():
-			if slips[i].tie_up:
+			if slips[i].tie_up and not slips[i].building:
 				out.append(i)
 		return out
 
@@ -319,6 +336,11 @@ class Slip:
 	var size := 1                   # 1 small, 2 medium, 3 large
 	var routes: Array[int] = []
 	var tie_up := false
+	## Its lateral offset in the terminal frame once pinned (Town.slip_offset): NAN
+	## while it still lies where the slip count puts it.
+	var v := NAN
+	## Bought and still being built: no boat may use it yet (Terminal's slip works).
+	var building := false
 
 	func _init(slip_size := 1, is_tie_up := false) -> void:
 		size = clampi(slip_size, 1, 3)
