@@ -883,10 +883,12 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array) -> void:
 
 
 const SHOP_FILES := ["salt_and_rye", "sound_chandlery", "tideline_cafe", "harbor_inn", "glass_hall",
-	"brick_mercantile", "sunset_terrace", "harbor_office", "seafoam_cafe"]
+	"brick_mercantile", "sunset_terrace", "harbor_office", "seafoam_cafe",
+	"tidetable_books", "post_office", "poppy_and_stem", "sound_fish_market", "city_hall"]
 # Width and depth of each shell, before awnings or decks.
 const SHOP_SHELLS := [Vector2(8, 5.8), Vector2(7, 6.6), Vector2(8.4, 6), Vector2(11.6, 7), Vector2(11.2, 7),
-	Vector2(9.8, 6.3), Vector2(12, 6), Vector2(10.5, 6), Vector2(9.1, 5.65)]
+	Vector2(9.8, 6.3), Vector2(12, 6), Vector2(10.5, 6), Vector2(9.1, 5.65),
+	Vector2(6.4, 5.6), Vector2(3.3, 5.4), Vector2(6.6, 5.8), Vector2(6.2, 5.4), Vector2(11, 7)]
 
 
 func _build_towns() -> void:
@@ -933,6 +935,7 @@ func _build_towns() -> void:
 		var inland := Vector3.UP.cross(t)  # perpendicular to the cross street
 		if isl.has_terminal:
 			inland = -isl.dock_dir
+		var has_city_hall := false
 		var town_r := sqrt(isl.population / 90.0) * 9.0
 		var spacing := 16.5
 		for b in range(-8, 9):
@@ -968,7 +971,9 @@ func _build_towns() -> void:
 				var vi := rng.randi_range(0, houses - 1)
 				var block := r < town_r * 0.4 and isl.population > 3500 and rng.randf() < 0.5
 				if block:
-					vi = houses + rng.randi_range(0, SHOP_FILES.size() - 1)
+					# Reserve the first suitable downtown lot for the civic landmark.
+					var shop := rng.randi_range(0, SHOP_FILES.size() - 2) if has_city_hall else SHOP_FILES.size() - 1
+					vi = houses + shop
 					basis = basis.scaled(Vector3.ONE * rng.randf_range(0.9, 1.1))
 				var bucket: Array[Transform3D] = per_variant[vi]
 				# Each building gets a level lot graded under its whole plan (porch and
@@ -985,6 +990,8 @@ func _build_towns() -> void:
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				bucket.append(xf)
 				if block:
+					if SHOP_FILES[vi - houses] == "city_hall":
+						has_city_hall = true
 					var front_z: float = SHOP_SHELLS[vi - houses].y / 2
 					if SHOP_FILES[vi - houses] == "glass_hall":
 						front_z += 0.46
