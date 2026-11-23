@@ -9,6 +9,8 @@ var normals := PackedVector3Array()
 var colors := PackedColorArray()
 ## Optional, one per vertex (left empty by most meshes).
 var uvs := PackedVector2Array()
+## A second set, for the shaders that read it (RoadMesh's markings).
+var uv2s := PackedVector2Array()
 ## Vertex ranges [from, to) left out of the shadow mesh: parts thinner than a shadow
 ## map texel (rails, stays) only cast broken, crawling dashes.
 var no_shadow: Array[Vector2i] = []
@@ -206,6 +208,8 @@ func _commit_surface(material: Material, shadow: ArrayMesh) -> ArrayMesh:
 	arr[Mesh.ARRAY_COLOR] = colors
 	if uvs.size() == verts.size():
 		arr[Mesh.ARRAY_TEX_UV] = uvs
+	if uv2s.size() == verts.size():
+		arr[Mesh.ARRAY_TEX_UV2] = uv2s
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	mesh.surface_set_material(0, material if material else Models.vc_material())
 	mesh.shadow_mesh = shadow

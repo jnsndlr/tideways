@@ -17,6 +17,7 @@ const EXIT_V := 2.4             # lateral position of the exit lane
 # Ticket-plaza model origin, vehicle centres and extent of its tapered approach.
 const TICKET_U := LOT_BACK - 6.0
 const TICKET_LANES := [-14.4, -8.4, -EXIT_V]
+const TICKET_EXTRA_WIDTH := 12.8
 const TICKET_FAN_LENGTH := 30.0
 const SLOT := 7.8               # spacing between queued cars
 # Far enough apart that ferries at neighbouring slips, lying alongside or

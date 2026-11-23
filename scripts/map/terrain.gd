@@ -327,7 +327,101 @@ func add_cut(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1:
 
 func apply_flats() -> void:
 	for f in flats:
-		_apply_flat(f)
+		if f.has("roads"):
+			_apply_roads(f)
+		else:
+			_apply_flat(f)
+
+
+## How far below its road the ground is graded, so the road never fights it.
+const ROAD_DROP := 0.20
+## Side slopes run out at least this far, and at most ROAD_SLOPE_MAX.
+const ROAD_SLOPE_MAX := 12.0
+
+## Grades the ground to a town's roads (centrelines at road height, together so
+## that where they meet each cell follows its nearest road): level just under the
+## road out to `core` either side, then a side slope of about 1 in 3 (cut or fill)
+## back to the ground, never shorter than `blend`. Past a road's far end the ground
+## only eases back over `blend`, so a street that stops at a hill doesn't dig a pit
+## into it. Kept in `flats`.
+func add_roads(lines: Array[PackedVector3Array], core: float, blend: float) -> void:
+	var f := {"roads": lines, "core": core, "blend": blend}
+	flats.append(f)
+	_apply_roads(f)
+
+
+func _apply_roads(f: Dictionary) -> void:
+	var lines: Array[PackedVector3Array] = f.roads
+	var core: float = f.core
+	var blend: float = f.blend
+	var reach := core + ROAD_SLOPE_MAX
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for line in lines:
+		for p in line:
+			lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.z))
+			hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.z))
+	if lo.x > hi.x:
+		return
+	var i0 := maxi(_index_of(lo.x - reach), 0)
+	var i1 := mini(_index_of(hi.x + reach) + 1, n)
+	var j0 := maxi(_index_of(lo.y - reach), 0)
+	var j1 := mini(_index_of(hi.y + reach) + 1, n)
+	var w := i1 - i0 + 1
+	var best_d := PackedFloat32Array()
+	best_d.resize(w * (j1 - j0 + 1))
+	best_d.fill(INF)
+	var best_y := PackedFloat32Array()
+	best_y.resize(best_d.size())
+	# How far past a road's far end the cell lies (0: beside the road).
+	var best_past := PackedFloat32Array()
+	best_past.resize(best_d.size())
+	# Nearest road point to each cell, segment by segment over just its own box.
+	for line in lines:
+		for s in line.size() - 1:
+			var last := s == line.size() - 2
+			var a := line[s]
+			var b := line[s + 1]
+			var a2 := Vector2(a.x, a.z)
+			var ab := Vector2(b.x, b.z) - a2
+			var len2 := maxf(ab.length_squared(), 1e-6)
+			var si0 := maxi(_index_of(minf(a.x, b.x) - reach), i0)
+			var si1 := mini(_index_of(maxf(a.x, b.x) + reach) + 1, i1)
+			var sj0 := maxi(_index_of(minf(a.z, b.z) - reach), j0)
+			var sj1 := mini(_index_of(maxf(a.z, b.z) + reach) + 1, j1)
+			for j in range(sj0, sj1 + 1):
+				var z := -half_size + j * CELL
+				for i in range(si0, si1 + 1):
+					var p := Vector2(-half_size + i * CELL, z)
+					var raw := (p - a2).dot(ab) / len2
+					var t := clampf(raw, 0.0, 1.0)
+					var d := p.distance_to(a2 + ab * t)
+					var k := (j - j0) * w + i - i0
+					if d < best_d[k]:
+						best_d[k] = d
+						best_y[k] = lerpf(a.y, b.y, t)
+						best_past[k] = (raw - 1.0) * sqrt(len2) if last and raw > 1.0 else 0.0
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var k := (j - j0) * w + i - i0
+			var d := best_d[k] - core
+			if d >= ROAD_SLOPE_MAX:
+				continue
+			var g := j * (n + 1) + i
+			var target := best_y[k] - ROAD_DROP
+			var past := best_past[k]
+			if past > 0.0:
+				var across := sqrt(maxf(best_d[k] * best_d[k] - past * past, 0.0))
+				var dd := maxf(past - CELL, across - core)
+				if dd < blend:
+					h_grid[g] = lerpf(target, h_grid[g], smoothstep(0.0, blend, dd))
+				continue
+			if d <= 0.0:
+				h_grid[g] = target
+				continue
+			var run := clampf(absf(h_grid[g] - target) * 3.0, blend, ROAD_SLOPE_MAX)
+			if d < run:
+				h_grid[g] = lerpf(target, h_grid[g], smoothstep(0.0, run, d))
 
 
 ## Levels the ground right away (not kept in `flats`): a house lot, the rect

@@ -414,10 +414,49 @@ func _build_road_paths() -> void:
 			for j in to_lot.size():
 				var inland := (entrance - to_lot[j]).dot(island.dock_dir)
 				ticket_path[b.size() + j] += island.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
-			_inbound.append(ticket_path)
+			_inbound.append(simplify(ticket_path, ROAD_TOLERANCE))
 		var outbound := island.road_main_a.duplicate()
 		outbound.append_array(b)
-		_outbound.append(_keep_right(outbound))
+		_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
+
+
+## How far a driven road path may stray from the road's points every couple of
+## metres: few enough points that Vehicle rounds the town's corners, enough that
+## cars keep to the road's rise and fall.
+const ROAD_TOLERANCE := 0.06
+
+
+## Douglas-Peucker: the fewest of `pts` (ends kept) that stay within `tol` of the rest.
+static func simplify(pts: PackedVector3Array, tol: float) -> PackedVector3Array:
+	if pts.size() < 3:
+		return pts
+	var keep := PackedByteArray()
+	keep.resize(pts.size())
+	keep[0] = 1
+	keep[pts.size() - 1] = 1
+	var stack: Array[Vector2i] = [Vector2i(0, pts.size() - 1)]
+	while not stack.is_empty():
+		var span: Vector2i = stack.pop_back()
+		var a := pts[span.x]
+		var ab := pts[span.y] - a
+		var len2 := maxf(ab.length_squared(), 1e-9)
+		var worst := -1
+		var far := tol
+		for i in range(span.x + 1, span.y):
+			var t := clampf((pts[i] - a).dot(ab) / len2, 0.0, 1.0)
+			var d := pts[i].distance_to(a + ab * t)
+			if d > far:
+				far = d
+				worst = i
+		if worst >= 0:
+			keep[worst] = 1
+			stack.append(Vector2i(span.x, worst))
+			stack.append(Vector2i(worst, span.y))
+	var out := PackedVector3Array()
+	for i in pts.size():
+		if keep[i]:
+			out.append(pts[i])
+	return out
 
 
 ## Offsets a centre-line path onto the right-hand lane.

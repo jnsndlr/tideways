@@ -25,6 +25,9 @@ const ROOFS := [Color(0.72, 0.26, 0.2), Color(0.28, 0.3, 0.34), Color(0.25, 0.36
 # Alternatives: water_gem.gdshader, water_sharp.gdshader, water_fold.gdshader, water_reference.gdshader.
 const WATER_SHADER := "res://shaders/water.gdshader"
 const TERRAIN_SHADER := "res://shaders/terrain.gdshader"
+const ROAD_SHADER := "res://shaders/road.gdshader"
+## Towns this big get a double yellow line down the main road.
+const DOUBLE_LINE_POP := 4000
 # Cells per side of each terrain mesh, so the camera and shadows can cull them.
 const TERRAIN_TILE := 50
 # Scale of the caged lamps on the ramp lift towers.
@@ -954,50 +957,75 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 
 func _build_roads() -> void:
 	var mb := MeshBuilder.new()
+	var lamps := MeshBuilder.new()
+	var aprons := MeshBuilder.new()
 	for isl in map.islands:
 		if isl.road_main_a.is_empty():
 			continue
-		# Widen the inbound shoulder into the three staffed channels. Build only
-		# the extra pavement so the existing through road retains its surface.
-		var lateral := isl.lateral()
-		var entrance := isl.road_main_a[0]
-		var length := (entrance - isl.road_main_a[-1]).dot(isl.dock_dir)
-		for i in range(1, isl.road_main_a.size()):
-			var a := isl.road_main_a[i - 1]
-			var b := isl.road_main_a[i]
-			var sa := Layout.ticket_spread((entrance - a).dot(isl.dock_dir), length)
-			var sb := Layout.ticket_spread((entrance - b).dot(isl.dock_dir), length)
-			if sa <= 0.0:
-				break
-			var inner_a := a - lateral * 5.1
-			var inner_b := b - lateral * 5.1
-			var outer_a := inner_a - lateral * 12.8 * sa
-			var outer_b := inner_b - lateral * 12.8 * sb
-			mb.quad(inner_a, outer_a, outer_b, inner_b, ROAD, Vector3.UP)
-			mb.quad(outer_a, outer_a - Vector3.UP * 1.5, outer_b - Vector3.UP * 1.5, outer_b, ROAD.darkened(0.25), -lateral)
-			# Broken white dividers follow the paved fan and stop at the booth islands.
-			if sa > 0.4 and (entrance - b).dot(isl.dock_dir) > 10.0:
-				for index in Layout.TICKET_LANES.size() - 1:
-					var divider: float = (Layout.TICKET_LANES[index] + Layout.TICKET_LANES[index + 1]) * 0.5
-					var p := a + lateral * lerpf(-Layout.EXIT_V, divider, sa) + Vector3.UP * 0.04
-					var q := b + lateral * lerpf(-Layout.EXIT_V, divider, sb) + Vector3.UP * 0.04
-					var tip := p.lerp(q, 0.55)
-					mb.quad(p - lateral * 0.10, p + lateral * 0.10, tip + lateral * 0.10, tip - lateral * 0.10, LINE_WHITE, Vector3.UP)
-			_block(outer_a, 4)
+		_ticket_approach(aprons, isl)
 		var main := isl.road_main_a.duplicate()
-		main.append_array(isl.road_main_b)
+		var centre := RoadMesh.length_of(isl.road_main_a)
+		if isl.road_main_b.size() > 1:
+			main.append_array(isl.road_main_b.slice(1))
+		var total := RoadMesh.length_of(main)
+		var crossed := not isl.road_cross.is_empty()
+		var style := RoadMesh.Style.DOUBLE_EDGES if isl.population >= DOUBLE_LINE_POP else RoadMesh.Style.DASHED_EDGES
+		# No markings over the lot's apron, through the junction or right at the end.
+		var show_main := func(s: float) -> float:
+			var k := smoothstep(3.0, 9.0, s) * smoothstep(0.0, 4.0, total - s)
+			return k * smoothstep(6.0, 11.0, absf(s - centre)) if crossed else k
+		RoadMesh.strip(mb, main, ROAD, style, show_main)
 		var lines: Array[PackedVector3Array] = [main]
-		lines.append_array(isl.road_cross)
+		for line in isl.road_cross:
+			var length := RoadMesh.length_of(line)
+			var show := func(s: float) -> float:
+				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(0.0, 4.0, length - s)
+			RoadMesh.strip(mb, line, ROAD, RoadMesh.Style.DASHED, show, RoadMesh.HALF)
+			lines.append(line)
 		for line in lines:
-			mb.ribbon(line, 10.2, ROAD)
-			for p in line:
-				_block(p, 9.0)
-			_street_lamps(mb, line)
-	_add_mesh(mb.commit(), "Roads", false)
+			for i in range(0, line.size(), 3):
+				_block(line[i], 9.0)
+			_street_lamps(lamps, line, isl.road_main_a[isl.road_main_a.size() - 1])
+	var mat := ShaderMaterial.new()
+	mat.shader = load(ROAD_SHADER)
+	_add_mesh(mb.commit(mat), "Roads", false)
+	_add_mesh(lamps.commit(), "StreetLamps", false)
+	_add_mesh(aprons.commit(), "TicketApproaches", false)
 
 
-## Sodium lamps every LAMP_GAP along a road, alternating sides.
-func _street_lamps(mb: MeshBuilder, line: PackedVector3Array) -> void:
+func _ticket_approach(mb: MeshBuilder, isl: MapData.Island) -> void:
+	# Widen the inbound shoulder into the three staffed channels. Build only
+	# the extra pavement so the existing through road retains its surface.
+	var lateral := isl.lateral()
+	var entrance := isl.road_main_a[0]
+	var length := (entrance - isl.road_main_a[-1]).dot(isl.dock_dir)
+	for i in range(1, isl.road_main_a.size()):
+		var a := isl.road_main_a[i - 1]
+		var b := isl.road_main_a[i]
+		var sa := Layout.ticket_spread((entrance - a).dot(isl.dock_dir), length)
+		var sb := Layout.ticket_spread((entrance - b).dot(isl.dock_dir), length)
+		if sa <= 0.0:
+			break
+		var inner_a := a - lateral * RoadMesh.HALF
+		var inner_b := b - lateral * RoadMesh.HALF
+		var outer_a := inner_a - lateral * Layout.TICKET_EXTRA_WIDTH * sa
+		var outer_b := inner_b - lateral * Layout.TICKET_EXTRA_WIDTH * sb
+		mb.quad(inner_a, outer_a, outer_b, inner_b, ROAD, Vector3.UP)
+		mb.quad(outer_a, outer_a - Vector3.UP * 1.5, outer_b - Vector3.UP * 1.5, outer_b, ROAD.darkened(0.25), -lateral)
+		# Broken white dividers follow the paved fan and stop at the booth islands.
+		if sa > 0.4 and (entrance - b).dot(isl.dock_dir) > 10.0:
+			for index in Layout.TICKET_LANES.size() - 1:
+				var divider: float = (Layout.TICKET_LANES[index] + Layout.TICKET_LANES[index + 1]) * 0.5
+				var p := a + lateral * lerpf(-Layout.EXIT_V, divider, sa) + Vector3.UP * 0.04
+				var q := b + lateral * lerpf(-Layout.EXIT_V, divider, sb) + Vector3.UP * 0.04
+				var tip := p.lerp(q, 0.55)
+				mb.quad(p - lateral * 0.10, p + lateral * 0.10, tip + lateral * 0.10, tip - lateral * 0.10, LINE_WHITE, Vector3.UP)
+		_block(outer_a, 4)
+
+
+## Sodium lamps every LAMP_GAP along a road, alternating sides, none in the
+## junction at `crossing`.
+func _street_lamps(mb: MeshBuilder, line: PackedVector3Array, crossing: Vector3) -> void:
 	const LAMP_GAP := 48.0
 	glows.xform = Transform3D.IDENTITY
 	var next := LAMP_GAP * 0.5
@@ -1014,6 +1042,9 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array) -> void:
 		lat = lat.normalized()
 		while next <= walked + seg:
 			var p := a.lerp(b, (next - walked) / seg) + lat * 6.6 * side
+			if Vector2(p.x - crossing.x, p.z - crossing.z).length() < 14.0:
+				next += LAMP_GAP * 0.25
+				continue
 			mb.box(p + Vector3(0, 5.1, 0), Vector3(0.36, 11.4, 0.36), Color(0.3, 0.31, 0.33))
 			mb.box(p + Vector3(0, 10.8, 0), Vector3(1.2, 0.42, 1.2), Color(0.25, 0.26, 0.28))
 			mb.box(p + Vector3(0, 10.5, 0), Vector3(0.9, 0.21, 0.9), Models.lamp_glass(GlowBuilder.SODIUM))
