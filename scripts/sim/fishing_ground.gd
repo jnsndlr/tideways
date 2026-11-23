@@ -26,12 +26,12 @@ func at(along: float, across: float) -> Vector2:
 	return center + axis * along * half_length + Vector2(-axis.y, axis.x) * across
 
 
-## Lays out the grounds for `t`'s map, with its own RNG so the rest of the
+## Lays out the grounds for the map, with its own RNG so the rest of the
 ## traffic stays the same.
-static func find_all(t: MarineTraffic) -> Array[FishingGround]:
+static func find_all(charts: MarineCharts) -> Array[FishingGround]:
 	var r := RandomNumberGenerator.new()
-	r.seed = t.sim.map.map_seed * 41 + 13
-	var map := t.sim.map
+	r.seed = charts.map.map_seed * 41 + 13
+	var map := charts.map
 	var out: Array[FishingGround] = []
 	var avoid: Array[Vector2] = []
 	for isl in map.islands:
@@ -49,6 +49,8 @@ static func find_all(t: MarineTraffic) -> Array[FishingGround]:
 		for k in range(0, pts.size(), 6):
 			route_pts.append(Vector2(pts[k].x, pts[k].z))
 	for attempt in 900:
+		if charts.cancelled():
+			return []
 		if out.size() >= COUNT:
 			break
 		var isl := map.islands[r.randi_range(0, map.islands.size() - 1)]
@@ -59,7 +61,7 @@ static func find_all(t: MarineTraffic) -> Array[FishingGround]:
 		var d := 0.0
 		while d < isl.radius * 2.0:
 			var p := isl.center + dir * d
-			if t.sim.terrain.height_at(p.x, p.y) < -3.0:
+			if charts.terrain.height_at(p.x, p.y) < -3.0:
 				shore = d
 				break
 			d += 6.0
@@ -70,13 +72,13 @@ static func find_all(t: MarineTraffic) -> Array[FishingGround]:
 		g.axis = Vector2(-dir.y, dir.x)
 		g.half_length = r.randf_range(HALF_LENGTH.x, HALF_LENGTH.y)
 		g.richness = r.randf_range(0.6, 1.4)
-		if g._fits(t, out, avoid, route_pts) and g._reachable(t):
+		if g._fits(charts, out, avoid, route_pts) and g._reachable(charts):
 			out.append(g)
 	return out
 
 
-func _fits(t: MarineTraffic, others: Array[FishingGround], avoid: Array[Vector2], route_pts: PackedVector2Array) -> bool:
-	var lim := t.sim.map.half_size - 90.0
+func _fits(charts: MarineCharts, others: Array[FishingGround], avoid: Array[Vector2], route_pts: PackedVector2Array) -> bool:
+	var lim := charts.map.half_size - 90.0
 	for o in others:
 		if o.center.distance_to(center) < KEEP_FROM_GROUNDS:
 			return false
@@ -86,7 +88,7 @@ func _fits(t: MarineTraffic, others: Array[FishingGround], avoid: Array[Vector2]
 			var p := at(along, across)
 			if absf(p.x) > lim or absf(p.y) > lim:
 				return false
-			if not t.nav.open_at(p, false) or t.sim.terrain.height_at(p.x, p.y) > DEPTH:
+			if not charts.nav.open_at(p, false) or charts.terrain.height_at(p.x, p.y) > DEPTH:
 				return false
 		var c := at(along, 0.0)
 		for q in avoid:
@@ -100,9 +102,9 @@ func _fits(t: MarineTraffic, others: Array[FishingGround], avoid: Array[Vector2]
 
 
 ## Whether the boats from every fish quay can get there.
-func _reachable(t: MarineTraffic) -> bool:
-	for q in t.sim.map.quays:
+func _reachable(charts: MarineCharts) -> bool:
+	for q in charts.map.quays:
 		var a := q.at(Layout.QUAY_LANE_U, q.side * Layout.QUAY_RUN)
-		if t.nav.find_path(Vector2(a.x, a.z), center, false).is_empty():
+		if charts.nav.find_path(Vector2(a.x, a.z), center, false).is_empty():
 			return false
 	return true

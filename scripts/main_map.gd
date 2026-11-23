@@ -33,7 +33,7 @@ static var _plan := "opening"
 var editor: IslandEditor
 
 
-func _generate(gen: MapGenerator) -> MapData:
+func _generation_job(gen: MapGenerator) -> Callable:
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
 		if layout == null:
@@ -58,11 +58,13 @@ func _generate(gen: MapGenerator) -> MapData:
 	elif not unsaved:
 		# Bought sites: a network of the player's own, its routes kept out of the repo.
 		gen.route_cache_path = "user://routes/%s-%s-%d.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan, hash(JSON.stringify(_bought))]
-	return gen.generate_from(layout, scenario)
+	return gen.generate_from.bind(layout, scenario)
 
 
 func _ready() -> void:
 	await super._ready()
+	if not built:
+		return
 	editor = IslandEditor.new()
 	add_child(editor)
 	editor.setup(self)
