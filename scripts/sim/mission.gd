@@ -19,7 +19,6 @@ var title := ""
 var brief := ""
 var days := 0                  # 0: no limit
 var goals: Array[Dictionary] = []
-var carried_before := 0
 var start_day := -1
 
 
@@ -34,49 +33,22 @@ static func from_dict(d: Dictionary) -> Mission:
 	return m
 
 
-## [label, done, progress text] for each goal.
-func progress(sim: Simulation) -> Array:
+func start(day: int) -> void:
 	if start_day < 0:
-		start_day = sim.day
-	var out := []
-	for g in goals:
-		var kind := str(g.get("kind", ""))
-		var target := float(g.get("target", 0))
-		var key := str(g.get("island", ""))
-		var label := str(g.get("label", ""))
-		var done := false
-		var text := ""
-		match kind:
-			"carried":
-				var n := carried(sim)
-				done = n >= target
-				text = "%d / %d" % [n, int(target)]
-				if label == "":
-					label = "Carry %d vehicles" % int(target)
-			"cash":
-				done = sim.available_cash >= target
-				text = Hud.fmt_money(sim.available_cash)
-				if label == "":
-					label = "Have %s in hand" % Hud.fmt_money(target)
-			"terminal":
-				done = _terminal_at(sim, key)
-				if label == "":
-					label = "Open a terminal on %s" % _name(sim, key)
-			"serve":
-				done = _served(sim, key)
-				if label == "":
-					label = "Run a boat to %s" % _name(sim, key)
-			_:
-				label = "Unknown goal: %s" % kind
-		out.append([label, done, text])
-	return out
+		start_day = day
 
 
-func complete(sim: Simulation) -> bool:
-	for p in progress(sim):
-		if not p[1]:
-			return false
-	return not goals.is_empty()
+func goal_met(sim: Simulation, goal: Dictionary) -> bool:
+	match goal.get("kind", ""):
+		"carried":
+			return carried(sim) >= float(goal.get("target", 0))
+		"cash":
+			return sim.available_cash >= float(goal.get("target", 0))
+		"terminal":
+			return _terminal_at(sim, str(goal.get("island", "")))
+		"serve":
+			return _served(sim, str(goal.get("island", "")))
+	return false
 
 
 ## Days into the mission (1 on the first), and whether it's past its limit.
@@ -89,7 +61,7 @@ func late(sim: Simulation) -> bool:
 
 
 func carried(sim: Simulation) -> int:
-	return carried_before + sim.ledger.cars_total
+	return sim.ledger.cars_total
 
 
 static func _terminal_at(sim: Simulation, key: String) -> bool:
@@ -105,16 +77,6 @@ static func _served(sim: Simulation, key: String) -> bool:
 			if _is(sim.map.towns[id], key):
 				return true
 	return false
-
-
-static func _name(sim: Simulation, key: String) -> String:
-	for t in sim.map.towns:
-		if t.key == key:
-			return t.name
-	for isl in sim.map.islands:
-		if isl.key == key:
-			return isl.name
-	return key
 
 
 ## Whether town `t` is the one `key` names, or on the island it names.

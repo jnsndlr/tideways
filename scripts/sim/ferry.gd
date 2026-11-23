@@ -46,9 +46,9 @@ var _next_legs: Array[MapData.Route] = []
 var _next_timetable: Array[int] = []
 ## When she leaves stops[0], in minutes after midnight (Timetable); empty: as soon
 ## as she has loaded. Each departure is a round of her stops.
-var timetable: Array[int] = []
-var _round_abs := -1.0       # game minute (Simulation.abs_minutes) the round she is on leaves stops[0]
-var _last_round_abs := -1.0  # the round she last left stops[0] on
+var timetable: Array[int]:
+	get: return _timetable.departures
+var _timetable := Timetable.new()
 var _offsets: Array[float] = []  # plan_offsets(stops), cached
 var late_by := 0.0           # minutes late she left her last stop
 var _loading_since := 0.0    # game minute (Simulation.abs_minutes) she began loading
@@ -300,11 +300,14 @@ func plan_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route], times = 
 
 ## Puts her on `times` at once (her stops stay as they are).
 func set_timetable(times: Array[int]) -> void:
-	timetable = times.duplicate()
-	timetable.sort()
-	_round_abs = -1.0
-	_last_round_abs = -1.0
+	_timetable.replace(times)
 	late_by = 0.0
+	if between_sailings():
+		# A ferry already away from her working slip must return for the new
+		# sailing, or at once if she now sails as loading allows.
+		var now := sim.abs_minutes()
+		_gap_due = now if timetable.is_empty() else _timetable.first_stop_due(now, MAX_DWELL)
+		return_requested = false
 
 
 ## Takes the planned stops if she is at one of them. Cars aboard for a stop she
@@ -754,7 +757,7 @@ func _tick_loading(delta: float) -> void:
 		_casting_off = false
 		late_by = maxf(now - due_at, 0.0) if timed else 0.0
 		if timed and call == 0:
-			_last_round_abs = _round_abs
+			_timetable.leave_first_stop()
 		captain = next_captain
 		_take_leg()
 		call = (call + 1) % stops.size()
@@ -1656,6 +1659,14 @@ func shift_tail(offsets: Array[float]) -> float:
 	return offsets[-1] - planned_dwell() + planned_unload()
 
 
+## Fuel for one complete round of a validated stop list.
+func round_fuel(ids: Array[int], p := pace) -> float:
+	var fuel := 0.0
+	for i in ids.size():
+		fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
+	return fuel
+
+
 ## What a day on `times` (Timetable) round `ids` at pace `p` should cost her, on
 ## the planning numbers the timetable is built from: each sailing makes every
 ## leg once, unhindered, and her crew are on from CREW_CALL before the first
@@ -1665,12 +1676,9 @@ func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	var o := plan_offsets(ids, p)
 	if o.is_empty() or times.is_empty():
 		return {}
-	var round_fuel := 0.0
-	for i in ids.size():
-		round_fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
 	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
 	var hours := minf(span, Timetable.DAY) / 60.0
-	return {"fuel": round_fuel * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
+	return {"fuel": round_fuel(ids, p) * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
 
 
 ## daily_cost of the timetable she runs now (or is taking at her next call).
@@ -1697,16 +1705,6 @@ func late_sailings() -> Array[bool]:
 	return Timetable.too_soon(timetable, round_minutes())
 
 
-func _round_after(after: float) -> float:
-	var d := floori(maxf(after, 0.0) / Timetable.DAY)
-	for k in 3:
-		for t in timetable:
-			var m := float((d + k) * Timetable.DAY + t)
-			if m > after:
-				return m
-	return -1.0
-
-
 ## The game minute (Simulation.abs_minutes) she is due to leave the stop she is
 ## at, or sailing to; -1 with no timetable, laid up, or before she has started a
 ## timed round at her first stop.
@@ -1714,15 +1712,8 @@ func due() -> float:
 	if timetable.is_empty() or berth != Berth.WORKING or lay_up_requested:
 		return -1.0
 	if call == 0:
-		if _round_abs < 0.0 or _round_abs <= _last_round_abs:
-			# Rounds run in order, none skipped. A fresh timetable starts from the
-			# sailing due now (up to MAX_DWELL ago, which she runs late) or next.
-			_round_abs = _round_after(_last_round_abs if _last_round_abs >= 0.0 else sim.abs_minutes() - MAX_DWELL)
-		return _round_abs
-	if _round_abs < 0.0:
-		return -1.0
-	var o := _round_offsets()
-	return _round_abs + o[call] if call < o.size() else -1.0
+		return _timetable.first_stop_due(sim.abs_minutes(), MAX_DWELL)
+	return _timetable.call_due(call, _round_offsets())
 
 
 ## Alongside at her first stop overnight: her crew are off from when she was
@@ -1742,7 +1733,7 @@ func off_shift() -> bool:
 	if d < 0.0 or int(round(fmod(d, Timetable.DAY))) != timetable[0]:
 		return false
 	var now := sim.abs_minutes()
-	if _last_round_abs >= 0.0 and now < _last_round_abs + shift_tail(_round_offsets()):
+	if _timetable.last_departure >= 0.0 and now < _timetable.last_departure + shift_tail(_round_offsets()):
 		return false
 	return d - now > CREW_CALL
 
@@ -1868,10 +1859,10 @@ func request_lay_up() -> void:
 ## Back into service: from the tie-up to her working slip once it is free.
 func request_return() -> void:
 	lay_up_requested = false
-	if berth != Berth.WORKING:
-		return_requested = true
 	# Back on her timetable from the next round due.
 	set_timetable(timetable)
+	if berth != Berth.WORKING:
+		return_requested = true
 
 
 func in_service() -> bool:
