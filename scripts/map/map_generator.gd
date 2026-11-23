@@ -23,8 +23,7 @@ var _locked := false
 ## missing file is planned afresh and rewritten on a desktop run.
 var route_cache_path := ""
 var _planner: RoutePlanner
-var _route_memo := {}        # _route_curve's inputs -> flat x, z points ([] if none)
-var _memo_dirty := false
+var _memo := preload("res://scripts/map/route_memo.gd").new()
 var _cancel_mutex := Mutex.new()
 var _cancelled := false
 
@@ -85,7 +84,9 @@ func _build(layout: MapLayout, scenario: Scenario) -> void:
 		return
 	_scenario = scenario
 	_locked = layout.locked_docks()
-	_load_route_memo(layout)
+	_planner = null
+	_route_samples.clear()
+	_memo.load_for(route_cache_path, "" if route_cache_path.is_empty() else _route_cache_key(layout, scenario))
 	var map_seed := layout.world_seed
 	rng.seed = map_seed
 	map = MapData.new()
@@ -109,7 +110,9 @@ func _build(layout: MapLayout, scenario: Scenario) -> void:
 	if _should_stop():
 		return
 	_plan_routes()
-	_save_route_memo()
+	if _should_stop():
+		return
+	_memo.save()
 	_place_islets()
 	terrain.finalize(_should_stop)
 	if _should_stop():
@@ -374,6 +377,8 @@ func _plan_routes() -> void:
 		if _should_stop():
 			return
 		var bad := _try_routes(mains, banned)
+		if _should_stop():
+			return
 		if bad.is_empty():
 			break
 		for key in bad:
@@ -471,6 +476,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		var none: Array[int] = []
 		calls[isl.id] = none
 	for e in chosen:
+		if _should_stop():
+			return []
 		var a: MapData.Island = mains[e[1]]
 		var b: MapData.Island = mains[e[2]]
 		# No dock for it: plan again without this link, so the network goes another way.
@@ -509,6 +516,8 @@ func _try_routes(mains: Array[MapData.Island], banned: Dictionary) -> Array:
 		_add_slip_zones(isl)
 
 	for r in map.routes:
+		if _should_stop():
+			return []
 		var a := map.islands[r.a]
 		var b := map.islands[r.b]
 		var pa := a.dock_center(r.id)
@@ -748,20 +757,26 @@ static func long_run_in() -> float:
 ## network with no scenario takes only the direct route, with no clearance.
 func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id := -1) -> Curve3D:
 	var key := "%.1f,%.1f,%.3f,%.3f|%.1f,%.1f,%.3f,%.3f|%d" % [pa.x, pa.z, na.x, na.z, pb.x, pb.z, nb.x, nb.z, route_id]
-	if _route_memo.has(key):
-		return _curve_of(_route_memo[key])
+	if _memo.routes.has(key):
+		return _curve_of(_memo.routes[key])
 	if _scenario == null and not _locked:
 		# A generated network (Sandbox) keeps to direct routes, as before.
 		return _direct_curve(pa, na, pb, nb, route_id, 0.0)
 	var c: Curve3D = null
 	for f: float in CLEARANCE_STEPS:
+		if _should_stop():
+			return null
 		c = _direct_curve(pa, na, pb, nb, route_id, f)
+		if _should_stop():
+			return null
 		if c == null:
 			c = _round_land_curve(pa, na, pb, nb, route_id, f)
 		if c != null:
 			break
 	if c == null:
 		c = _direct_curve(pa, na, pb, nb, route_id, 0.0)
+	if _should_stop():
+		return null
 	# Its own points (not the baked ones), so the curve rebuilt from them bakes
 	# the same and passes the same checks.
 	var flat: Array = []
@@ -770,8 +785,7 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 			var p := c.get_point_position(i)
 			flat.append(p.x)
 			flat.append(p.z)
-	_route_memo[key] = flat
-	_memo_dirty = true
+	_memo.remember(key, flat)
 	return _curve_of(flat) if c != null else null
 
 
@@ -790,7 +804,9 @@ func _keeps_clear(c: Curve3D, fraction: float) -> bool:
 	if fraction <= 0.0:
 		return true
 	if _planner == null:
-		_planner = RoutePlanner.new(terrain, map.half_size)
+		_planner = RoutePlanner.new(terrain, map.half_size, _should_stop)
+	if _should_stop():
+		return false
 	var pts := c.get_baked_points()
 	var a := Vector2(pts[0].x, pts[0].z)
 	var b := Vector2(pts[pts.size() - 1].x, pts[pts.size() - 1].z)
@@ -808,13 +824,15 @@ func _keeps_clear(c: Curve3D, fraction: float) -> bool:
 ## turn–straight–turn path at TURN_RADIUS from one corner to the next.
 func _round_land_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id: int, fraction: float) -> Curve3D:
 	if _planner == null:
-		_planner = RoutePlanner.new(terrain, map.half_size)
+		_planner = RoutePlanner.new(terrain, map.half_size, _should_stop)
+	if _should_stop():
+		return null
 	var h0 := Vector2(na.x, na.z).normalized()
 	var h1 := -Vector2(nb.x, nb.z).normalized()
 	for run: float in [long_run_in(), RUN_IN]:
 		var s := Vector2(pa.x, pa.z) + h0 * run
 		var g := Vector2(pb.x, pb.z) - h1 * run
-		var corners := _planner.waypoints(s, g, LAND_CLEARANCE * fraction, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE)
+		var corners := _planner.waypoints(s, g, LAND_CLEARANCE * fraction, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, _should_stop)
 		if corners.size() < 3:
 			continue   # no land in the way: the direct route already had its chance
 		var headings: Array[Vector2] = [h0]
@@ -1644,40 +1662,10 @@ func _road_line(a: Vector3, b: Vector3, lat: Vector3) -> PackedVector3Array:
 	return pts
 
 
-## Picks up the routes saved for this layout and scenario, if they still match.
-func _load_route_memo(layout: MapLayout) -> void:
-	_route_memo = {}
-	_memo_dirty = false
-	if route_cache_path.is_empty():
-		return
-	var saved = JSON.parse_string(FileAccess.get_file_as_string(route_cache_path)) if FileAccess.file_exists(route_cache_path) else null
-	var key := _memo_key(layout)
-	if saved is Dictionary and saved.get("key", "") == key:
-		_route_memo = saved.get("routes", {})
-	else:
-		print("Planning routes afresh: %s is %s" % [route_cache_path, "stale" if saved is Dictionary else "missing"])
-	_route_memo["__key"] = key
-
-
-## What the saved routes depend on: the islands, the scenario's terminals, slips
-## and links (which set where the docks face), and the planner itself.
-func _memo_key(layout: MapLayout) -> String:
-	var sc := [] if _scenario == null else [_scenario.terminals, _scenario.slips, _scenario.tie_ups, Array(_scenario.links()).map(func(l): return Array(l))]
-	var parts := [ROUTE_PLANNER_VERSION, LAND_CLEARANCE, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, CLEARANCE_STEPS, layout.to_json(), sc]
-	return str(hash(JSON.stringify(parts)))
-
-
-## Writes newly planned routes back, on desktop builds only (a device can't write res://).
-func _save_route_memo() -> void:
-	if route_cache_path.is_empty() or not _memo_dirty or not (OS.has_feature("editor") or route_cache_path.begins_with("user://")):
-		return
-	var key: String = _route_memo.get("__key", "")
-	var routes := _route_memo.duplicate()
-	routes.erase("__key")
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(route_cache_path.get_base_dir()))
-	var f := FileAccess.open(route_cache_path, FileAccess.WRITE)
-	if f == null:
-		push_warning("Couldn't save planned routes to " + route_cache_path)
-		return
-	f.store_string(JSON.stringify({"key": key, "routes": routes}))
-	print("Saved %d planned routes to %s" % [routes.size(), route_cache_path])
+## All geometry and scenario inputs that affect the saved route curves.
+static func _route_cache_key(layout: MapLayout, scenario: Scenario) -> String:
+	var scenario_key := [] if scenario == null else [scenario.terminals, scenario.slips, scenario.tie_ups, Array(scenario.links()).map(func(l): return Array(l))]
+	if scenario and not scenario.docks.is_empty():
+		scenario_key.append(scenario.docks)
+	var inputs := [ROUTE_PLANNER_VERSION, LAND_CLEARANCE, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, CLEARANCE_STEPS, layout.to_json(), scenario_key]
+	return str(hash(JSON.stringify(inputs)))

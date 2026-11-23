@@ -78,19 +78,54 @@ func _refresh() -> void:
 	var sim: Simulation = main.sim
 	if sim == null:
 		return
-	var p := mission.progress(sim)
-	for i in p.size():
+	var all_done := not mission.goals.is_empty()
+	for i in mission.goals.size():
+		var goal := mission.goals[i]
 		var row: HBoxContainer = _rows.get_child(i)
-		var done: bool = p[i][1]
+		var done := mission.goal_met(sim, goal)
+		all_done = all_done and done
 		(row.get_child(0) as Label).text = "✓" if done else "○"
 		(row.get_child(0) as Label).add_theme_color_override("font_color", Hud.ACCENT if done else Hud.MUTED)
-		(row.get_child(1) as Label).text = p[i][0]
+		(row.get_child(1) as Label).text = _goal_label(sim, goal)
 		(row.get_child(1) as Label).add_theme_color_override("font_color", Hud.MUTED if done else Hud.TEXT)
-		(row.get_child(2) as Label).text = "" if done else p[i][2]
+		(row.get_child(2) as Label).text = "" if done else _goal_progress(sim, goal)
 	var day := mission.day_of(sim)
 	_day.text = ("Day %d of %d" % [day, mission.days]) if mission.days > 0 else ("Day %d" % day)
 	_day.add_theme_color_override("font_color", Color(0.95, 0.55, 0.35) if mission.late(sim) else Hud.MUTED)
-	if not _done and mission.complete(sim):
+	if not _done and all_done:
 		_done = true
 		main.hud.show_toast("MISSION COMPLETE", "%s: every goal met on day %d%s." % [
 			mission.title, day, "" if not mission.late(sim) else " (past the %d-day mark)" % mission.days], 8.0)
+
+
+func _goal_progress(sim: Simulation, goal: Dictionary) -> String:
+	match goal.get("kind", ""):
+		"carried":
+			return "%d / %d" % [mission.carried(sim), int(goal.get("target", 0))]
+		"cash":
+			return Hud.fmt_money(sim.available_cash)
+	return ""
+
+
+static func _goal_label(sim: Simulation, goal: Dictionary) -> String:
+	var label := str(goal.get("label", ""))
+	if label != "":
+		return label
+	var key := str(goal.get("island", ""))
+	match goal.get("kind", ""):
+		"carried":
+			return "Carry %d vehicles" % int(goal.get("target", 0))
+		"cash":
+			return "Have %s in hand" % Hud.fmt_money(float(goal.get("target", 0)))
+		"terminal":
+			return "Open a terminal on %s" % _name(sim, key)
+		"serve":
+			return "Run a boat to %s" % _name(sim, key)
+	return "Unknown goal: %s" % goal.get("kind", "")
+
+
+static func _name(sim: Simulation, key: String) -> String:
+	for isl in sim.map.islands:
+		if isl.key == key:
+			return isl.name
+	return key

@@ -33,6 +33,15 @@ static var _plan := "opening"
 var editor: IslandEditor
 
 
+static func start_session(path: String) -> void:
+	scenario_path = path
+	_company = null
+	_clock.clear()
+	_bought.clear()
+	_carry.clear()
+	_plan = "opening"
+
+
 func _generation_job(gen: MapGenerator) -> Callable:
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
@@ -94,6 +103,7 @@ func _ready() -> void:
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
 	if scenario and scenario.mission:
+		scenario.mission.start(sim.day)
 		var panel := MissionPanel.new()
 		hud.root.add_child(panel)
 		panel.setup(self, scenario.mission)
@@ -103,7 +113,7 @@ func _ready() -> void:
 ## the map with the company as it stands (terminals, schedules, cash and clock;
 ## boats start their day again from their first stops) and the new terminal in it.
 func buy_dock(isl: MapData.Island, k: int) -> void:
-	if isl.has_terminal or k < 0 or k >= isl.dock_sites.size():
+	if _company != null or sim.scenario == null or isl.has_terminal or k < 0 or k >= isl.dock_sites.size():
 		return
 	var price := isl.dock_sites[k].price()
 	if sim.available_cash < price:
@@ -121,9 +131,11 @@ func buy_dock(isl: MapData.Island, k: int) -> void:
 	_company = sc
 	_clock = [sim.day, sim.minutes]
 	hud.show_toast("NEW TERMINAL", "Building %s's terminal at site %d. Planning its routes…" % [isl.name, k + 1], 4.0)
-	await get_tree().process_frame
-	await get_tree().process_frame
-	rebuild()
+	var tree := get_tree()
+	await tree.process_frame
+	await tree.process_frame
+	if is_inside_tree() and tree.current_scene == self:
+		rebuild()
 
 
 ## Pins the locked dock sites of `isl` (null: none), the shown one taller.
