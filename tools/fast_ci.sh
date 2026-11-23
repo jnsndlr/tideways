@@ -66,6 +66,7 @@ check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
 check timetable-round test --script tools/timetable_round_test.gd
 check mission-goals test --script tools/mission_goals_test.gd
+check route-sample-grid test --script tools/route_sample_grid_test.gd
 check route-memo test --script tools/route_memo_test.gd
 check region-contract test --script tools/region_contract_test.gd
 check company-network test --script tools/company_network_test.gd

@@ -10,7 +10,9 @@ const NAMES := ["Pinehurst", "Northpoint", "Driftwood", "Harborview", "Seaglass 
 var rng := RandomNumberGenerator.new()
 var terrain: Terrain
 var map: MapData
+const RouteSampleGrid := preload("res://scripts/map/route_sample_grid.gd")
 var _route_samples := PackedVector3Array()
+var _shore_routes: RouteSampleGrid
 var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route ids, lateral min, lateral max]
 ## When set, terminals and links come from it instead of being planned.
 var _scenario: Scenario
@@ -129,6 +131,8 @@ func _build(layout: MapLayout, scenario: Scenario) -> void:
 	_layout_towns()
 	_roll_wildlife_appeal(map_seed)
 	_place_haul_outs(map_seed)
+	_route_samples.clear()
+	_shore_routes = null
 
 
 func _new_island(center: Vector2, radius: float, strength: float, inhabited: bool) -> MapData.Island:
@@ -432,6 +436,12 @@ func _plan_routes() -> void:
 			banned[key] = true
 	for r in map.routes:
 		_route_samples.append_array(r.curve.get_baked_points())
+	# Shoreline objects have always used every fourth sample across the complete
+	# network. Keep that same stride even where consecutive curves meet.
+	_shore_routes = RouteSampleGrid.new()
+	for i in range(0, _route_samples.size(), 4):
+		var point := _route_samples[i]
+		_shore_routes.add(Vector2(point.x, point.z))
 	for t in mains:
 		t.built = t.has_dock and _owned(t)
 
@@ -1209,10 +1219,8 @@ func _marina_site(isl: MapData.Island, n3: Vector3) -> Variant:
 	for u: float in [0.0, 45.0, 90.0, 135.0]:
 		var q := s3 + n3 * u
 		# Baked about 3 m apart; every few is plenty at this distance.
-		for i in range(0, _route_samples.size(), 4):
-			var p := _route_samples[i]
-			if Vector2(p.x - q.x, p.z - q.z).length_squared() < 102.0 * 102.0:
-				return null
+		if _shore_routes.near(Vector2(q.x, q.z), 102.0):
+			return null
 	return [s3, n3]
 
 
@@ -1300,10 +1308,8 @@ func _quay_site(isl: MapData.Island, n3: Vector3, marina_gap := 180.0) -> Varian
 	for u: float in [0.0, Layout.QUAY_LANE_U]:
 		for v: float in [-Layout.QUAY_RUN, 0.0, Layout.QUAY_RUN]:
 			var p := s3 + n3 * u + lat * v
-			for i in range(0, _route_samples.size(), 4):
-				var rp := _route_samples[i]
-				if Vector2(rp.x - p.x, rp.z - p.z).length_squared() < 102.0 * 102.0:
-					return null
+			if _shore_routes.near(Vector2(p.x, p.z), 102.0):
+				return null
 	return [s3, n3]
 
 
@@ -1561,10 +1567,8 @@ func _haul_clear(p: Vector3, gap: float) -> bool:
 	for h in map.haul_outs:
 		if p.distance_to(h.water) < gap + 60.0:
 			return false
-	for i in range(0, _route_samples.size(), 4):
-		var rp := _route_samples[i]
-		if Vector2(rp.x - p.x, rp.z - p.z).length_squared() < 120.0 * 120.0:
-			return false
+	if _shore_routes.near(Vector2(p.x, p.z), 120.0):
+		return false
 	return true
 
 
