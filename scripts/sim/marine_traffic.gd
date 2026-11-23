@@ -66,29 +66,30 @@ var _next := 0
 var _cargo_named := 0
 
 
-## The slow, data-only part of setup: the nav grid, fishing grounds and anchorages.
-## Needs only s.map and s.terrain and touches no nodes, so the loading screen runs
-## it on a worker thread ahead of setup(); setup() runs it itself otherwise.
+## Synchronous entry point for tools that prepare charts ahead of setup.
 func prepare(s: Simulation) -> void:
 	sim = s
-	nav = NavGrid.new(s.map, s.terrain)
-	grounds = FishingGround.find_all(self)
-	var t1 := Time.get_ticks_msec()
-	anchorages = Anchorage.find_all(self)
-	var spots := 0
-	for a in anchorages:
-		spots += a.spots.size()
-	print("Anchorages: %d coves, %d spots (%d ms)" % [anchorages.size(), spots, Time.get_ticks_msec() - t1])
+	var charts := MarineCharts.new(s.map, s.terrain)
+	charts.build()
+	_use_charts(charts)
 
 
-func setup(s: Simulation) -> void:
+func _use_charts(charts: MarineCharts) -> void:
+	nav = charts.nav
+	grounds = charts.grounds
+	anchorages = charts.anchorages
+
+
+func setup(s: Simulation, charts: MarineCharts = null) -> void:
 	sim = s
 	name = "MarineTraffic"
 	# Before the vessels move this frame.
 	process_priority = -10
 	rng.seed = s.map.map_seed * 7 + 11
 	var t0 := Time.get_ticks_msec()
-	if nav == null:
+	if charts != null:
+		_use_charts(charts)
+	elif nav == null:
 		prepare(s)
 	_find_corridors()
 	for f in s.ferries:
