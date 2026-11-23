@@ -940,6 +940,8 @@ func _refresh_panels() -> void:
 				rows.append(["Dock site", "None: no terminal can be built here"])
 			elif building >= 0.0:
 				rows.append(["Opens in", _hours_text(building)])
+			elif sim.dock_price(isl) <= 0:
+				rows.append(["Dock site", "No navigable ferry route reaches this site"])
 			else:
 				var price := sim.dock_price(isl)
 				var tier: Dictionary = MapLayout.DOCK_TIERS[island.dock_sites[isl.site].tier]

@@ -445,7 +445,7 @@ func _process(delta: float) -> void:
 
 ## What building a terminal at `town`'s dock site costs (its tier), or 0 if it can't be bought.
 func dock_price(town: MapData.Town) -> int:
-	if not town.has_dock or town.built or town.site < 0:
+	if not town.has_dock or town.built or town.site < 0 or town.route_ids().is_empty():
 		return 0
 	return map.island_of(town).dock_sites[town.site].price()
 

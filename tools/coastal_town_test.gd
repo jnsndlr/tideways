@@ -15,10 +15,10 @@ func _initialize() -> void:
 	terrain.h_grid.resize((terrain.n + 1) * (terrain.n + 1))
 	terrain.h_grid.fill(10.0)
 	for i in 3:
-		var island := MapData.Island.new()
-		island.town_center.x = (i - 1) * 400.0
-		island.population = 3000 if i == 2 else 50000
-		region.islands.append(island)
+		var town := MapData.Town.new()
+		town.town_center.x = (i - 1) * 400.0
+		town.population = 3000 if i == 2 else 50000
+		region.towns.append(town)
 	var builder := TownBuilder.new(region, terrain)
 	await builder._build_towns()
 	var halls := [0, 0, 0]

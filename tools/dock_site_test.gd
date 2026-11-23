@@ -61,6 +61,12 @@ func _process(_delta: float) -> bool:
 				for id in isl.towns:
 					if map.towns[id].has_dock:
 						return _fail("%s has no locked dock but a dock town" % isl.name)
+		# A physically isolated site must not cost the company any money.
+		for town in docks:
+			if town.route_ids().is_empty() and not town.built:
+				var balance := sim.available_cash
+				if sim.dock_price(town) != 0 or sim.buy_dock(town) or sim.available_cash != balance:
+					return _fail("A site with no navigable routes was offered for purchase")
 		_cypress = map.town_by_key("island-3/0")
 		if _cypress == null or _cypress.built or sim.terminals.has(_cypress.id):
 			return _fail("Expected Cypress Island's site to start unbuilt")
