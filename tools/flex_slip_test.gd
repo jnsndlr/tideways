@@ -47,7 +47,7 @@ func _process(_delta: float) -> bool:
 		if madrona.town.slips[second].building:
 			return _fail("the slip didn't open")
 		# Both routes keep the first slip as their own, so only the flexible ends use the second.
-		madrona.pending_routes.clear()
+		madrona._assignments = null
 		if not madrona.town.slips[second].routes.is_empty():
 			return _fail("a route already calls at the new slip")
 		# Different paces so the two boats meet at Madrona.

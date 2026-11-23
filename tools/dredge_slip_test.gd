@@ -14,6 +14,8 @@ var index := -1
 
 
 func _initialize() -> void:
+	if not _protected_shore():
+		return
 	main = load("res://scenes/main_map.tscn").instantiate()
 	root.add_child(main)
 
@@ -21,6 +23,29 @@ func _initialize() -> void:
 func _fail(why: String) -> bool:
 	push_error("Dredge slip: " + why)
 	quit(1)
+	return true
+
+
+## A headland inside the channel blocks a purchase atomically. Land beside
+## the channel stays intact even where the seabed cut blends towards shore.
+func _protected_shore() -> bool:
+	var terrain := Terrain.new(123, Terrain.CELL * 8)
+	terrain.h_grid.resize((terrain.n + 1) * (terrain.n + 1))
+	terrain.h_grid.fill(-2.0)
+	var center := terrain.n / 2
+	var core := center * (terrain.n + 1) + center
+	terrain.h_grid[core] = 3.0
+	var before := terrain.h_grid.duplicate()
+	if terrain.dredge(Vector3.ZERO, Vector3.FORWARD, -8.0, 8.0, 5.0, -7.0, 9.0, true) >= 0 or before != terrain.h_grid:
+		_fail("Dredging through a headland should fail without moving any ground")
+		return false
+	terrain.h_grid[core] = -2.0
+	var edge := core + 2
+	terrain.h_grid[edge] = 3.0
+	var volume := terrain.dredge(Vector3.ZERO, Vector3.FORWARD, -8.0, 8.0, 5.0, -7.0, 9.0, true)
+	if volume <= 0.0 or terrain.h_grid[core] != -7.0 or terrain.h_grid[edge] != 3.0:
+		_fail("A dredged channel should leave high ground beside it intact")
+		return false
 	return true
 
 
@@ -32,7 +57,9 @@ func _finish(t: Terminal) -> void:
 
 func _process(_delta: float) -> bool:
 	frames += 1
-	if frames < 5 or main.sim == null:
+	if frames > 3000:
+		return _fail("timed out")
+	if main == null or frames < 5 or main.sim == null:
 		return false
 	var sim: Simulation = main.sim
 	sim.ledger.cash = maxf(sim.ledger.cash, 500000.0) if offer == null else sim.ledger.cash
@@ -55,18 +82,20 @@ func _process(_delta: float) -> bool:
 						return _fail("couldn't buy it")
 					if not is_equal_approx(cash - sim.available_cash, u.price):
 						return _fail("paid %.0f, not %d" % [cash - sim.available_cash, u.price])
+					if not is_equal_approx(t.refit_remaining, u.build_minutes):
+						return _fail("Job scheduled for %.0f minutes, quoted %.0f" % [t.refit_remaining, u.build_minutes])
 					index = t.town.slips.size() - 1
-					var reach := t._site_reach(u.kind == TerminalUpgrade.Kind.SLIP)
+					var reach := SlipSiteSurvey.reach_for(u.kind == TerminalUpgrade.Kind.SLIP)
 					var shallow := 0
 					var uu := Layout.PIER_END + 12.0
 					while uu < reach.x:
 						for dv: float in [-reach.y, 0.0, reach.y]:
-							if sim.terrain.height_v(t._at(u.v + dv, uu)) > -3.6:
+							if sim.terrain.height_v(t.site_survey.position_at(u.v + dv, uu)) > -3.6:
 								shallow += 1
 						uu += 9.0
 					if shallow > 0:
 						return _fail("%d points off the slip still shallow after dredging" % shallow)
-					if t._site_dredge(u.v, u.kind == TerminalUpgrade.Kind.SLIP) != 0.0:
+					if t.site_survey.volume_at(u.v, u.kind == TerminalUpgrade.Kind.SLIP) != 0.0:
 						return _fail("the dredged site still needs dredging")
 					print("Dredged %.0f m³ for $%d; terrain tiles %d -> %d" % [u.dredge_m3, u.dredge_price, tiles, main.builder.root.get_child_count()])
 					_finish(t)
@@ -85,6 +114,4 @@ func _process(_delta: float) -> bool:
 		print("TEST PASSED")
 		quit(0)
 		return true
-	if frames > 3000:
-		return _fail("timed out")
 	return false

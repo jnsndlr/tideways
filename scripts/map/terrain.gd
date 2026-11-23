@@ -8,6 +8,7 @@ extends RefCounted
 ## the edge's sample count twice, so the count must divide by 4.
 const CELL := 6600.0 / 1600.0
 const SEA_FLOOR := -16.5
+const DREDGE_MAX_HEIGHT := 1.5
 ## Lowest an inland valley comes with Lakes at 0 (m above the sea).
 const LAKE_FLOOR := 2.5
 
@@ -365,6 +366,8 @@ func _apply_flat(f: Dictionary) -> void:
 ## Returns the cubic metres that takes; with `apply` it is cut, and `touched` is the
 ## grid rect it changed (for WorldBuilder.rebuild_terrain).
 var touched := Rect2i()
+
+
 func dredge(origin: Vector3, dir: Vector3, u0: float, u1: float, half: float, depth: float, blend: float, apply := false) -> float:
 	var td := Vector3.UP.cross(dir)
 	var reach := maxf(absf(u0), absf(u1)) + half + blend
@@ -373,6 +376,10 @@ func dredge(origin: Vector3, dir: Vector3, u0: float, u1: float, half: float, de
 	var j0 := _index_of(origin.z - reach)
 	var j1 := _index_of(origin.z + reach)
 	var volume := 0.0
+	var cells := PackedInt32Array()
+	var heights := PackedFloat32Array()
+	if apply:
+		touched = Rect2i()
 	var lo := Vector2i(i1, j1)
 	var hi := Vector2i(i0, j0)
 	for j in range(j0, j1 + 1):
@@ -386,15 +393,22 @@ func dredge(origin: Vector3, dir: Vector3, u0: float, u1: float, half: float, de
 			if dd >= blend:
 				continue
 			var k := j * (n + 1) + i
+			if h_grid[k] > DREDGE_MAX_HEIGHT:
+				if dd <= 0.0:
+					return -1.0
+				continue
 			var cut := minf(h_grid[k], lerpf(h_grid[k], depth, 1.0 - smoothstep(0.0, blend, dd)))
 			if cut >= h_grid[k] - 0.01:
 				continue
 			volume += (h_grid[k] - cut) * CELL * CELL
 			if apply:
-				h_grid[k] = cut
+				cells.append(k)
+				heights.append(cut)
 				lo = Vector2i(mini(lo.x, i), mini(lo.y, j))
 				hi = Vector2i(maxi(hi.x, i), maxi(hi.y, j))
 	if apply:
+		for c in cells.size():
+			h_grid[cells[c]] = heights[c]
 		touched = Rect2i(lo, hi - lo + Vector2i.ONE) if hi.x >= lo.x else Rect2i()
 	return volume
 

@@ -29,6 +29,7 @@ var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
 ## A dock site was bought and its terminal is being built (buy_dock).
+signal slip_sites_changed
 signal dock_bought(town: MapData.Town)
 ## A terminal bought in play opened (open_terminal).
 signal terminal_opened(term: Terminal)

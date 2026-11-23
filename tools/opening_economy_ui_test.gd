@@ -62,15 +62,43 @@ func play_opening() -> bool:
 	var label: Control = hud._labels[port.town.id]
 	if not click_control(label, label.size * 0.5, "Port Rosario") or hud.selected_town != port.town:
 		return fail("Port Rosario's map label did not open its inspector")
-	return await buy_lane(hud, port, ledger)
+	if not await buy_lane(hud, port, ledger):
+		return false
+	return await buy_working_slip(hud, port, ledger)
 
 
 func buy_lane(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 	var cash_before := ledger.cash
 	if not is_zero_approx(ledger.today["purchases"]):
 		return fail("Opening company already recorded a purchase")
-	if not await press("Holding lane (+7 spaces) · $150"):
-		return false
+	await process_frame
+	await process_frame
+	var lane_button: Button
+	for button: Button in hud.find_children("*", "Button", true, false):
+		if button.text == "Holding lane (+7 spaces) · $150" and button.is_visible_in_tree():
+			lane_button = button
+			break
+	if lane_button == null:
+		return fail("Port Rosario did not offer its first holding lane")
+	# A player may hold a button through the inspector’s quarter-second refresh.
+	var point := lane_button.get_global_transform_with_canvas() * (lane_button.size * 0.5)
+	var move := InputEventMouseMotion.new()
+	move.position = point
+	root.push_input(move, true)
+	if root.gui_get_hovered_control() != lane_button:
+		return fail("Another control covers the holding lane button")
+	var down := InputEventMouseButton.new()
+	down.position = point
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	root.push_input(down, true)
+	for i in 18:
+		await process_frame
+	if not is_instance_valid(lane_button) or not lane_button.is_inside_tree():
+		return fail("Refreshing the catalogue replaced the button during a press")
+	var up := down.duplicate() as InputEventMouseButton
+	up.pressed = false
+	root.push_input(up, true)
 	if absf(ledger.cash - (cash_before - 150.0)) > 0.0001 or ledger.today["purchases"] != 150.0:
 		return fail("Buying one lane should debit exactly $150 from cash and purchases")
 	if port.work_stage != Terminal.WorkStage.DRAINING or port.capacity() != 14:
@@ -97,3 +125,28 @@ func buy_lane(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 				return true
 			break
 	return fail("The Port Rosario inspector did not show 21 usable car spaces")
+
+
+func buy_working_slip(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
+	if not await press("Pause"):
+		return false
+	var offer := port.find_upgrade(TerminalUpgrade.Kind.SLIP)
+	if offer == null or not offer.blocked.is_empty():
+		return fail("The opening terminal had no second working slip to buy")
+	var label := "%s · %s" % [offer.title, Hud.fmt_money(offer.price)]
+	var spent: float = ledger.today["purchases"]
+	var cash := ledger.cash
+	for button: Button in hud.find_children("*", "Button", true, false):
+		if button.text != label or not button.is_visible_in_tree():
+			continue
+		hud._info_scroll.ensure_control_visible(button)
+		if not await press(label):
+			return false
+		if not is_equal_approx(ledger.cash, cash - offer.price) or ledger.today["purchases"] != spent + offer.price:
+			return fail("The second slip did not debit its quoted price exactly once")
+		if not port.refit_new or port.town.working_slips() != 1:
+			return fail("A purchased slip must remain under construction until it opens")
+		if port.buy(offer) or not is_equal_approx(ledger.cash, cash - offer.price):
+			return fail("A repeated slip purchase charged the company during construction")
+		return true
+	return fail("Missing second working slip in the terminal inspector")

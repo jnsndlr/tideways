@@ -32,7 +32,7 @@ const REFIT_WORK := 150.0
 const REFIT_DEPARTURE := 20.0
 const REFIT_HOLD := 320.0      # how far out boats for a closed slip hold off (m)
 # New slips (stage 5), built by the same crane scow as a refit: one slip job at a
-# time. They go along the shore beside the others (new_slip_sites), dredged if need
+# time. They go along the shore beside the others (SlipSiteSurvey), dredged if need
 # be, and are built small.
 const MAX_WORKING_SLIPS := 3
 const MAX_TIE_UPS := 2
@@ -46,12 +46,6 @@ const REAIM_HOLD := 150.0
 const REAIM_BLEND := 500.0
 # A boat leaving a slip keeps it until she is this far out (m).
 const SLIP_LEAVE_CLEAR := 200.0
-# Dredging (a slip where the water is too shallow): the seabed off it is cut to
-# DREDGE_DEPTH, easing back over DREDGE_BLEND. Only seabed and low shore, never
-# ground higher than DREDGE_MAX_HEIGHT. Priced and timed by the volume cut.
-const DREDGE_DEPTH := -7.0
-const DREDGE_BLEND := 18.0
-const DREDGE_MAX_HEIGHT := 1.5
 const DREDGE_PRICE := 0.25      # $ per cubic metre (rounded up to $500, at least $1,000)
 const DREDGE_RATE := 12000.0    # cubic metres an hour, added to the build
 
@@ -78,9 +72,13 @@ var refit_work := REFIT_WORK   # the crew's working time on this job
 var refit_new := false         # building refit_slip new, rather than refitting it
 ## Routes waiting to move to another working slip (route id -> slip index) once no
 ## boat on them is under way or alongside here (spread_routes).
-var pending_routes := {}
-# Surveyed slip sites ("v|working" -> _site_dredge), kept until a slip is bought.
-var _sites := {}
+var _assignments: RouteBerthAssignments
+var _survey: SlipSiteSurvey
+var site_survey: SlipSiteSurvey:
+	get:
+		if _survey == null:
+			_survey = SlipSiteSurvey.new(sim, town)
+		return _survey
 # Which way (+1 / -1 across the slips, the terminal frame's x) the flood tide sets a
 # ferry lying alongside here; the ebb sets her the other way.
 var flood_side := 1.0
@@ -158,7 +156,7 @@ func upgrades() -> Array[TerminalUpgrade]:
 ## first, each with the dredging it needs there; or one entry saying why it can't.
 func _slip_offers(kind: TerminalUpgrade.Kind, title: String, price: int, minutes: float) -> Array[TerminalUpgrade]:
 	var out: Array[TerminalUpgrade] = []
-	var sites := new_slip_sites(kind == TerminalUpgrade.Kind.TIE_UP)
+	var sites := site_survey.sites(kind == TerminalUpgrade.Kind.TIE_UP)
 	for site in sites:
 		var u := TerminalUpgrade.new(kind, title + (", %s side" % _side_name(site.x) if sites.size() > 1 else ""),
 			price, minutes)
@@ -202,7 +200,7 @@ func buy(offer: TerminalUpgrade) -> bool:
 	if offer == null:
 		return false
 	var u := find_upgrade(offer.kind, offer.slip, offer.v)
-	if u == null or u.blocked != "" or not sim.has_research(u.research) or sim.available_cash < u.price:
+	if u == null or u.blocked != "" or u.price != offer.price or u.build_minutes != offer.build_minutes or not sim.has_research(u.research) or sim.available_cash < u.price:
 		return false
 	sim.ledger.spend("purchases", u.price)
 	match u.kind:
@@ -346,12 +344,8 @@ func _start_refit(i: int, work: float, new_slip: bool) -> void:
 ## Lays out a bought slip where `u` says (hidden and closed while it is built) and
 ## brings the crane scow in to build it.
 func _start_slip(u: TerminalUpgrade) -> void:
-	_sites.clear()
 	if u.dredge_m3 > 0.0:
-		var reach := _site_reach(u.kind == TerminalUpgrade.Kind.SLIP)
-		sim.terrain.dredge(_at(u.v, 0.0), town.dock_dir, Layout.PIER_END + 4.0, reach.x + 10.0, reach.y + 7.0,
-			DREDGE_DEPTH, DREDGE_BLEND, true)
-		seabed_dredged.emit(sim.terrain.touched)
+		seabed_dredged.emit(site_survey.dredge(u.v, u.kind == TerminalUpgrade.Kind.SLIP))
 	town.freeze_slip_offsets()
 	var tie := u.kind == TerminalUpgrade.Kind.TIE_UP
 	var slip := MapData.Slip.new(1, tie)
@@ -360,112 +354,8 @@ func _start_slip(u: TerminalUpgrade) -> void:
 	town.slips.append(slip)
 	slip_ramps.append(null)
 	slip_guides.append(null)
-	_start_refit(town.slips.size() - 1, TIE_UP_WORK if tie else SLIP_WORK, true)
-
-
-## Where a new working slip (or tie-up) can go along the shore: beside the end
-## slip on either side, facing the same way, as Vector2(v, cubic metres to dredge
-## there, 0 for none). The side with clear water comes first; with both clear (or
-## both needing dredging), tie-ups keep to the side they are on (the right to begin
-## with) and working slips go to the other. Empty if neither side can take one.
-func new_slip_sites(tie_up: bool) -> Array[Vector2]:
-	var out: Array[Vector2] = []
-	if town.slips.is_empty():
-		return out
-	var lo := INF
-	var hi := -INF
-	var sums := [0.0, 0.0]     # working, tie-up
-	var counts := [0, 0]
-	for i in town.slips.size():
-		var v := town.slip_offset(i)
-		lo = minf(lo, v)
-		hi = maxf(hi, v)
-		var k := 1 if town.slips[i].tie_up else 0
-		sums[k] += v
-		counts[k] += 1
-	var tie_side := 1.0
-	if counts[0] > 0 and counts[1] > 0 and sums[1] / counts[1] < sums[0] / counts[0]:
-		tie_side = -1.0
-	# Tie-ups go side by side; a slip next to a working slip keeps a slip spacing.
-	var lo_tie := false
-	var hi_tie := false
-	for i in town.slips.size():
-		if is_equal_approx(town.slip_offset(i), lo):
-			lo_tie = town.slips[i].tie_up
-		if is_equal_approx(town.slip_offset(i), hi):
-			hi_tie = town.slips[i].tie_up
-	var right := hi + (Layout.TIE_UP_SPACING if tie_up and hi_tie else Layout.SLIP_SPACING)
-	var left := lo - (Layout.TIE_UP_SPACING if tie_up and lo_tie else Layout.SLIP_SPACING)
-	var first := right if tie_up == (tie_side > 0.0) else left
-	for v: float in [first, left if first == right else right]:
-		var m3 := _site_dredge(v, not tie_up)
-		if m3 >= 0.0:
-			out.append(Vector2(v, m3))
-	if out.size() == 2 and out[0].y > 0.0 and out[1].y == 0.0:
-		out.reverse()
-	return out
-
-
-## Where the first of new_slip_sites puts a slip (NAN if nowhere).
-func new_slip_v(tie_up: bool) -> float:
-	var sites := new_slip_sites(tie_up)
-	return sites[0].x if not sites.is_empty() else NAN
-
-
-## How far out (x) and how far either side (y) a new slip needs deep water: out past
-## its dolphins and a boat's straight run in for a working slip, or for a tie-up
-## just where a boat lies.
-func _site_reach(working: bool) -> Vector2:
-	if working:
-		return Vector2(Layout.CHANNEL_BUOY_U + REAIM_HOLD + 120.0, 15.0)
-	return Vector2(Layout.DOCK_U + Layout.FERRY_HALF, 10.0)
-
-
-## Whether a slip can go at `v`: 0 if the water off it is deep already, the cubic
-## metres to dredge if only shallows are in the way, -1 if it can't (land in the way,
-## no shore for its pier, or too near another dock's slips).
-func _site_dredge(v: float, working: bool) -> float:
-	var key := "%d|%s" % [roundi(v), working]
-	if not _sites.has(key):
-		_sites[key] = _survey_site(v, working)
-	return _sites[key]
-
-
-func _survey_site(v: float, working: bool) -> float:
-	var terrain := sim.terrain
-	if terrain == null:
-		return -1.0   # (a bare test terminal: no shore to build along)
-	# Its pier meets the shore about where the lot's does.
-	if terrain.height_v(_at(v, Layout.LOT_FRONT)) < -6.0:
-		return -1.0
-	var berth := _at(v, Layout.DOCK_U)
-	for t in sim.map.dock_towns():
-		if t == town:
-			continue
-		for i in t.slips.size():
-			if t.berth_center(i).distance_to(berth) < Layout.SLIP_SPACING * 1.5:
-				return -1.0
-		if t.slips.is_empty() and t.shore.distance_to(berth) < Layout.SLIP_SPACING * 1.5:
-			return -1.0
-	var reach := _site_reach(working)
-	var deep := true
-	var u := Layout.PIER_END + 12.0
-	while u < reach.x:
-		for dv: float in [-reach.y, 0.0, reach.y]:
-			var h := terrain.height_v(_at(v + dv, u))
-			if h > DREDGE_MAX_HEIGHT:
-				return -1.0
-			deep = deep and h <= -3.6
-		u += 9.0
-	if deep:
-		return 0.0
-	return terrain.dredge(_at(v, 0.0), town.dock_dir, Layout.PIER_END + 4.0, reach.x + 10.0, reach.y + 7.0,
-		DREDGE_DEPTH, DREDGE_BLEND)
-
-
-## Point (v, u) of the terminal frame in the world, at sea level.
-func _at(v: float, u: float) -> Vector3:
-	return town.shore + town.dock_dir * u + town.lateral() * v
+	sim.slip_sites_changed.emit()
+	_start_refit(town.slips.size() - 1, u.build_minutes - REFIT_ARRIVAL - REFIT_DEPARTURE, true)
 
 
 ## A bought slip is built: it takes its ramp and guides and comes into use, and
@@ -488,194 +378,15 @@ func _open_slip(i: int) -> void:
 
 # --- Spreading routes over the slips ------------------------------------------------
 
-## Gives routes that share a working slip with another a slip of their own where
-## one is free and big enough for their boats. A route only moves if a boat sails
-## it; a boat that calls here on two legs keeps both on one slip. The move waits
-## until no boat on it is under way or alongside here (_move_pending_routes).
 func spread_routes() -> void:
-	var working: Array[int] = []
-	for i in town.slips.size():
-		if not town.slips[i].tie_up and not town.slips[i].building:
-			working.append(i)
-	if working.size() < 2:
-		return
-	var calls := {}
-	for i in working:
-		calls[i] = 0
-	var busy := []
-	for g in _route_groups():
-		if g.any(func(rid): return sim.map.routes[rid].in_service):
-			busy.append(g)
-			calls[_slip_of(g[0])] = calls.get(_slip_of(g[0]), 0) + 1
-	while true:
-		var best_g: Array = []
-		var best_i := -1
-		var best_score := INF
-		for g in busy:
-			var at := _slip_of(g[0])
-			if calls.get(at, 0) <= 1:
-				continue
-			var side := _departure_side(g)
-			for i in working:
-				if i == at or calls[i] + 1 >= calls[at] or not _group_fits(g, i) or slip_shut(i):
-					continue
-				# The emptiest slip, on the side the route heads off to.
-				var score: float = calls[i] * 10.0 - side * signf(town.slip_offset(i) - town.slip_offset(at))
-				if score < best_score:
-					best_score = score
-					best_g = g
-					best_i = i
-		if best_i < 0:
-			break
-		calls[_slip_of(best_g[0])] -= 1
-		calls[best_i] += 1
-		for rid in best_g:
-			if town.slip_index(rid) == best_i:
-				pending_routes.erase(rid)
-			else:
-				pending_routes[rid] = best_i
+	if _assignments == null:
+		_assignments = RouteBerthAssignments.new(self)
+	_assignments.plan()
 
 
 ## Whether slip `i` is closed for a refit (not a new slip whose crew is leaving).
 func slip_shut(i: int) -> bool:
 	return refit_stage != RefitStage.NONE and i == refit_slip and not (refit_new and refit_stage == RefitStage.LEAVING)
-
-
-## Which slip route `rid` calls at here, or will once it has moved.
-func _slip_of(rid: int) -> int:
-	return pending_routes.get(rid, town.slip_index(rid))
-
-
-## The routes calling here in groups that must share a slip: a boat that comes in
-## on one and leaves on another (a multi-stop schedule) joins them.
-func _route_groups() -> Array:
-	var parent := {}
-	for rid in town.route_ids():
-		parent[rid] = rid
-	var find := func(rid: int) -> int:
-		while parent[rid] != rid:
-			rid = parent[rid]
-		return rid
-	for f in sim.ferries:
-		for plan in [[f.stops, f.legs], [f.next_stops, f._next_legs]]:
-			var stops: Array = plan[0]
-			var legs: Array = plan[1]
-			if legs.size() != stops.size():
-				continue
-			for i in stops.size():
-				if stops[i] != town.id:
-					continue
-				var a: int = legs[(i - 1 + legs.size()) % legs.size()].id
-				var b: int = legs[i].id
-				if parent.has(a) and parent.has(b):
-					parent[find.call(a)] = find.call(b)
-	var groups := {}
-	for rid in parent:
-		var r: int = find.call(rid)
-		if not groups.has(r):
-			groups[r] = []
-		groups[r].append(rid)
-	return groups.values()
-
-
-## Whether every boat sailing a route in `g` fits slip `i`.
-func _group_fits(g: Array, i: int) -> bool:
-	for f in sim.ferries:
-		for r in f.legs + f._next_legs:
-			if r.id in g and not town.slips[i].fits(f.fc.size):
-				return false
-	return true
-
-
-## Which way (+1 / -1 across the slips, about 0 straight out) the routes of `g` head.
-func _departure_side(g: Array) -> float:
-	var total := 0.0
-	for rid in g:
-		var r := sim.map.routes[rid]
-		var s := minf(400.0, r.length * 0.4)
-		var p := r.curve.sample_baked(s if r.a == town.id else r.length - s)
-		total += (p - town.dock_center(rid)).normalized().dot(town.lateral())
-	return total / maxf(g.size(), 1)
-
-
-## Moves each group of routes waiting for another slip once no boat on them is
-## under way or at this terminal. A route whose new end would run over land stays.
-func _move_pending_routes() -> void:
-	for g in _route_groups():
-		var moving: Array = g.filter(func(rid): return pending_routes.has(rid))
-		if moving.is_empty():
-			continue
-		var clear := true
-		for f in sim.ferries:
-			if f.route.id in g and (f.state == Ferry.State.SAILING or f.here() == self):
-				clear = false
-		if not clear:
-			continue
-		var curves := {}
-		for rid in moving:
-			var to: int = pending_routes[rid]
-			var c := _reaimed_curve(sim.map.routes[rid], town.slip_offset(to) - town.slip_offset(town.slip_index(rid)))
-			if c == null:
-				push_warning("%s: route %d can't move to slip %d (land in the way)" % [town.name, rid, to])
-				curves.clear()
-				break
-			curves[rid] = c
-		if curves.is_empty():
-			for rid in moving:
-				pending_routes.erase(rid)
-			continue
-		for rid in moving:
-			var to: int = pending_routes[rid]
-			pending_routes.erase(rid)
-			town.slips[town.slip_index(rid)].routes.erase(rid)
-			town.slips[to].routes.append(rid)
-			slip_v[rid] = town.slip_offset(to)
-			if slip_ramps[to]:
-				ramps[rid] = slip_ramps[to]
-			else:
-				ramps.erase(rid)
-			var r := sim.map.routes[rid]
-			r.curve = curves[rid]
-			r.length = r.curve.get_baked_length()
-			for f in sim.ferries:
-				f.route_reshaped(r)
-		if sim.marine:
-			sim.marine.refresh_corridors()
-		sim.routes_changed.emit()
-
-
-## Route `r`'s curve with its end here moved `dv` across the slips: straight out of
-## the new slip for REAIM_HOLD, then easing back onto the old line. Null if that
-## would take it over land or the route is too short to ease back.
-func _reaimed_curve(r: MapData.Route, dv: float) -> Curve3D:
-	var blend := minf(REAIM_BLEND, r.length - REAIM_HOLD - 200.0)
-	if blend < 120.0:
-		return null
-	var pts := r.curve.get_baked_points()
-	var from_here := r.a == town.id
-	if not from_here:
-		pts.reverse()
-	var shift := town.lateral() * dv
-	var out := PackedVector3Array()
-	var d := 0.0
-	for k in pts.size():
-		if k > 0:
-			d += pts[k].distance_to(pts[k - 1])
-		var w := 1.0 - smoothstep(REAIM_HOLD, REAIM_HOLD + blend, d)
-		var p := pts[k] + shift * w
-		if w > 0.0 and d > 36.0 and k + 1 < pts.size():
-			var side := Vector3.UP.cross((pts[k + 1] - pts[k]).normalized()) * 18.0
-			for o: Vector3 in [Vector3.ZERO, side, -side]:
-				if sim.terrain.height_v(p + o) > -3.6:
-					return null
-		out.append(p)
-	if not from_here:
-		out.reverse()
-	var c := Curve3D.new()
-	c.bake_interval = r.curve.bake_interval
-	for p in out:
-		c.add_point(p)
-	return c
 
 
 ## Whether tie-up slip `i` is closed for a refit (no boat may make for it).
@@ -844,6 +555,21 @@ func guides_at(i: int) -> SlipGuides:
 
 
 ## The boat using working slip `i` here other than `f`: alongside, leaving and not yet
+## The preferred working berth, or the nearest compatible free one.
+## The live arrival uses boat reservations; the timetable uses predicted occupancy.
+func arrival_slip(preferred: int, hull_size: int, is_busy: Callable) -> int:
+	if preferred < 0 or not slip_shut(preferred) and not is_busy.call(preferred):
+		return preferred
+	var best := -1
+	for i in town.slips.size():
+		var slip := town.slips[i]
+		if i == preferred or slip.tie_up or slip.building or not slip.fits(hull_size) or slip_shut(i) or is_busy.call(i):
+			continue
+		if best < 0 or absf(town.slip_offset(i) - town.slip_offset(preferred)) < absf(town.slip_offset(best) - town.slip_offset(preferred)):
+			best = i
+	return best if best >= 0 else preferred
+
+
 ## clear, or coming in to it ahead of `f`. Null if it is free for her.
 func slip_user(i: int, f: Ferry) -> Ferry:
 	var left := f.path_left() if f.state == Ferry.State.SAILING and f.destination() == self else INF
@@ -958,8 +684,8 @@ func _process(delta: float) -> void:
 		_advance_construction(delta)
 	if refit_stage != RefitStage.NONE:
 		_advance_refit(delta)
-	if not pending_routes.is_empty():
-		_move_pending_routes()
+	if _assignments != null and _assignments.has_moves():
+		_assignments.apply_when_clear()
 	_spawn_acc += sim.demand_rate(town) * delta
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0

@@ -1379,19 +1379,8 @@ func _choose_slip() -> void:
 	var e := 1 if at_a else 0
 	_end_slip[e] = -1
 	var own := term.town.slip_index(route.id)
-	if own < 0 or term.slip_user(own, self) == null:
-		return
-	var best := -1
-	var town := term.town
-	for i in town.slips.size():
-		var slip := town.slips[i]
-		if i == own or slip.tie_up or slip.building or not slip.fits(fc.size) or term.slip_shut(i):
-			continue
-		if term.slip_user(i, self) != null:
-			continue
-		if best < 0 or absf(town.slip_offset(i) - town.slip_offset(own)) < absf(town.slip_offset(best) - town.slip_offset(own)):
-			best = i
-	if best >= 0:
+	var best := term.arrival_slip(own, fc.size, func(i: int): return term.slip_user(i, self) != null)
+	if best >= 0 and best != own:
 		_end_slip[e] = best
 		# Whatever water round her own slip she had taken is free for its other boats.
 		for run in _route_runs():
