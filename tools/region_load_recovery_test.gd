@@ -2,6 +2,8 @@ extends "res://tools/ui_test_driver.gd"
 ## Exercise the real menu and ResourceLoader, including a failed dependency
 ## repaired in place. PID-specific fixtures keep concurrent runs independent.
 
+const MainMapScript := preload("res://scripts/main_map.gd")
+
 var fixture := "user://region_retry_%d.tscn" % OS.get_process_id()
 var dependency := "user://region_part_%d.tscn" % OS.get_process_id()
 var transitions := 0
@@ -51,8 +53,13 @@ func exercise() -> bool:
 		return fail("A stale region request replaced the menu")
 	if repaired.get_ref() != null:
 		return fail("Repaired scene was retained after returning to the menu")
+	# Simulate a previous company's purchased site and carried clock.
+	MainMapScript._bought["previous-region"] = 1
+	MainMapScript._clock.assign([4, 600.0])
 	if not await press("Play"):
 		return false
+	if not MainMapScript._bought.is_empty() or not MainMapScript._clock.is_empty():
+		return fail("Play inherited the previous company’s purchases or clock")
 	# A second activation may already be queued before the overlay takes input.
 	for button: Button in current_scene.find_children("*", "Button", true, false):
 		if button.text in ["Play", "Mission sandbox"]:
