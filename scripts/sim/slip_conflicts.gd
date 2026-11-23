@@ -39,7 +39,7 @@ static func windows(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Arr
 			if tie >= 0:
 				# Between sailings she lies at a tie-up (Ferry.GAP_TIE_UP), and the slip
 				# is free from when she has moved off it until she is back.
-				var move := f.shift_minutes(Ferry.shift_length(absf(isl.slip_offset(tie) - isl.slip_offset(slip))))
+				var move := f.shift_minutes(SlipShiftPath.estimated_length(absf(isl.slip_offset(tie) - isl.slip_offset(slip))))
 				out.append({"island": ids[i], "slip": slip, "start": start, "end": start + f.planned_unload() + move * 0.5, "sailing": k})
 				start = t - Ferry.MAX_DWELL - Ferry.GAP_MARGIN - move * 0.5
 			out.append({"island": ids[i], "slip": slip, "start": start, "end": t + o[i], "sailing": k})

@@ -10,7 +10,31 @@ func check(condition: bool, message: String) -> void:
 		push_error(message)
 
 
+## A manoeuvre must back straight out, reverse direction beyond the buoys, and
+## approach along the new slip, on either side of the starting slip.
+func check_slip_moves() -> void:
+	var town := MapData.Town.new()
+	town.dock_dir = Vector3.RIGHT
+	var start := Vector3(-24, 0, 13)
+	for offset in [-60.0, 60.0]:
+		var finish := start + town.lateral() * float(offset)
+		var move := SlipShiftPath.build(start, finish, town, 30.0)
+		var points := move.points
+		check(points[0].is_equal_approx(start) and points[-1].is_equal_approx(finish), "Move joins both berths")
+		check((points[1] - start).normalized().dot(town.dock_dir) > 0.999, "Move starts straight astern")
+		check((finish - points[-2]).normalized().dot(town.dock_dir) < -0.999, "Move finishes straight into berth")
+		var turn := move.back_count - 1
+		check((points[turn] - points[turn - 1]).normalized().dot((points[turn + 1] - points[turn]).normalized()) < -0.99, "Boat reverses her way at the turn")
+		var measured := 0.0
+		for k in range(1, points.size()):
+			measured += points[k].distance_to(points[k - 1])
+			if k == turn:
+				check(is_equal_approx(move.cusp, measured), "Stop distance agrees with the path")
+		check(is_equal_approx(move.length, measured), "Return forecast uses the full path length")
+
+
 func _initialize() -> void:
+	check_slip_moves()
 	var voyage := FerryVoyage.new()
 	check(voyage.state == FerryVoyage.State.LOADING and voyage.at_a, "Start loading at A")
 	voyage.state_time = 20.0

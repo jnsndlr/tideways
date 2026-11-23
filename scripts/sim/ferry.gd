@@ -120,11 +120,11 @@ var berth := Berth.WORKING
 var lay_up_requested := false     # tie up once she has unloaded at a terminal with a free tie-up slip
 var return_requested := false     # back into service once her working slip is free
 var tie_up := -1                  # index into here().town.slips while laid up
-var _shift := PackedVector3Array()  # the way between her working slip and the tie-up
+var _shift: SlipShiftPath
 var _shift_s := 0.0
-var _shift_back := 0          # points of _shift (from the start) she covers going astern
-var _shift_cusp := 0.0        # distance along _shift where she stops and goes ahead
-var _shift_len := 0.0
+var _return_distance := -1.0  # separation used for the cached path length
+var _return_half_length := -1.0
+var _return_length := 0.0
 var _shift_basis := Basis()   # her basis as she set off
 var _shift_shore := Vector3.ZERO  # her shoreward heading as she set off
 var _shift_churn := 0.0       # how hard her props work moving slips, 0..1
@@ -573,7 +573,7 @@ func _process(delta: float) -> void:
 	if berth != Berth.WORKING:
 		_let_go_of_slip()
 		_tick_berth(delta)
-		if _shift.is_empty():
+		if _shift == null:
 			_thrust = move_toward(_thrust, 0.0, delta * 0.4)
 			_push = 0.0
 		wake.hold = false
@@ -632,7 +632,7 @@ func _tick_unloading(delta: float) -> void:
 			here().unloading_ferry = null
 		if lay_up_requested and free_tie_up(here()) >= 0 and not _held_close_in():
 			_begin_tie_up()
-		elif _wants_gap_tie_up():
+		elif _wants_gap_tie_up() and not _held_close_in():
 			_gap_due = due()
 			_begin_tie_up()
 		else:
@@ -884,8 +884,8 @@ func _corridor_runs() -> Array:
 
 
 ## Distance to go before she must hold off her destination while another ferry
-## there is moving between its working slip and a tie-up (INF if none is, or she was
-## already inside the hold line when it started, and comes on in).
+## there is moving between slips. A ferry already inside the hold line waits
+## where she is until the manoeuvre is complete.
 func _shift_wait() -> float:
 	if berth != Berth.WORKING:
 		return INF
@@ -1465,9 +1465,9 @@ func _update_trail(delta: float) -> void:
 	# props ease off while the forward prop brakes.
 	# Alongside she only swings about her landing end as she lies over, which mustn't
 	# turn her wake round: she keeps the heading she came in on.
-	var under_way := moving and (state == State.SAILING or not _shift.is_empty())
+	var under_way := moving and (state == State.SAILING or _shift != null)
 	wake.update(delta, global_position, fwd if under_way else Vector3.ZERO, speed * delta,
-			maxf(speed / fc.cruise * (1.0 - 0.6 * _thrust), _shift_churn if not _shift.is_empty() else 0.0), under_way)
+			maxf(speed / fc.cruise * (1.0 - 0.6 * _thrust), _shift_churn if _shift != null else 0.0), under_way)
 	_blow_nets(moved / delta if moving and delta > 0.0 else Vector3.ZERO, delta)
 
 
@@ -1827,12 +1827,6 @@ const SHIFT_PACE := 0.6
 const SHIFT_ASTERN := 0.45
 ## How fast she gathers and loses way between slips (share of cruise per second).
 const SHIFT_ACCEL := 0.07
-## Water between her hull end and the channel buoys before she turns.
-const SHIFT_MARGIN := 15.0
-## How far out from the slips she backs before moving along to the other slip.
-const SHIFT_OUT := 70.0
-## Points in each leg (astern, ahead) of her way between slips.
-const SHIFT_STEPS := 40
 ## Another ferry sailing this close to the terminal keeps her from moving slips.
 const SHIFT_CLEAR := 450.0
 ## Ferries this close to one moving between slips hold off until she's done.
@@ -1916,62 +1910,10 @@ func _tie_up_point(i: int) -> Vector3:
 	return p + isl.lateral() * (isl.slip_offset(i) - isl.slip_offset(isl.slip_index(route.id)))
 
 
-## Backs straight out of the slip until her whole hull is past the channel buoys,
-## then swings her stern out away from the other slip as she slows to a stop, comes
-## ahead round in an arc to line up well out, and runs straight in, the way a boat
-## handles. Sets _shift_back to how many points of the path she makes going astern.
-func _shift_path(from: Vector3, to: Vector3) -> PackedVector3Array:
-	var isl := here().town
-	var out := isl.dock_dir.normalized()
-	var side := to - from
-	side.y = 0.0
-	var gap := side.length()
-	side = side.normalized() if gap > 0.01 else isl.lateral().normalized()
-	# Out until her seaward half is past the channel buoys, so as her stern swings
-	# away it swings beyond them, and her inshore end is clear of the outer dolphins.
-	var clear_u := maxf(Layout.CHANNEL_BUOY_U - SHIFT_MARGIN, Layout.DOLPHIN_OUTER.x + fc.half_length + 5.0)
-	var straight := maxf(clear_u - Layout.DOCK_U, 20.0)
-	var p1 := from + out * straight
-	var q1 := to + out * straight
-	var r := SHIFT_OUT
-	var apex := p1 + out * r * 0.9 - side * r * 0.7
-	var back := (out * 0.5 - side).normalized()   # her way astern as she stops
-	var path := PackedVector3Array()
-	_append_line(path, from, p1)
-	var c1 := [p1, p1 + out * r * 0.45, apex - back * r * 0.4, apex]
-	for k in range(1, SHIFT_STEPS + 1):
-		path.append(_bezier(c1, k / float(SHIFT_STEPS)))
-	_shift_back = path.size()
-	var c2 := [apex, apex - back * (r * 0.5 + gap * 0.35), q1 + out * (r * 0.6 + gap * 0.2), q1]
-	for k in range(1, SHIFT_STEPS + 1):
-		path.append(_bezier(c2, k / float(SHIFT_STEPS)))
-	_append_line(path, q1, to)
-	return path
-
-
-static func _append_line(path: PackedVector3Array, a: Vector3, b: Vector3) -> void:
-	var n := maxi(2, int(a.distance_to(b) / 6.0))
-	for k in n + 1:
-		if k == 0 and not path.is_empty():
-			continue
-		path.append(a.lerp(b, k / float(n)))
-
-
-static func _bezier(c: Array, t: float) -> Vector3:
-	var u := 1.0 - t
-	return c[0] * u * u * u + c[1] * 3.0 * u * u * t + c[2] * 3.0 * u * t * t + c[3] * t * t * t
-
-
 ## Starts her along a fresh _shift: notes where she stops to go ahead and her heading.
 func _start_shift(to: Vector3) -> void:
-	_shift = _shift_path(global_position, to)
+	_shift = SlipShiftPath.build(global_position, to, here().town, fc.half_length)
 	_shift_s = 0.0
-	_shift_len = 0.0
-	_shift_cusp = 0.0
-	for k in range(1, _shift.size()):
-		_shift_len += _shift[k].distance_to(_shift[k - 1])
-		if k == _shift_back - 1:
-			_shift_cusp = _shift_len
 	_shift_basis = global_basis
 	_shift_shore = -here().town.dock_dir
 	_shift_shore.y = 0.0
@@ -1992,6 +1934,10 @@ func _shift_blocked(into_working: bool) -> bool:
 	for f in sim.ferries:
 		if f == self:
 			continue
+		if f.shifting() and (f.here() == term or f.global_position.distance_to(global_position) < SHIFT_NEAR):
+			return true
+		if into_working and f.berth == Berth.TO_TIE_UP and f.here() == term and term.town.slip_index(f.route.id) == mine:
+			return true
 		# Its next call is the working slip she'd take (sailing there, or leaving
 		# the far end shortly): that water is its, so wait for it to call and
 		# leave rather than meet it there. A timed boat sitting alongside for a
@@ -2018,14 +1964,13 @@ func _shift_blocked(into_working: bool) -> bool:
 	return false
 
 
-## Whether another ferry bound here is already inside the hold line (holding off for
-## this one, most likely): backing out to a tie-up now would put her in its way, so
-## she makes this call as usual and lays up at her next one here instead.
-## Whether she's moving between her working slip and a tie-up.
+## Whether she has reserved the water for a move between slips.
 func shifting() -> bool:
-	return berth == Berth.TO_WORKING or berth == Berth.TO_TIE_UP
+	return _shift != null
 
 
+## An incoming ferry inside the hold line needs to finish her approach before
+## this ferry starts backing out.
 func _held_close_in() -> bool:
 	var term := here()
 	for f in sim.ferries:
@@ -2039,7 +1984,7 @@ func _begin_tie_up() -> void:
 	lay_up_requested = false
 	berth = Berth.TO_TIE_UP
 	tie_up = free_tie_up(here())
-	_shift.clear()
+	_shift = null
 	_state_time = 0.0
 	speed = 0.0
 
@@ -2061,7 +2006,7 @@ func _tick_berth(delta: float) -> void:
 				_start_shift(_tie_up_point(here().town.slip_index(route.id)))
 			return
 		Berth.TO_TIE_UP:
-			if _shift.is_empty():
+			if _shift == null:
 				# Apron up and clear water first.
 				var ramp := _ramp(here())
 				if ramp:
@@ -2072,7 +2017,7 @@ func _tick_berth(delta: float) -> void:
 					return
 				_start_shift(_tie_up_point(tie_up))
 	if _follow_shift(delta):
-		_shift.clear()
+		_shift = null
 		speed = 0.0
 		if berth == Berth.TO_TIE_UP:
 			berth = Berth.TIED_UP
@@ -2092,20 +2037,17 @@ func _tick_berth(delta: float) -> void:
 
 ## Length of the way between her working slip and slip `i` at the terminal she is at.
 func _shift_length(i: int) -> float:
-	var keep := _shift_back   # (_shift_path notes this for the move under way)
-	var path := _shift_path(_tie_up_point(i), _tie_up_point(here().town.slip_index(route.id)))
-	_shift_back = keep
-	var length := 0.0
-	for k in range(1, path.size()):
-		length += path[k].distance_to(path[k - 1])
-	return length
-
-
-## About how far she goes between two slips `apart` metres apart along the shore
-## (_shift_path: straight out past the buoys, round, and straight in again).
-static func shift_length(apart: float) -> float:
-	var straight := maxf(Layout.CHANNEL_BUOY_U - SHIFT_MARGIN - Layout.DOCK_U, 20.0)
-	return 2.0 * straight + 2.6 * SHIFT_OUT + 1.4 * apart
+	var town := here().town
+	var from := _tie_up_point(i)
+	var to := _tie_up_point(town.slip_index(route.id))
+	# Parallel slips produce the same path length for the same separation and
+	# hull length. Reuse it while waiting instead of rebuilding each frame.
+	var apart := from.distance_to(to)
+	if not is_equal_approx(apart, _return_distance) or fc.half_length != _return_half_length:
+		_return_length = SlipShiftPath.build(from, to, town, fc.half_length).length
+		_return_distance = apart
+		_return_half_length = fc.half_length
+	return _return_length
 
 
 ## Game minutes to move `length` metres between slips at her pace (as _follow_shift does).
@@ -2127,19 +2069,19 @@ func shift_minutes(length: float) -> float:
 ## she's making (stern first on the way out). Her props wash astern of the way she
 ## pushes, harder as she gathers way. True once she is there.
 func _follow_shift(delta: float) -> bool:
-	var length := _shift_len
-	var astern := _shift_s < _shift_cusp
+	var length := _shift.length
+	var astern := _shift_s < _shift.cusp
 	var top := cruise * (SHIFT_ASTERN if astern else SHIFT_PACE)
 	var acc := cruise * SHIFT_ACCEL
 	# Distance to the next stop ahead of her, and since the last one.
-	var to_stop := (_shift_cusp if astern else length) - _shift_s
-	var since := _shift_s if astern else _shift_s - _shift_cusp
+	var to_stop := (_shift.cusp if astern else length) - _shift_s
+	var since := _shift_s if astern else _shift_s - _shift.cusp
 	var want := minf(top, sqrt(2.0 * acc * maxf(to_stop, 0.0)) + 0.04 * top)
 	speed = minf(want, minf(speed + acc * delta, sqrt(2.0 * acc * maxf(since, 0.0)) + 0.08 * top))
 	var was := _shift_s
 	var next := _shift_s + speed * delta
-	if astern and next > _shift_cusp:
-		next = _shift_cusp + 0.01
+	if astern and next > _shift.cusp:
+		next = _shift.cusp + 0.01
 		speed = 0.0
 		wake.clear()   # she goes ahead now: her old trail is off her other end
 	_shift_s = minf(next, length)
@@ -2155,21 +2097,22 @@ func _follow_shift(delta: float) -> bool:
 	_push = 0.0
 	_thrust = 0.0
 	var s := _shift_s
-	var pos := _shift[_shift.size() - 1]
+	var path := _shift.points
+	var pos := path[-1]
 	var tangent := Vector3.ZERO
-	for k in range(1, _shift.size()):
-		var seg := _shift[k].distance_to(_shift[k - 1])
-		if s <= seg or k == _shift.size() - 1:
-			pos = _shift[k - 1].lerp(_shift[k], clampf(s / maxf(seg, 0.001), 0.0, 1.0))
+	for k in range(1, path.size()):
+		var seg := path[k].distance_to(path[k - 1])
+		if s <= seg or k == path.size() - 1:
+			pos = path[k - 1].lerp(path[k], clampf(s / maxf(seg, 0.001), 0.0, 1.0))
 			# Look a little ahead along the path so the heading doesn't kink at each point.
-			var j := mini(k + 2, _shift.size() - 1)
+			var j := mini(k + 2, path.size() - 1)
 			var i := maxi(k - 3, 0)
-			if k < _shift_back:
-				j = mini(j, _shift_back - 1)
-				tangent = _shift[i] - _shift[j]   # going astern: her bow points away from her way
+			if k < _shift.back_count:
+				j = mini(j, _shift.back_count - 1)
+				tangent = path[i] - path[j]   # going astern: her bow points away from her way
 			else:
-				i = maxi(i, _shift_back - 1)
-				tangent = _shift[j] - _shift[i]
+				i = maxi(i, _shift.back_count - 1)
+				tangent = path[j] - path[i]
 			break
 		s -= seg
 	tangent.y = 0.0
