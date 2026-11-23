@@ -21,6 +21,8 @@ var yesterday := _blank_day()
 var revenue_total := 0.0
 var cars_today := 0
 var cars_yesterday := 0
+## Every vehicle carried since the company started.
+var cars_total := 0
 
 var revenue_today: float:
 	get: return today["fares"]
@@ -55,6 +57,7 @@ func _credit(fare: float) -> void:
 	revenue_total += fare
 	cash += fare
 	cars_today += 1
+	cars_total += 1
 
 
 ## Pays out `amount` under one of EXPENSES. Running costs may take cash below zero.

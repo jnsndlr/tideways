@@ -1,5 +1,7 @@
 extends Control
-## Title screen: Play (the main map), Sandbox (the procedural test map) or Quit.
+## Title screen: Play (the main map), Mission trial (a scenario with goals), Mission
+## sandbox (two boats, for trying mechanics), Sandbox (the procedural
+## test map) or Quit.
 ##
 ## Debug args after `--` skip the menu so the existing command-line workflow keeps
 ## working: `--main` opens the main map, any other arg (e.g. --seed=123) the sandbox.
@@ -10,6 +12,12 @@ const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
 
 
+## A scenario with goals to try missions out on (not used by any test).
+const MISSION_TRIAL := "res://maps/mission_trial.json"
+## Two boats to try mechanics on. It starts as a copy of two_boats.json but no test
+## reads it, so edit it freely.
+const MISSION_SANDBOX := "res://maps/mission_sandbox.json"
+const MainMapScript := preload("res://scripts/main_map.gd")
 var _load_error: Label
 
 
@@ -54,7 +62,9 @@ func _build() -> void:
 	gap.custom_minimum_size.y = 28
 	col.add_child(gap)
 
-	var play := _button(col, "Play", func(): _start(Scenes.MAIN_MAP, "Setting out for the islands"))
+	var play := _button(col, "Play", func(): _play(""))
+	_button(col, "Mission trial", func(): _play(MISSION_TRIAL, "Reading the mission brief"))
+	_button(col, "Mission sandbox", func(): _play(MISSION_SANDBOX, "Readying two boats"))
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
 	_button(col, "Quit", func(): get_tree().quit())
@@ -68,12 +78,20 @@ func _build() -> void:
 	UiSounds.install(get_tree())
 
 
-func _start(path: String, caption: String) -> void:
+## Play the main map from `scenario` ("" for the opening).
+func _play(scenario: String, caption := "Setting out for the islands") -> void:
+	if _start(Scenes.MAIN_MAP, caption):
+		MainMapScript.start_session(scenario)
+
+
+func _start(path: String, caption: String) -> bool:
 	Engine.time_scale = 1.0
 	var screen := LoadingScreen.open(get_tree(), path, caption)
-	if screen:
-		_load_error.hide()
-		screen.load_failed.connect(_on_load_failed, CONNECT_ONE_SHOT)
+	if not screen:
+		return false
+	_load_error.hide()
+	screen.load_failed.connect(_on_load_failed, CONNECT_ONE_SHOT)
+	return true
 
 
 func _on_load_failed(message: String) -> void:

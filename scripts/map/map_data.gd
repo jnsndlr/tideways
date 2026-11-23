@@ -38,11 +38,12 @@ class Island:
 	var slips: Array[Slip] = []     # left → right along lateral()
 	var lot_half_width := 36.0
 	var open_lanes := 0             # lanes paved at the start (more are bought); 0: the whole lot
-	# Placed by hand in the layout: used as given instead of searching the coast.
-	var ferry := true               # may get a terminal at all
-	var manual_dock := false
-	var manual_at := Vector2.ZERO
-	var manual_dir := Vector2.RIGHT
+	var ferry := true               # with no scenario: built at its first dock site
+	## Dock sites locked by hand in the layout (MapLayout.DockSpec), in the world.
+	## On an authored map the terminal can only stand at one of them; the rest
+	## can be bought in play. Empty on a generated map.
+	var dock_sites: Array[DockSite] = []
+	var site := -1                  # which of dock_sites the terminal stands at
 	## A positive quote reserves one expansion site on the left of this lot.
 	var lane_extension_price := 0
 	## Contiguous holding lanes needed alongside the extension for materials and machines.
@@ -108,6 +109,18 @@ class Island:
 
 	func dock_center(route_id: int) -> Vector3:
 		return shore + dock_dir * Layout.DOCK_U + lateral() * slip_offset(slip_index(route_id))
+
+
+## A place a ferry terminal can be built: where the pier meets the shore, the
+## way it points out to sea, and what it costs to build (MapLayout.DOCK_TIERS).
+class DockSite:
+	var key := ""                   # "<island key>/<index>", as scenarios name it
+	var shore := Vector3.ZERO
+	var dir := Vector3.FORWARD
+	var tier := "standard"
+
+	func price() -> int:
+		return MapLayout.dock_price(tier)
 
 
 ## Somewhere boats tie up along a shore. Its frame is like a terminal's: origin
@@ -281,6 +294,9 @@ class Route:
 	var b := 0
 	var curve: Curve3D
 	var length := 0.0
+	## Whether a schedule sails it. A scenario map also plans a route between every
+	## other pair of its terminals so a schedule can be edited onto it in play.
+	var in_service := true
 
 
 var map_seed := 0

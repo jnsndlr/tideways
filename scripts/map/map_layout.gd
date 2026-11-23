@@ -24,22 +24,40 @@ class IslandSpec:
 	var fields := 0.4
 	var pinned := false
 	var mainland := false   # sits on the mainland's coast, its land joined to it
-	# Ferry dock placed by hand (else the generator picks one facing its neighbours):
-	# a spot by the shore and the way the pier points out to sea.
-	var ferry := true       # gets a ferry terminal (off: no dock until one is built in game)
-	var dock := false
-	var dock_x := 0.0
-	var dock_z := 0.0
-	var dock_angle := 0.0   # degrees, the heading out to sea (0 = +x, 90 = +z)
+	# Ferry docks placed and locked by hand: the only places a terminal can go on
+	# an authored map (an island with none never gets one). Saved relative to the
+	# island, so moving or turning it carries them along. A generated map's
+	# islands have none, and the generator picks a spot facing the neighbours.
+	var ferry := true       # with no scenario (--full-network): build its first dock
+	var docks: Array[DockSpec] = []
 
 	const KEYS := ["name", "x", "z", "radius", "height", "hills", "peak", "lakes", "shape_seed", "stretch",
-		"angle", "roughness", "forest", "fields", "pinned", "mainland", "ferry", "dock", "dock_x", "dock_z", "dock_angle"]
+		"angle", "roughness", "forest", "fields", "pinned", "mainland", "ferry"]
+
+	## Where dock `d` meets the shore in the world, and the heading out to sea.
+	func dock_at(d: DockSpec) -> Vector2:
+		return Vector2(x, z) + Vector2(d.u, d.v).rotated(deg_to_rad(angle))
+
+	func dock_heading(d: DockSpec) -> Vector2:
+		return Vector2.from_angle(deg_to_rad(d.facing + angle))
+
+	## A dock at world point `at` heading out along world angle `deg` degrees.
+	func dock_from_world(at: Vector2, deg: float, tier := "standard") -> DockSpec:
+		var d := DockSpec.new()
+		var local := (at - Vector2(x, z)).rotated(-deg_to_rad(angle))
+		d.u = local.x
+		d.v = local.y
+		d.facing = fposmod(deg - angle, 360.0)
+		d.tier = tier
+		return d
 
 	func to_dict() -> Dictionary:
 		var d := {}
 		for k in KEYS:
 			var v = get(k)
 			d[k] = snappedf(v, 0.001) if v is float else v
+		if not docks.is_empty():
+			d["docks"] = docks.map(func(dk: DockSpec): return dk.to_dict())
 		return d
 
 	static func from_dict(d: Dictionary) -> IslandSpec:
@@ -57,10 +75,57 @@ class IslandSpec:
 					TYPE_STRING:
 						v = str(v)
 				s.set(k, v)
+		for e in d.get("docks", []):
+			s.docks.append(DockSpec.from_dict(e))
+		# The old single hand-placed dock, in world coordinates.
+		if bool(d.get("dock", false)) and s.docks.is_empty():
+			s.docks.append(s.dock_from_world(Vector2(float(d.get("dock_x", 0.0)), float(d.get("dock_z", 0.0))), float(d.get("dock_angle", 0.0))))
 		return s
 
 	func duplicate() -> IslandSpec:
 		return from_dict(to_dict())
+
+
+## A ferry dock site: where the pier meets the shore and the way it points out to
+## sea, in its island's own frame (u along the island's angle, v across it), and
+## its build tier (DOCK_TIERS: what it costs to build in play).
+class DockSpec:
+	var u := 0.0
+	var v := 0.0
+	var facing := 0.0      # degrees, relative to the island's angle
+	var tier := "standard"
+	## The town this dock serves; its terminal takes the town's name (TID-319).
+	var town := ""
+
+	func to_dict() -> Dictionary:
+		var d := {"u": snappedf(u, 0.001), "v": snappedf(v, 0.001), "facing": snappedf(facing, 0.0001), "tier": tier}
+		if not town.is_empty():
+			d["town"] = town
+		return d
+
+	static func from_dict(d: Dictionary) -> DockSpec:
+		var s := DockSpec.new()
+		s.u = float(d.get("u", 0.0))
+		s.v = float(d.get("v", 0.0))
+		s.facing = float(d.get("facing", 0.0))
+		s.tier = str(d.get("tier", "standard"))
+		s.town = str(d.get("town", ""))
+		if not DOCK_TIERS.has(s.tier):
+			s.tier = "standard"
+		return s
+
+
+## What a dock site costs to build in play, by tier. Rebalance them all here.
+const DOCK_TIERS := {
+	"small": {"name": "Small site", "price": 12000},
+	"standard": {"name": "Standard site", "price": 20000},
+	"hard": {"name": "Hard site", "price": 32000},
+}
+const DOCK_TIER_ORDER := ["small", "standard", "hard"]
+
+
+static func dock_price(tier: String) -> int:
+	return int(DOCK_TIERS.get(tier, DOCK_TIERS["standard"])["price"])
 
 
 ## Seeds the mainland, islets, towns and everything else not in `islands`.
@@ -73,6 +138,14 @@ func to_dict() -> Dictionary:
 	for s in islands:
 		list.append(s.to_dict())
 	return {"version": 1, "world_seed": world_seed, "islands": list}
+
+
+## True when docks are placed by hand: a terminal can then only go in one.
+func locked_docks() -> bool:
+	for s in islands:
+		if not s.docks.is_empty():
+			return true
+	return false
 
 
 func to_json() -> String:

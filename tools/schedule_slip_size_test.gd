@@ -13,6 +13,7 @@ func _run() -> void:
 		for slip in island.slips:
 			slip.size = 2
 	service.stops = [region.map.islands[0].key, region.map.islands[1].key, region.map.islands[2].key]
+	service.departures = [390, 1085]
 	var last := region.map.islands[2]
 	# The 1 -> 2 leg is after the first and has a different berth from the 2 -> 0 leg.
 	var berth := last.slips[last.slip_index(region.map.routes[2].id)]
@@ -29,9 +30,17 @@ func _run() -> void:
 	root.add_child(sim)
 	sim.setup(region.map, region.terrain, company)
 	var accepted := sim.ferries.size() == 3 and sim.ferries[0].fleet_key == service.boat
+	if accepted:
+		var ferry := sim.ferries[0]
+		var ids: Array[int] = [0, 1, 2]
+		accepted = ferry.timetable == service.departures
+		accepted = accepted and not sim.reschedule(ferry, ids, [-1]) and not sim.reschedule(ferry, ids, [1440])
+		berth.size = 1
+		accepted = accepted and sim.stops_problem(ferry, ids) != ""
+		accepted = accepted and sim.leg_problem(ferry, -1, 0) != ""
 	sim.free()
 	if not rejected or not accepted:
-		push_error("A size-four boat must be rejected at a small slip on a later leg, then accepted after refitting it to medium.")
+		push_error("Schedule spawn/edit failed to enforce both berths, preserve authored departures, or reject invalid inputs.")
 		quit(1)
 		return
 	print("TEST PASSED")

@@ -44,9 +44,16 @@ if [[ $suite == traffic ]]; then
   check captain-crossings test --fixed-fps 30 --script tools/captain_crossing_test.gd -- --seed=123 --ferry=1 --rounds=1
   check road-traffic test --fixed-fps 30 --script tools/vehicle_overlap_test.gd -- --verify --seed=123 --frames=6000
   check shared-slip test --fixed-fps 30 --script tools/shared_slip_test.gd -- --scenario=shared_slip
+  check same-route-pass test --fixed-fps 30 --script tools/same_route_pass_test.gd -- --scenario=shared_slip
   check tie-up test --fixed-fps 30 --script tools/tie_up_test.gd -- --scenario=shared_slip
+  check gap-tie-up test --fixed-fps 30 --script tools/gap_tie_up_test.gd -- --scenario=shared_slip
   check lot-lanes test --fixed-fps 30 --script tools/lot_lanes_test.gd
   check lane-sharing test --fixed-fps 30 --script tools/lane_sharing_test.gd -- --scenario=lane_sharing
+  check schedule-edit test --fixed-fps 30 --script tools/schedule_edit_test.gd
+  check timetable test --fixed-fps 30 --script tools/timetable_test.gd
+  check daily-cost test --fixed-fps 30 --script tools/daily_cost_test.gd
+  check dock-sites test --fixed-fps 30 --script tools/dock_site_test.gd
+  check slip-conflict test --fixed-fps 30 --script tools/slip_conflict_test.gd -- --scenario=two_boats
   check tie-up-refit test --fixed-fps 30 --script tools/tie_up_refit_test.gd -- --scenario=shared_slip
   check slip-refit test --fixed-fps 30 --script tools/slip_refit_test.gd -- --scenario=opening
   check marine-traffic test --fixed-fps 30 --script tools/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
@@ -57,6 +64,9 @@ check ferry-voyage test --script tools/ferry_voyage_test.gd
 check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
+check timetable-round test --script tools/timetable_round_test.gd
+check mission-goals test --script tools/mission_goals_test.gd
+check route-memo test --script tools/route_memo_test.gd
 check region-contract test --script tools/region_contract_test.gd
 check company-network test --script tools/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
@@ -75,6 +85,7 @@ check region-load-recovery test --fixed-fps 30 --script tools/region_load_recove
 check opening-economy-ui test --fixed-fps 30 --script tools/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
+check touch-edit test --fixed-fps 30 --script tools/touch_edit_test.gd
 check sandbox smoke --fixed-fps 30 --quit-after 120 res://scenes/sandbox.tscn -- --seed=123
 check holding-lane test --fixed-fps 30 --script tools/holding_lane_test.gd -- --seed=123
 check wake-bounds test --script tools/wake_bounds_test.gd
