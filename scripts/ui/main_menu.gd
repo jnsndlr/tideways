@@ -10,6 +10,9 @@ const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
 
 
+var _load_error: Label
+
+
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if not args.is_empty():
@@ -55,6 +58,10 @@ func _build() -> void:
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
 	_button(col, "Quit", func(): get_tree().quit())
+	_load_error = Label.new()
+	_load_error.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_load_error.hide()
+	col.add_child(_load_error)
 	play.grab_focus()
 	Music.set_mood(get_tree(), Music.Mood.FULL)
 	RadioChatter.on_menu(get_tree())
@@ -63,7 +70,16 @@ func _build() -> void:
 
 func _start(path: String, caption: String) -> void:
 	Engine.time_scale = 1.0
-	LoadingScreen.open(get_tree(), path, caption)
+	var screen := LoadingScreen.open(get_tree(), path, caption)
+	if screen:
+		_load_error.hide()
+		screen.load_failed.connect(_on_load_failed, CONNECT_ONE_SHOT)
+
+
+func _on_load_failed(message: String) -> void:
+	_load_error.text = message
+	_load_error.show()
+	RadioChatter.on_menu(get_tree())
 
 
 func _button(parent: Control, text: String, on_press: Callable) -> Button:

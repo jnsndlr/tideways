@@ -176,9 +176,31 @@ func is_empty() -> bool:
 
 
 func commit(material: Material = null) -> ArrayMesh:
-	var mesh := ArrayMesh.new()
 	if verts.is_empty():
-		return mesh
+		return ArrayMesh.new()
+	var shadow := ShadowVertices.new(verts, no_shadow)
+	shadow.append_range(0, verts.size())
+	return _commit_surface(material, shadow.to_mesh())
+
+
+## The mainland has hundreds of thousands of triangle vertices. Welding them
+## incrementally leaves the main thread available for drawing and cancellation.
+func commit_in_frames(frames: BuildFrameBudget) -> ArrayMesh:
+	if verts.is_empty():
+		return ArrayMesh.new()
+	var shadow := ShadowVertices.new(verts, no_shadow)
+	const BATCH := 4096
+	for first in range(0, verts.size(), BATCH):
+		if not await frames.can_continue():
+			return null
+		shadow.append_range(first, mini(first + BATCH, verts.size()))
+	if not await frames.can_continue():
+		return null
+	return _commit_surface(null, shadow.to_mesh())
+
+
+func _commit_surface(material: Material, shadow: ArrayMesh) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
@@ -190,36 +212,44 @@ func commit(material: Material = null) -> ArrayMesh:
 		arr[Mesh.ARRAY_TEX_UV2] = uv2s
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	mesh.surface_set_material(0, material if material else Models.vc_material())
-	mesh.shadow_mesh = _shadow_mesh()
+	mesh.shadow_mesh = shadow
 	return mesh
 
 
 ## Shadow maps and the depth prepass only need positions. Flat shading gives every
 ## triangle its own three vertices; welded and position-only, those passes fetch a
 ## fraction of the data.
-func _shadow_mesh() -> ArrayMesh:
-	var index := {}
-	var welded := PackedVector3Array()
-	var tris := PackedInt32Array()
-	var skip := PackedByteArray()
-	skip.resize(verts.size())
-	for r in no_shadow:
-		for i in range(r.x, r.y):
-			skip[i] = 1
-	for i in verts.size():
-		if skip[i]:
-			continue
-		var p := verts[i]
-		var k: int = index.get(p, -1)
-		if k < 0:
-			k = welded.size()
-			index[p] = k
-			welded.append(p)
-		tris.append(k)
-	var arr := []
-	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = welded
-	arr[Mesh.ARRAY_INDEX] = tris
-	var shadow := ArrayMesh.new()
-	shadow.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	return shadow
+class ShadowVertices:
+	var _source: PackedVector3Array
+	var _index := {}
+	var _welded := PackedVector3Array()
+	var _triangles := PackedInt32Array()
+	var _skip := PackedByteArray()
+
+	func _init(source: PackedVector3Array, excluded: Array[Vector2i]) -> void:
+		_source = source
+		_skip.resize(source.size())
+		for r in excluded:
+			for i in range(r.x, r.y):
+				_skip[i] = 1
+
+	func append_range(first: int, end: int) -> void:
+		for i in range(first, end):
+			if _skip[i]:
+				continue
+			var p := _source[i]
+			var k: int = _index.get(p, -1)
+			if k < 0:
+				k = _welded.size()
+				_index[p] = k
+				_welded.append(p)
+			_triangles.append(k)
+
+	func to_mesh() -> ArrayMesh:
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = _welded
+		arr[Mesh.ARRAY_INDEX] = _triangles
+		var shadow := ArrayMesh.new()
+		shadow.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		return shadow

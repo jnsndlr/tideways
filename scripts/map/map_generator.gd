@@ -14,6 +14,8 @@ var _route_samples := PackedVector3Array()
 var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route ids, lateral min, lateral max]
 ## When set, terminals and links come from it instead of being planned.
 var _scenario: Scenario
+var _cancel_mutex := Mutex.new()
+var _cancelled := false
 
 const DOCK_MIN_ANGLE := deg_to_rad(35.0)   # no two docks face within this of each other
 const ISLAND_GAP := 360.0
@@ -25,6 +27,20 @@ const MAX_DETOUR := 1.6       # route length over the dock-to-dock distance
 const MAX_TURN := deg_to_rad(200.0)    # total heading change along a route
 
 
+## Called by the scene before joining its worker. A cancelled generator is discarded.
+func cancel() -> void:
+	_cancel_mutex.lock()
+	_cancelled = true
+	_cancel_mutex.unlock()
+
+
+func _should_stop() -> bool:
+	_cancel_mutex.lock()
+	var stopped := _cancelled
+	_cancel_mutex.unlock()
+	return stopped
+
+
 ## A random map: rolls a layout from `map_seed`, then builds it.
 func generate(map_seed: int) -> MapData:
 	return generate_from(roll_layout(map_seed, NAMES))
@@ -34,6 +50,16 @@ func generate(map_seed: int) -> MapData:
 ## mainland, islets, routes, towns and the rest from its world seed. With a
 ## `scenario`, only its terminals are built and only its scheduled stops linked.
 func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
+	_build(layout, scenario)
+	if _should_stop():
+		map = null
+		terrain = null
+	return map
+
+
+func _build(layout: MapLayout, scenario: Scenario) -> void:
+	if _should_stop():
+		return
 	_scenario = scenario
 	var map_seed := layout.world_seed
 	rng.seed = map_seed
@@ -44,26 +70,35 @@ func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
 	for spec in layout.islands:
 		if spec.mainland:
 			ports.append(Vector2(spec.x, spec.z))
-	terrain.set_mainland_ports(ports)
+	terrain.set_mainland_ports(ports, _should_stop)
+	if _should_stop():
+		return
 	_place_mainland()
 	for spec in layout.islands:
 		_island_from_spec(spec)
 	for isl in map.islands:
-		terrain.stamp(stamp_of(isl))
-	terrain.finalize()
+		if _should_stop():
+			return
+		terrain.stamp(stamp_of(isl), _should_stop)
+	terrain.finalize(_should_stop)
+	if _should_stop():
+		return
 	_plan_routes()
 	_place_islets()
-	terrain.finalize()
+	terrain.finalize(_should_stop)
+	if _should_stop():
+		return
 	_place_marinas(map_seed)
 	_place_quays(map_seed)
 	_place_station(map_seed)
+	if _should_stop():
+		return
 	_flatten_terminals()
 	_place_beaches(map_seed)
 	_name_islands()
 	_layout_towns()
 	_roll_wildlife_appeal(map_seed)
 	_place_haul_outs(map_seed)
-	return map
 
 
 func _new_island(center: Vector2, radius: float, strength: float, inhabited: bool) -> MapData.Island:
@@ -285,6 +320,8 @@ func _plan_routes() -> void:
 			mains.append(isl)
 	var banned := {}
 	while true:
+		if _should_stop():
+			return
 		var bad := _try_routes(mains, banned)
 		if bad.is_empty():
 			break
@@ -532,6 +569,8 @@ func _departure_lateral(isl: MapData.Island, route_id: int, lat: Vector3) -> flo
 func _find_dock(isl: MapData.Island, desired: Vector2, taken: Array[Vector3]) -> bool:
 	var base := atan2(desired.y, desired.x)
 	for k in 33:
+		if _should_stop():
+			return false
 		var ang := base + ceili(k / 2.0) * 0.1 * (1.0 if k % 2 == 1 else -1.0)
 		var dir := Vector2(cos(ang), sin(ang))
 		var shore := -1.0
@@ -654,6 +693,8 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 			candidates.append([path[0] + option.z, path[1], option.x])
 	candidates.sort_custom(func(x, y): return x[0] < y[0])
 	for cand in candidates:
+		if _should_stop():
+			return null
 		var c := _curve_from(pa, cand[1], pb, cand[2])
 		# Not one that strays too far or turns too much (a long run-in can, where
 		# the slips face away from each other): a shorter run-in will do instead.
@@ -664,6 +705,8 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 	if route_id >= 0:
 		var more := []
 		for ra: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, long, 240.0]:
+			if _should_stop():
+				return null
 			for rb: float in [SHORT_RUN_IN, RUN_IN, 135.0, 180.0, long, 240.0]:
 				for radius: float in [TIGHT_RADIUS, TURN_RADIUS, WIDE_RADIUS, 180.0]:
 					var p0 := Vector2(pa.x, pa.z) + h0 * ra
@@ -672,6 +715,8 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 						more.append([path[0] + ra + rb, path[1], ra, rb])
 		more.sort_custom(func(x, y): return x[0] < y[0])
 		for cand in more:
+			if _should_stop():
+				return null
 			var c := _curve_from(pa, cand[1], pb, cand[2], cand[3])
 			if _route_clear(c) and _clear_of_slips(c, route_id):
 				return c
@@ -802,6 +847,8 @@ func _place_islets() -> void:
 	var placed := 0
 	var limit := map.half_size - 120.0
 	for attempt in 3000:
+		if _should_stop():
+			return
 		if placed >= target:
 			break
 		var r := rng.randf_range(30.0, 78.0)
@@ -834,6 +881,8 @@ func _place_marinas(map_seed: int) -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = map_seed * 17 + 3
 	for isl in _main_islands():
+		if _should_stop():
+			return
 		if r.randf() > 0.85:
 			continue
 		var sites: Array = []
@@ -910,6 +959,8 @@ func _place_quays(map_seed: int) -> void:
 	# Most maps get one; now and then a second.
 	var want := 2 if r.randf() < 0.35 else 1
 	for isl in islands:
+		if _should_stop():
+			return
 		if map.quays.size() >= want:
 			break
 		var sites: Array = []
@@ -996,6 +1047,8 @@ func _place_station(map_seed: int) -> void:
 		if not best.is_empty():
 			break
 		for isl in _main_islands():
+			if _should_stop():
+				return
 			var start := r.randf() * TAU
 			for k in 36:
 				var ang := start + TAU * k / 36.0
@@ -1219,6 +1272,8 @@ func _place_haul_outs(map_seed: int) -> void:
 	var beaches: Array = []
 	var rocks: Array = []
 	for isl in map.islands:
+		if _should_stop():
+			return
 		if isl.is_mainland:
 			continue
 		var c := Vector3(isl.center.x, 0.0, isl.center.y)
@@ -1422,6 +1477,8 @@ func _h(p: Vector3) -> float:
 func _layout_towns() -> void:
 	# Where each town sits, then smooth ground around it, then its roads.
 	for isl in _main_islands():
+		if _should_stop():
+			return
 		if isl.has_terminal:
 			var nd := isl.dock_dir
 			var e := isl.shore + nd * (Layout.LOT_BACK - isl.lot_shift())
