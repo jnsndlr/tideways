@@ -13,7 +13,7 @@ static func too_soon(times: Array[int], round_minutes: float) -> Array[bool]:
 	var out: Array[bool] = []
 	for k in times.size():
 		var prev := times[k - 1] if k > 0 else times[-1] - DAY
-		out.append(times.size() > 1 and times[k] - prev < round_minutes - 0.01)
+		out.append(times[k] - prev < round_minutes - 0.01)
 	return out
 
 
@@ -26,8 +26,11 @@ static func parse(text: String) -> int:
 	var parts := text.strip_edges().split(":")
 	if parts.size() != 2 or not parts[0].is_valid_int() or not parts[1].is_valid_int():
 		return -1
-	var m := int(parts[0]) * 60 + int(parts[1])
-	return m if m >= 0 and m < DAY else -1
+	var hour := int(parts[0])
+	var minute := int(parts[1])
+	if hour < 0 or hour >= 24 or minute < 0 or minute >= 60:
+		return -1
+	return hour * 60 + minute
 
 
 static func text(m: float) -> String:

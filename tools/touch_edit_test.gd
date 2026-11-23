@@ -153,6 +153,14 @@ func _run() -> void:
 	tag = "portrait" if view.y > view.x else "landscape"
 	var hud: Hud = main.hud
 	ed = hud._schedule_editor
+	ed._times = [360, 370, 395]
+	if not ed._moved(0, 15).is_empty():
+		return _fail("The stepper let a sailing pass the next one")
+	# At 20 minutes per round, delaying the middle sailing by ten fixes its
+	# short gap but would make the last sailing late instead.
+	if ed._allowed(ed._moved(1, 10), 20, Timetable.too_soon(ed._times, 20)):
+		return _fail("The stepper transferred a conflict to another sailing")
+	ed._times.clear()
 	var sim: Simulation = main.sim
 	var hiyu: Ferry = sim.ferries[0]
 	hud.select_ferry(hiyu)

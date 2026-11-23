@@ -45,6 +45,10 @@ func _process(_delta: float) -> bool:
 	var rosario := _term(sim, "island-1")
 	var madrona := _term(sim, "island-2")
 	if frames == 5:
+		if Timetable.parse("6:60") != -1 or Timetable.parse("6:-15") != -1 or Timetable.parse("23:59") != 1439:
+			return _fail("Invalid clock fields must not roll over into another hour")
+		if not Timetable.any_too_soon([360], Timetable.DAY + 1):
+			return _fail("A daily sailing cannot complete a round longer than a day")
 		Engine.time_scale = 6.0
 		var ids: Array[int] = [rosario.island.id, madrona.island.id]
 		_offsets = hiyu.plan_offsets(ids)

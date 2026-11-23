@@ -15,6 +15,7 @@ var phase := 0
 var _times: Array[int] = []
 var _was_sailing := false
 var _departures := 0
+var _continuous_service_at := 0.0
 
 
 func _initialize() -> void:
@@ -89,6 +90,10 @@ func _process(_delta: float) -> bool:
 					return _fail("Crew stood down in a daytime gap")
 				if rhodo.here() != madrona:
 					return _fail("Tied up away from Madrona")
+				# Bring the second departure forward while she is already tied up.
+				_times[1] -= 60
+				if not sim.reschedule(rhodo, rhodo.stops, _times):
+					return _fail("Refused the adjusted sailing during the gap")
 				phase = 1
 		1:
 			if _departures == 2:
@@ -103,11 +108,20 @@ func _process(_delta: float) -> bool:
 				if _crew_paid(rhodo):
 					return _fail("Crew paid overnight at the tie-up")
 				print("%s: crew stood down overnight at the tie-up" % sim.clock_text())
+				if not sim.reschedule(rhodo, rhodo.stops, []):
+					return _fail("Refused continuous service while tied up")
+				_continuous_service_at = sim.abs_minutes()
+				phase = 4
+				return false
+			if rhodo.berth != Ferry.Berth.TIED_UP:
+				return _fail("Left the tie-up overnight (%s)" % rhodo.status_text())
+		4:
+			if rhodo.berth == Ferry.Berth.WORKING:
 				print("TEST PASSED")
 				quit(0)
 				return true
-			if rhodo.berth != Ferry.Berth.TIED_UP:
-				return _fail("Left the tie-up overnight (%s)" % rhodo.status_text())
+			if sim.abs_minutes() - _continuous_service_at > 60:
+				return _fail("Did not return to the working slip for continuous service")
 	if frames > 30 * 60 * 20:
 		return _fail("Timed out at %s (phase %d): %s" % [sim.clock_text(), phase, rhodo.status_text()])
 	return false

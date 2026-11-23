@@ -143,6 +143,7 @@ func _spawn_scheduled() -> void:
 		for key in schedule.stops:
 			stop_ids.append(island_by_key[key])
 		ferries[-1].set_legs(stop_ids, leg_routes)
+		ferries[-1].set_timetable(schedule.departures)
 
 
 ## The route between two islands (either way round), or null if none was planned.
@@ -153,23 +154,34 @@ func route_between(a: int, b: int) -> MapData.Route:
 	return null
 
 
+## Returns the first reason the ferry cannot sail this leg, checking both berths.
+func leg_problem(f: Ferry, a: int, b: int) -> String:
+	if a < 0 or b < 0 or a >= map.islands.size() or b >= map.islands.size():
+		return "Unknown stop"
+	if a == b:
+		return "%s is listed twice in a row" % map.islands[a].name
+	var route := route_between(a, b)
+	if route == null:
+		return "No route between %s and %s" % [map.islands[a].name, map.islands[b].name]
+	for id in [a, b]:
+		var island := map.islands[id]
+		var berth := island.slip_index(route.id)
+		if berth < 0:
+			return "%s has no slip for this route" % island.name
+		var slip := island.slips[berth]
+		if not slip.fits(f.fc.size):
+			return "%s's %s slip is too small for her" % [island.name, slip.size_name()]
+	return ""
+
+
 ## Why boat `f` can't run `ids` (island ids in turn), or "" if she can.
 func stops_problem(f: Ferry, ids: Array[int]) -> String:
 	if ids.size() < 2:
 		return "Give her at least two stops"
-	var n := ids.size()
-	for i in n:
-		var a := ids[i]
-		var b := ids[(i + 1) % n]
-		if a == b:
-			return "%s is listed twice in a row" % map.islands[a].name
-		if route_between(a, b) == null:
-			return "No route between %s and %s" % [map.islands[a].name, map.islands[b].name]
-	for i in n:
-		var isl := map.islands[ids[i]]
-		var slip := isl.slips[isl.slip_index(route_between(ids[i], ids[(i + 1) % n]).id)]
-		if not slip.fits(f.fc.size):
-			return "%s's %s slip is too small for her" % [isl.name, slip.size_name()]
+	for i in ids.size():
+		var reason := leg_problem(f, ids[i], ids[(i + 1) % ids.size()])
+		if reason != "":
+			return reason
 	if f.next_dock().island.id not in ids:
 		return "Keep %s, where she calls next" % f.next_dock().island.name
 	return ""
@@ -184,6 +196,8 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	var new_times: Array[int] = []
 	new_times.assign(times if times != null else (f._next_timetable if not f.next_stops.is_empty() else f.timetable))
 	new_times.sort()
+	if not new_times.is_empty() and (new_times[0] < 0 or new_times[-1] >= Timetable.DAY):
+		return false
 	var offsets := f.plan_offsets(ids)
 	if Timetable.any_too_soon(new_times, offsets[-1]):
 		return false

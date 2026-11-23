@@ -298,6 +298,13 @@ func set_timetable(times: Array[int]) -> void:
 	_round_abs = -1.0
 	_last_round_abs = -1.0
 	late_by = 0.0
+	if between_sailings():
+		# A ferry already away from her working slip must return for the new
+		# sailing, or at once if she now sails as loading allows.
+		if not timetable.is_empty():
+			_round_abs = _round_after(sim.abs_minutes() - MAX_DWELL)
+		_gap_due = _round_abs if _round_abs >= 0.0 else sim.abs_minutes()
+		return_requested = false
 
 
 ## Takes the planned stops if she is at one of them. Cars aboard for a stop she
@@ -1622,6 +1629,14 @@ func shift_tail(offsets: Array[float]) -> float:
 	return offsets[-1] - planned_dwell() + planned_unload()
 
 
+## Fuel for one complete round of a validated stop list.
+func round_fuel(ids: Array[int], p := pace) -> float:
+	var fuel := 0.0
+	for i in ids.size():
+		fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
+	return fuel
+
+
 ## What a day on `times` (Timetable) round `ids` at pace `p` should cost her, on
 ## the planning numbers the timetable is built from: each sailing makes every
 ## leg once, unhindered, and her crew are on from CREW_CALL before the first
@@ -1631,12 +1646,9 @@ func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	var o := plan_offsets(ids, p)
 	if o.is_empty() or times.is_empty():
 		return {}
-	var round_fuel := 0.0
-	for i in ids.size():
-		round_fuel += leg_fuel(sim.route_between(ids[i], ids[(i + 1) % ids.size()]), p)
 	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
 	var hours := minf(span, Timetable.DAY) / 60.0
-	return {"fuel": round_fuel * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
+	return {"fuel": round_fuel(ids, p) * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size()}
 
 
 ## daily_cost of the timetable she runs now (or is taking at her next call).
@@ -1830,10 +1842,10 @@ func request_lay_up() -> void:
 ## Back into service: from the tie-up to her working slip once it is free.
 func request_return() -> void:
 	lay_up_requested = false
-	if berth != Berth.WORKING:
-		return_requested = true
 	# Back on her timetable from the next round due.
 	set_timetable(timetable)
+	if berth != Berth.WORKING:
+		return_requested = true
 
 
 func in_service() -> bool:

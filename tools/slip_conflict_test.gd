@@ -99,7 +99,7 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 	var clashes := SlipConflicts.on_sailing(result, 0)
 	if clashes.size() != 1 or not clashes[0].she_holds or clashes[0].other != hiyu or clashes[0].island != madrona:
 		return _fail("Expected one clash with the Heron holding for the Hiyu at %s, got %s" % [shared.island.name, result.clashes])
-	print("Clash: %s" % SlipConflicts.clash_text(sim, clashes[0]))
+	print("Clash: %s" % SlipConflictText.clash_text(sim, clashes[0]))
 	if not ed._clash_note.visible or "holds offshore for the Hiyu" not in ed._clash_note.text:
 		return _fail("The editor shows no recurring hold warning: '%s'" % ed._clash_note.text)
 	print("Editor: %s" % ed._clash_note.text)
