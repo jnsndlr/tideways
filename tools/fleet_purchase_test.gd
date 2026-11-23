@@ -17,6 +17,7 @@ var gullrock: Terminal
 var madrona: Terminal
 var _cash := 0.0
 var _mark := 0
+var _return_position := Vector3.ZERO
 var _bought_at := 0.0
 
 
@@ -166,7 +167,22 @@ func _process(_delta: float) -> bool:
 				phase = 5
 		5:
 			if frames > _mark + 300:
+				# The second delivery is laid up in the same working slip she
+				# will use. Returning her to service needs no trip offshore.
+				var other_id := second.route.b if second.route.a == gullrock.town.id else second.route.a
+				var stops: Array[int] = [gullrock.town.id, other_id]
+				_return_position = second.global_position
+				if not sim.reschedule(second, stops):
+					return _fail("Couldn't start service from the occupied working slip")
+				_mark = frames
+				phase = 6
+		6:
+			if second.global_position.distance_to(_return_position) > second.fc.half_length:
+				return _fail("The ferry left her berth to return to the same working slip")
+			if second.berth == Ferry.Berth.WORKING:
 				print("TEST PASSED")
 				quit(0)
 				return true
+			if frames > _mark + 60:
+				return _fail("A same-slip return waited for a needless manoeuvre")
 	return false

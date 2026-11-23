@@ -338,6 +338,8 @@ func _notification(what: int) -> void:
 
 
 func _process(_delta: float) -> void:
+	if _args.has("shift-demo"):
+		_shift_demo(_delta)
 	# Keep shadows crisp and fog sensible at every zoom level. Zoomed in, the first
 	# cascade reaches just past the point looked at, so whatever the player is looking
 	# at gets the finest shadow texels (~3 cm: fine enough for rails); zoomed out,
@@ -392,6 +394,30 @@ func _update_dof() -> void:
 
 
 # --- Debug / screenshot args ----------------------------------------------------------
+
+var _demo_ferry: Ferry
+var _demo_wait := 0.0
+
+## --shift-demo: the ferry that starts laid up keeps moving between her tie-up and
+## her working slip: back to service a few seconds after tying up, and laid up
+## again at her next call there. The camera follows her.
+func _shift_demo(delta: float) -> void:
+	if _demo_ferry == null:
+		for f in sim.ferries:
+			if f.berth == Ferry.Berth.TIED_UP:
+				_demo_ferry = f
+				hud.select_ferry(f)
+				break
+		return
+	var f := _demo_ferry
+	if f.berth == Ferry.Berth.TIED_UP:
+		_demo_wait += delta
+		if _demo_wait > 3.0 and not f.return_requested:
+			f.request_return()
+	else:
+		_demo_wait = 0.0
+		if f.berth == Ferry.Berth.WORKING and not f.lay_up_requested and f.can_lay_up():
+			f.request_lay_up()
 
 func _parse_args() -> void:
 	for a in OS.get_cmdline_user_args():

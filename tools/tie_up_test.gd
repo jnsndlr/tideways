@@ -52,6 +52,14 @@ func _process(_delta: float) -> bool:
 		1:
 			if hiyu_docks >= _mark + 2:
 				print("Hiyu docked at Madrona %d times while Rhododendron lay up" % (hiyu_docks - _mark))
+				# Both ferries are at the shared terminal. While Hiyu is moving
+				# between slips, a second movement must wait, in either direction.
+				hiyu.berth = Ferry.Berth.TO_TIE_UP
+				hiyu._start_shift(hiyu._tie_up_point(rhodo.tie_up))
+				if not rhodo._shift_blocked(false) or not rhodo._shift_blocked(true):
+					return _fail("Two ferries could start moving between nearby slips together")
+				hiyu._shift = null
+				hiyu.berth = Ferry.Berth.WORKING
 				rhodo.request_return()
 				phase = 2
 			elif rhodo.berth != Ferry.Berth.TIED_UP:

@@ -131,8 +131,15 @@ var _lying_in_slip: Ferry        # the boat lying in the slip she is holding off
 var lay_up_requested := false     # tie up once she has unloaded at a terminal with a free tie-up slip
 var return_requested := false     # back into service once her working slip is free
 var tie_up := -1                  # index into here().town.slips while laid up
-var _shift := PackedVector3Array()  # the way between her working slip and the tie-up
+var _shift: SlipShiftPath
 var _shift_s := 0.0
+var _return_distance := -1.0  # separation used for the cached path length
+var _return_half_length := -1.0
+var _return_length := 0.0
+var _shift_basis := Basis()   # her basis as she set off
+var _shift_shore := Vector3.ZERO  # her shoreward heading as she set off
+var _shift_churn := 0.0       # how hard her props work moving slips, 0..1
+var _shift_yaw := 0.0         # how far she has turned from _shift_basis (eased)
 var deck: FerryDeck
 var _boarding := 0
 var _unload_queue: Array[Vehicle] = []
@@ -591,8 +598,9 @@ func _process(delta: float) -> void:
 	if berth != Berth.WORKING:
 		_let_go_of_slip()
 		_tick_berth(delta)
-		_thrust = move_toward(_thrust, 0.0, delta * 0.4)
-		_push = 0.0
+		if _shift == null:
+			_thrust = move_toward(_thrust, 0.0, delta * 0.4)
+			_push = 0.0
 		wake.hold = false
 		_update_trail(delta)
 		return
@@ -647,9 +655,9 @@ func _tick_unloading(delta: float) -> void:
 	elif _dispatch_timer < -2.0 and _last_vehicle_clear_of_lot():
 		if here().unloading_ferry == self:
 			here().unloading_ferry = null
-		if lay_up_requested and lay_up_slip(here()) >= 0:
+		if lay_up_requested and lay_up_slip(here()) >= 0 and not _held_close_in():
 			_begin_tie_up()
-		elif _wants_gap_tie_up():
+		elif _wants_gap_tie_up() and not _held_close_in():
 			_gap_due = due()
 			_begin_tie_up()
 		else:
@@ -848,6 +856,7 @@ func _tick_sailing(delta: float) -> void:
 		_slip_chosen = true
 		_choose_slip()
 	var wait := minf(minf(_corridor_wait(), _refit_wait()), minf(_slip_wait(), _occupied_wait()))
+	wait = minf(wait, _shift_wait())
 	hold = wait
 	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
@@ -920,6 +929,27 @@ func _route_runs() -> Array:
 	return runs
 
 
+## Distance to go before she must hold off her destination while another ferry
+## there is moving between slips. A ferry already inside the hold line waits
+## where she is until the manoeuvre is complete.
+func _shift_wait() -> float:
+	if berth != Berth.WORKING:
+		return INF
+	var term := destination()
+	var dock := term.town.dock_center(route.id)
+	var moving := false
+	for f in sim.ferries:
+		# At her terminal, or at another dock close by whose turn she'd sail through.
+		if f != self and f.shifting() and (f.here() == term or f.global_position.distance_to(dock) < SHIFT_NEAR):
+			moving = true
+			break
+	if not moving:
+		return INF
+	# Inside the hold line she was already holding off (a move can't start with a
+	# ferry coming in that close otherwise): she stays where she is.
+	return maxf(0.0, path_left() - Terminal.REFIT_HOLD)
+
+
 ## Distance to go before she must hold off her destination's slip while another
 ## boat lies laid up in it, or is being towed in or out of it (Simulation.occupant):
 ## Terminal.REFIT_HOLD out, or where she is if she's already inside that. INF if
@@ -986,6 +1016,11 @@ func _corridor_wait() -> float:
 ## arrival goes first). Never for a ferry already waiting on this one, which
 ## this one may be lying in the way of.
 func _blocked_at_dock() -> bool:
+	# Another ferry moving between slips close by: her way out may cross its turn.
+	for f in sim.ferries:
+		if f != self and f.shifting() and f.global_position.distance_to(global_position) < SHIFT_NEAR:
+			_waiting_for = f
+			return true
 	for run in _corridor_runs():
 		if run[0] - traveled > ARRIVAL_PRIORITY:
 			break
@@ -1587,9 +1622,9 @@ func _update_trail(delta: float) -> void:
 	# props ease off while the forward prop brakes.
 	# Alongside she only swings about her landing end as she lies over, which mustn't
 	# turn her wake round: she keeps the heading she came in on.
-	var under_way := moving and state == State.SAILING
+	var under_way := moving and (state == State.SAILING or _shift != null)
 	wake.update(delta, global_position, fwd if under_way else Vector3.ZERO, speed * delta,
-			speed / fc.cruise * (1.0 - 0.6 * _thrust), state == State.SAILING and moving)
+			maxf(speed / fc.cruise * (1.0 - 0.6 * _thrust), _shift_churn if _shift != null else 0.0), under_way)
 	_blow_nets(moved / delta if moving and delta > 0.0 else Vector3.ZERO, delta)
 
 
@@ -1808,27 +1843,28 @@ func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
 	# Overnight at a tie-up (GAP_TIE_UP): her crew move her over after the last
 	# sailing, and come on early enough to bring her back before the first.
-	var night := _overnight_shift(ids, times, o)
+	var distance := _overnight_distance(ids, times, o)
+	var night := shift_minutes(distance, p)
+	var move_fuel := _shift_fuel(distance, p)
 	var morning := maxf(0.0, MAX_DWELL + GAP_MARGIN + night - CREW_CALL) if night > 0.0 else 0.0
 	span += night + morning
 	var hours := minf(span, Timetable.DAY) / 60.0
-	return {"fuel": round_fuel(ids, p) * times.size(), "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
+	return {"fuel": round_fuel(ids, p) * times.size() + 2.0 * move_fuel, "morning_fuel": move_fuel, "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
 			"morning_crew": morning / 60.0 * crew_per_hour()}
 
 
-## Minutes moving to the tie-up at her first stop after the day's last sailing,
+## Metres moving to the tie-up at her first stop after the day's last sailing,
 ## if the night is long enough to lie there (GAP_TIE_UP) and one is free; 0 if not.
-func _overnight_shift(ids: Array[int], times: Array[int], o: Array[float]) -> float:
+func _overnight_distance(ids: Array[int], times: Array[int], o: Array[float]) -> float:
 	if not sim.terminals.has(ids[0]):
 		return 0.0
 	var term: Terminal = sim.terminals[ids[0]]
 	var tie := free_tie_up(term)
 	if tie < 0 or Timetable.DAY - float(times.max() - times.min()) - shift_tail(o) < GAP_TIE_UP:
 		return 0.0
-	var r := sim.route_between(ids[0], ids[1 % ids.size()])
+	var r := sim.route_between(ids[0], ids[1])
 	var town := term.town
-	return shift_minutes(shift_length(absf(town.slip_offset(tie) - town.slip_offset(town.slip_index(r.id)))))
-
+	return _move_length(town.berth_center(tie), town.berth_center(town.slip_index(r.id)), town)
 
 
 ## daily_cost of the timetable she runs now (or is taking at her next call).
@@ -1963,11 +1999,15 @@ func start_day() -> void:
 # --- Laying up ----------------------------------------------------------------------
 
 ## Speed moving between slips at one terminal, as a share of her cruise.
-const SHIFT_PACE := 0.35
-## How far out from the slips she backs before moving along to the other slip.
-const SHIFT_OUT := 75.0
+const SHIFT_PACE := 0.6
+## Her top speed going astern between slips, as a share of her cruise.
+const SHIFT_ASTERN := 0.45
+## How fast she gathers and loses way between slips (share of cruise per second).
+const SHIFT_ACCEL := 0.07
 ## Another ferry sailing this close to the terminal keeps her from moving slips.
 const SHIFT_CLEAR := 450.0
+## Ferries this close to one moving between slips hold off until she's done.
+const SHIFT_NEAR := 500.0
 
 
 ## What she would fetch sold now: her price new × RESALE_SHARE × her condition.
@@ -2138,26 +2178,20 @@ func _tie_up_point(i: int) -> Vector3:
 	return p + isl.lateral() * (isl.slip_offset(i) - isl.slip_offset(isl.slip_index(route.id)))
 
 
-## Out from the slip, along the shore and in again, keeping her heading (she is
-## double-ended and the slips lie side by side).
-func _shift_path(from: Vector3, to: Vector3) -> PackedVector3Array:
-	var out := here().town.dock_dir * SHIFT_OUT
-	var path := PackedVector3Array([from])
-	for k in range(1, 9):
-		path.append(from + out * sin(k / 8.0 * PI * 0.5))
-	for k in range(1, 9):
-		var t := k / 8.0
-		path.append(from.lerp(to, t * t * (3.0 - 2.0 * t)) + out)
-	for k in range(1, 9):
-		path.append(to + out * cos(k / 8.0 * PI * 0.5))
-	return path
-
-
-## The way from one slip to another, or nowhere if she lies up in the slip she works.
-func _shift_between(from: Vector3, to: Vector3) -> PackedVector3Array:
-	if from.distance_to(to) < 1.0:
-		return PackedVector3Array([from, from])
-	return _shift_path(from, to)
+## Starts her along a fresh _shift: notes where she stops to go ahead and her heading.
+func _start_shift(to: Vector3) -> void:
+	_shift = SlipShiftPath.build(global_position, to, here().town, fc.half_length)
+	_shift_s = 0.0
+	_shift_basis = global_basis
+	_shift_shore = -here().town.dock_dir
+	_shift_shore.y = 0.0
+	_shift_shore = _shift_shore.normalized()
+	_shift_yaw = 0.0
+	# A fresh trail heading out the way she's about to back, not the way she came in.
+	wake.clear()
+	wake.heading = here().town.dock_dir.normalized()
+	_push = 0.0
+	_shift_churn = 0.0
 
 
 ## Whether another ferry is coming in to or just leaving this terminal, or lies at
@@ -2168,11 +2202,26 @@ func _shift_blocked(into_working: bool) -> bool:
 	for f in sim.ferries:
 		if f == self:
 			continue
+		if f.shifting() and (f.here() == term or f.global_position.distance_to(global_position) < SHIFT_NEAR):
+			return true
+		if into_working and f.berth == Berth.TO_TIE_UP and f.here() == term and f.slip_at(term) == mine:
+			return true
+		# Its next call is the working slip she'd take (sailing there, or leaving
+		# the far end shortly): that water is its, so wait for it to call and
+		# leave rather than meet it there. A timed boat sitting alongside for a
+		# later sailing hours away doesn't hold the slip.
+		if into_working and f.berth == Berth.WORKING and f.destination() == term \
+				and f.slip_at(term) == mine:
+			var f_due := f.due()
+			if f.state == State.SAILING or f_due < 0.0 \
+					or f_due - sim.abs_minutes() < MAX_DWELL + shift_minutes(_shift_length(tie_up)):
+				return true
 		if f.state == State.SAILING:
 			if f._waiting_for == self and f.speed < 0.5:
 				continue   # holding off for the water she has; she is leaving it
 			var near := f.path_left() if f.destination() == term else (f.traveled if f.here() == term else INF)
-			if near < SHIFT_CLEAR:
+			# (Or one under way close by, for another dock along the shore.)
+			if near < SHIFT_CLEAR or f.global_position.distance_to(global_position) < SHIFT_CLEAR:
 				return true
 		elif into_working and f.berth == Berth.WORKING and f.here() == term and f.slip_at(term) == mine:
 			return true
@@ -2183,11 +2232,27 @@ func _shift_blocked(into_working: bool) -> bool:
 	return false
 
 
+## Whether she has reserved the water for a move between slips.
+func shifting() -> bool:
+	return _shift != null
+
+
+## An incoming ferry inside the hold line needs to finish her approach before
+## this ferry starts backing out.
+func _held_close_in() -> bool:
+	var term := here()
+	for f in sim.ferries:
+		if f != self and f.state == State.SAILING and (f.destination() == term and f.path_left() < Terminal.REFIT_HOLD \
+				or f.global_position.distance_to(global_position) < Terminal.REFIT_HOLD):
+			return true
+	return false
+
+
 func _begin_tie_up() -> void:
 	tie_up = lay_up_slip(here()) if lay_up_requested else free_tie_up(here())
 	lay_up_requested = false
 	berth = Berth.TO_TIE_UP
-	_shift.clear()
+	_shift = null
 	_state_time = 0.0
 	speed = 0.0
 
@@ -2199,7 +2264,7 @@ func _tick_berth(delta: float) -> void:
 		Berth.TIED_UP:
 			if _gap_due >= 0.0 and sim.abs_minutes() >= _gap_due - MAX_DWELL - GAP_MARGIN - shift_minutes(_shift_length(tie_up)):
 				return_requested = true
-			if return_requested and not _shift_blocked(true):
+			if return_requested and (tie_up == slip_at(here()) or not _shift_blocked(true)):
 				return_requested = false
 				berth = Berth.TO_WORKING
 				# Keeps whatever water round her slip a docked ferry would hold.
@@ -2208,24 +2273,21 @@ func _tick_berth(delta: float) -> void:
 						for e in run[2]:
 							if e[1].owner == null:
 								e[1].owner = self
-				var working := _tie_up_point(slip_at(here()))
-				_shift = _shift_between(global_position, working)
-				_shift_s = 0.0
+				_start_shift(_tie_up_point(slip_at(here())))
 			return
 		Berth.TO_TIE_UP:
-			if _shift.is_empty():
+			if _shift == null:
 				# Apron up and clear water first.
 				var ramp := _ramp(here())
 				if ramp:
 					ramp.lift()
 					if not ramp.is_clear():
 						return
-				if _shift_blocked(false):
+				if tie_up != slip_at(here()) and _shift_blocked(false):
 					return
-				_shift = _shift_between(global_position, _tie_up_point(tie_up))
-				_shift_s = 0.0
+				_start_shift(_tie_up_point(tie_up))
 	if _follow_shift(delta):
-		_shift.clear()
+		_shift = null
 		speed = 0.0
 		if berth == Berth.TO_TIE_UP:
 			berth = Berth.TIED_UP
@@ -2245,46 +2307,113 @@ func _tick_berth(delta: float) -> void:
 
 ## Length of the way between her working slip and slip `i` at the terminal she is at.
 func _shift_length(i: int) -> float:
-	var path := _shift_path(_tie_up_point(i), _tie_up_point(slip_at(here())))
-	var length := 0.0
-	for k in range(1, path.size()):
-		length += path[k].distance_to(path[k - 1])
-	return length
+	var town := here().town
+	var from := _tie_up_point(i)
+	var to := _tie_up_point(slip_at(here()))
+	return _move_length(from, to, town)
 
 
-## About how far she goes between two slips `apart` metres apart along the shore
-## (_shift_path: out, along, and in again).
-static func shift_length(apart: float) -> float:
-	return 2.0 * SHIFT_OUT + apart
+func _move_length(from: Vector3, to: Vector3, town: MapData.Town) -> float:
+	# Parallel slips produce the same path length for the same separation and
+	# hull length. Reuse it while waiting instead of rebuilding each frame.
+	var apart := from.distance_to(to)
+	if not is_equal_approx(apart, _return_distance) or fc.half_length != _return_half_length:
+		_return_length = SlipShiftPath.build(from, to, town, fc.half_length).length
+		_return_distance = apart
+		_return_half_length = fc.half_length
+	return _return_length
 
 
 ## Game minutes to move `length` metres between slips at her pace (as _follow_shift does).
-func shift_minutes(length: float) -> float:
-	var top := cruise_speed() * SHIFT_PACE
-	var s := 0.0
+func shift_minutes(length: float, p := pace) -> float:
+	# Roughly: half the way astern and half ahead, each leg gathering way from a
+	# stop and losing it again (_follow_shift).
+	var c := next_captain.cruise(paced_cruise(p))
+	var acc := c * SHIFT_ACCEL
 	var t := 0.0
-	while s < length - 0.01 and t < 600.0:
-		s += minf(top, maxf(0.15 * top, minf(s, length - s) * 0.08 + 0.15 * top)) * 0.25
-		t += 0.25
+	for top: float in [c * SHIFT_ASTERN, c * SHIFT_PACE]:
+		var leg := length * 0.5
+		var ramp: float = top * top / acc   # gathering way and losing it again
+		t += 2.0 * top / acc + (leg - ramp) / top if leg > ramp else 2.0 * sqrt(leg / acc)
 	return t
 
 
-## Moves her along `_shift`, easing off at each end. True once she is there.
+## Fuel for backing out and coming ahead. Each leg accelerates and brakes:
+## burn per metre scales with speed squared, linearly with distance on each ramp.
+func _shift_fuel(length: float, p: int) -> float:
+	var cruise_at_pace := next_captain.cruise(paced_cruise(p))
+	var acceleration := cruise_at_pace * SHIFT_ACCEL
+	var leg := length * 0.5
+	var cost := 0.0
+	for fraction: float in [SHIFT_ASTERN, SHIFT_PACE]:
+		var top := minf(cruise_at_pace * fraction, sqrt(acceleration * leg))
+		var ramps := top * top / acceleration
+		cost += FUEL_PRICE * burn_at(top) * (leg - 0.5 * ramps) / METRES_PER_NM
+	return cost
+
+
+## Moves her along `_shift`, gathering way and slowing to each stop (the start,
+## where she stops going astern to come ahead, and the end), turning to the way
+## she's making (stern first on the way out). Her props wash astern of the way she
+## pushes, harder as she gathers way. True once she is there.
 func _follow_shift(delta: float) -> bool:
-	var length := 0.0
-	for k in range(1, _shift.size()):
-		length += _shift[k].distance_to(_shift[k - 1])
-	var top := cruise * SHIFT_PACE
-	var to_go := length - _shift_s
-	speed = minf(top, maxf(0.15 * top, minf(_shift_s, to_go) * 0.08 + 0.15 * top))
+	var length := _shift.length
+	if is_zero_approx(length):
+		return true
+	var astern := _shift_s < _shift.cusp
+	var top := cruise * (SHIFT_ASTERN if astern else SHIFT_PACE)
+	var acc := cruise * SHIFT_ACCEL
+	# Distance to the next stop ahead of her, and since the last one.
+	var to_stop := (_shift.cusp if astern else length) - _shift_s
+	var since := _shift_s if astern else _shift_s - _shift.cusp
+	var want := minf(top, sqrt(2.0 * acc * maxf(to_stop, 0.0)) + 0.04 * top)
+	speed = minf(want, minf(speed + acc * delta, sqrt(2.0 * acc * maxf(since, 0.0)) + 0.08 * top))
 	var was := _shift_s
-	_shift_s = minf(_shift_s + speed * delta, length)
+	var next := _shift_s + speed * delta
+	if astern and next > _shift.cusp:
+		next = _shift.cusp + 0.01
+		speed = 0.0
+		wake.clear()   # she goes ahead now: her old trail is off her other end
+	_shift_s = minf(next, length)
 	_burn(_shift_s - was)
+	# Throttle: hard as she gathers way, easing as she carries it; wash astern of her way.
+	var gathering := clampf(1.0 - since / 60.0, 0.0, 1.0)
+	var want_push := clampf(speed / maxf(top, 0.01), 0.0, 1.0) * 0.5 + gathering * 0.5
+	if to_stop < 25.0:
+		want_push *= to_stop / 25.0
+	# Her props' work shows in her own wake (see _update_trail), not the jet she
+	# holds herself in at the dock with, which stays pinned to her end as she turns.
+	_shift_churn = move_toward(_shift_churn, want_push, delta * 1.5)
+	_push = 0.0
+	_thrust = 0.0
 	var s := _shift_s
-	for k in range(1, _shift.size()):
-		var seg := _shift[k].distance_to(_shift[k - 1])
-		if s <= seg or k == _shift.size() - 1:
-			global_position = _shift[k - 1].lerp(_shift[k], clampf(s / maxf(seg, 0.001), 0.0, 1.0))
+	var path := _shift.points
+	var pos := path[-1]
+	var tangent := Vector3.ZERO
+	for k in range(1, path.size()):
+		var seg := path[k].distance_to(path[k - 1])
+		if s <= seg or k == path.size() - 1:
+			pos = path[k - 1].lerp(path[k], clampf(s / maxf(seg, 0.001), 0.0, 1.0))
+			# Look a little ahead along the path so the heading doesn't kink at each point.
+			var j := mini(k + 2, path.size() - 1)
+			var i := maxi(k - 3, 0)
+			if k < _shift.back_count:
+				j = mini(j, _shift.back_count - 1)
+				tangent = path[i] - path[j]   # going astern: her bow points away from her way
+			else:
+				i = maxi(i, _shift.back_count - 1)
+				tangent = path[j] - path[i]
 			break
 		s -= seg
+	tangent.y = 0.0
+	var xf := global_transform
+	xf.origin = pos
+	if tangent.length_squared() > 1e-6 and _shift_shore != Vector3.ZERO:
+		var t := tangent.normalized()
+		var target := atan2(_shift_shore.cross(t).y, _shift_shore.dot(t))
+		_shift_yaw = lerp_angle(_shift_yaw, target, 1.0 - exp(-delta * 10.0))
+		if _shift_s >= length - 0.01:
+			_shift_yaw = 0.0
+		xf.basis = Basis(Vector3.UP, _shift_yaw) * _shift_basis
+	global_transform = xf
 	return _shift_s >= length - 0.01
