@@ -5,7 +5,7 @@ extends PanelContainer
 
 signal ferry_selected(ferry: Ferry)
 
-const LINES := [["fares", "Fares"], ["fuel", "Fuel"], ["crew", "Crew"], ["purchases", "Purchases"]]
+const LINES := [["fares", "Fares"], ["sales", "Boats sold"], ["fuel", "Fuel"], ["crew", "Crew"], ["purchases", "Purchases"]]
 const LOSS := Color(0.95, 0.5, 0.45)
 
 var _cash: Label

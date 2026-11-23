@@ -554,7 +554,6 @@ func guides_at(i: int) -> SlipGuides:
 	return slip_guides[i] if i >= 0 and i < slip_guides.size() else null
 
 
-## The boat using working slip `i` here other than `f`: alongside, leaving and not yet
 ## The preferred working berth, or the nearest compatible free one.
 ## The live arrival uses boat reservations; the timetable uses predicted occupancy.
 func arrival_slip(preferred: int, hull_size: int, is_busy: Callable) -> int:
@@ -570,8 +569,11 @@ func arrival_slip(preferred: int, hull_size: int, is_busy: Callable) -> int:
 	return best if best >= 0 else preferred
 
 
-## clear, or coming in to it ahead of `f`. Null if it is free for her.
+## The boat occupying this berth or arriving ahead of this ferry.
 func slip_user(i: int, f: Ferry) -> Ferry:
+	var occupied := sim.occupant(self, i, f)
+	if occupied:
+		return occupied
 	var left := f.path_left() if f.state == Ferry.State.SAILING and f.destination() == self else INF
 	for g in sim.ferries:
 		if g == f or g.slip_at(self) != i:

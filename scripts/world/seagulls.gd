@@ -192,8 +192,10 @@ func setup(s: Simulation, d: DayCycle, perches: Array[Perch]) -> void:
 	_wind_yaw = sim.wind_yaw()
 	_perches.append_array(perches)
 	for f in sim.ferries:
-		for fp: Array in f.fc.perches:
-			_perches.append(Perch.new(fp[0], fp[1], fp[2], Kind.FERRY, f))
+		_add_ferry_perches(f)
+	# Boats bought and sold in play.
+	sim.ferry_added.connect(_add_ferry_perches)
+	sim.ferry_removed.connect(_drop_ferry)
 	for b in sim.marine.fishing_boats:
 		for bp: Array in TRAWLER_PERCHES:
 			var k: float = b.spec.scale
@@ -345,6 +347,28 @@ func _tick_perched(g: Gull, dt: float) -> void:
 		_start_roam(g, carrier)
 	else:
 		_decide(g)
+
+
+func _add_ferry_perches(f: Ferry) -> void:
+	for fp: Array in f.fc.perches:
+		_perches.append(Perch.new(fp[0], fp[1], fp[2], Kind.FERRY, f))
+
+
+## `f` is leaving the game (sold): the gulls on her or tailing her fly off.
+func _drop_ferry(f: Ferry) -> void:
+	for p in _perches.duplicate():
+		if p.ferry != f:
+			continue
+		for g in p.gulls.duplicate():
+			_take_off(g)
+			_decide(g)
+		_perches.erase(p)
+	for g in _gulls:
+		if g.escort == f:
+			g.escort = null
+		if g.perch != null and g.perch.ferry == f:
+			g.perch = null
+			_decide(g)
 
 
 func _take_off(g: Gull) -> void:

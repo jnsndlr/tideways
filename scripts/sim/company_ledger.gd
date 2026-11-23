@@ -5,7 +5,7 @@ extends RefCounted
 ## Measured vehicles pay by length; legacy vehicles use a flat fare.
 
 const STARTING_CASH := 50000.0
-const INCOME := ["fares"]
+const INCOME := ["fares", "sales"]
 const EXPENSES := ["fuel", "crew", "purchases"]
 
 const FARE_CAR := 18.5
@@ -58,6 +58,12 @@ func _credit(fare: float) -> void:
 	cash += fare
 	cars_today += 1
 	cars_total += 1
+
+
+## Takes in `amount` that isn't a fare (a boat sold) under one of INCOME.
+func receive(category: String, amount: float) -> void:
+	today[category] += amount
+	cash += amount
 
 
 ## Pays out `amount` under one of EXPENSES. Running costs may take cash below zero.

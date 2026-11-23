@@ -38,8 +38,11 @@ func _check(sim: Simulation, hud: Hud) -> String:
 		return "Hiyu should shuttle between Port Rosario and Madrona"
 	var idle: Terminal
 	for terminal: Terminal in sim.terminals.values():
-		if terminal.town.slips.size() != 1:
-			return "An opening terminal should have one slip"
+		if terminal.town.working_slips() != 1:
+			return "An opening terminal should have one working slip"
+		var ties := terminal.town.tie_ups().size()
+		if ties != (1 if terminal.town.key == "island-1/0" else 0):
+			return "Only Port Rosario should have a tie-up (its maintenance facility), not %s" % terminal.town.name
 		if terminal.town.key.begins_with("island-7/"):
 			idle = terminal
 	if idle == null:
