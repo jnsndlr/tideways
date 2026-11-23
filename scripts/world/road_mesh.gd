@@ -13,7 +13,7 @@ const ASPHALT_HALF := 3.7
 const HALF := 5.1
 ## The shoulders fall away this much to their outer edge.
 const SHOULDER_DROP := 0.05
-const SKIRT := 0.45
+const SKIRT := 0.60
 
 
 ## Horizontal length of a polyline.

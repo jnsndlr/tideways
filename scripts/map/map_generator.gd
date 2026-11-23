@@ -1689,8 +1689,7 @@ func _layout_towns() -> void:
 		# Out past where the houses thin out (world_builder's town spread).
 		var town_r := sqrt(isl.population / 90.0) * 9.0
 		terrain.smooth_town(isl.town_center, town_r * 1.4 + 20.0, 45.0)
-	# Cut a shoulder for the ticket lanes after locating the towns. Keep hillside
-	# terrain below the outer booth and taper the cut back into the access road.
+	# Keep the booth islands level where the ticket lanes meet the raised lot.
 	for isl in _main_islands():
 		if isl.has_terminal:
 			terrain.add_flat(isl.lot_xform().origin, isl.dock_dir, Layout.LOT_BACK - Layout.TICKET_FAN_LENGTH,
@@ -1702,7 +1701,18 @@ func _layout_towns() -> void:
 			var t := isl.lateral()
 			var e := isl.shore + nd * (Layout.LOT_BACK - isl.lot_shift())
 			e.y = isl.lot_y
-			isl.road_main_a = _road_line(e, isl.town_center, true, false, ROAD_GRADE_CLIMB)
+			# Leave the booth canopy on a level approach; start the graded road at
+			# the inland edge of the ticket plaza, or at the junction on short roads.
+			var distance := (e - isl.town_center).dot(nd)
+			var flat_length := minf(distance, absf(Layout.TICKET_U - Layout.LOT_BACK) * 2.0)
+			isl.road_main_a = PackedVector3Array()
+			for step in ceili(flat_length / ROAD_STEP):
+				isl.road_main_a.append(e - nd * (step * ROAD_STEP))
+			var apron := e - nd * flat_length
+			if distance > flat_length + 0.01:
+				isl.road_main_a.append_array(_road_line(apron, isl.town_center, true, false, ROAD_GRADE_CLIMB))
+			else:
+				isl.road_main_a.append(apron)
 			var tc := isl.road_main_a[isl.road_main_a.size() - 1]
 			var far := 0.0
 			while far < 48.0 and _h(tc - nd * (far + 6.0)) > 3.9:
@@ -1717,7 +1727,15 @@ func _layout_towns() -> void:
 					var cross := _road_line(tc, tc + t * side * length, true, true, ROAD_GRADE_STEEP)
 					if cross.size() > 1:
 						isl.road_cross.append(cross)
-			var lines: Array[PackedVector3Array] = [isl.road_main_a]
+			# Grade beneath the extra inbound lanes as well as the through road.
+			var outer := PackedVector3Array()
+			for point in isl.road_main_a:
+				var inland := (e - point).dot(nd)
+				var spread := Layout.ticket_spread(inland, distance)
+				outer.append(point - t * Layout.TICKET_EXTRA_WIDTH * spread)
+				if spread <= 0.0:
+					break
+			var lines: Array[PackedVector3Array] = [isl.road_main_a, outer]
 			if isl.road_main_b.size() > 1:
 				lines.append(isl.road_main_b)
 			lines.append_array(isl.road_cross)

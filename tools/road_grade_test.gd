@@ -34,6 +34,16 @@ func _check(isl: MapData.Island, t: Terrain) -> String:
 	var main := isl.road_main_a
 	if absf(main[0].y - isl.lot_y) > 0.01:
 		return "main road starts at %.2f, lot at %.2f" % [main[0].y, isl.lot_y]
+	# The three ticket approaches widen the road on the inbound side.
+	var length := (main[0] - main[-1]).dot(isl.dock_dir)
+	for p in main:
+		var spread := Layout.ticket_spread((main[0] - p).dot(isl.dock_dir), length)
+		if spread <= 0.0:
+			break
+		var outer := p - isl.lateral() * (RoadMesh.HALF + Layout.TICKET_EXTRA_WIDTH * spread)
+		var gap := p.y - t.height_v(outer)
+		if gap < -0.06 or gap > 1.5:
+			return "ground %.2f m below the outer ticket lane at %s" % [gap, outer]
 	var lines: Array[PackedVector3Array] = [main]
 	if isl.road_main_b.size() > 1:
 		lines.append(isl.road_main_b)

@@ -1006,10 +1006,10 @@ func _ticket_approach(mb: MeshBuilder, isl: MapData.Island) -> void:
 		var sb := Layout.ticket_spread((entrance - b).dot(isl.dock_dir), length)
 		if sa <= 0.0:
 			break
-		var inner_a := a - lateral * 5.1
-		var inner_b := b - lateral * 5.1
-		var outer_a := inner_a - lateral * 12.8 * sa
-		var outer_b := inner_b - lateral * 12.8 * sb
+		var inner_a := a - lateral * RoadMesh.HALF
+		var inner_b := b - lateral * RoadMesh.HALF
+		var outer_a := inner_a - lateral * Layout.TICKET_EXTRA_WIDTH * sa
+		var outer_b := inner_b - lateral * Layout.TICKET_EXTRA_WIDTH * sb
 		mb.quad(inner_a, outer_a, outer_b, inner_b, ROAD, Vector3.UP)
 		mb.quad(outer_a, outer_a - Vector3.UP * 1.5, outer_b - Vector3.UP * 1.5, outer_b, ROAD.darkened(0.25), -lateral)
 		# Broken white dividers follow the paved fan and stop at the booth islands.

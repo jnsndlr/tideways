@@ -334,7 +334,7 @@ func apply_flats() -> void:
 
 
 ## How far below its road the ground is graded, so the road never fights it.
-const ROAD_DROP := 0.12
+const ROAD_DROP := 0.20
 ## Side slopes run out at least this far, and at most ROAD_SLOPE_MAX.
 const ROAD_SLOPE_MAX := 12.0
 
