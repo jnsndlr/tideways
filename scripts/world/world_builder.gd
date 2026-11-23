@@ -648,7 +648,6 @@ func _terminal_model(scene: PackedScene, pose: Transform3D) -> Node3D:
 func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
-	var lf := isl.lot_front_u()
 	# With the mid-poly slip a trestle runs out from the lot to the transfer span's hinge
 	# (the span, apron and counterweights are SlipRamp's, the towers are scenery here).
 	var mid := Models.mid_slip
@@ -656,13 +655,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 	if Models.mid_trestle:
 		_build_trestle(mb, isl, v)
 	else:
-		mb.box(Vector3(v, ly - 0.6, (lf + deck_end) * 0.5), Vector3(15.0, 1.2, deck_end - lf + 1.2), CONCRETE)
-		mb.box(Vector3(v, ly + 0.03, (lf + deck_end) * 0.5), Vector3(0.36, 0.06, deck_end - lf - 1.5), LINE_YELLOW)
-		var u := lf + 3.0
-		while u < deck_end:
-			for side: float in [-6.6, 6.6]:
-				mb.box(Vector3(v + side, -4.2, u), Vector3(1.2, 12.6, 1.2), Models.WOOD)
-			u += 9.0 if not mid else 4.5
+		_build_plain_trestle(mb, isl, v, deck_end, mid)
 	# Tower lateral offset (the eagles sit over it) and how far the header's top runs.
 	var tower_x := 8.7
 	var beam_x := 8.7
@@ -720,6 +713,27 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Island, v: float) -> void:
 		glows.glow(Models.bulkhead_glow_at(lamp, out, LIFT_LAMP), GlowBuilder.WARM,
 			Models.bulkhead_glow_size(LIFT_LAMP), 5.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
+
+
+## When the authored deck is unavailable, the concrete deck still follows the
+## same profile as the vehicles, including the join to the raised lot.
+static func _build_plain_trestle(mb: MeshBuilder, isl: MapData.Island, v: float, end: float, mid: bool) -> void:
+	var front := isl.lot_front_u()
+	var deck := MeshBuilder.new()
+	var u := front
+	while u < end:
+		var next := minf(u + 4.0, end)
+		var center := (u + next) * 0.5
+		deck.box(Vector3(0, -0.6, center), Vector3(15.0, 1.2, next - u), CONCRETE)
+		deck.box(Vector3(0, 0.03, center), Vector3(0.36, 0.06, next - u), LINE_YELLOW)
+		u = next
+	Models.append_on_profile(mb, deck, mb.xform, v, 0.0, isl.road_y)
+	u = front + 3.0
+	while u < end:
+		for side: float in [-6.6, 6.6]:
+			var top := isl.road_y(u) - 1.2
+			mb.box(Vector3(v + side, (top - 10.5) * 0.5, u), Vector3(1.2, top + 10.5, 1.2), Models.WOOD)
+		u += 9.0 if not mid else 4.5
 
 
 ## The trestle from the lot's edge out to slip `v`'s span hinge (Models.trestle_part):
