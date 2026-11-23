@@ -39,6 +39,7 @@ const EAGLE_SHORE := 45.0
 const EAGLE_CELL := 27.0
 
 var _frames := BuildFrameBudget.new()
+var _tie_up_piers := {}         # town id -> TieUpPier node
 
 var map: MapData
 var terrain: Terrain
@@ -146,11 +147,15 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 	glows.xform = mb.xform
 	var v := town.slip_offset(i)
 	if town.slips[i].tie_up:
-		_build_tie_up(mb, town, i)
+		if TieUpPier.available():
+			_rebuild_tie_up_pier(town)
+		else:
+			_build_tie_up(mb, town, i)
 	else:
 		_build_slip(mb, v)
 		_forecourt(mb, town.lot_half_width, v)
-	_add_mesh(mb.commit(), "%s Slip %d" % [town.name, i])
+	if not mb.is_empty():
+		_add_mesh(mb.commit(), "%s Slip %d" % [town.name, i])
 	if not glows.is_empty() and night_lights:
 		var mi := MeshInstance3D.new()
 		mi.name = "%s Slip %d Lights" % [town.name, i]
@@ -158,6 +163,24 @@ func build_bought_slip(town: MapData.Town, i: int) -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		night_lights.add_child(mi)
 	glows = saved
+
+
+func _rebuild_tie_up_pier(town: MapData.Town) -> void:
+	if _tie_up_piers.has(town.id):
+		var old: Node3D = _tie_up_piers[town.id]
+		if is_instance_valid(old):
+			old.queue_free()
+		_tie_up_piers.erase(town.id)
+	var ties := town.tie_ups()
+	if ties.is_empty():
+		return
+	var berths: Array = ties.map(func(idx): return Vector2(town.slip_offset(idx), town.tie_up_half_width(idx)))
+	berths.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+	var pier := TieUpPier.new(berths)
+	pier.name = town.name + " Tie-up Pier"
+	root.add_child(pier)
+	pier.transform = town.terminal_xform()
+	_tie_up_piers[town.id] = pier
 
 
 ## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
@@ -652,10 +675,12 @@ func _terminal_for(isl: MapData.Town) -> void:
 		u += 7.2
 
 	for i in isl.slips.size():
-		if isl.slips[i].tie_up:
-			_build_tie_up(mb, isl, i)
-		else:
+		if not isl.slips[i].tie_up:
 			_build_slip(mb, isl.slip_offset(i))
+		elif not TieUpPier.available():
+			_build_tie_up(mb, isl, i)
+	if TieUpPier.available() and not isl.tie_ups().is_empty():
+		_rebuild_tie_up_pier(isl)
 
 	# The entry porch faces the holding lanes. The gulls sit along the hall ridge.
 	var bv := hw + 15.0

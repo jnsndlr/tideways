@@ -26,6 +26,8 @@ const SLIP_SPACING := 60.0
 # berth there slowly and one at a time, so the widest hull (a Jumbo, 39 m across as
 # modelled) and a few metres between neighbours, with shared dolphins.
 const TIE_UP_SPACING := 45.0
+const TIE_UP_ROW := 6.0         # a shared row of timber dolphins between tie-ups
+const TIE_UP_CLEAR := 1.5       # water between a tied-up hull and its dolphins
 const FERRY_HALF := 45.0
 const DOCK_U := PIER_END + FERRY_HALF + 0.4  # centre of a 90 m hull docked (route ends)
 const CHANNEL_BUOY_U := PIER_END + 138.0     # each slip's pair of channel buoys

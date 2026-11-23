@@ -1,0 +1,17 @@
+{
+	"name": "Shared slip",
+	"cash": 50000,
+	"terminals": [
+		{"key": "island-1", "name": "Port Rosario", "lanes": 2, "slips": ["small"]},
+		{"key": "island-2", "name": "Madrona Island", "lanes": 2, "slips": ["small"], "tie_ups": ["small", "small"]},
+		{"key": "island-7", "name": "Gullrock Island", "lanes": 2, "slips": ["small"]}
+	],
+	"fleet": [
+		{"key": "hull-0", "name": "Hiyu", "size": 2},
+		{"key": "hull-1", "name": "Rhododendron", "size": 2}
+	],
+	"schedules": [
+		{"boat": "hull-0", "stops": ["island-1", "island-2"]},
+		{"boat": "hull-1", "stops": ["island-7", "island-2"]}
+	]
+}
