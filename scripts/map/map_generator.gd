@@ -1699,8 +1699,8 @@ func _layout_towns() -> void:
 	# terrain below the outer booth and taper the cut back into the access road.
 	for isl in _main_islands():
 		if isl.has_terminal:
-			terrain.add_flat(isl.shore, isl.dock_dir, Layout.LOT_BACK - Layout.TICKET_FAN_LENGTH,
-				Layout.LOT_BACK, -18.5, 5.5, Layout.LOT_Y - 0.15, 12.0)
+			terrain.add_flat(isl.lot_xform().origin, isl.dock_dir, Layout.LOT_BACK - Layout.TICKET_FAN_LENGTH,
+				Layout.LOT_BACK, -18.5, 5.5, isl.lot_y - 0.15, 12.0)
 	terrain.apply_flats()  # the ferry lots stay exactly level
 	for isl in _main_islands():
 		if isl.has_terminal:
