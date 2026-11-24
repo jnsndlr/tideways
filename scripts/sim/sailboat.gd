@@ -14,6 +14,9 @@ extends MarinaBoat
 ## anything manoeuvring in or out of its berth, a fishing boat at work, and other
 ## sailboats when it is on port tack, to windward, or overtaking.
 
+signal sails_changed(hoisted: bool)
+signal sheet_changed(angle: float)
+
 enum State { MOORED, LEAVING, SAILING, WAITING, ARRIVING }
 
 const COAST := 0.54          # slowing with no drive from the sails
@@ -34,13 +37,11 @@ var state := State.MOORED
 var dwell := 0.0
 var motoring := true
 var _goals: Array[Vector2] = []
-var _hull: MeshInstance3D
-var _main: MeshInstance3D
-var _jib: MeshInstance3D
+var hull_model: MeshInstance3D
 var _tack := 0                 # which side of the wind it is beating on (+1 / -1), 0 if not beating
 var _tack_time := 0.0
 var _leg_max := 60.0
-var _sheet := 0.0              # how far the sails are swung out (signed: to port is +)
+var sheet_angle := NAN         # signed radians to port; unset until the first trim
 var _heel := 0.0
 
 
@@ -48,19 +49,11 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, m: MapData.Marina, b: i
 	traffic = t
 	vessel_name = nm
 	name = nm
-	_hull = apply_spec(sp)
+	hull_model = apply_spec(sp)
 	marina = m
 	berth = b
 	dwell = first_dwell
 	_bob = t.rng.randf() * TAU
-	_main = MeshInstance3D.new()
-	_main.mesh = Models.sailboat_main()
-	_main.position = Models.SAIL_MAIN_PIVOT
-	_hull.add_child(_main)
-	_jib = MeshInstance3D.new()
-	_jib.mesh = Models.sailboat_jib()
-	_jib.position = Models.jib_tack()
-	_hull.add_child(_jib)
 	_moor()
 
 
@@ -93,10 +86,10 @@ func _moor() -> void:
 
 
 func _set_sails(up: bool) -> void:
+	if motoring == (not up):
+		return
 	motoring = not up
-	_hull.mesh = spec.model.call(0) if up else spec.model_alt.call(0)
-	_main.visible = up
-	_jib.visible = up
+	sails_changed.emit(up)
 
 
 ## Casts off for a free berth. `progress` > 0 starts it that far through the
@@ -302,18 +295,12 @@ func _pose(delta: float) -> void:
 	var off := absf(angle_difference(_yaw, traffic.sim.wind_yaw()))
 	var sails := not motoring and state != State.MOORED
 	var sheet := clampf((off - 0.6) * 0.55, 0.12, 1.35) * lee if sails else 0.0
-	_sheet = move_toward(_sheet, sheet, 1.4 * delta)
+	var angle := move_toward(0.0 if is_nan(sheet_angle) else sheet_angle, sheet, 1.4 * delta)
+	if angle != sheet_angle:
+		sheet_angle = angle
+		sheet_changed.emit(angle)
 	var heel := -0.13 * lee * clampf(speed / cruise, 0.0, 1.0) * clampf(sin(off) * 1.3, 0.3, 1.0) if sails else 0.0
 	_heel = move_toward(_heel, heel, 0.15 * delta)
-	# Cambered sails (cut with their belly to +x) are mirrored to bulge to leeward,
-	# flattening as they swing across through the wind.
-	var belly := Basis.IDENTITY
-	if Models.mid_sailboat:
-		var f := clampf(_sheet / 0.12, -1.0, 1.0)
-		belly = Basis.from_scale(Vector3(f if absf(f) > 0.1 else 0.1 * signf(f + 1e-6), 1, 1))
-	_main.basis = Basis(Vector3.UP, -_sheet) * belly
-	var stay := (Models.jib_head() - Models.jib_tack()).normalized()
-	_jib.basis = Basis(stay, -clampf(_sheet, -0.8, 0.8)) * belly
 	basis = Basis(Vector3.UP, _yaw) * Basis(Vector3.BACK, _heel + sin(_bob * 1.2) * 0.03)
 
 
