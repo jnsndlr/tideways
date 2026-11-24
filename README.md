@@ -35,7 +35,7 @@ wind, tide).
 
 | Follow this path | Start here |
 | --- | --- |
-| Choose a region and start a session | The [menu](scripts/ui/main_menu.gd) opens the [loading screen](scripts/ui/loading_screen.gd). [Main Map](scripts/main_map.gd) supplies an authored layout and scenario. It inherits the construction and teardown code in [Sandbox](scripts/sandbox.gd). |
+| Choose a region and start a session | The [menu](scripts/ui/main_menu.gd) opens the [loading screen](scripts/ui/loading_screen.gd). [Main Map](scripts/main_map.gd) supplies an authored layout and scenario. [Sandbox](scripts/sandbox.gd) supplies a seed. Both use [WorldSession](scripts/world_session.gd) for startup and teardown. |
 | Change region data or terrain | [MapGenerator](scripts/map/map_generator.gd) produces [MapData](scripts/map/map_data.gd) from a seed or layout. [WorldBuilder](scripts/world/world_builder.gd) builds the scene from that geography. |
 | Change a rule or transaction | [Simulation](scripts/sim/simulation.gd) coordinates the live session. [CompanyLedger](scripts/sim/company_ledger.gd) records spending and receipts. [FleetMarket](scripts/sim/fleet_market.gd) validates purchases and sales. [FerryVoyage](scripts/sim/ferry_voyage.gd), [FerryDeck](scripts/sim/ferry_deck.gd) and [TerminalLane](scripts/sim/terminal_lane.gd) own crossing, deck and queue state. |
 | Change what the player sees or controls | [HUD](scripts/ui/hud.gd) connects panels to the simulation and camera. [VehicleFactory](scripts/world/vehicle_factory.gd) and [Models](scripts/world/models.gd) assemble visible vehicles. Editable art lives in [art](art/) and game-ready assets in [assets](assets/). |

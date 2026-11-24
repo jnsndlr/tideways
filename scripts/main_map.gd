@@ -1,4 +1,4 @@
-extends "res://scripts/sandbox.gd"
+extends WorldSession
 ## The story map: the same world as the sandbox, built from an authored layout
 ## (MapLayout.MAIN_STORY) instead of a random seed. The island editor (I, or the
 ## ISLANDS button) rolls and dials its islands, then saves or copies the layout.
@@ -30,7 +30,9 @@ static func start_session(path: String) -> void:
 	_carry.clear()
 
 
-func _generation_job(gen: MapGenerator) -> Callable:
+func _ready() -> void:
+	SessionDiagnostics.attach(self)
+	var options := Scenes.launch_options.values
 	if layout == null:
 		layout = MapLayout.load_file(MapLayout.MAIN_STORY)
 		if layout == null:
@@ -38,21 +40,19 @@ func _generation_job(gen: MapGenerator) -> Callable:
 			unsaved = true
 	# --full-network: the planned network with a boat per route, as in the sandbox.
 	# --scenario=shared_slip: maps/shared_slip.json instead of the opening.
+	var opening: Scenario
 	var plan := "full-network"
-	if not _args.has("full-network"):
-		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else (
+	if not options.has("full-network"):
+		var file: String = "res://maps/%s.json" % options["scenario"] if options.has("scenario") else (
 			scenario_path if scenario_path != "" else Scenario.OPENING)
-		scenario = Scenario.load_file(file)
+		opening = Scenario.load_file(file)
 		plan = file.get_file().get_basename()
 	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
 	# Every dock site's routes are in them, so buying one plans nothing (TID-319).
+	var route_cache_path := ""
 	if not unsaved:
-		gen.route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
-	return gen.generate_from.bind(layout, scenario)
-
-
-func _ready() -> void:
-	await super._ready()
+		route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+	await start_authored(layout, opening, route_cache_path)
 	if not built:
 		return
 	editor = IslandEditor.new()
@@ -67,12 +67,12 @@ func _ready() -> void:
 		rig.snap()
 	if _carry.get("editor_open", false):
 		editor.open(_carry.get("selected", 0))
-	elif _args.has("edit"):
-		editor.open(int(_args["edit"]))
+	elif options.has("edit"):
+		editor.open(int(options["edit"]))
 	# --pick=Cypress: select the island whose name starts so (any, terminal or not).
-	if _args.has("pick"):
+	if options.has("pick"):
 		for isl in map.islands:
-			if isl.name.begins_with(str(_args["pick"])):
+			if isl.name.begins_with(str(options["pick"])):
 				hud.select_island(isl, true)
 				rig.snap()
 				break
