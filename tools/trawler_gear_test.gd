@@ -23,48 +23,51 @@ func check_haul_and_landing(sim: Simulation, with_view: bool) -> void:
 	var boat := FishingBoat.new()
 	sim.add_child(boat)
 	boat.setup(sim.marine, "Test trawler", VesselTypes.fishing_boats()[0], MapData.FishQuay.new(), 0, 0)
+	var lamps: VesselNightLights
 	var view: FishingBoatView
 	if with_view:
-		view = FishingBoatView.new(boat)
+		lamps = VesselNightLights.new(boat)
+		boat.add_child(lamps)
+		view = FishingBoatView.new(boat, lamps)
 		boat.add_child(view)
-	check_gear(boat, view, [], false, "before the first trip")
+	check_gear(view, lamps, [], false, "before the first trip")
 
 	boat.ground = sim.marine.reserve_ground(boat)
 	boat._start_helm(FishingBoat.State.FISHING)
 	boat._begin_shooting()
 	var fishing_lights := [Models.trawler_nav_lights(), Models.trawler_working_lights()]
-	check_gear(boat, view, fishing_lights, true, "shooting the net")
+	check_gear(view, lamps, fishing_lights, true, "shooting the net")
 	boat._work(FishingBoat.SHOOT_TIME.y)
 	expect(boat.work == FishingBoat.Work.TOWING, "The trawler tows after shooting the net")
-	check_gear(boat, view, fishing_lights, true, "towing")
+	check_gear(view, lamps, fishing_lights, true, "towing")
 	boat.position = Vector3(boat.helm.goal.x, 0, boat.helm.goal.y)
 	boat._work(0.25)
 	expect(boat.work == FishingBoat.Work.HAULING, "The trawler hauls at the tow endpoint")
-	check_gear(boat, view, fishing_lights, false, "hauling")
+	check_gear(view, lamps, fishing_lights, false, "hauling")
 	boat._work(FishingBoat.HAUL_TIME.y)
 	expect(boat.hauls == 1 and boat.fish_hold > 0.0, "The completed haul adds catch once")
 	expect(boat.state == FishingBoat.State.HOMEWARD and boat.ground.worked_by == null,
 			"After the last haul the trawler releases its ground and steams home")
-	check_gear(boat, view, [Models.trawler_nav_lights(), Models.trawler_steaming_lights()], false, "steaming home")
+	check_gear(view, lamps, [Models.trawler_nav_lights(), Models.trawler_steaming_lights()], false, "steaming home")
 
 	boat._came_alongside()
 	expect(boat.trips == 1 and boat.state == FishingBoat.State.ALONGSIDE, "Returning records one trip")
 	var landing_lights := [Models.trawler_working_lights()]
-	check_gear(boat, view, landing_lights, false, "landing the catch")
+	check_gear(view, lamps, landing_lights, false, "landing the catch")
 	sim.day += 1
 	sim.minutes = 29.99
-	check_gear(boat, view, landing_lights, false, "just before 60 minutes alongside")
+	check_gear(view, lamps, landing_lights, false, "just before 60 minutes alongside")
 	sim.minutes = 30.0
-	check_gear(boat, view, [], false, "at 60 minutes alongside")
+	check_gear(view, lamps, [], false, "at 60 minutes alongside")
 	boat.free()
 
 
-func check_gear(boat: FishingBoat, view: FishingBoatView, lit_at_night: Array, net_out: bool, stage: String) -> void:
+func check_gear(view: FishingBoatView, lamps: VesselNightLights, lit_at_night: Array, net_out: bool, stage: String) -> void:
 	if view == null:
 		return
 	view.refresh()
 	for night: bool in [false, true]:
-		boat.lights.visible = night
+		lamps.visible = night
 		var expected := {}
 		for mesh: Mesh in [Models.trawler_nav_lights(), Models.trawler_steaming_lights(), Models.trawler_working_lights()]:
 			expected[mesh] = night and lit_at_night.has(mesh)

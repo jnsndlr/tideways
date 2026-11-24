@@ -161,14 +161,6 @@ func _setup_simulation(charts: MarineCharts) -> void:
 		if not await _setup_frames.can_continue():
 			return
 	sim.ferry_added.connect(_add_ferry_view)
-	for boat in sim.marine.sailboats:
-		boat.hull_model.add_child(SailboatView.new(boat))
-	for trawler in sim.marine.fishing_boats:
-		trawler.add_child(FishingBoatView.new(trawler))
-	for yacht in sim.marine.motor_yachts:
-		yacht.add_child(MotorYachtView.new(yacht))
-	for boat in sim.marine.pilotage.pilot_boats:
-		boat.hull_model.add_child(PilotLadder.new(boat))
 	for terminal: Terminal in sim.terminals.values():
 		_dress_terminal(terminal)
 	sim.terminal_opened.connect(_on_terminal_opened)
@@ -196,6 +188,11 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	var lights := NightLights.new()
 	add_child(lights)
 	lights.setup(sim, rig, day_cycle, builder.night_lights)
+	sim.marine.vessel_registered.connect(_dress_vessel.bind(lights))
+	for vessel in sim.marine.vessels:
+		_dress_vessel(vessel, lights)
+		if not await _setup_frames.can_continue():
+			return
 	var gulls := Seagulls.new()
 	add_child(gulls)
 	for terminal: Terminal in sim.terminals.values():
@@ -386,6 +383,20 @@ func _update_dof() -> void:
 	cam_attr.dof_blur_near_transition = d * 0.4
 	cam_attr.dof_blur_far_distance = d * 1.5
 	cam_attr.dof_blur_far_transition = d * 2.0
+
+
+func _dress_vessel(vessel: Vessel, lights: NightLights) -> void:
+	if vessel.spec == null:
+		return
+	var lamps := lights.fit_vessel(vessel)
+	if vessel is FishingBoat:
+		vessel.add_child(FishingBoatView.new(vessel, lamps))
+	elif vessel is MotorYacht:
+		vessel.add_child(MotorYachtView.new(vessel, lamps))
+	elif vessel is Sailboat:
+		vessel.hull_model.add_child(SailboatView.new(vessel))
+	elif vessel is PilotBoat:
+		vessel.hull_model.add_child(PilotLadder.new(vessel))
 
 
 func _add_ferry_view(ferry: Ferry) -> void:

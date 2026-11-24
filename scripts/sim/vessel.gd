@@ -25,7 +25,7 @@ var half_seg := 3.0
 var hull_radius := 3.0
 var claim_step := 6.0     # spacing of the points MarineTraffic samples ahead
 var hold := INF           # how far it means to go for now (short of a channel or berth it is waiting for)
-var lights: MeshInstance3D
+var model_variant := 0
 var wake: WakeTrail       # its trail on the water, if it leaves one
 var free_nav := false     # steering its own way (a Helm), not along a fixed path
 var consort: Vessel = null   # the ship it is working alongside, if any (their hulls don't count against each other)
@@ -212,6 +212,7 @@ func type_text() -> String:
 ## type's model variants.
 func apply_spec(s: VesselSpec, variant := 0) -> MeshInstance3D:
 	spec = s
+	model_variant = variant
 	cruise = s.cruise
 	yield_decel = s.decel
 	half_seg = s.half_seg()
@@ -230,13 +231,6 @@ func apply_spec(s: VesselSpec, variant := 0) -> MeshInstance3D:
 		var mi := MeshInstance3D.new()
 		mi.mesh = plate
 		hull.add_child(mi)
-	lights = MeshInstance3D.new()
-	lights.mesh = s.lights.call(variant)
-	lights.scale = Vector3.ONE * s.scale
-	lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	lights.layers = NightLights.LAYER
-	lights.visible = false
-	add_child(lights)
 	return hull
 
 

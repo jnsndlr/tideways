@@ -18,6 +18,8 @@ extends Node
 ## two hulls to pass (out of neighbouring slips, say). Each such stretch is a
 ## Corridor that one ferry at a time reserves before going in.
 
+signal vessel_registered(vessel: Vessel)
+
 const SAIL_NAMES := ["Windsong", "Blue Heron", "Sea Otter", "Kittiwake", "Halcyon", "Second Wind",
 	"Puffin", "Moonraker", "Tern", "Salt Spray", "Whimbrel", "Northern Light", "Selkie", "Dovekie",
 	"Sandpiper", "Wayfarer", "Petrel", "Fair Isle", "Larkspur", "Merganser", "Loon", "Skerry",
@@ -118,6 +120,7 @@ func _register(v: Vessel, base_rank: int) -> void:
 	v.rank = base_rank + _next
 	_next += 1
 	vessels.append(v)
+	vessel_registered.emit(v)
 
 
 func remove(v: Vessel) -> void:

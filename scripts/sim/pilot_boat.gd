@@ -24,7 +24,6 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, st: MapData.PilotStatio
 	vessel_name = nm
 	name = nm
 	hull_model = apply_spec(sp, variant)
-	_fit_running_lights()
 	wharf = st
 	berth = b
 	# (Handier alongside than a trawler: thrusters, or twin screws.)
