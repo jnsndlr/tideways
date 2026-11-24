@@ -17,6 +17,7 @@ const MISSION_TRIAL := "res://maps/mission_trial.json"
 ## Two boats to try mechanics on. It starts as a copy of two_boats.json but no test
 ## reads it, so edit it freely.
 const MISSION_SANDBOX := "res://maps/mission_sandbox.json"
+# Keep the authored entry script alive while the loading overlay drains a request on quit.
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _load_error: Label
 

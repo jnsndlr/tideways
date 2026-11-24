@@ -1,5 +1,5 @@
 extends SceneTree
-## Interrupt the real loading path twice. CI also inspects engine diagnostics
+## Cancel both region modes to Menu and quit during an authored load. CI also inspects engine diagnostics
 ## emitted after quit, when script assertions can no longer run.
 
 
@@ -10,19 +10,23 @@ func _initialize() -> void:
 func run() -> void:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
-	for attempt in 2:
-		LoadingScreen.open(self, Scenes.MAIN_MAP, "Loading")
+	var entries := [Scenes.MAIN_MAP, Scenes.SANDBOX, Scenes.MAIN_MAP]
+	for attempt in entries.size():
+		var path: String = entries[attempt]
+		LoadingScreen.open(self, path, "Loading")
 		await scene_changed
-		if current_scene.scene_file_path != Scenes.MAIN_MAP or current_scene.build_to != 0.3 or current_scene.built:
+		var session := current_scene as WorldSession
+		if not session or session.scene_file_path != path or session.build_to != 0.3 or session.built:
 			push_error("Expected to interrupt region generation before the world build.")
 			quit(1)
 			return
-		await create_timer(0.1).timeout
+		if path == Scenes.MAIN_MAP:
+			await create_timer(0.1).timeout
 		if current_scene.build_to != 0.3:
 			push_error("Generation finished before interruption.")
 			quit(1)
 			return
-		if attempt == 0:
+		if attempt < entries.size() - 1:
 			var overlay: CanvasLayer
 			for layer in root.get_children():
 				if layer is CanvasLayer and layer.get_child_count() > 0 and layer.get_child(0) is LoadingScreen:
@@ -32,10 +36,15 @@ func run() -> void:
 				push_error("Expected an active loading overlay.")
 				quit(1)
 				return
+			var released: WeakRef = weakref(current_scene)
 			var start := Time.get_ticks_msec()
 			change_scene_to_file(Scenes.MENU)
 			await scene_changed
 			await process_frame
+			if released.get_ref() != null:
+				push_error("Cancelled region root survived its return to Menu: " + path)
+				quit(1)
+				return
 			if is_instance_valid(overlay):
 				push_error("Cancelled loading screen still covers the menu.")
 				quit(1)
