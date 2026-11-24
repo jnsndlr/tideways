@@ -87,8 +87,8 @@ func _check_midnight_costs() -> void:
 	sim.ferries.append(boat)
 	sim.minutes = 1439.5
 	sim.ledger.cash = 0.0
-	boat._burn(Ferry.METRES_PER_NM)
-	var fuel := Ferry.FUEL_PRICE * boat.fc.burn
+	boat._burn(FerryOperatingCosts.METRES_PER_NM)
+	var fuel := FerryOperatingCosts.FUEL_PRICE * boat.fc.burn
 	var half_minute_pay := boat.crew_per_hour() / 120.0
 	sim._process(1.0)
 	check(is_equal_approx(sim.ledger.yesterday["fuel"], fuel), "Midnight posts fuel once")

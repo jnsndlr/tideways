@@ -75,7 +75,7 @@ static func class_text(size: int) -> String:
 	var slip := "small" if fc.size <= MapData.Slip.LARGEST_BOAT[1] else "medium" if fc.size <= MapData.Slip.LARGEST_BOAT[2] else "large"
 	return "Size %d · %s · %d cars · %s\ncrew %d · %s / hr · fuel ~%s / nm · needs a %s slip" % [
 		size, fc.label, fc.capacity, "$" + Hud.fmt_int(fc.price()),
-		fc.crew, Hud.fmt_money(fc.crew * Ferry.CREW_WAGE), Hud.fmt_money(Ferry.FUEL_PRICE * fc.burn), slip]
+		fc.crew, Hud.fmt_money(FerryOperatingCosts.crew_per_hour(fc)), Hud.fmt_money(FerryOperatingCosts.fuel_cost(fc, FerryOperatingCosts.METRES_PER_NM, fc.cruise)), slip]
 
 
 func _refresh_buy() -> void:
