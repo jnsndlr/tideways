@@ -14,6 +14,14 @@ func _initialize() -> void:
 		return
 	for size in range(1, 6):
 		var hull := FerryClass.of(size)
+		var fuel := FerryOperatingCosts.fuel_cost(hull, 1852.0, hull.cruise * 0.5)
+		var forecast := FerryOperatingCosts.forecast_fuel(hull, 1852.0 * pow(hull.cruise * 0.5, 2))
+		if not is_equal_approx(fuel, 3.6 * hull.burn * 0.25) or not is_equal_approx(fuel, forecast):
+			fail("Metered and forecast fuel must agree at half service speed for size %d" % size)
+			return
+		if FerryOperatingCosts.crew_per_hour(hull) != 12.0 * hull.crew:
+			fail("Hourly crew cost must follow the complement for size %d" % size)
+			return
 		var measured := FerryWaterlineProfiles.profile(size, hull.half_length)
 		if measured.size() != HullWaterline.STATIONS + 2 or measured[1] <= 0.0 or measured[2] <= 0.0:
 			fail("Art-free ferry size %d has no measured waterline" % size)
