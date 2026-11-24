@@ -17,6 +17,7 @@ func _initialize() -> void:
 	check_lane_capacity()
 	check_navigation()
 	check_tender_lights()
+	check_pilot_transfer()
 	check_harbour_access()
 	check_wildlife_daylight()
 	check_wildlife_photo()
@@ -138,6 +139,37 @@ func check_tender_lights() -> void:
 			expect(lamp.mesh != null and lamp.layers == NightLights.LAYER, spec.id + " night light mesh and layer")
 			expect(lamp.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, spec.id + " lights cast no shadows")
 		tender.free()
+	traffic.free()
+
+
+func check_pilot_transfer() -> void:
+	var boat := PilotBoat.new()
+	var traffic := MarineTraffic.new()
+	var cargo := CargoShip.new()
+	cargo.spec = VesselTypes.cargo_ships()[0]
+	boat.setup(traffic, "Test", VesselTypes.pilot_boats()[0], MapData.PilotStation.new(), 0, 0)
+	boat.ship = cargo
+	boat._start_work()
+	expect(not boat._work_done(0.0) and boat._work_done(40.0), "Pilot transfer completes without a view")
+
+	var ladder := PilotLadder.new(boat)
+	boat.hull_model.add_child(ladder)
+	expect(not ladder.visible, "Pilot ladder starts stowed")
+	for side: float in [-1.0, 1.0]:
+		boat.side = side
+		boat.ship = cargo
+		cargo.pilot_boat = boat
+		boat._start_work()
+		expect(ladder.visible and ladder.mesh != null, "Pilot transfer deploys a ladder")
+		expect(ladder.basis.z.z * side > 0.0, "Ladder faces the transfer side")
+		if side < 0.0:
+			boat._release_ship()
+			expect(cargo.pilot_boat == null, "Releasing the ship clears the pilot assignment")
+		else:
+			expect(boat._work_done(40.0), "Transfer finishes with a ladder attached")
+		expect(not ladder.visible, "Completed and interrupted transfers stow the ladder")
+	boat.free()
+	cargo.free()
 	traffic.free()
 
 
