@@ -16,6 +16,7 @@ func _initialize() -> void:
 	check_departures()
 	check_lane_capacity()
 	check_navigation()
+	check_tender_lights()
 	check_harbour_access()
 	check_wildlife_daylight()
 	check_wildlife_photo()
@@ -118,6 +119,26 @@ func loading_ferry(route: MapData.Route, a: Terminal, b: Terminal) -> Ferry:
 	boat.state = Ferry.State.LOADING
 	boat.at_a = true
 	return boat
+
+
+func check_tender_lights() -> void:
+	var traffic := MarineTraffic.new()
+	var station := MapData.PilotStation.new()
+	for tender: ShipTender in [Tug.new(), PilotBoat.new()]:
+		var spec := VesselTypes.tugs()[0] if tender is Tug else VesselTypes.pilot_boats()[0]
+		tender.call("setup", traffic, "Test", spec, station, 1, 0)
+		var lamps := tender.lights.get_children()
+		expect(lamps.size() == 2, spec.id + " needs both running lights")
+		for state: ShipTender.State in ShipTender.State.values():
+			tender.state = state
+			tender._show_lights()
+			for lamp: MeshInstance3D in lamps:
+				expect(lamp.visible == (state != ShipTender.State.ALONGSIDE), spec.id + " running light visibility")
+		for lamp: MeshInstance3D in lamps:
+			expect(lamp.mesh != null and lamp.layers == NightLights.LAYER, spec.id + " night light mesh and layer")
+			expect(lamp.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, spec.id + " lights cast no shadows")
+		tender.free()
+	traffic.free()
 
 
 func check_navigation() -> void:

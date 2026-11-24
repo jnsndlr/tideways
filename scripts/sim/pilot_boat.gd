@@ -14,7 +14,6 @@ const TRANSFER := Vector2(25.0, 40.0)    # game minutes on the ladder
 
 var job := Job.BOARD
 var _timer := 0.0
-var _duty_lights: MeshInstance3D
 var _ladder: MeshInstance3D
 
 
@@ -23,14 +22,7 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, st: MapData.PilotStatio
 	vessel_name = nm
 	name = nm
 	_hull = apply_spec(sp, variant)
-	_nav_lights = MeshInstance3D.new()
-	_nav_lights.mesh = Models.pilot_boat_nav_lights()
-	_duty_lights = MeshInstance3D.new()
-	_duty_lights.mesh = Models.pilot_boat_duty_lights()
-	for l: MeshInstance3D in [_nav_lights, _duty_lights]:
-		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		l.layers = NightLights.LAYER
-		lights.add_child(l)
+	_fit_running_lights()
 	_ladder = MeshInstance3D.new()
 	_ladder.visible = false
 	_hull.add_child(_ladder)
@@ -101,11 +93,6 @@ func _release_ship() -> void:
 	if ship != null and is_instance_valid(ship) and ship.pilot_boat == self:
 		ship.pilot_boat = null
 	super()
-
-
-func _show_lights() -> void:
-	super()
-	_duty_lights.visible = state != State.ALONGSIDE
 
 
 ## Running fast and light, she sits up by the bow.
