@@ -11,7 +11,7 @@ var served_at_purchase: int
 var saw_crew := false
 
 func check_drain(staging_count: int) -> String:
-	var sim := Simulation.new()
+	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var term := Terminal.new()
 	sim.add_child(term)
 	term.sim = sim

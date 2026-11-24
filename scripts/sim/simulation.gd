@@ -27,6 +27,8 @@ var tows: Array[DeliveryTow] = []
 var fleet_market := FleetMarket.new(self)
 ## How the company started; its schedules are the only links between terminals.
 var scenario: Scenario
+## Builds one vehicle using this simulation's RNG. The session chooses its presentation.
+var _create_vehicle: Callable
 var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
@@ -60,6 +62,10 @@ var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
 var _tide_phase := 0.0
+
+
+func _init(create_vehicle: Callable) -> void:
+	_create_vehicle = create_vehicle
 
 
 ## Starts from `sc`, or with no scenario puts a boat on every route of the map.
@@ -496,7 +502,7 @@ func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> v
 
 
 func make_vehicle(parent: Node3D = null) -> Vehicle:
-	var vehicle := VehicleFactory.create(rng)
+	var vehicle: Vehicle = _create_vehicle.call(rng)
 	vehicle.moving_traffic = moving_vehicles
 	(parent if parent else traffic).add_child(vehicle)
 	return vehicle

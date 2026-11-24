@@ -82,7 +82,7 @@ static func build(towns := 2) -> TinyRegion:
 
 ## A running Simulation on this region, added under `parent`.
 func start(parent: Node) -> Simulation:
-	var sim := Simulation.new()
+	var sim := Simulation.new(VehicleFactory.create)
 	sim.name = "Simulation"
 	parent.add_child(sim)
 	sim.setup(map, terrain)

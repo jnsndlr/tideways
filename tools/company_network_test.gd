@@ -19,7 +19,7 @@ func _run() -> void:
 func _round_trip() -> String:
 	var generator := MapGenerator.new()
 	var map := generator.generate(123)
-	var original := Simulation.new()
+	var original := Simulation.new(VehicleFactory.create)
 	root.add_child(original)
 	original.setup(map, generator.terrain)
 	var first := original.ferries[0]
@@ -52,7 +52,7 @@ func _round_trip() -> String:
 		for slip in island.slips:
 			for i in slip.routes.size():
 				slip.routes[i] = region.routes.size() - 1 - slip.routes[i]
-	var restored := Simulation.new()
+	var restored := Simulation.new(VehicleFactory.create)
 	root.add_child(restored)
 	var error := restored.setup_from_network(region, fresh.terrain, contents)
 	if error.is_empty():
@@ -93,7 +93,7 @@ func _verify_assignments(sim: Simulation, first_key: String, route_key: String, 
 
 
 func _reject_corruption(map: MapData, terrain: Terrain, saved: Dictionary) -> String:
-	var target := Simulation.new()
+	var target := Simulation.new(VehicleFactory.create)
 	var cases := []
 	for group in ["towns", "routes", "ferries"]:
 		var duplicate := saved.duplicate(true)

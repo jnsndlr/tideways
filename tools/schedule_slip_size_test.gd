@@ -18,7 +18,7 @@ func _run() -> void:
 	# The 1 -> 2 leg is after the first and has a different berth from the 2 -> 0 leg.
 	var berth := last.slips[last.slip_index(region.map.routes[2].id)]
 	berth.size = 1
-	var sim := Simulation.new()
+	var sim := Simulation.new(VehicleFactory.create)
 	root.add_child(sim)
 	sim.setup(region.map, region.terrain, company)
 	var rejected := sim.ferries.size() == 2
@@ -26,7 +26,7 @@ func _run() -> void:
 		rejected = rejected and ferry.fleet_key != service.boat
 	sim.free()
 	berth.size = 2
-	sim = Simulation.new()
+	sim = Simulation.new(VehicleFactory.create)
 	root.add_child(sim)
 	sim.setup(region.map, region.terrain, company)
 	var accepted := sim.ferries.size() == 3 and sim.ferries[0].fleet_key == service.boat

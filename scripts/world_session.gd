@@ -147,7 +147,7 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 
 
 func _setup_simulation(charts: MarineCharts) -> void:
-	sim = Simulation.new()
+	sim = Simulation.new(VehicleFactory.create)
 	sim.name = "Simulation"
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
