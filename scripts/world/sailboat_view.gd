@@ -3,12 +3,14 @@ extends Node3D
 ## The main and jib in the hull's frame, raised under sail and furled under engine.
 
 var _boat: Sailboat
+var _hull: VesselHullView
 var _main := MeshInstance3D.new()
 var _jib := MeshInstance3D.new()
 
 
-func _init(boat: Sailboat) -> void:
+func _init(boat: Sailboat, hull: VesselHullView) -> void:
 	_boat = boat
+	_hull = hull
 	_main.mesh = Models.sailboat_main()
 	_main.position = Models.SAIL_MAIN_PIVOT
 	add_child(_main)
@@ -31,7 +33,7 @@ func _exit_tree() -> void:
 
 
 func _set_sails(hoisted: bool) -> void:
-	_boat.hull_model.mesh = _boat.spec.model.call(0) if hoisted else _boat.spec.model_alt.call(0)
+	_hull.mesh = _boat.spec.model.call(0) if hoisted else _boat.spec.model_alt.call(0)
 	_main.visible = hoisted
 	_jib.visible = hoisted
 

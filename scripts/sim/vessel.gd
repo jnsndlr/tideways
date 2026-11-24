@@ -26,6 +26,7 @@ var hull_radius := 3.0
 var claim_step := 6.0     # spacing of the points MarineTraffic samples ahead
 var hold := INF           # how far it means to go for now (short of a channel or berth it is waiting for)
 var model_variant := 0
+var room_seed := 0.0            # stable pattern of lit rooms as the vessel moves
 var wake: WakeTrail       # its trail on the water, if it leaves one
 var free_nav := false     # steering its own way (a Helm), not along a fixed path
 var consort: Vessel = null   # the ship it is working alongside, if any (their hulls don't count against each other)
@@ -208,9 +209,8 @@ func type_text() -> String:
 	return spec.type_name if spec else kind_text()
 
 
-## Takes on `s`: its hull, handling, wake and look. `variant` picks among the
-## type's model variants.
-func apply_spec(s: VesselSpec, variant := 0) -> MeshInstance3D:
+## Applies the handling and wake and remembers the selected model variant.
+func apply_spec(s: VesselSpec, variant := 0) -> void:
 	spec = s
 	model_variant = variant
 	cruise = s.cruise
@@ -219,19 +219,7 @@ func apply_spec(s: VesselSpec, variant := 0) -> MeshInstance3D:
 	hull_radius = s.radius()
 	claim_step = clampf(s.half_length, 6.0, 15.0)
 	wake = s.make_wake()
-	var hull := MeshInstance3D.new()
-	hull.mesh = s.model.call(variant)
-	hull.scale = Vector3.ONE * s.scale
-	# Fixes which of its rooms are lit (lit_vc.gdshader); the origin would change every frame.
-	hull.material_override = Models.hull_material()
-	hull.set_instance_shader_parameter("room_seed", randf_range(1.0, 1000.0))
-	add_child(hull)
-	var plate: ArrayMesh = s.name_plate.call(vessel_name) if s.name_plate.is_valid() and vessel_name != "" else null
-	if plate:
-		var mi := MeshInstance3D.new()
-		mi.mesh = plate
-		hull.add_child(mi)
-	return hull
+	room_seed = randf_range(1.0, 1000.0)
 
 
 func status_text() -> String:

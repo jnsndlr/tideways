@@ -37,7 +37,6 @@ var state := State.MOORED
 var dwell := 0.0
 var motoring := true
 var _goals: Array[Vector2] = []
-var hull_model: MeshInstance3D
 var _tack := 0                 # which side of the wind it is beating on (+1 / -1), 0 if not beating
 var _tack_time := 0.0
 var _leg_max := 60.0
@@ -49,7 +48,7 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, m: MapData.Marina, b: i
 	traffic = t
 	vessel_name = nm
 	name = nm
-	hull_model = apply_spec(sp)
+	apply_spec(sp)
 	marina = m
 	berth = b
 	dwell = first_dwell

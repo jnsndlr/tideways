@@ -73,6 +73,7 @@ check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
 check motor-yacht-anchor test --script tools/motor_yacht_anchor_test.gd
+check vessel-hull test --script tools/vessel_hull_view_test.gd
 check vessel-night-lights test --script tools/vessel_night_lights_test.gd
 check trawler-gear test --script tools/trawler_gear_test.gd
 check sailboat-rig test --script tools/sailboat_rig_test.gd

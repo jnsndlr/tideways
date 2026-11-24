@@ -23,11 +23,15 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 	sim.add_child(boat)
 	var marina := MapData.Marina.new()
 	boat.setup(sim.marine, "Sloop", VesselTypes.sailboats()[0], marina, 0, 90.0)
+	expect(boat.find_children("*", "MeshInstance3D", true, false).is_empty(), "A simulation sailboat starts without visual nodes")
+	var hull: VesselHullView
 	var view: SailboatView
 	if with_view:
-		view = SailboatView.new(boat)
-		boat.hull_model.add_child(view)
-		check_canvas(boat, view, false)
+		hull = VesselHullView.new(boat)
+		boat.add_child(hull)
+		view = SailboatView.new(boat, hull)
+		hull.add_child(view)
+		check_canvas(boat, hull, view, false)
 	boat.dest = marina
 	boat._goals.append(boat.pos2() + Vector2(0, 550))
 	boat._backed_out()
@@ -35,7 +39,7 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 	boat._set_sails(true)
 	expect(not boat.motoring and boat.road() == Vessel.Road.SAIL, "Hoisting the sails changes right of way")
 	if with_view:
-		check_canvas(boat, view, true)
+		check_canvas(boat, hull, view, true)
 
 	boat._yaw = 0.0
 	boat.speed = boat.cruise
@@ -47,26 +51,26 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 		expect(boat.helm_speed(boat._yaw) > 0.0, "A beam reach drives the sloop")
 		# Change to the opposite tack while the rig is detached, then remount it.
 		if with_view and wind == "E":
-			boat.hull_model.remove_child(view)
+			hull.remove_child(view)
 		boat._pose(2.0)
 		if with_view:
 			if not view.is_inside_tree():
-				boat.hull_model.add_child(view)
+				hull.add_child(view)
 			check_trim(view, tack)
 
 	boat._begin_berthing()
 	expect(boat.motoring and boat.state == Sailboat.State.ARRIVING, "The sloop douses its sails on approach")
 	expect(is_equal_approx(boat.helm_speed(sim.wind_yaw()), boat.spec.motor_speed), "Engine speed is independent of wind")
 	if with_view:
-		check_canvas(boat, view, false)
+		check_canvas(boat, hull, view, false)
 	boat._berthed()
 	expect(boat.state == Sailboat.State.MOORED and is_zero_approx(boat.speed), "The sloop stops at its berth")
 	boat.free()
 
 
-func check_canvas(boat: Sailboat, view: SailboatView, hoisted: bool) -> void:
+func check_canvas(boat: Sailboat, hull: VesselHullView, view: SailboatView, hoisted: bool) -> void:
 	var hull_mesh: Mesh = boat.spec.model.call(0) if hoisted else boat.spec.model_alt.call(0)
-	expect(boat.hull_model.mesh == hull_mesh, "The hull model matches the sail state")
+	expect(hull.mesh == hull_mesh, "The hull model matches the sail state")
 	for mesh: MeshInstance3D in view.get_children():
 		expect(mesh.visible == hoisted, "Sail visibility matches the rig state")
 
