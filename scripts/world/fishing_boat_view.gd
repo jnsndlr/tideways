@@ -9,10 +9,10 @@ var _working: MeshInstance3D
 var _warps := MeshInstance3D.new()
 
 
-func _init(boat: FishingBoat) -> void:
+func _init(boat: FishingBoat, lights: VesselNightLights) -> void:
 	_boat = boat
 	scale = Vector3.ONE * boat.spec.scale
-	var lamps := VesselLightGroup.new(boat.lights)
+	var lamps := VesselLightGroup.new(lights)
 	add_child(lamps)
 	_navigation = lamps.add_lamp(Models.trawler_nav_lights())
 	_steaming = lamps.add_lamp(Models.trawler_steaming_lights())

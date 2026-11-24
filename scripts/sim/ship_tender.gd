@@ -35,7 +35,6 @@ var _gap := 0.0                # how far off the ship's side its station is now
 var _locked := false           # holding its station
 var _along := 0.0              # how far its station has dropped back along the ship (sheering off)
 var _holding := false          # lying stopped at its standby or waiting spot
-var _running_lights: Array[MeshInstance3D] = []
 
 
 # --- Hooks ----------------------------------------------------------------------------
@@ -191,7 +190,6 @@ func _process(delta: float) -> void:
 			_keep_station(delta)
 		_:
 			_navigate(delta)
-	_show_lights()
 	var under_way := state != State.ALONGSIDE
 	var d := Vector3(sin(_yaw), 0.0, cos(_yaw))
 	wake.update(delta, global_position, d, speed * delta if under_way else 0.0,
@@ -493,21 +491,6 @@ func _pick_side(sh: CargoShip, prefer: float, s0: float, s1: float) -> float:
 					bad[k] += 1
 		d += 24.0
 	return prefer if bad[0] <= bad[1] else -prefer
-
-
-func _fit_running_lights() -> void:
-	for build_mesh in spec.running_lights:
-		var lamp := MeshInstance3D.new()
-		lamp.mesh = build_mesh.call()
-		lamp.cast_shadow = lights.cast_shadow
-		lamp.layers = lights.layers
-		lights.add_child(lamp)
-		_running_lights.append(lamp)
-
-
-func _show_lights() -> void:
-	for lamp in _running_lights:
-		lamp.visible = state != State.ALONGSIDE
 
 
 # --- Vessel ---------------------------------------------------------------------------

@@ -3,5 +3,4 @@ scripts/sim/slip_guides.gd -> scripts/world/model_parts.gd
 scripts/sim/slip_guides.gd -> scripts/world/models.gd
 scripts/sim/slip_ramp.gd -> scripts/world/models.gd
 scripts/sim/vessel.gd -> scripts/world/models.gd
-scripts/sim/vessel.gd -> scripts/world/night_lights.gd
 scripts/sim/vessel_types.gd -> scripts/world/models.gd
