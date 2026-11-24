@@ -69,8 +69,8 @@ func _process(delta: float) -> bool:
 	var madrona := _term(sim, "island-2")
 	if frames == 5:
 		Engine.time_scale = 6.0
-		hiyu.pace = 2
-		rhodo.pace = 0
+		hiyu.set_pace(FerryPace.FULL_AHEAD)
+		rhodo.set_pace(FerryPace.ECONOMY)
 		var ids: Array[int] = [rosario.town.id, madrona.town.id]
 		# Both on one timetable's beat, Rhododendron leaving Port Rosario so that
 		# halfway across she meets Hiyu halfway back (at their different paces).

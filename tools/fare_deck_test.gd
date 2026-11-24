@@ -9,6 +9,7 @@ func check(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	_check_pace()
 	_check_midnight_costs()
 	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var car := Vehicle.new()
@@ -100,3 +101,13 @@ func _check_midnight_costs() -> void:
 	check(is_equal_approx(sim.ledger.cash, -fuel - 2.0 * half_minute_pay), "Both days reconcile to the cash balance")
 	boat.free()
 	sim.free()
+
+
+func _check_pace() -> void:
+	var pace := FerryPace.new()
+	check(pace.selected == FerryPace.SERVICE and pace.cruise(20.0) == 20.0, "Service is the default pace")
+	pace.select(-1)
+	check(FerryPace.label(pace.selected) == "Economy" and pace.cruise(20.0) == 17.0, "A low selection clamps to Economy")
+	check(pace.cruise(20.0, FerryPace.FULL_AHEAD) == 22.0 and pace.selected == FerryPace.ECONOMY, "Previewing another pace preserves the selected pace")
+	pace.select(99)
+	check(FerryPace.label(pace.selected) == "Full ahead" and pace.cruise(20.0) == 22.0, "A high selection clamps to Full ahead")

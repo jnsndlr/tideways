@@ -20,9 +20,6 @@ const DISPATCH_GAP := 0.5
 const ARRIVAL_PRIORITY := 660.0
 # Coming in, the slip's span starts down to the deck this far out (SlipRamp).
 const RAMP_LOWER_AT := 40.0
-# Pace settings: [share of the class's service speed, name]
-const PACES := [[0.85, "Economy"], [1.0, "Service"], [1.1, "Full ahead"]]
-const SERVICE_PACE := 1
 
 var sim: Simulation
 var fc: FerryClass
@@ -90,7 +87,9 @@ var traveled: float:      # how far the hull's centre has come, dock to dock
 var trips: int:
 	get: return voyage.trips
 	set(value): voyage.trips = value
-var pace := SERVICE_PACE
+var _pace := FerryPace.new()
+var pace: int:
+	get: return _pace.selected
 var fuel_today := 0.0     # $ this hull has burnt since midnight
 var crew_today := 0.0
 var last_crossing_fuel := 0.0
@@ -1900,7 +1899,7 @@ func off_shift() -> bool:
 
 ## The class's cruise speed at her pace setting; her captain then takes it from there.
 func paced_cruise(p := pace) -> float:
-	return fc.cruise * PACES[p][0]
+	return _pace.cruise(fc.cruise, p)
 
 
 ## Open-water speed at her pace, under the captain who has (or is taking) the helm.
@@ -1910,14 +1909,14 @@ func cruise_speed() -> float:
 
 ## Takes effect at once, even mid-crossing (unlike a change of captain).
 func set_pace(p: int) -> void:
-	pace = clampi(p, 0, PACES.size() - 1)
+	_pace.select(p)
 	cruise = captain.cruise(paced_cruise())
 	_forecasts.clear()
 	_offsets.clear()
 
 
 func pace_name() -> String:
-	return PACES[pace][1]
+	return FerryPace.label(pace)
 
 
 ## Gallons per nautical mile at speed `v` (map m/s).

@@ -61,12 +61,17 @@ func _process(_delta: float) -> bool:
 		_times = [400, 400 + ceili(round_min)]
 		if not sim.reschedule(hiyu, ids, _times):
 			return _fail("Refused a timetable a round apart")
-		hiyu.set_pace(0)
+		var service_forecast := hiyu.crossing_minutes()
+		hiyu.set_pace(FerryPace.ECONOMY)
+		if hiyu.crossing_minutes() <= service_forecast:
+			return _fail("Economy pace still uses the service crossing forecast")
 		if not hiyu.late_sailings().has(true):
 			return _fail("Economy pace didn't flag the tight sailing red")
 		if hiyu.timetable != _times:
 			return _fail("Changing pace moved her timetable")
-		hiyu.set_pace(Ferry.SERVICE_PACE)
+		hiyu.set_pace(FerryPace.SERVICE)
+		if hiyu.crossing_minutes() != service_forecast:
+			return _fail("Returning to Service must restore its crossing forecast")
 		if hiyu.late_sailings().has(true):
 			return _fail("Service pace still flags a sailing red")
 		return false
