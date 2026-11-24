@@ -6,6 +6,8 @@ extends Vessel
 ## (FerryClass) sets how many cars it takes and how fast it goes; whatever its
 ## length, it docks with its end at the ramp.
 
+signal net_state_changed
+
 const State = FerryVoyage.State
 
 const YIELD_DECEL := FerryVoyage.YIELD_DECEL
@@ -86,10 +88,10 @@ var state: FerryVoyage.State:
 var at_a: bool:        # docked at A, or departed from A while sailing
 	get: return voyage.at_a
 	set(value): voyage.at_a = value
-var hull: MeshInstance3D
-# The car deck nets at -Z and +Z (FerryClass.net_z).
-var _nets: Array[MeshInstance3D] = []
-var _net_wind := Vector2.ZERO
+var room_seed := 0.0
+## The lowered car deck net, in the hull frame (-Z or +Z). Zero means both ends are closed.
+var open_net_end := 0
+var net_wind := Vector2.ZERO
 var traveled: float:      # how far the hull's centre has come, dock to dock
 	get: return voyage.traveled
 	set(value): voyage.traveled = value
@@ -238,24 +240,8 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	stops = [r.a, r.b]
 	legs = [r, r]
 	deck = FerryDeck.new(fc)
-	hull = MeshInstance3D.new()
-	hull.mesh = Models.ferry(fc)
-	# Fixes which of its rooms are lit (lit_vc.gdshader); the origin would change every frame.
-	hull.material_override = Models.hull_material()
-	hull.set_instance_shader_parameter("room_seed", randf_range(1.0, 1000.0))
-	add_child(hull)
-	var thin_shadow := Models.ferry_thin_shadow(fc)
-	if thin_shadow:
-		var mi := MeshInstance3D.new()
-		mi.mesh = thin_shadow
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-		hull.add_child(mi)
-	for e: float in [-1.0, 1.0]:
-		var net := MeshInstance3D.new()
-		net.mesh = Models.ferry_net(fc)
-		net.position.z = e * fc.net_z
-		add_child(net)
-		_nets.append(net)
+	# A stable room pattern, drawn once per ferry even in a view-free simulation.
+	room_seed = randf_range(1.0, 1000.0)
 	_build_yaws()
 	_place(-_inset)
 
@@ -592,8 +578,7 @@ func _process(delta: float) -> void:
 	# Both nets up under way; alongside, the one at the docked end (-Z at A) is down
 	# while cars drive off and on over it, once the apron is down on the deck.
 	var docked := state != State.SAILING and _ramp_down()
-	_nets[0].visible = not (docked and _minus)
-	_nets[1].visible = not (docked and not _minus)
+	open_net_end = (-1 if _minus else 1) if docked else 0
 	if berth != Berth.WORKING:
 		_let_go_of_slip()
 		_tick_berth(delta)
@@ -1627,15 +1612,14 @@ func _update_trail(delta: float) -> void:
 	_blow_nets(moved / delta if moving and delta > 0.0 else Vector3.ZERO, delta)
 
 
-## The wind the nets feel (net.gdshader): the true wind less the ferry's own way, at
+## The wind the nets feel: the true wind less the ferry's own way, at
 ## real speeds, in the hull's frame. Eased, so a jerky frame doesn't snap them.
 func _blow_nets(vel: Vector3, delta: float) -> void:
 	var wf := sim.wind_from()
 	var true_wind := -Vector3(wf.x, 0.0, wf.y) * sim.wind_speed / 3.6
 	var local := global_basis.inverse() * (true_wind - vel / Units.SPEED_UP)
-	_net_wind = _net_wind.lerp(Vector2(local.x, local.z), minf(1.0, delta * 1.5))
-	for net in _nets:
-		net.set_instance_shader_parameter("wind", _net_wind)
+	net_wind = net_wind.lerp(Vector2(local.x, local.z), minf(1.0, delta * 1.5))
+	net_state_changed.emit()
 
 
 func wake_hull() -> Vector4:

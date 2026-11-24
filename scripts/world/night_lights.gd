@@ -131,7 +131,9 @@ func _process(_delta: float) -> void:
 		var flip := 1.0 if f.at_a else -1.0
 		if _ferry_lights.has(f):
 			_ferry_lights[f].set_instance_shader_parameter("nav_flip", flip)
-		f.hull.set_instance_shader_parameter("nav_flip", flip)
+		var view := f.get_node_or_null(^"FerryView") as FerryView
+		if view:
+			view.hull.set_instance_shader_parameter("nav_flip", flip)
 	_update_cars()
 
 

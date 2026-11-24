@@ -67,7 +67,7 @@ func _process(_delta: float) -> bool:
 	seq += 1
 	_next = frames + every
 	if seq >= count:
-		print("shot ", f.ferry_name, " size ", f.fc.size, " net wind ", f._net_wind)
+		print("shot ", f.ferry_name, " size ", f.fc.size, " net wind ", f.net_wind)
 		cam.queue_free()
 		cam = null
 		seq = 0
