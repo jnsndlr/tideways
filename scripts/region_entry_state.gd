@@ -7,8 +7,3 @@ static var layout: MapLayout
 static var unsaved := false
 static var scenario_path := ""
 static var editor_restore := {}
-
-
-static func select_authored(path: String) -> void:
-	scenario_path = path
-	editor_restore.clear()

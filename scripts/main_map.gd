@@ -23,6 +23,11 @@ var _site_pins: Node3D
 var editor: IslandEditor
 
 
+static func start_session(path: String) -> void:
+	RegionEntryState.scenario_path = path
+	RegionEntryState.editor_restore.clear()
+
+
 func _ready() -> void:
 	SessionDiagnostics.attach(self)
 	var options := Scenes.launch_options.values
