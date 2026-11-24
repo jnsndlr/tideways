@@ -15,7 +15,7 @@ var _route_samples := PackedVector3Array()
 var _shore_routes: RouteSampleGrid
 var _slip_zones: Array = []   # [shore, dock_dir, lateral, slip offset, route ids, lateral min, lateral max]
 ## When set, terminals and links come from it instead of being planned.
-var _scenario: Scenario
+var _plan: RegionPlan
 ## The layout's docks are locked by hand (MapLayout.locked_docks): terminals go
 ## only at those, never at a spot picked to face the links.
 var _locked := false
@@ -72,23 +72,23 @@ func generate(map_seed: int) -> MapData:
 
 ## Builds the map an authored layout describes: its islands as given, and the
 ## mainland, islets, routes, towns and the rest from its world seed. With a
-## `scenario`, only its terminals are built and only its scheduled stops linked.
-func generate_from(layout: MapLayout, scenario: Scenario = null) -> MapData:
-	_build(layout, scenario)
+## `plan`, only its terminals are built and only its scheduled stops linked.
+func generate_from(layout: MapLayout, plan: RegionPlan = null) -> MapData:
+	_build(layout, plan)
 	if _should_stop():
 		map = null
 		terrain = null
 	return map
 
 
-func _build(layout: MapLayout, scenario: Scenario) -> void:
+func _build(layout: MapLayout, plan: RegionPlan) -> void:
 	if _should_stop():
 		return
-	_scenario = scenario
+	_plan = plan
 	_locked = layout.locked_docks()
 	_planner = null
 	_route_samples.clear()
-	_memo.load_for(route_cache_path, "" if route_cache_path.is_empty() else _route_cache_key(layout, scenario))
+	_memo.load_for(route_cache_path, "" if route_cache_path.is_empty() else _route_cache_key(layout, plan))
 	var map_seed := layout.world_seed
 	rng.seed = map_seed
 	map = MapData.new()
@@ -386,8 +386,8 @@ func _make_towns() -> void:
 
 ## Whether town `t`'s terminal is the company's from the start.
 func _owned(t: MapData.Town) -> bool:
-	if _scenario:
-		return _scenario.terminals.has(t.key)
+	if _plan:
+		return _plan.terminals.has(t.key)
 	return map.islands[t.island].ferry and t.site <= 0
 
 
@@ -413,13 +413,13 @@ static func _find(parent: Array, i: int) -> int:
 func _plan_routes() -> void:
 	var mains: Array[MapData.Town] = []
 	for t in map.towns:
-		if _locked and _scenario:
+		if _locked and _plan:
 			# Every dock site is planned for, owned or not, so buying one in play
 			# needs nothing built (TID-319). (--full-network keeps the old
 			# spanning tree over the islands' first sites.)
 			if t.has_dock:
 				mains.append(t)
-			elif _scenario and _scenario.terminals.has(t.key):
+			elif _plan and _plan.terminals.has(t.key):
 				push_warning("%s (%s) has no dock placed in the layout, so no terminal" % [t.name, t.key])
 		elif _owned(t) and (t.has_dock or not _locked):
 			mains.append(t)
@@ -459,7 +459,7 @@ func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 		for j in range(i + 1, mains.size()):
 			var d := mains[i].center.distance_to(mains[j].center)
 			# A generated network links islands in reach of each other; a scenario's
-			# links are its own (_scenario_links), however far apart.
+			# links are its own (_planned_links), however far apart.
 			if d < 3100.0 and not banned.has(Vector2i(i, j)):
 				edges.append([d, i, j])
 	edges.sort_custom(func(a, b): return a[0] < b[0])
@@ -471,9 +471,9 @@ func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 	for i in mains.size():
 		bearings.append(PackedFloat32Array())
 	var chosen: Array = []
-	if _scenario:
-		_scenario_links(mains, banned, chosen)
-	for e in (edges if _scenario == null else []):
+	if _plan:
+		_planned_links(mains, banned, chosen)
+	for e in (edges if _plan == null else []):
 		var a: int = e[1]
 		var b: int = e[2]
 		if degree[a] >= 3 or degree[b] >= 3 or not _fits_terminal(mains, bearings, a, b):
@@ -483,7 +483,7 @@ func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 		if ra != rb:
 			parent[ra] = rb
 			_link(mains, bearings, degree, chosen, e)
-	for e in (edges if _scenario == null else []):
+	for e in (edges if _plan == null else []):
 		var a: int = e[1]
 		var b: int = e[2]
 		if chosen.has(e) or e[0] > 1900.0 or degree[a] >= 2 or degree[b] >= 2 or not _fits_terminal(mains, bearings, a, b):
@@ -502,7 +502,7 @@ func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 			var v: Vector2 = desired.get(me.id, Vector2.ZERO)
 			desired[me.id] = v + (other.center - me.center).normalized()
 	# A scenario terminal with no scheduled stop faces its nearest fellow terminal.
-	if _scenario:
+	if _plan:
 		for isl in mains:
 			if not desired.has(isl.id):
 				var near: MapData.Town = null
@@ -558,7 +558,7 @@ func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 
 	for isl in mains:
 		var here: Array[int] = calls[isl.id]
-		if here.is_empty() and not (isl.has_dock and (_scenario or _locked)):
+		if here.is_empty() and not (isl.has_dock and (_plan or _locked)):
 			isl.has_dock = false
 			continue
 		var lat := isl.lateral()
@@ -590,33 +590,33 @@ func _try_routes(mains: Array[MapData.Town], banned: Dictionary) -> Array:
 ## turn by neighbouring routes; a planned network gives every route a large slip.
 func _assign_slips(isl: MapData.Town, routes: Array[int]) -> void:
 	isl.slips.clear()
-	if _scenario == null:
+	if _plan == null:
 		for rid in routes:
 			isl.add_route_slip(rid)
 		return
-	for size in _scenario.slip_sizes(isl.key):
+	for size in _plan.slip_sizes(isl.key):
 		isl.slips.append(MapData.Slip.new(size))
 	for i in routes.size():
 		isl.slips[floori(i * isl.slips.size() / float(routes.size()))].routes.append(routes[i])
-	for size in _scenario.tie_ups.get(isl.key, []):
+	for size in _plan.tie_ups.get(isl.key, []):
 		isl.slips.append(MapData.Slip.new(size, true))
 	# A site bought in play opens with one small slip and two paved lanes.
-	isl.open_lanes = _scenario.lanes.get(isl.key, 0 if _scenario.terminals.has(isl.key) else 2)
+	isl.open_lanes = _plan.lanes.get(isl.key, 0 if _plan.terminals.has(isl.key) else 2)
 
 
 ## The scenario's scheduled links as edges ([distance, i, j] into `mains`), then
 ## every other pair of its terminals as a candidate ([distance, i, j, true])
 ## the schedule editor can put a boat on. A candidate with no sensible route is
 ## banned like any other link.
-func _scenario_links(mains: Array[MapData.Town], banned: Dictionary, chosen: Array) -> void:
+func _planned_links(mains: Array[MapData.Town], banned: Dictionary, chosen: Array) -> void:
 	var index := {}
 	for i in mains.size():
 		index[mains[i].key] = i
 	var linked := {}
-	for pair in _scenario.links():
+	for pair in _plan.links:
 		if index.has(pair[0]) and index.has(pair[1]):
 			linked[Vector2i(mini(index[pair[0]], index[pair[1]]), maxi(index[pair[0]], index[pair[1]]))] = true
-	for pair in _scenario.links():
+	for pair in _plan.links:
 		if not (index.has(pair[0]) and index.has(pair[1])):
 			push_warning("Scenario links %s and %s, which are not both its terminals" % [pair[0], pair[1]])
 			continue
@@ -818,7 +818,7 @@ func _route_curve(pa: Vector3, na: Vector3, pb: Vector3, nb: Vector3, route_id :
 	var key := "%.1f,%.1f,%.3f,%.3f|%.1f,%.1f,%.3f,%.3f|%d" % [pa.x, pa.z, na.x, na.z, pb.x, pb.z, nb.x, nb.z, route_id]
 	if _memo.routes.has(key):
 		return _curve_of(_memo.routes[key])
-	if _scenario == null and not _locked:
+	if _plan == null and not _locked:
 		# A generated network (Sandbox) keeps to direct routes, as before.
 		return _direct_curve(pa, na, pb, nb, route_id, 0.0)
 	var c: Curve3D = null
@@ -1960,7 +1960,7 @@ static func _hold_grade(y: PackedFloat32Array, rise: float, pinned: bool) -> Pac
 
 
 ## All geometry and scenario inputs that affect the saved route curves.
-static func _route_cache_key(layout: MapLayout, scenario: Scenario) -> String:
-	var scenario_key := [] if scenario == null else [scenario.terminals, scenario.slips, scenario.tie_ups, Array(scenario.links()).map(func(l): return Array(l))]
-	var inputs := [ROUTE_PLANNER_VERSION, LAND_CLEARANCE, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, CLEARANCE_STEPS, layout.to_json(), scenario_key]
+static func _route_cache_key(layout: MapLayout, plan: RegionPlan) -> String:
+	var plan_key := [] if plan == null else [plan.terminals, plan.slips, plan.tie_ups, Array(plan.links).map(func(l): return Array(l))]
+	var inputs := [ROUTE_PLANNER_VERSION, LAND_CLEARANCE, CLEARANCE_TAPER_FROM, CLEARANCE_SLOPE, CLEARANCE_STEPS, layout.to_json(), plan_key]
 	return str(hash(JSON.stringify(inputs)))
