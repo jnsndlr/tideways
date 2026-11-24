@@ -1,12 +1,10 @@
 scripts/sim/ferry.gd -> scripts/world/models.gd
 scripts/sim/ferry_class.gd -> scripts/world/models.gd
-scripts/sim/slip_guides.gd -> scripts/world/eagles.gd
 scripts/sim/slip_guides.gd -> scripts/world/glow_builder.gd
 scripts/sim/slip_guides.gd -> scripts/world/mesh_builder.gd
 scripts/sim/slip_guides.gd -> scripts/world/model_parts.gd
 scripts/sim/slip_guides.gd -> scripts/world/models.gd
 scripts/sim/slip_guides.gd -> scripts/world/night_lights.gd
-scripts/sim/slip_guides.gd -> scripts/world/seagulls.gd
 scripts/sim/slip_ramp.gd -> scripts/world/models.gd
 scripts/sim/vessel.gd -> scripts/world/models.gd
 scripts/sim/vessel.gd -> scripts/world/night_lights.gd

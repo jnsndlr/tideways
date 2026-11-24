@@ -194,9 +194,9 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	var gulls := Seagulls.new()
 	add_child(gulls)
 	for terminal: Terminal in sim.terminals.values():
-		for g in terminal.slip_guides:
-			if g:
-				g.add_perches(builder.gull_perches, builder.eagle_perches)
+		for guide in terminal.slip_guides:
+			if guide:
+				builder.add_slip_perches(guide)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
 	if not await _setup_frames.can_continue():
 		return

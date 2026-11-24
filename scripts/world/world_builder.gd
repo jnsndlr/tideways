@@ -350,6 +350,22 @@ func _block(p: Vector3, radius: float) -> void:
 			_blocked[Vector2i(cx + dx, cz + dz)] = true
 
 
+## Fitted slip guides have room for three gulls across each deck. Only the inner
+## dolphins have space for an eagle. The outer ones carry the slip lanterns.
+func add_slip_perches(guide: SlipGuides) -> void:
+	for cap in guide.inner_caps:
+		_add_slip_gull_perches(guide.slip_to_world, cap)
+		eagle_perches.append(Eagles.Perch.new(guide.slip_to_world * cap, Eagles.Kind.DOLPHIN))
+	for cap in guide.outer_caps:
+		_add_slip_gull_perches(guide.slip_to_world, cap)
+
+
+func _add_slip_gull_perches(slip_to_world: Transform3D, cap: Vector3) -> void:
+	for k in 3:
+		var seat := slip_to_world * (cap + Vector3(0, 0, (k - 1) * 1.6))
+		gull_perches.append(Seagulls.Perch.new(seat, seat, 0.0, Seagulls.Kind.DOLPHIN))
+
+
 ## A perch along a → b, `spread` either side of it (see Seagulls.Perch).
 ## None on a terminal not open yet (it's hidden).
 func _perch(a: Vector3, b: Vector3, spread: float, kind: int) -> void:

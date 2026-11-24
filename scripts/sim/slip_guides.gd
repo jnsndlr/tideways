@@ -74,12 +74,12 @@ var v := 0.0
 var size := 0
 var fenders: Array[Fender] = []
 var walls: Array[Wall] = []
-# Deck tops of the inner and outer dolphins (slip frame), for the wildlife's perches.
+# Deck tops of the inner and outer dolphins, in the slip frame.
 var inner_caps: Array[Vector3] = []
 var outer_caps: Array[Vector3] = []
+var slip_to_world := Transform3D.IDENTITY
 var _parts: MeshParts
 var _terrain: Terrain
-var _world := Transform3D.IDENTITY
 
 
 static func available() -> bool:
@@ -92,7 +92,7 @@ func _init(slip_v: float, terminal_xform: Transform3D, terrain: Terrain, parts: 
 	position.x = slip_v
 	_parts = parts
 	_terrain = terrain
-	_world = terminal_xform * Transform3D(Basis.IDENTITY, position)
+	slip_to_world = terminal_xform * Transform3D(Basis.IDENTITY, position)
 
 
 ## Builds (or rebuilds) the guides for a slip of `s`.
@@ -108,7 +108,7 @@ func fit(s: int) -> void:
 	outer_caps.clear()
 	var mb := MeshBuilder.new()
 	var glows := GlowBuilder.new()
-	glows.xform = _world
+	glows.xform = slip_to_world
 	var inner_u := _slip_inner_u(s)
 	var inner := _slip_face_v(s, inner_u)
 	var outer := _slip_face_v(s, Layout.DOLPHIN_OUTER.x)
@@ -136,17 +136,6 @@ func fit(s: int) -> void:
 	lights.layers = NightLights.LAYER
 	add_child(lights)
 	_apply()
-
-
-## The wildlife's seats on the dolphins, in world space: three gulls across each deck,
-## and an eagle on each inner one (the outer ones' lanterns leave it no room).
-func add_perches(gulls: Array[Seagulls.Perch], eagles: Array[Eagles.Perch]) -> void:
-	for cap in inner_caps + outer_caps:
-		for k in 3:
-			var seat := _world * (cap + Vector3(0, 0, (k - 1) * 1.6))
-			gulls.append(Seagulls.Perch.new(seat, seat, 0.0, Seagulls.Kind.DOLPHIN))
-	for cap in inner_caps:
-		eagles.append(Eagles.Perch.new(_world * cap, Eagles.Kind.DOLPHIN))
 
 
 func _process(delta: float) -> void:
@@ -380,7 +369,7 @@ func _pile_to_seabed(mb: MeshBuilder, part: MeshBuilder, at: Transform3D) -> voi
 	var down := (foot - all).normalized()
 	if down.y > -0.5:
 		down = Vector3.DOWN
-	var w := _world * foot
+	var w := slip_to_world * foot
 	var bed := _terrain.height_at(w.x, w.z) - PILE_SINK
 	if bed > foot.y - 0.05:
 		return
