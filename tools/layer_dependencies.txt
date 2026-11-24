@@ -10,7 +10,6 @@ scripts/sim/motor_yacht.gd -> scripts/world/night_lights.gd
 scripts/sim/pilot_boat.gd -> scripts/world/models.gd
 scripts/sim/pilot_boat.gd -> scripts/world/night_lights.gd
 scripts/sim/sailboat.gd -> scripts/world/models.gd
-scripts/sim/simulation.gd -> scripts/world/vehicle_factory.gd
 scripts/sim/slip_guides.gd -> scripts/world/eagles.gd
 scripts/sim/slip_guides.gd -> scripts/world/glow_builder.gd
 scripts/sim/slip_guides.gd -> scripts/world/mesh_builder.gd

@@ -24,7 +24,7 @@ func _initialize() -> void:
 
 
 func check_wind() -> void:
-	var sim := Simulation.new()
+	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var bearings := {"N": Vector2.UP, "NE": Vector2(1, -1), "E": Vector2.RIGHT,
 		"SE": Vector2(1, 1), "S": Vector2.DOWN, "SW": Vector2(-1, 1),
 		"W": Vector2.LEFT, "NW": Vector2(-1, -1)}
@@ -38,7 +38,7 @@ func check_wind() -> void:
 
 
 func check_demand() -> void:
-	var sim := Simulation.new()
+	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var island := MapData.Town.new()
 	island.population = 5200
 	sim.minutes = 2 * 60
@@ -81,7 +81,7 @@ func check_lane_capacity() -> void:
 
 
 func check_departures() -> void:
-	var sim := Simulation.new()
+	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var origin := Terminal.new()
 	var destination := Terminal.new()
 	var elsewhere := Terminal.new()

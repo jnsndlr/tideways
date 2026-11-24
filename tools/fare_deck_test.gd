@@ -10,7 +10,7 @@ func check(condition: bool, message: String) -> void:
 
 func _initialize() -> void:
 	_check_midnight_costs()
-	var sim := Simulation.new()
+	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var car := Vehicle.new()
 	sim.collect_fare(car)
 	check(is_equal_approx(sim.revenue_today, 18.5), "Fallback car fare")
@@ -79,7 +79,7 @@ func _initialize() -> void:
 
 
 func _check_midnight_costs() -> void:
-	var sim := Simulation.new()
+	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var boat := Ferry.new()
 	boat.sim = sim
 	boat.fc = FerryClass.of(2)

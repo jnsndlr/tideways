@@ -16,6 +16,7 @@ func _initialize() -> void:
 
 
 func run() -> void:
+	check_injected_spawner()
 	var original_mode := Models.mid_cars
 	for authored: bool in [true, false]:
 		Models.mid_cars = authored
@@ -29,8 +30,32 @@ func run() -> void:
 	quit(1 if failures else 0)
 
 
+## A rules-only simulation can spawn and charge a fare without constructing a model.
+func check_injected_spawner() -> void:
+	var draws: Array[int] = []
+	var create := func(rng: RandomNumberGenerator) -> Vehicle:
+		draws.append(rng.randi())
+		return Vehicle.new()
+	var sim := Simulation.new(create)
+	sim.traffic = Node3D.new()
+	sim.add_child(sim.traffic)
+	var deck := Node3D.new()
+	sim.add_child(deck)
+	var expected := RandomNumberGenerator.new()
+	expected.seed = 123
+	sim.rng.seed = 123
+	var road_vehicle := sim.make_vehicle()
+	var deck_vehicle := sim.make_vehicle(deck)
+	expect(draws == [expected.randi(), expected.randi()] and expected.state == sim.rng.state, "Each spawn should use the simulation RNG once with this creator")
+	expect(road_vehicle.get_parent() == sim.traffic and deck_vehicle.get_parent() == deck, "Simulation should attach injected vehicles to the requested parent")
+	expect(is_same(road_vehicle.moving_traffic, sim.moving_vehicles) and is_same(deck_vehicle.moving_traffic, sim.moving_vehicles), "Both vehicles should share their simulation's traffic registry")
+	sim.collect_fare(deck_vehicle)
+	expect(is_equal_approx(sim.revenue_today, 18.5), "A vehicle without a mesh should earn the same car fare")
+	sim.free()
+
+
 func check_spawned_traffic(authored: bool) -> void:
-	var sim := Simulation.new()
+	var sim := Simulation.new(VehicleFactory.create)
 	sim.rng.seed = 123
 	sim.traffic = Node3D.new()
 	sim.add_child(sim.traffic)
@@ -68,7 +93,7 @@ func check_spawned_traffic(authored: bool) -> void:
 
 
 func make_world() -> Simulation:
-	var sim := Simulation.new()
+	var sim := Simulation.new(VehicleFactory.create)
 	sim.traffic = Node3D.new()
 	sim.add_child(sim.traffic)
 	root.add_child(sim)

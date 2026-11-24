@@ -51,7 +51,7 @@ func _run() -> void:
 # for consecutive slots owned by the same instance, even when trails overlap.
 func _check_repeated_slots() -> bool:
 	var field := WakeField.new()
-	var simulation := Simulation.new()
+	var simulation := Simulation.new(Vehicle.new.unbind(1))
 	var traffic := MarineTraffic.new()
 	simulation.marine = traffic
 	field.sim = simulation
