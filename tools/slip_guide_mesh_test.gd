@@ -1,19 +1,29 @@
 extends SceneTree
-## Check moving guide geometry and the bird seats on its fixed dolphins.
+## Check moving guide geometry, perch placement and outer-dolphin lanterns.
 
 func _initialize() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
 	var parts := SlipGuides.MeshParts.new()
 	var left := SlipGuides.new(0, Transform3D.IDENTITY, null, parts)
 	var terminal := Transform3D(Basis(Vector3.UP, 0.7), Vector3(90, 4, -30))
 	var slip_offset := 30.0
 	var right := SlipGuides.new(slip_offset, terminal, null, parts)
+	var terminal_node := Node3D.new()
+	terminal_node.transform = terminal
+	root.add_child(terminal_node)
+	terminal_node.add_child(right)
 	left.fit(2)
 	right.fit(2)
 	var failure := check_independence(left, right)
 	if failure.is_empty():
 		failure = check_perches(right, terminal, slip_offset)
+	if failure.is_empty():
+		failure = check_lantern_refit(right, terminal_node)
 	left.free()
-	right.free()
+	terminal_node.free()
 	if not failure.is_empty():
 		push_error(failure)
 		quit(1)
@@ -80,4 +90,57 @@ func check_perches(guide: SlipGuides, terminal: Transform3D, slip_offset: float)
 				return "Eagle seats must follow the inner cap centers"
 			if eagle.kind != Eagles.Kind.DOLPHIN or not is_nan(eagle.look):
 				return "An eagle can face any direction at the center of each inner cap"
+	return ""
+
+
+func check_lantern_refit(guide: SlipGuides, terminal: Node3D) -> String:
+	var builder := WorldBuilder.new(MapData.new(), null)
+	builder.add_slip_guide_lights(guide)
+	var failure := check_lantern_mesh(guide)
+	if not failure.is_empty():
+		return failure
+	var lights: MeshInstance3D = guide.get_node("Lights")
+	terminal.hide()
+	if lights.is_visible_in_tree():
+		return "A hidden terminal must hide its guide lanterns"
+	terminal.show()
+	if not lights.is_visible_in_tree():
+		return "Opening a terminal must reveal its guide lanterns"
+
+	guide.fit(guide.size)
+	if guide.get_node_or_null("Lights") != lights:
+		return "Fitting the same size must preserve the lanterns"
+	guide.fit(2)
+	var glow_count := 0
+	for part in guide.get_children():
+		if part is MeshInstance3D and part.material_override == GlowBuilder.material():
+			glow_count += 1
+	if glow_count != 1:
+		return "Refitting a slip must leave exactly one lantern mesh"
+	return check_lantern_mesh(guide)
+
+
+func check_lantern_mesh(guide: SlipGuides) -> String:
+	var lights := guide.get_node_or_null("Lights") as MeshInstance3D
+	if not lights or not lights.mesh or lights.material_override != GlowBuilder.material():
+		return "A fitted guide needs its lantern glow mesh and material"
+	if not lights.top_level or lights.layers != NightLights.LAYER or lights.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+		return "Lanterns use world coordinates and the night-light layer outside the minimap"
+	var arrays := lights.mesh.surface_get_arrays(0)
+	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var params: PackedFloat32Array = arrays[Mesh.ARRAY_CUSTOM0]
+	if positions.size() != 16:
+		return "Each outer cap needs one lamp quad and one water reflection"
+	for i in 2:
+		var center := guide.to_global(Models.cage_lantern_glow_at(guide.outer_caps[i], Models.DOLPHIN_LANTERN))
+		var first := i * 8
+		if not positions[first].is_equal_approx(center) or not positions[first + 4].is_equal_approx(center):
+			return "The glow and reflection must be centered above the fitted outer cap"
+		if (colors[first].g > colors[first].r) != (i == 0) or colors[first + 4] != colors[first]:
+			return "Port lantern and reflection must be green and starboard red"
+		for vertex in [first, first + 4]:
+			var mode := GlowBuilder.GLOW if vertex == first else GlowBuilder.REFLECT
+			if params[vertex * 4 + 1] != mode or not is_equal_approx(params[vertex * 4 + 2], Models.LAMP_ON_AT):
+				return "Each lantern and reflection must switch on at the lamp-glass threshold"
 	return ""

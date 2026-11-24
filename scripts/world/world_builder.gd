@@ -32,9 +32,8 @@ const DOUBLE_LINE_POP := 4000
 const TERRAIN_TILE := 50
 # Scale of the caged lamps on the ramp lift towers.
 const LIFT_LAMP := 4.8
-# Scale of the 360° lanterns on top of the lift and on the dolphins.
+# Scale of the 360° lanterns on top of the lift.
 const LIFT_LANTERN := 3.9
-const DOLPHIN_LANTERN := 3.9
 # Side (m) of the tiles that trees, rocks and houses are batched in for culling.
 const MULTIMESH_TILE := 192.0
 # Eagle trees: within this of the water, the tallest one in each cell this size.
@@ -196,9 +195,9 @@ func _rebuild_tie_up_pier(town: MapData.Town, mb: MeshBuilder) -> void:
 		var lookout := TieUpPier.SMALL_CAP + Vector3.RIGHT * v
 		eagle_perches.append(Eagles.Perch.new(mb.xform * lookout, Eagles.Kind.DOLPHIN))
 		var cap := TieUpPier.LARGE_CAP + Vector3.RIGHT * v
-		var mark := GlowBuilder.GREEN if v in pier.port_rows else GlowBuilder.RED
-		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
-		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var mark := Models.slip_mark(v in pier.port_rows)
+		Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
+		_add_dolphin_glow(glows, cap, mark)
 
 
 ## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
@@ -348,6 +347,32 @@ func _block(p: Vector3, radius: float) -> void:
 	for dz in range(-r, r + 1):
 		for dx in range(-r, r + 1):
 			_blocked[Vector2i(cx + dx, cz + dz)] = true
+
+
+## A guide discards its old geometry on refit. Mount new glows on the fitted caps.
+func add_slip_guide_lights(guide: SlipGuides) -> void:
+	guide.fitted.connect(_build_slip_guide_lights.bind(guide))
+	if not guide.outer_caps.is_empty():
+		_build_slip_guide_lights(guide)
+
+
+func _build_slip_guide_lights(guide: SlipGuides) -> void:
+	var glows := GlowBuilder.new()
+	glows.xform = guide.slip_to_world
+	for i in guide.outer_caps.size():
+		_add_dolphin_glow(glows, guide.outer_caps[i], Models.slip_mark(i == 0))
+	var lights := MeshInstance3D.new()
+	lights.name = "Lights"
+	lights.mesh = glows.commit()
+	lights.material_override = GlowBuilder.material()
+	lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	lights.top_level = true  # GlowBuilder already positioned the vertices in world space.
+	lights.layers = NightLights.LAYER
+	guide.add_child(lights)
+
+
+func _add_dolphin_glow(glows: GlowBuilder, cap: Vector3, mark: Color) -> void:
+	glows.glow(Models.cage_lantern_glow_at(cap, Models.DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 
 
 ## Fitted slip guides have room for three gulls across each deck. Only the inner
@@ -831,7 +856,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 		# An eagle on top of each tower.
 		eagle_perches.append(Eagles.Perch.new(mb.xform * Vector3(v + side * tower_x, 16.95, pe - 3.0), Eagles.Kind.LIFT))
 	for side: float in [-1.0, 1.0]:
-		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
+		var mark := Models.slip_mark(side < 0)
 		# The modelled wing walls and dolphins are the slip's own live part (SlipGuides).
 		if not SlipGuides.available():
 			var ww: Array = Layout.WING_WALL
@@ -846,8 +871,8 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 			# The outer dolphins carry the slip's lanterns.
 			var outer := Layout.DOLPHIN_OUTER
 			var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8)
-			Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
-			glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
+			_add_dolphin_glow(glows, cap, mark)
 		# Channel buoy, flashing.
 		var buoy := Vector3(v + side * 25.5, 0.0, Layout.CHANNEL_BUOY_U)
 		var phase := Models.blink_phase_at(mb.xform * buoy)
@@ -987,9 +1012,9 @@ func _build_tie_up(mb: MeshBuilder, isl: MapData.Town, i: int) -> void:
 		var inner_cap := _dolphin(mb, Vector3(dv, 0, pe + 22.0), 2.4, 6)
 		eagle_perches.append(Eagles.Perch.new(mb.xform * inner_cap, Eagles.Kind.DOLPHIN))
 		var cap := _dolphin(mb, Vector3(dv, 0, pe + 62.0), 3.15, 8)
-		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
-		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
-		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var mark := Models.slip_mark(side < 0)
+		Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
+		_add_dolphin_glow(glows, cap, mark)
 
 
 ## A wing wall from `a` to `b` (u, v in the terminal frame), its fendered face on

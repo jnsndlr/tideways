@@ -385,6 +385,9 @@ func _update_dof() -> void:
 
 ## The crews and lane views a terminal's purchases show with.
 func _dress_terminal(terminal: Terminal) -> void:
+	for guide in terminal.slip_guides:
+		if guide:
+			builder.add_slip_guide_lights(guide)
 	if RefitCrew.available():
 		var crew := RefitCrew.new()
 		terminal.add_child(crew)
@@ -399,6 +402,9 @@ func _dress_terminal(terminal: Terminal) -> void:
 
 ## A slip bought at `terminal` is built: it goes into the world where it stands.
 func _on_slip_built(i: int, terminal: Terminal) -> void:
+	var guide := terminal.slip_guides[i]
+	if guide:
+		builder.add_slip_guide_lights(guide)
 	builder.build_bought_slip(terminal.town, i)
 	hud.show_toast("SLIP OPEN", "%s's new %s is in use." % [terminal.town.name, "tie-up slip" if terminal.town.slips[i].tie_up else "working slip"], 5.0)
 
