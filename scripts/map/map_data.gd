@@ -357,6 +357,9 @@ class Slip:
 
 
 class Route:
+	## Width in metres of each heading filter. Reserve this distance before the first turn.
+	const YAW_EASE_METRES := 16
+
 	var key := ""                   # independent of the runtime array position
 	var id := 0
 	var a := 0      # town id
