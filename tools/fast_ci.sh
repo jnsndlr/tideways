@@ -64,6 +64,7 @@ if [[ $suite == traffic ]]; then
   exit 0
 fi
 check session-launch-options test --script tools/session_launch_options_test.gd
+check persistence test --script tools/persistence_test.gd
 check ferry-assignment test --script tools/fast_ferry_test.gd
 check region-voyage test --script tools/art_free_region_test.gd
 check ferry-voyage test --script tools/ferry_voyage_test.gd

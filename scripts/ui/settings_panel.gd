@@ -20,6 +20,7 @@ const MAP_TOGGLES := [["show_routes", "Ferry routes"], ["show_names", "Town name
 	["show_areas", "Water areas"]]
 
 var _close: Button
+var _save_error := Label.new()
 
 
 ## Shows the panel over everything; returns it.
@@ -81,6 +82,9 @@ func _init() -> void:
 	for item in MAP_TOGGLES:
 		col.add_child(_toggle(item[0], item[1]))
 
+	_save_error.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_save_error.hide()
+	col.add_child(_save_error)
 	_close = Button.new()
 	_close.text = "Done"
 	_close.custom_minimum_size = Vector2(140, 40)
@@ -97,7 +101,10 @@ func _toggle(key: String, text: String) -> CheckButton:
 	check.text = text
 	check.button_pressed = GameSettings.flag(key)
 	check.add_theme_font_size_override("font_size", 15)
-	check.toggled.connect(func(on: bool) -> void: GameSettings.set_flag(key, on))
+	check.toggled.connect(func(on: bool) -> void:
+		var err := GameSettings.set_flag(key, on)
+		check.set_pressed_no_signal(GameSettings.flag(key))
+		_show_save_result(err))
 	return check
 
 
@@ -124,9 +131,18 @@ func _volume_row(bus: String, text: String) -> Control:
 		pct.text = "Off" if v <= 0.001 else "%d%%" % roundi(v * 100.0)
 	show.call(slider.value)
 	slider.value_changed.connect(func(v: float) -> void:
-		GameSettings.set_volume(bus, v)
-		show.call(v))
+		var err := GameSettings.set_volume(bus, v)
+		var applied := GameSettings.volume(bus)
+		slider.set_value_no_signal(applied)
+		show.call(applied)
+		_show_save_result(err))
 	return row
+
+
+func _show_save_result(err: Error) -> void:
+	_save_error.visible = err != OK
+	if err != OK:
+		_save_error.text = "Couldn’t save settings (%s). Try the change again." % error_string(err)
 
 
 func _label(text: String, size: int, col: Color) -> Label:
