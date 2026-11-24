@@ -71,6 +71,7 @@ check fare-and-deck test --script tools/fare_deck_test.gd
 check vehicle-spawn test --script tools/vehicle_spawn_test.gd
 check simulation-rules test --script tools/simulation_rules_test.gd
 check motor-yacht-anchor test --script tools/motor_yacht_anchor_test.gd
+check trawler-gear test --script tools/trawler_gear_test.gd
 check timetable-round test --script tools/timetable_round_test.gd
 check mission-goals test --script tools/mission_goals_test.gd
 check land-distance-field test --script tools/land_distance_field_test.gd

@@ -41,10 +41,6 @@ var _landed_at := -INF
 var _timer := 0.0              # in a haul or shooting the net: game minutes left
 var _tow_end := 1.0            # the end of the ground it is towing towards (-1 / +1)
 var _tow_across := 0.0
-var _warps: MeshInstance3D
-var _nav_lights: MeshInstance3D
-var _steam_lights: MeshInstance3D
-var _work_lights: MeshInstance3D
 
 
 func setup(t: MarineTraffic, nm: String, sp: VesselSpec, q: MapData.FishQuay, b: int, variant: int) -> void:
@@ -52,20 +48,6 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, q: MapData.FishQuay, b:
 	vessel_name = nm
 	name = nm
 	hull_model = apply_spec(sp, variant)
-	_nav_lights = MeshInstance3D.new()
-	_nav_lights.mesh = Models.trawler_nav_lights()
-	_steam_lights = MeshInstance3D.new()
-	_steam_lights.mesh = Models.trawler_steaming_lights()
-	_work_lights = MeshInstance3D.new()
-	_work_lights.mesh = Models.trawler_working_lights()
-	for l: MeshInstance3D in [_nav_lights, _steam_lights, _work_lights]:
-		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		l.layers = NightLights.LAYER
-		lights.add_child(l)
-	_warps = MeshInstance3D.new()
-	_warps.mesh = Models.trawler_warps()
-	_warps.visible = false
-	hull_model.add_child(_warps)
 	quay = q
 	wharf = q
 	berth = b
@@ -85,7 +67,6 @@ func _process(delta: float) -> void:
 			_follow_path(delta)
 		_:
 			_navigate(delta)
-	_show_lights()
 	var under_way := state != State.ALONGSIDE
 	var d := Vector3(sin(_yaw), 0.0, cos(_yaw))
 	wake.update(delta, global_position, d, speed * delta if under_way else 0.0, _load() if under_way else 0.0,
@@ -99,13 +80,21 @@ func _now() -> float:
 ## How hard its engine is working, as a share of full power: towing the net is
 ## heavy going at little more than walking pace.
 func _load() -> float:
-	if state == State.FISHING and work != Work.HAULING:
+	if net_out():
 		return 0.85
 	return clampf(speed / cruise, 0.0, 1.0)
 
 
 func fishing() -> bool:
 	return state == State.FISHING
+
+
+func net_out() -> bool:
+	return fishing() and work != Work.HAULING
+
+
+func minutes_since_landing() -> float:
+	return _now() - _landed_at
 
 
 ## In or out of its berth on a set track.
@@ -305,20 +294,9 @@ func _head_home() -> void:
 
 ## A slow roll in the swell; towing, it sits down a little by the stern.
 func _pose(_delta: float) -> void:
-	var squat := 0.012 if state == State.FISHING and work != Work.HAULING else 0.0
+	var squat := 0.012 if net_out() else 0.0
 	basis = Basis(Vector3.UP, _yaw) * Basis(Vector3.RIGHT, -squat + sin(_bob * 0.7) * 0.008) \
 			* Basis(Vector3.BACK, sin(_bob * 0.83) * SWELL_ROLL)
-
-
-## Sidelights and stern light under way, and the masthead light steaming;
-## working, the trawling lights and its deck lit (and alongside, landing the
-## catch). The warps show while the net is out.
-func _show_lights() -> void:
-	_warps.visible = state == State.FISHING and work != Work.HAULING
-	_nav_lights.visible = state != State.ALONGSIDE
-	var working := state == State.FISHING
-	_steam_lights.visible = state != State.ALONGSIDE and not working
-	_work_lights.visible = working or (state == State.ALONGSIDE and _now() - _landed_at < LANDING.y)
 
 
 # --- Helm hooks ---------------------------------------------------------------------
@@ -350,7 +328,7 @@ func wake_hull() -> Vector4:
 	var h := spec.wake_hull()
 	# Towing, the prop churns hard for the little way it makes: a low, broad,
 	# messy wash rather than a clean wake.
-	if state == State.FISHING and work != Work.HAULING:
+	if net_out():
 		h.z = 1.1
 		h.w *= 0.5
 	elif manoeuvring():
@@ -368,7 +346,7 @@ func status_text() -> String:
 		return holding
 	match state:
 		State.ALONGSIDE:
-			if _now() - _landed_at < LANDING.x + 15.0:
+			if minutes_since_landing() < LANDING.x + 15.0:
 				return "Landing the catch at " + quay_name()
 			return "Alongside at " + quay_name()
 		State.LEAVING:

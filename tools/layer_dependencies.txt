@@ -1,7 +1,5 @@
 scripts/sim/ferry.gd -> scripts/world/models.gd
 scripts/sim/ferry_class.gd -> scripts/world/models.gd
-scripts/sim/fishing_boat.gd -> scripts/world/models.gd
-scripts/sim/fishing_boat.gd -> scripts/world/night_lights.gd
 scripts/sim/sailboat.gd -> scripts/world/models.gd
 scripts/sim/slip_guides.gd -> scripts/world/eagles.gd
 scripts/sim/slip_guides.gd -> scripts/world/glow_builder.gd
