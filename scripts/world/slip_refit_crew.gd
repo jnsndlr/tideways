@@ -512,11 +512,4 @@ class WakeSource extends Node3D:
 
 	## Its waterline as Vessel.wake_waterline draws one from its hull and shape.
 	func wake_waterline() -> PackedFloat32Array:
-		var out := PackedFloat32Array([0.0, _hull.y])
-		var n := WakeField.STATIONS
-		for i in n:
-			var fb := i / float(n - 1) * _hull.y
-			var bu := clampf(1.0 - fb / _shape.x, 0.0, 1.0)
-			var su := clampf(1.0 - (_hull.y - fb) / maxf(_shape.z, 0.1), 0.0, 1.0)
-			out.append(_hull.x * lerpf(1.0, _shape.y, pow(bu, 2.5)) * lerpf(1.0, _shape.w, su * su))
-		return out
+		return HullWaterline.from_shape(_hull, _shape)

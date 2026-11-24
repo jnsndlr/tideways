@@ -39,6 +39,7 @@ func _run() -> void:
 	valid = valid and not WakeField._outside_view(Vector2(11, 0), Vector2(12, 2), planes)
 	valid = valid and WakeField._outside_view(Vector2(12, 0), Vector2(20, 2), planes)
 	valid = valid and not WakeField._outside_view(Vector2(12, 0), Vector2(20, 2), [])
+	valid = _check_waterline_profile() and valid
 	valid = _check_repeated_slots() and valid
 	field.free()
 	if valid:
@@ -46,6 +47,14 @@ func _run() -> void:
 	else:
 		push_error("Wake bounds must retain visible segments, end wash and trails crossing a camera edge.")
 	quit(0 if valid else 1)
+
+# The shader reads 24 half-widths after the bow offset and waterline length.
+func _check_waterline_profile() -> bool:
+	var profile := HullWaterline.from_shape(Vector4(4, 23, 0, 1), Vector4(4, 0.25, 4, 0.5))
+	return (profile.size() == 26 and profile[0] == 0 and profile[1] == 23
+			and profile[2] == 1 and is_equal_approx(profile[4], 4.0 - 3.0 * pow(0.5, 2.5))
+			and profile[13] == 4 and profile[23] == 3.5 and profile[25] == 2)
+
 
 # Both vessels have identical geometry and coordinates. Reuse is valid only
 # for consecutive slots owned by the same instance, even when trails overlap.
