@@ -10,7 +10,8 @@ const RefitCrew := preload("res://scripts/world/slip_refit_crew.gd")
 const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
-const SPEEDS := [0.0, 1.0, 3.0, 8.0]
+const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0]
+const SPEED_LABELS := ["", "1x", "8x", "16x", "32x"]
 const WILD := Color(0.98, 0.78, 0.42)
 
 var main: Node
@@ -241,17 +242,26 @@ func _build_top_bar() -> void:
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(40, 26)
-		b.tooltip_text = "Pause" if i == 0 else "Speed %d" % i
+		b.tooltip_text = "Pause" if i == 0 else "%s speed" % SPEED_LABELS[i]
 		b.pressed.connect(set_speed.bind(i))
-		# Drawn rather than typed: iPad's system fonts lack the ❚❚ / ▶ glyphs.
-		var icon := Control.new()
-		icon.set_anchors_preset(Control.PRESET_FULL_RECT)
-		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon.draw.connect(_draw_speed_icon.bind(icon, b, i))
-		b.add_child(icon)
-		b.toggled.connect(func(_on: bool) -> void: icon.queue_redraw())
-		b.mouse_entered.connect(icon.queue_redraw)
-		b.mouse_exited.connect(icon.queue_redraw)
+		if i == 0:
+			# Drawn rather than typed: iPad's system fonts lack the ❚❚ glyph.
+			var icon := Control.new()
+			icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			icon.draw.connect(_draw_speed_icon.bind(icon, b, i))
+			b.add_child(icon)
+			b.toggled.connect(func(_on: bool) -> void: icon.queue_redraw())
+			b.mouse_entered.connect(icon.queue_redraw)
+			b.mouse_exited.connect(icon.queue_redraw)
+		else:
+			b.text = SPEED_LABELS[i]
+			b.add_theme_font_override("font", bold)
+			b.add_theme_font_size_override("font_size", 12)
+			b.add_theme_color_override("font_color", TEXT)
+			b.add_theme_color_override("font_hover_color", Color.WHITE)
+			b.add_theme_color_override("font_pressed_color", ACCENT)
+			b.add_theme_color_override("font_hover_pressed_color", ACCENT)
 		speeds.add_child(b)
 		_speed_buttons.append(b)
 	clock.add_child(speeds)
@@ -281,7 +291,7 @@ func _build_sidebar() -> void:
 
 func _build_help() -> void:
 	var text := "Drag: pan · Right-drag / Q E: rotate & tilt · Wheel / pinch: zoom · Click: select (or photograph wildlife)\n" + \
-		"Space: pause · 1-3: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock · V: weather"
+		"Space: pause · 1-4: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock · V: weather"
 	if DisplayServer.is_touchscreen_available() and OS.has_feature("mobile"):
 		text = "Drag: pan · Two fingers: pinch to zoom, twist to rotate · Three fingers up/down: tilt · Tap: select"
 	var l := _label(text, 12, Color(1, 1, 1, 0.75))
@@ -529,6 +539,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_speed(2)
 		KEY_3:
 			set_speed(3)
+		KEY_4:
+			set_speed(4)
 		KEY_ESCAPE:
 			clear_selection()
 		KEY_TAB:

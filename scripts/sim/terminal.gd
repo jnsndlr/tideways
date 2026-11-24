@@ -740,17 +740,18 @@ func _close_up(lane: Lane) -> void:
 
 
 func _process(delta: float) -> void:
+	var dmin := Units.game_minutes(delta)
 	if build_remaining > 0.0:
-		_advance_construction(delta)
+		_advance_construction(dmin)
 	if refit_stage != RefitStage.NONE:
-		_advance_refit(delta)
+		_advance_refit(dmin)
 	if _assignments != null and _assignments.has_moves():
 		_assignments.apply_when_clear()
-	_spawn_acc += sim.demand_rate(town) * delta
+	_spawn_acc += sim.demand_rate(town) * dmin
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0
 		_spawn_car()
-	turned_recent *= pow(0.985, delta)
+	turned_recent *= pow(0.985, dmin)
 
 
 ## Whether any route calls at this terminal (an idle slip draws no traffic).

@@ -175,7 +175,7 @@ func minutes_left() -> float:
 		var step := minf(rem, 10.0)
 		t += step / (v * (0.6 if rem < LET_GO else 1.0) * clampf(rem / 180.0, 0.25, 1.0))
 		rem -= step
-	return t
+	return Units.game_minutes(t)
 
 
 func _tow_speed() -> float:

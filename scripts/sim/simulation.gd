@@ -2,7 +2,8 @@ class_name Simulation
 extends Node3D
 ## Owns the game clock, demand model, economy and all terminals/ferries/vehicles,
 ## plus the other traffic afloat (MarineTraffic).
-## One real second = one game minute at 1x speed (Engine.time_scale scales it).
+## Two real seconds = one game minute at 1x speed (Units.MINUTES_PER_SECOND;
+## Engine.time_scale scales clock and movement together).
 
 const WIND_DIRECTIONS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 const SEASON_DAYS := 30
@@ -425,13 +426,14 @@ func _ferry_sizes() -> Array[int]:
 
 
 func _process(delta: float) -> void:
-	weather.step(delta)
+	var dmin := Units.game_minutes(delta)
+	weather.step(dmin)
 	const DAY_MINUTES := 24.0 * 60.0
-	while minutes + delta >= DAY_MINUTES:
+	while minutes + dmin >= DAY_MINUTES:
 		var to_midnight := DAY_MINUTES - minutes
 		for ferry in ferries:
 			ferry.pay_crew(to_midnight)
-		delta -= to_midnight
+		dmin -= to_midnight
 		minutes = 0.0
 		day += 1
 		for ferry in ferries:
@@ -441,10 +443,10 @@ func _process(delta: float) -> void:
 			ferry.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
-	minutes += delta
+	minutes += dmin
 	for ferry in ferries:
-		ferry.pay_crew(delta)
-	_advance_docks(delta)
+		ferry.pay_crew(dmin)
+	_advance_docks(dmin)
 
 
 ## What building a terminal at `town`'s dock site costs (its tier), or 0 if it can't be bought.

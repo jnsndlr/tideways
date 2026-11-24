@@ -584,7 +584,7 @@ func _free_slot(car: Vehicle) -> int:
 
 
 func _process(delta: float) -> void:
-	_state_time += delta
+	_state_time += Units.game_minutes(delta)
 	if not _ramp_synced:
 		# (A ferry starting the game alongside already has the apron on her deck.)
 		_ramp_synced = true
@@ -741,7 +741,7 @@ func _tick_loading(delta: float) -> void:
 	_dispatch_timer -= delta
 	var term := here()
 	if not _casting_off and term.unloading_ferry != null and term.unloading_ferry != self:
-		_state_time -= delta  # Waiting for the shared crossing does not spend loading time.
+		_state_time -= Units.game_minutes(delta)  # Waiting for the shared crossing does not spend loading time.
 		return
 	var serves := serves_from_here()
 	var fits := func(c: Vehicle): return _free_slot(c) >= 0
@@ -843,7 +843,7 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 func _tick_sailing(delta: float) -> void:
 	if _sail_time >= 0.0:
-		_sail_time += delta
+		_sail_time += Units.game_minutes(delta)
 	var remaining := run_length() - traveled
 	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
@@ -1721,7 +1721,7 @@ func _service_text() -> String:
 
 
 func eta_minutes() -> float:
-	return (run_length() - traveled) / (cruise * 0.85)
+	return Units.game_minutes((run_length() - traveled) / (cruise * 0.85))
 
 
 ## Puts `c` in command from her next sailing (at once if she is alongside; a
@@ -1781,13 +1781,13 @@ func crossing_minutes() -> float:
 ## Planned time alongside at each call, as if every sailing were full: a whole
 ## deck off, a whole deck on, and the last car aboard and the apron up.
 func planned_dwell() -> float:
-	var deck_minutes := fc.capacity * PLAN_CAR_GAP
+	var deck_minutes := Units.game_minutes(fc.capacity * PLAN_CAR_GAP)
 	return planned_unload() + clampf(deck_minutes, MIN_DWELL, MAX_DWELL) + BOARD_CLOSE
 
 
 ## Of planned_dwell, the part she spends unloading a whole deck.
 func planned_unload() -> float:
-	return fc.capacity * PLAN_CAR_GAP + 2.0
+	return Units.game_minutes(fc.capacity * PLAN_CAR_GAP + 2.0)
 
 
 ## Unhindered minutes for a leg on route `r`, at pace `p` under her next captain.
@@ -2335,7 +2335,7 @@ func shift_minutes(length: float, p := pace) -> float:
 		var leg := length * 0.5
 		var ramp: float = top * top / acc   # gathering way and losing it again
 		t += 2.0 * top / acc + (leg - ramp) / top if leg > ramp else 2.0 * sqrt(leg / acc)
-	return t
+	return Units.game_minutes(t)
 
 
 ## Fuel for backing out and coming ahead. Each leg accelerates and brakes:
