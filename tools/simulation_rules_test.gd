@@ -131,8 +131,10 @@ func check_pilot_transfer() -> void:
 	boat._start_work()
 	expect(not boat._work_done(0.0) and boat._work_done(40.0), "Pilot transfer completes without a view")
 
+	var hull := VesselHullView.new(boat)
+	boat.add_child(hull)
 	var ladder := PilotLadder.new(boat)
-	boat.hull_model.add_child(ladder)
+	hull.add_child(ladder)
 	expect(not ladder.visible, "Pilot ladder starts stowed")
 	for side: float in [-1.0, 1.0]:
 		boat.side = side

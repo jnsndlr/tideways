@@ -388,15 +388,17 @@ func _update_dof() -> void:
 func _dress_vessel(vessel: Vessel, lights: NightLights) -> void:
 	if vessel.spec == null:
 		return
+	var hull := VesselHullView.new(vessel)
+	vessel.add_child(hull)
 	var lamps := lights.fit_vessel(vessel)
 	if vessel is FishingBoat:
 		vessel.add_child(FishingBoatView.new(vessel, lamps))
 	elif vessel is MotorYacht:
 		vessel.add_child(MotorYachtView.new(vessel, lamps))
 	elif vessel is Sailboat:
-		vessel.hull_model.add_child(SailboatView.new(vessel))
+		hull.add_child(SailboatView.new(vessel, hull))
 	elif vessel is PilotBoat:
-		vessel.hull_model.add_child(PilotLadder.new(vessel))
+		hull.add_child(PilotLadder.new(vessel))
 
 
 func _add_ferry_view(ferry: Ferry) -> void:

@@ -88,7 +88,6 @@ var state: FerryVoyage.State:
 var at_a: bool:        # docked at A, or departed from A while sailing
 	get: return voyage.at_a
 	set(value): voyage.at_a = value
-var room_seed := 0.0
 ## The lowered car deck net, in the hull frame (-Z or +Z). Zero means both ends are closed.
 var open_net_end := 0
 var net_wind := Vector2.ZERO

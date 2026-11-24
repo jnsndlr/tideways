@@ -42,6 +42,9 @@ func exercise() -> bool:
 	var bought := sim.ferries[-1]
 	if hud.selected_ferry != bought or bought.berth != Ferry.Berth.DELIVERING:
 		return fail("The purchase did not select the new ferry under tow")
+	var tow_hull := bought.tow.get_node_or_null("VesselHullView") as VesselHullView
+	if not tow_hull or tow_hull.mesh != Models.tug(bought.tow.model_variant):
+		return fail("The delivery tug should be visible with its escort hull")
 	for boat: Ferry in [sim.ferries[0], bought]:
 		var views := boat.get_children().filter(func(child: Node): return child is FerryView)
 		if views.size() != 1:
