@@ -21,8 +21,6 @@ scripts/sim/slip_guides.gd -> scripts/world/seagulls.gd
 scripts/sim/slip_ramp.gd -> scripts/world/models.gd
 scripts/sim/tug.gd -> scripts/world/models.gd
 scripts/sim/tug.gd -> scripts/world/night_lights.gd
-scripts/sim/vehicle.gd -> scripts/world/models.gd
-scripts/sim/vehicle.gd -> scripts/world/vehicle_data.gd
 scripts/sim/vessel.gd -> scripts/world/models.gd
 scripts/sim/vessel.gd -> scripts/world/night_lights.gd
 scripts/sim/vessel.gd -> scripts/world/wake_field.gd

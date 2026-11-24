@@ -43,6 +43,8 @@ func check_spawned_traffic(authored: bool) -> void:
 		var aboard := i % 2 == 0
 		var car := sim.make_vehicle(ferry) if aboard else sim.make_vehicle()
 		expect(car.get_parent() == (ferry if aboard else sim.traffic), "Vehicle spawned under the wrong parent")
+		var body := car.get_child(0) as MeshInstance3D
+		expect(body != null and body.mesh != null, "Spawned vehicle has no visible body")
 		expect(car.slots >= 1 and car.length > 0, "Vehicle has no usable dimensions")
 		saw_car = saw_car or not car.is_truck
 		saw_truck = saw_truck or car.is_truck
@@ -51,6 +53,8 @@ func check_spawned_traffic(authored: bool) -> void:
 			expect(car.speed == (20.0 if car.is_truck else 24.0), "Authored vehicle cruise speed changed")
 			if car.trailer != null:
 				saw_trailer = true
+				var trailer_body := car.trailer.get_child(0) as MeshInstance3D
+				expect(trailer_body != null and trailer_body.mesh != null, "Spawned trailer has no visible body")
 				expect(car.is_truck and car.trailer.get_parent() == car and car.slots > 1, "Rig must tow its trailer and occupy multiple deck slots")
 		else:
 			expect(car.model.is_empty() and car.trailer == null, "Classic traffic unexpectedly used authored assets")
@@ -96,8 +100,8 @@ func check_world_isolation() -> void:
 func check_queue_parking() -> void:
 	var sim := make_world()
 	var rig := Vehicle.new()
-	rig.setup(BoxMesh.new(), true, "tractor_classic", Models.VEHICLE_SCALE)
-	rig.attach_trailer("trailer_van", BoxMesh.new())
+	rig.setup(Node3D.new(), true, "tractor_classic", Models.VEHICLE_SCALE)
+	rig.attach_trailer("trailer_van", Node3D.new())
 	sim.traffic.add_child(rig)
 	var terminal := Terminal.new()
 	terminal.town = MapData.Town.new()
