@@ -9,7 +9,7 @@ const MAX_POINTS := 48
 const SEGMENTS_PER_GROUP := 6
 const GROUPS_PER_SLOT := 8
 # Half-widths along each hull's waterline (WAKE_STATIONS in water.gdshader).
-const STATIONS := 24
+const STATIONS := HullWaterline.STATIONS
 # Must match the shader's Kelvin wedge, so the bounds cover the whole wake.
 const KELVIN_SPREAD := 0.354
 const KELVIN_REACH := 540.0

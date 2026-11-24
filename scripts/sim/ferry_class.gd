@@ -411,7 +411,7 @@ func is_upper(y: float) -> bool:
 ## code-built ones' sides closing in over the chamfer.
 func waterline() -> PackedFloat32Array:
 	if _waterline.is_empty():
-		var n := WakeField.STATIONS
+		var n := HullWaterline.STATIONS
 		var glb := MID_GLB if evergreen else SMALL_GLB if guemes else HIYU_GLB if hiyu else ISQ_GLB if issaquah else JUMBO_GLB if jumbo else ""
 		if glb != "":
 			var k := MID_SCALE
