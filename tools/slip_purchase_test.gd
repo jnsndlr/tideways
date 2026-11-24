@@ -77,8 +77,12 @@ func _process(_delta: float) -> bool:
 	if new_slip >= 0 and built.has(new_slip) and madrona.refit_stage == Terminal.RefitStage.NONE and world_children > 0:
 		if madrona.town.working_slips() != 2:
 			return _fail("Madrona has %d working slips after the build" % madrona.town.working_slips())
-		if madrona.slip_guides[new_slip] == null and SlipGuides.available():
-			return _fail("the new slip has no guides")
+		var guide := madrona.slip_guides[new_slip]
+		if Models.mid_slip_guides:
+			if guide == null or guide.get_children().filter(func(node: Node): return node is SlipGuidesView).size() != 1:
+				return _fail("the new working slip should have one fitted guide view")
+		elif guide != null:
+			return _fail("classic working slips should have no guide contacts")
 		var ramp := madrona.slip_ramps[new_slip]
 		if Models.mid_slip:
 			if ramp == null or ramp.get_children().filter(func(node: Node): return node is SlipRampView).size() != 1:

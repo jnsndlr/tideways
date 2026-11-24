@@ -367,8 +367,8 @@ func _open_slip(i: int) -> void:
 	if sim.uses_transfer_spans and not slip.tie_up:
 		slip_ramps[i] = SlipRamp.new(v)
 		add_child(slip_ramps[i])
-	if SlipGuides.available() and not slip.tie_up:
-		slip_guides[i] = SlipGuides.new(v, transform, sim.terrain, sim.slip_guide_parts)
+	if sim.uses_slip_guides and not slip.tie_up:
+		slip_guides[i] = SlipGuides.new(v, transform)
 		add_child(slip_guides[i])
 		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[slip.size])
 	slip_built.emit(i)
@@ -481,8 +481,8 @@ func setup(s: Simulation, isl: MapData.Town) -> void:
 		slip_ramps.append(ramp)
 		var g: SlipGuides = null
 		# (A tie-up's dolphins are shared with its neighbours: WorldBuilder._build_tie_up.)
-		if SlipGuides.available() and not isl.slips[i].tie_up:
-			g = SlipGuides.new(isl.slip_offset(i), transform, s.terrain, s.slip_guide_parts)
+		if sim.uses_slip_guides and not isl.slips[i].tie_up:
+			g = SlipGuides.new(isl.slip_offset(i), transform)
 			add_child(g)
 			g.fit(MapData.Slip.LARGEST_BOAT[isl.slips[i].size])
 		slip_guides.append(g)

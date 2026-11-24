@@ -1,3 +1,0 @@
-scripts/sim/slip_guides.gd -> scripts/world/mesh_builder.gd
-scripts/sim/slip_guides.gd -> scripts/world/model_parts.gd
-scripts/sim/slip_guides.gd -> scripts/world/models.gd

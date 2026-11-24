@@ -7,6 +7,7 @@ var map: MapData
 var terrain: Terrain
 var _building_backdrop: Backdrop
 var builder: WorldBuilder
+var _slip_guide_parts := SlipGuidesView.MeshParts.new()
 var sim: Simulation
 ## How the company starts (null: a boat on every planned route).
 var scenario: Scenario
@@ -147,7 +148,7 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 
 
 func _setup_simulation(charts: MarineCharts) -> void:
-	sim = Simulation.new(VehicleFactory.create, Models.mid_slip)
+	sim = Simulation.new(VehicleFactory.create, Models.mid_slip, Models.mid_slip_guides)
 	sim.name = "Simulation"
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
@@ -436,6 +437,7 @@ func _dress_slip(terminal: Terminal, i: int) -> void:
 		ramp.add_child(SlipRampView.new(ramp))
 	var guide := terminal.slip_guides[i]
 	if guide:
+		guide.add_child(SlipGuidesView.new(guide, terrain, _slip_guide_parts))
 		builder.add_slip_guide_lights(guide)
 
 
