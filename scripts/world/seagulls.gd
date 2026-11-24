@@ -35,9 +35,8 @@ const COMPANY := 0.8
 const HUDDLE := 0.6
 const PERCH_RANGE := 720.0
 const PERCH_FALLOFF := 210.0
-# Trawler-local perches (Models.trawler, in its built size: the hull is drawn
-# spec.scale times that), used while it lies alongside: the wheelhouse roof, the
-# gantry's crossbar, the bulwark rails and the foredeck.
+# Perches in trawler model coordinates, used while it lies alongside: the wheelhouse
+# roof, the gantry's crossbar, the bulwark rails and the foredeck.
 const TRAWLER_PERCHES := [
 	[Vector3(0, 5.52, 2.0), Vector3(0, 5.52, 4.6), 1.6],
 	[Vector3(-2.6, 6.78, -9.3), Vector3(2.6, 6.78, -9.3), 0.0],
@@ -198,7 +197,7 @@ func setup(s: Simulation, d: DayCycle, perches: Array[Perch]) -> void:
 	sim.ferry_removed.connect(_drop_ferry)
 	for b in sim.marine.fishing_boats:
 		for bp: Array in TRAWLER_PERCHES:
-			var k: float = b.spec.scale
+			var k: float = VesselAppearance.model_scale(b.spec)
 			var p := Perch.new(bp[0] * k, bp[1] * k, bp[2] * k, Kind.BOAT)
 			p.boat = b
 			_perches.append(p)

@@ -31,7 +31,7 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 		boat.add_child(hull)
 		view = SailboatView.new(boat, hull)
 		hull.add_child(view)
-		check_canvas(boat, hull, view, false)
+		check_canvas(hull, view, false)
 	boat.dest = marina
 	boat._goals.append(boat.pos2() + Vector2(0, 550))
 	boat._backed_out()
@@ -39,7 +39,7 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 	boat._set_sails(true)
 	expect(not boat.motoring and boat.road() == Vessel.Road.SAIL, "Hoisting the sails changes right of way")
 	if with_view:
-		check_canvas(boat, hull, view, true)
+		check_canvas(hull, view, true)
 
 	boat._yaw = 0.0
 	boat.speed = boat.cruise
@@ -62,14 +62,14 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 	expect(boat.motoring and boat.state == Sailboat.State.ARRIVING, "The sloop douses its sails on approach")
 	expect(is_equal_approx(boat.helm_speed(sim.wind_yaw()), boat.spec.motor_speed), "Engine speed is independent of wind")
 	if with_view:
-		check_canvas(boat, hull, view, false)
+		check_canvas(hull, view, false)
 	boat._berthed()
 	expect(boat.state == Sailboat.State.MOORED and is_zero_approx(boat.speed), "The sloop stops at its berth")
 	boat.free()
 
 
-func check_canvas(boat: Sailboat, hull: VesselHullView, view: SailboatView, hoisted: bool) -> void:
-	var hull_mesh: Mesh = boat.spec.model.call(0) if hoisted else boat.spec.model_alt.call(0)
+func check_canvas(hull: VesselHullView, view: SailboatView, hoisted: bool) -> void:
+	var hull_mesh: Mesh = Models.sailboat() if hoisted else Models.sailboat_furled()
 	expect(hull.mesh == hull_mesh, "The hull model matches the sail state")
 	for mesh: MeshInstance3D in view.get_children():
 		expect(mesh.visible == hoisted, "Sail visibility matches the rig state")

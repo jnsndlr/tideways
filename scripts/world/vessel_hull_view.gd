@@ -5,13 +5,12 @@ extends MeshInstance3D
 func _init(vessel: Vessel) -> void:
 	name = "VesselHullView"
 	var spec := vessel.spec
-	mesh = spec.model.call(vessel.model_variant)
-	scale = Vector3.ONE * spec.scale
+	mesh = VesselAppearance.hull(spec, vessel.model_variant)
+	scale = Vector3.ONE * VesselAppearance.model_scale(spec)
 	material_override = Models.hull_material()
 	set_instance_shader_parameter("room_seed", vessel.room_seed)
-	if spec.name_plate.is_valid() and vessel.vessel_name != "":
-		var plate: ArrayMesh = spec.name_plate.call(vessel.vessel_name)
-		if plate:
-			var lettering := MeshInstance3D.new()
-			lettering.mesh = plate
-			add_child(lettering)
+	var plate := VesselAppearance.name_plate(spec, vessel.vessel_name)
+	if plate:
+		var lettering := MeshInstance3D.new()
+		lettering.mesh = plate
+		add_child(lettering)

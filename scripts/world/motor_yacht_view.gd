@@ -10,7 +10,7 @@ var _rode := MeshInstance3D.new()
 
 func _init(yacht: MotorYacht, lights: VesselNightLights) -> void:
 	_yacht = yacht
-	scale = Vector3.ONE * yacht.spec.scale
+	scale = Vector3.ONE * VesselAppearance.model_scale(yacht.spec)
 	var lamps := VesselLightGroup.new(lights)
 	add_child(lamps)
 	_navigation = lamps.add_lamp(Models.motor_yacht_nav_lights())
