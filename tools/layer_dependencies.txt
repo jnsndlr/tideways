@@ -1,7 +1,6 @@
 scripts/map/map_data.gd -> scripts/sim/layout.gd
 scripts/map/map_generator.gd -> scripts/sim/layout.gd
 scripts/map/map_generator.gd -> scripts/sim/scenario.gd
-scripts/map/route_planner.gd -> scripts/sim/nav_grid.gd
 scripts/sim/ferry.gd -> scripts/world/models.gd
 scripts/sim/ferry_class.gd -> scripts/world/models.gd
 scripts/sim/ferry_class.gd -> scripts/world/wake_field.gd
