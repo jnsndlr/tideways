@@ -3,6 +3,24 @@ extends SceneTree
 
 
 func _initialize() -> void:
+	for size in range(1, 6):
+		var hull := FerryClass.of(size)
+		var measured := FerryWaterlineProfiles.profile(size, hull.half_length)
+		if measured.size() != HullWaterline.STATIONS + 2 or measured[1] <= 0.0 or measured[2] <= 0.0:
+			fail("Art-free ferry size %d has no measured waterline" % size)
+			return
+		if hull.half_width_at(0.0) <= 0.0 or hull.half_width_at(2.0 * hull.half_length) != 0.0:
+			fail("Art-free ferry size %d has an invalid hull outline" % size)
+			return
+		var deck := FerryDeck.new(hull)
+		var slot := deck.find_space(1, false, true)
+		if slot < 0:
+			fail("Art-free ferry size %d has no space for its first car" % size)
+			return
+		deck.reserve(slot, 1, true, 1)
+		if deck.find_space(1, false, true) == slot:
+			fail("An occupied slot must be unavailable for the next car")
+			return
 	var generator := MapGenerator.new()
 	var region := generator.generate(123)
 	if region == null or region.routes.size() != 4:
