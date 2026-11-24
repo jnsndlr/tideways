@@ -17,7 +17,7 @@ var minutes := 6.0 * 60.0
 var day := 12
 ## Whether working slips use an operated transfer span or a fixed landing.
 var uses_transfer_spans: bool
-var slip_guide_parts := SlipGuides.MeshParts.new()
+var uses_slip_guides: bool
 var terminals := {}             # town id -> Terminal
 ## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
 const DOCK_BUILD_MINUTES := 12.0 * 60.0
@@ -66,8 +66,9 @@ var wind_speed := 12
 var _tide_phase := 0.0
 
 
-func _init(create_vehicle: Callable, transfer_spans := true) -> void:
+func _init(create_vehicle: Callable, transfer_spans := true, slip_guides := true) -> void:
 	uses_transfer_spans = transfer_spans
+	uses_slip_guides = slip_guides
 	_create_vehicle = create_vehicle
 
 

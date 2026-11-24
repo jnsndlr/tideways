@@ -349,7 +349,7 @@ func _block(p: Vector3, radius: float) -> void:
 			_blocked[Vector2i(cx + dx, cz + dz)] = true
 
 
-## A guide discards its old geometry on refit. Mount new glows on the fitted caps.
+## Mount slip glows on the fitted caps and move them when the slip is refitted.
 func add_slip_guide_lights(guide: SlipGuides) -> void:
 	guide.fitted.connect(_build_slip_guide_lights.bind(guide))
 	if not guide.outer_caps.is_empty():
@@ -361,14 +361,16 @@ func _build_slip_guide_lights(guide: SlipGuides) -> void:
 	glows.xform = guide.slip_to_world
 	for i in guide.outer_caps.size():
 		_add_dolphin_glow(glows, guide.outer_caps[i], Models.slip_mark(i == 0))
-	var lights := MeshInstance3D.new()
-	lights.name = "Lights"
+	var lights := guide.get_node_or_null(^"Lights") as MeshInstance3D
+	if not lights:
+		lights = MeshInstance3D.new()
+		lights.name = "Lights"
+		lights.material_override = GlowBuilder.material()
+		lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		lights.top_level = true  # GlowBuilder already positioned the vertices in world space.
+		lights.layers = NightLights.LAYER
+		guide.add_child(lights)
 	lights.mesh = glows.commit()
-	lights.material_override = GlowBuilder.material()
-	lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	lights.top_level = true  # GlowBuilder already positioned the vertices in world space.
-	lights.layers = NightLights.LAYER
-	guide.add_child(lights)
 
 
 func _add_dolphin_glow(glows: GlowBuilder, cap: Vector3, mark: Color) -> void:
@@ -858,7 +860,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	for side: float in [-1.0, 1.0]:
 		var mark := Models.slip_mark(side < 0)
 		# The modelled wing walls and dolphins are the slip's own live part (SlipGuides).
-		if not SlipGuides.available():
+		if not Models.mid_slip_guides:
 			var ww: Array = Layout.WING_WALL
 			for k in ww.size() - 1:
 				var w0: Vector2 = ww[k]

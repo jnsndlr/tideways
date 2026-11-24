@@ -1002,9 +1002,6 @@ static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
 const SLIP_DOLPHIN_OUTER_GLB := "res://assets/models/ferry_dolphin_lod.glb"
 const SLIP_DOLPHIN_INNER_GLB := "res://assets/models/ferry_dolphin_small_lod.glb"
 const SLIP_WING_WALL_GLB := "res://assets/models/wing_wall_lod.glb"
-# How far each dolphin's fender face stands in front of its origin, and its deck top.
-const SLIP_DOLPHIN_FACE := 3.5
-const SLIP_DOLPHIN_DECK := 4.17
 static var mid_slip_guides := not "--classic-slip" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(SLIP_DOLPHIN_OUTER_GLB) and ResourceLoader.exists(SLIP_DOLPHIN_INNER_GLB) \
 	and ResourceLoader.exists(SLIP_WING_WALL_GLB)

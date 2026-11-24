@@ -1,19 +1,10 @@
 class_name SlipGuides
 extends Node3D
-## One slip's wing walls and guide dolphins (Models.SLIP_*_GLB): a four-pile dolphin
-## for each of the inner pair, a six-pile one for each of the lit outer pair, and a
-## splayed wing wall either side of the landing. The node sits in the terminal frame
-## at the slip's lateral offset, like SlipRamp: x across the slip, z (u) out along it.
-##
-## The dolphins funnel out to sea as the slip's size (FerryClass size of the widest hull
-## it takes) puts them (_slip_face_v); `fit` rebuilds them for another size.
-## Everything that doesn't move is one mesh, and the piles carry on down to the
-## seabed under each. The parts that give are live: each dolphin fender's Compression
-## blend shape, and each wing wall's fender face, which slides back on its rubber
-## bushings. Set `Fender.target` / `Wall.target` (0 at rest .. 1 as hard as the
-## models' own animations press them) and they ease there.
+## Contact geometry in the slip frame (x across, z out to sea), and the compression
+## of each fender and wing wall. Ferries press the contacts independently.
 
 signal fitted
+signal compression_changed
 
 const LIE_SWING := deg_to_rad(2.0)
 const INNER_REACH := 0.55
@@ -25,35 +16,18 @@ const WALL_ANGLES := Vector2i(14, 60)   # the splays (degrees off the centreline
 const WALL_V_MIN := 6.9
 # How quickly the parts ease to their targets (per second).
 const EASE := 2.5
-# How far below the seabed a pile is carried, so it never shows a gap on a slope.
-const PILE_SINK := 0.6
-
-
-## One set per loaded region. Only immutable, model-local geometry is shared.
-## Node paths distinguish authored parts with different material overrides.
-class MeshParts:
-	var fixed: Dictionary[String, Dictionary] = {}
-	var deformable: Dictionary[String, Dictionary] = {}
-
-	func triangles(glb: String, path: NodePath, node: MeshInstance3D) -> MeshBuilder:
-		var parts: Dictionary = fixed.get_or_add(glb, {})
-		if not parts.has(path):
-			parts[path] = ModelParts.painted(node)
-		return parts[path]
-
-	func live_mesh(glb: String, path: NodePath, node: MeshInstance3D) -> ArrayMesh:
-		var parts: Dictionary = deformable.get_or_add(glb, {})
-		if not parts.has(path):
-			parts[path] = ModelParts.painted_live(node)
-		return parts[path]
+# From the fender face to the dolphin centre, and the height of its deck.
+const DOLPHIN_FACE := 3.5
+const DOLPHIN_DECK := 4.17
+# Longitudinal fender centres, in order from one end of each dolphin to the other.
+const INNER_FENDERS: Array[float] = [-1.1, 1.1]
+const OUTER_FENDERS: Array[float] = [-3.3, -1.1, 1.1, 3.3]
 
 
 class Fender:
-	var mesh: MeshInstance3D
 	var side := 1.0
 	var u := 0.0          # along the slip, at the fender's middle
 	var face := 0.0       # lateral offset of its face from the slip's centreline (|v|)
-	var peak := 1.0       # the Compression the model's animation presses it to
 	var target := 0.0
 	var squish := 0.0
 
@@ -62,11 +36,6 @@ class Wall:
 	var side := 1.0
 	var a := Vector3.ZERO   # ends of its fendered face (slip frame, y = 0)
 	var b := Vector3.ZERO
-	var travel: Node3D
-	var rest := Vector3.ZERO
-	var full := Vector3.ZERO
-	var bushings: Array[MeshInstance3D] = []
-	var peak := 1.0
 	var target := 0.0
 	var squish := 0.0
 
@@ -79,52 +48,48 @@ var walls: Array[Wall] = []
 var inner_caps: Array[Vector3] = []
 var outer_caps: Array[Vector3] = []
 var slip_to_world := Transform3D.IDENTITY
-var _parts: MeshParts
-var _terrain: Terrain
 
 
-static func available() -> bool:
-	return Models.mid_slip_guides
-
-
-func _init(slip_v: float, terminal_xform: Transform3D, terrain: Terrain, parts: MeshParts) -> void:
+func _init(slip_v: float, terminal_xform: Transform3D) -> void:
 	name = "SlipGuides"
 	v = slip_v
 	position.x = slip_v
-	_parts = parts
-	_terrain = terrain
 	slip_to_world = terminal_xform * Transform3D(Basis.IDENTITY, position)
 
 
-## Builds (or rebuilds) the guides for a slip of `s`.
+## Fits the contacts to the widest ferry this slip receives.
 func fit(s: int) -> void:
 	if s == size:
 		return
 	size = s
-	for c in get_children():
-		c.free()
 	fenders.clear()
 	walls.clear()
 	inner_caps.clear()
 	outer_caps.clear()
-	var mb := MeshBuilder.new()
 	var inner_u := _slip_inner_u(s)
 	var inner := _slip_face_v(s, inner_u)
 	var outer := _slip_face_v(s, Layout.DOLPHIN_OUTER.x)
+	var line := _wall_line(FerryClass.of(s))
 	for side: float in [-1.0, 1.0]:
-		_add_wall(mb, side)
-		inner_caps.append(_add_dolphin(mb, side, inner_u, inner, Models.SLIP_DOLPHIN_INNER_GLB))
-		var cap := _add_dolphin(mb, side, Layout.DOLPHIN_OUTER.x, outer, Models.SLIP_DOLPHIN_OUTER_GLB)
-		outer_caps.append(cap)
-		# The outer dolphins carry the slip's lanterns: green to port, red to starboard.
-		var mark := Models.slip_mark(side < 0)
-		Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
-	var fixed := MeshInstance3D.new()
-	fixed.name = "Fixed"
-	fixed.mesh = mb.commit()
-	add_child(fixed)
-	_apply()
+		var wall := Wall.new()
+		wall.side = side
+		wall.a = Vector3(side * line[0].y, 0, line[0].x)
+		wall.b = Vector3(side * line[1].y, 0, line[1].x)
+		walls.append(wall)
+		inner_caps.append(_add_dolphin(side, inner_u, inner, INNER_FENDERS))
+		outer_caps.append(_add_dolphin(side, Layout.DOLPHIN_OUTER.x, outer, OUTER_FENDERS))
 	fitted.emit()
+
+
+func _add_dolphin(side: float, u: float, face: float, offsets: Array[float]) -> Vector3:
+	var cap := Vector3(side * (face + DOLPHIN_FACE), DOLPHIN_DECK, u)
+	for offset in offsets:
+		var fender := Fender.new()
+		fender.side = side
+		fender.u = (cap + Vector3.BACK * (side * offset)).z
+		fender.face = face
+		fenders.append(fender)
+	return cap
 
 
 func _process(delta: float) -> void:
@@ -139,16 +104,7 @@ func _process(delta: float) -> void:
 			w.squish = lerpf(w.squish, w.target, k)
 			moved = true
 	if moved:
-		_apply()
-
-
-func _apply() -> void:
-	for f in fenders:
-		f.mesh.set_blend_shape_value(0, f.squish * f.peak)
-	for w in walls:
-		w.travel.position = w.rest.lerp(w.full, w.squish)
-		for bushing in w.bushings:
-			bushing.set_blend_shape_value(0, w.squish * w.peak)
+		compression_changed.emit()
 
 
 ## Where along the slip (u) a slip of `size`'s inner dolphins stand: INNER_REACH of the
@@ -183,42 +139,6 @@ static func _hull_face_v(size: int, u: float) -> float:
 	if hw <= 0.0:
 		hw = fc.half_beam
 	return hw * cos(LIE_SWING) + arm * sin(LIE_SWING)
-
-
-## A wing wall on `side` fitted to the slip (_wall_line): its face on the line,
-## towards the slip, its piles behind.
-func _add_wall(mb: MeshBuilder, side: float) -> void:
-	var line := _wall_line(FerryClass.of(size))
-	var w0: Vector2 = line[0]
-	var w1: Vector2 = line[1]
-	var p0 := Vector3(side * w0.y, 0, w0.x)
-	var p1 := Vector3(side * w1.y, 0, w1.x)
-	var along := (p1 - p0).normalized()
-	var out := Vector3(along.z, 0, -along.x)
-	if out.x * side < 0.0:
-		# (Keeping the frame right-handed.)
-		out = -out
-		along = -along
-	# The model runs along its X with its face looking +Z: X along the wall, +Z towards
-	# the slip (-out).
-	var model := Basis(Vector3(0, 0, 1), Vector3.UP, Vector3(-1, 0, 0))
-	var root := _place(mb, Models.SLIP_WING_WALL_GLB, Transform3D(Basis(out, Vector3.UP, along) * model, (p0 + p1) * 0.5))
-	var w := Wall.new()
-	w.side = side
-	w.a = p0
-	w.b = p1
-	for node in root.find_children("*", "Node3D", true, false):
-		if ModelParts._key(node) == "fenderfacetravel":
-			w.travel = node
-	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
-		if (mi.mesh as ArrayMesh).get_blend_shape_count() > 0:
-			w.bushings.append(mi)
-	if w.travel:
-		w.rest = w.travel.position
-		var peak := _peak_travel(root.get_meta("anim", null), w.travel, w.bushings)
-		w.full = w.rest + peak[0]
-		w.peak = peak[1]
-		walls.append(w)
 
 
 ## The starboard wing wall's face (its ends, u and v off the centreline) fitted to the
@@ -265,149 +185,3 @@ static func _wall_line(fc: FerryClass) -> Array[Vector2]:
 			snuggest = mean
 			best = [Vector2(u0, v0), Vector2(u0, v0) + dir * length]
 	return best
-
-
-## A dolphin from `glb` whose fender face lies `face` off the centreline on `side` at
-## `u`, square to the slip and looking in at it. Returns the middle of its deck.
-func _add_dolphin(mb: MeshBuilder, side: float, u: float, face: float, glb: String) -> Vector3:
-	var c := Vector3(side * (face + Models.SLIP_DOLPHIN_FACE), 0, u)
-	# Model +Z (the face) towards the centreline, its length (X) along the slip.
-	var basis := Basis(Vector3(0, 0, side), Vector3.UP, Vector3(-side, 0, 0))
-	var root := _place(mb, glb, Transform3D(basis, c))
-	var anim: Animation = root.get_meta("anim", null)
-	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
-		var f := Fender.new()
-		f.mesh = mi
-		f.side = side
-		var mid := ModelParts.relative_xform(mi, self) * mi.mesh.get_aabb().get_center()
-		f.u = mid.z
-		f.face = face
-		f.peak = _peak_compression(anim)
-		fenders.append(f)
-	return c + Vector3(0, Models.SLIP_DOLPHIN_DECK, 0)
-
-
-## Instances `glb` at `xf` and keeps only its moving parts live: meshes with blend
-## shapes, and one merged mesh for whatever rides on a "Fender face travel" node.
-## Everything else goes into `mb` (the slip's one fixed mesh), each pile carried on
-## down to the seabed. The model's animation is kept as the root's "anim" meta, for
-## how far it presses its parts.
-func _place(mb: MeshBuilder, glb: String, xf: Transform3D) -> Node3D:
-	var root := (load(glb) as PackedScene).instantiate() as Node3D
-	root.transform = xf
-	add_child(root)
-	for ap: AnimationPlayer in root.find_children("*", "AnimationPlayer", true, false):
-		var names := ap.get_animation_list()
-		if not names.is_empty():
-			root.set_meta("anim", ap.get_animation(names[0]))
-		ap.free()
-	var travel: Node3D = null
-	for node in root.find_children("*", "Node3D", true, false):
-		if ModelParts._key(node) == "fenderfacetravel":
-			travel = node
-	var riding := MeshBuilder.new()
-	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
-		if (mi.mesh as ArrayMesh).get_blend_shape_count() > 0:
-			mi.mesh = _parts.live_mesh(glb, root.get_path_to(mi), mi)
-			continue
-		var part := _parts.triangles(glb, root.get_path_to(mi), mi)
-		if travel and travel.is_ancestor_of(mi):
-			Models._append_part(riding, part, ModelParts.relative_xform(mi, travel))
-		else:
-			var at := ModelParts.relative_xform(mi, self)
-			Models._append_part(mb, part, at)
-			var key := ModelParts._key(mi)
-			if key.contains("pile") and not key.contains("cap") and not key.contains("wale"):
-				_pile_to_seabed(mb, part, at)
-		mi.free()
-	if travel:
-		var face := MeshInstance3D.new()
-		face.name = "Face"
-		face.mesh = riding.commit()
-		travel.add_child(face)
-	return root
-
-
-## Carries a pile (its triangles `part`, placed by `at` in the slip frame) on from its
-## foot, along its own axis, to PILE_SINK under the seabed below.
-func _pile_to_seabed(mb: MeshBuilder, part: MeshBuilder, at: Transform3D) -> void:
-	if _terrain == null or part.verts.is_empty():
-		return
-	var pts := at * part.verts
-	var low := INF
-	var all := Vector3.ZERO
-	for p in pts:
-		low = minf(low, p.y)
-		all += p
-	all /= pts.size()
-	var foot := Vector3.ZERO
-	var col := Color(0, 0, 0, 0)
-	var n := 0
-	for i in pts.size():
-		if pts[i].y < low + 0.1:
-			foot += pts[i]
-			col += part.colors[i]
-			n += 1
-	foot /= n
-	col /= n
-	var r := 0.0
-	for p in pts:
-		if p.y < low + 0.1:
-			r += Vector2(p.x - foot.x, p.z - foot.z).length()
-	r /= n
-	var down := (foot - all).normalized()
-	if down.y > -0.5:
-		down = Vector3.DOWN
-	var w := slip_to_world * foot
-	var bed := _terrain.height_at(w.x, w.z) - PILE_SINK
-	if bed > foot.y - 0.05:
-		return
-	var length := (foot.y - bed) / -down.y
-	var up := -down
-	var x := up.cross(Vector3.FORWARD if absf(up.z) < 0.9 else Vector3.RIGHT).normalized()
-	var saved := mb.xform
-	mb.xform = Transform3D(Basis(x, up, x.cross(up)), foot + down * length)
-	# A touch past the foot, so no seam shows where they meet.
-	mb.cylinder(Vector3.ZERO, r, r, length + 0.05, 10, col)
-	mb.xform = saved
-
-
-## How far the wall's animation slides its face back, and the bushings' Compression
-## at that moment: [travel offset, compression].
-static func _peak_travel(anim: Animation, travel: Node3D, bushings: Array[MeshInstance3D]) -> Array:
-	var best := [Vector3(0, 0, -0.07), 1.0]
-	if anim == null:
-		return best
-	var pos_track := -1
-	var shape_track := -1
-	for t in anim.get_track_count():
-		var path := str(anim.track_get_path(t))
-		if anim.track_get_type(t) == Animation.TYPE_POSITION_3D and path.ends_with(str(travel.name)):
-			pos_track = t
-		elif anim.track_get_type(t) == Animation.TYPE_BLEND_SHAPE and shape_track < 0:
-			shape_track = t
-	if pos_track < 0:
-		return best
-	var rest: Vector3 = anim.position_track_interpolate(pos_track, 0.0)
-	var most := 0.0
-	var t := 0.0
-	while t <= anim.length:
-		var d: Vector3 = anim.position_track_interpolate(pos_track, t) - rest
-		if d.length() > most:
-			most = d.length()
-			best = [d, anim.blend_shape_track_interpolate(shape_track, t) if shape_track >= 0 else 1.0]
-		t += 1.0 / 30.0
-	return best
-
-
-## The most any blend shape track of `anim` presses its part.
-static func _peak_compression(anim: Animation) -> float:
-	if anim == null:
-		return 1.0
-	var most := 0.0
-	for tr in anim.get_track_count():
-		if anim.track_get_type(tr) != Animation.TYPE_BLEND_SHAPE:
-			continue
-		for k in anim.track_get_key_count(tr):
-			most = maxf(most, float(anim.track_get_key_value(tr, k)))
-	return most if most > 0.0 else 1.0

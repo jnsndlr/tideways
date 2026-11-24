@@ -3,6 +3,9 @@ extends SceneTree
 
 
 func _initialize() -> void:
+	if not check_slip_guides():
+		fail("Docking contacts must fit and respond to pressure without a rendered guide")
+		return
 	if not check_transfer_span():
 		fail("Transfer span gates did not follow the lowering and lifting sequence without a view")
 		return
@@ -59,6 +62,23 @@ func _initialize() -> void:
 		region.routes.size(), region.towns[route.a].key, region.towns[route.b].key, route.length, steps])
 	print("TEST PASSED")
 	quit(0)
+
+
+func check_slip_guides() -> bool:
+	var guide := SlipGuides.new(3.0, Transform3D.IDENTITY)
+	guide.fit(2)
+	var valid := not guide.fenders.is_empty() and guide.walls.size() == 2
+	if valid:
+		var fender := guide.fenders[0]
+		var wall := guide.walls[0]
+		fender.target = 1.0
+		wall.target = 1.0
+		guide._process(0.2)
+		valid = is_equal_approx(fender.squish, 0.5) and is_equal_approx(wall.squish, 0.5)
+		guide.fit(4)
+		valid = valid and guide.fenders[0].face > fender.face and is_zero_approx(guide.fenders[0].squish)
+	guide.free()
+	return valid
 
 
 func check_transfer_span() -> bool:

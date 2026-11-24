@@ -6,18 +6,25 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var parts := SlipGuides.MeshParts.new()
-	var left := SlipGuides.new(0, Transform3D.IDENTITY, null, parts)
+	var parts := SlipGuidesView.MeshParts.new()
+	var left := SlipGuides.new(0, Transform3D.IDENTITY)
 	var terminal := Transform3D(Basis(Vector3.UP, 0.7), Vector3(90, 4, -30))
 	var slip_offset := 30.0
-	var right := SlipGuides.new(slip_offset, terminal, null, parts)
+	var right := SlipGuides.new(slip_offset, terminal)
 	var terminal_node := Node3D.new()
 	terminal_node.transform = terminal
 	root.add_child(terminal_node)
+	root.add_child(left)
 	terminal_node.add_child(right)
 	left.fit(2)
 	right.fit(2)
-	var failure := check_independence(left, right)
+	var left_view := SlipGuidesView.new(left, null, parts)
+	var right_view := SlipGuidesView.new(right, null, parts)
+	left.add_child(left_view)
+	right.add_child(right_view)
+	var failure := check_independence(left, right, left_view, right_view)
+	if failure.is_empty():
+		failure = check_contacts(right, right_view)
 	if failure.is_empty():
 		failure = check_perches(right, terminal, slip_offset)
 	if failure.is_empty():
@@ -32,32 +39,49 @@ func _run() -> void:
 	quit(0)
 
 
-func check_independence(left: SlipGuides, right: SlipGuides) -> String:
-	var active := left.fenders[0]
-	var other := right.fenders[0]
-	if active.mesh.mesh != other.mesh.mesh:
+func check_independence(left: SlipGuides, right: SlipGuides, left_view: SlipGuidesView, right_view: SlipGuidesView) -> String:
+	var active := left_view.fenders[0]
+	var first_face := right.fenders[0].face
+	if active.mesh.mesh != right_view.fenders[0].mesh.mesh:
 		return "Matching fenders must reuse the same prepared mesh"
 	left.walls[0].target = 1
-	active.target = 1
+	left.fenders[0].target = 1
 	left._process(1)
-	if active.mesh.get_blend_shape_value(0) <= 0 or not left.walls[0].travel.position.is_equal_approx(left.walls[0].full):
-		return "The selected fender and wall must compress"
-	for guide in [left, right]:
-		for f: SlipGuides.Fender in guide.fenders:
+	if not is_equal_approx(active.mesh.get_blend_shape_value(0), active.peak):
+		return "The selected fender must compress"
+	var active_wall := left_view.walls[0]
+	if not active_wall.travel.position.is_equal_approx(active_wall.full):
+		return "The selected wall must compress"
+	for view: SlipGuidesView in [left_view, right_view]:
+		for f in view.fenders:
 			if f != active and not is_zero_approx(f.mesh.get_blend_shape_value(0)):
 				return "Compression leaked to another fender"
-		for wall: SlipGuides.Wall in guide.walls:
-			if wall != left.walls[0] and not wall.travel.position.is_equal_approx(wall.rest):
+		for wall in view.walls:
+			if wall != active_wall and not wall.travel.position.is_equal_approx(wall.rest):
 				return "An idle wall moved"
 			for bushing in wall.bushings:
-				var expected := wall.peak if wall == left.walls[0] else 0.0
+				var expected := wall.peak if wall == active_wall else 0.0
 				if not is_equal_approx(bushing.get_blend_shape_value(0), expected):
 					return "A bushing did not follow its own wall"
 	right.fit(4)
-	if right.fenders[0].face <= other.face or right.fenders[0].mesh.mesh != active.mesh.mesh:
+	if right.fenders[0].face <= first_face or right_view.fenders[0].mesh.mesh != active.mesh.mesh:
 		return "A refit must place the shared geometry for the new slip size"
 	if not is_equal_approx(active.mesh.get_blend_shape_value(0), active.peak):
 		return "Refitting one slip changed another fender"
+	return ""
+
+
+func check_contacts(guide: SlipGuides, view: SlipGuidesView) -> String:
+	for size in range(1, 6):
+		guide.fit(size)
+		if view.fenders.size() != guide.fenders.size() or view.fenders.is_empty():
+			return "The fitted model must have one live fender for every docking contact"
+		for i in view.fenders.size():
+			var mesh := view.fenders[i].mesh
+			var center := guide.to_local(mesh.to_global(mesh.mesh.get_aabb().get_center()))
+			var contact := guide.fenders[i]
+			if not is_equal_approx(center.z, contact.u) or signf(center.x) != contact.side:
+				return "Fender %d on size %d no longer matches its authored contact position" % [i, size]
 	return ""
 
 
