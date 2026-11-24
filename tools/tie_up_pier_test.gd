@@ -68,7 +68,7 @@ func run() -> void:
 func _check_showcase_depth() -> void:
 	var generator := MapGenerator.new()
 	generator.route_cache_path = "res://maps/routes/main_story-tie_up_pier.json"
-	var map := generator.generate_from(MapLayout.load_file(MapLayout.MAIN_STORY), Scenario.load_file("res://maps/tie_up_pier.json"))
+	var map := generator.generate_from(MapLayout.load_file(MapLayout.MAIN_STORY), Scenario.load_file("res://maps/tie_up_pier.json").region_plan())
 	for town in map.towns:
 		if not town.built or not town.key.begins_with("island-2/") or town.tie_ups().size() != 2:
 			continue

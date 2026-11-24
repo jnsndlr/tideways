@@ -19,6 +19,6 @@ func _initialize() -> void:
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(gen.route_cache_path))
 		var scenario: Scenario = null if plan == "full-network" else Scenario.load_file("res://maps/%s.json" % plan)
 		var t0 := Time.get_ticks_msec()
-		var map := gen.generate_from(layout.duplicate(), scenario)
+		var map := gen.generate_from(layout.duplicate(), scenario.region_plan() if scenario else null)
 		print("%s: %d routes in %d ms" % [plan, map.routes.size(), Time.get_ticks_msec() - t0])
 	quit(0)

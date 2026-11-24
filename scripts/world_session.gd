@@ -66,7 +66,8 @@ func start_authored(layout: MapLayout, opening: Scenario, route_cache_path: Stri
 	var generator := MapGenerator.new()
 	generator.route_cache_path = route_cache_path
 	scenario = opening
-	await _start_region(generator, generator.generate_from.bind(layout, opening))
+	var plan := opening.region_plan() if opening else null
+	await _start_region(generator, generator.generate_from.bind(layout, plan))
 
 
 func _start_region(gen: MapGenerator, generate: Callable) -> void:

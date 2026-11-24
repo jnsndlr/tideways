@@ -38,11 +38,17 @@ func _initialize() -> void:
 	var layout := MapLayout.new()
 	var scenario := Scenario.new()
 	scenario.terminals = ["island-2/0"]
-	var first_site := MapGenerator._route_cache_key(layout, scenario)
+	scenario.slips["island-2/0"] = [2]
+	var plan := scenario.region_plan()
+	var first_site := MapGenerator._route_cache_key(layout, plan)
 	scenario.terminals[0] = "island-2/2"
-	_check(MapGenerator._route_cache_key(layout, scenario) != first_site, "Moving a terminal to another dock must invalidate the route plan.")
+	scenario.slips["island-2/0"][0] = 3
+	_check(plan.slip_sizes("island-2/0") == [2], "Editing a scenario slip must not change a worker's snapshot.")
+	scenario.slips["island-2/0"][0] = 2
+	_check(MapGenerator._route_cache_key(layout, scenario.region_plan()) != first_site, "Moving a terminal to another dock must invalidate the route plan.")
+	_check(MapGenerator._route_cache_key(layout, plan) == first_site, "A running worker must keep its original terminal plan.")
 	var generator := InterruptedSearch.new()
-	generator._scenario = Scenario.new()
+	generator._plan = RegionPlan.new()
 	generator._route_curve(Vector3.ZERO, Vector3.RIGHT, Vector3(400, 0, 0), Vector3.LEFT)
 	_check(generator._memo.routes.is_empty(), "An interrupted search must never record an unreachable route.")
 	var planner := RoutePlanner.new(Terrain.new(12, 120.0), 120.0, _cancel_grid)
