@@ -17,6 +17,7 @@ func _initialize() -> void:
 	check_lane_capacity()
 	check_navigation()
 	check_harbour_access()
+	check_wildlife_daylight()
 	check_wildlife_photo()
 	if failures == 0:
 		print("TEST PASSED")
@@ -147,6 +148,32 @@ func check_harbour_access() -> void:
 	traffic.free()
 	arriving.free()
 	leaving.free()
+
+
+func check_wildlife_daylight() -> void:
+	var sim := Simulation.new(Vehicle.new.unbind(1))
+	sim.map = MapData.new()
+	var island := MapData.Island.new()
+	sim.map.islands.append(island)
+	var terminal := Terminal.new()
+	terminal.town = MapData.Town.new()
+	sim.terminals[0] = terminal
+	var wildlife := Wildlife.new()
+	wildlife.sim = sim
+	var species := Wildlife.table()[0]
+	for minute: int in [329, 330, 331, 1229, 1230, 1231]:
+		sim.minutes = minute
+		var visit := Wildlife.Visit.new()
+		visit.species = species
+		var reputation := Wildlife.Reputation.new()
+		wildlife._rep[island.id] = reputation
+		wildlife._look(visit)
+		wildlife._look(visit)
+		var expected := 1 if minute >= 330 and minute <= 1230 else 0
+		expect(reputation.sightings == expected, "Dock sightings at game minute %d" % minute)
+	wildlife.free()
+	terminal.free()
+	sim.free()
 
 
 func check_wildlife_photo() -> void:
