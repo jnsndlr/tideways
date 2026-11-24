@@ -28,6 +28,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Check region and simulation dependencies
+        run: |
+          python3 -B tools/test_layer_dependencies.py
+          python3 -B tools/layer_dependencies.py
       - name: Verify the test runner
         run: bash tools/fast_ci_runner_test.sh
       - name: Test the iPad frame report
