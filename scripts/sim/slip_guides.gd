@@ -21,7 +21,7 @@ const WALL_ANGLES := Vector2i(14, 60)   # the splays (degrees off the centreline
 # Its corner stands just off the apron's side (6.55 m out), so the bow nestles in.
 const WALL_V_MIN := 6.9
 # How quickly the parts ease to their targets (per second).
-const EASE := 2.5
+const EASE := 5.0
 # How far below the seabed a pile is carried, so it never shows a gap on a slope.
 const PILE_SINK := 0.6
 
