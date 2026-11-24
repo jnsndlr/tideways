@@ -40,7 +40,7 @@ const SIDELIGHT_Y := 20.94
 # (2.85 m up in the model) lies at Layout.DECK_Y. `--classic-ferry` or a missing model keeps
 # the code-built size 3.
 const MID_GLB := "res://assets/models/ferry_mid.glb"
-const MID_SCALE := 1.26
+const MID_SCALE := FerryHullDimensions.MID_SCALE
 const MID_CAR_DECK := 2.85  # her car deck above the waterline (art/ferry_mid.py CAR_DECK)
 const MID_DROP := MID_CAR_DECK * MID_SCALE - Layout.DECK_Y
 const MID_APRON_Z := 42.45  # where her car deck's asphalt gives way to the bare steel apron
@@ -82,7 +82,7 @@ static var issaquah_model := not "--classic-ferry" in OS.get_cmdline_user_args()
 # takes four lanes of the game's oversized cars (art/jumbo_mk_ii.py STRETCH);
 # _jumbo() takes points on the real boat's plans into the hull's frame.
 const JUMBO_GLB := "res://assets/models/jumbo_mk_ii.glb"
-const JUMBO_STRETCH := 1.128
+const JUMBO_STRETCH := FerryHullDimensions.JUMBO_STRETCH
 const MAX_SIZE := 5
 static var jumbo_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(JUMBO_GLB)
 
@@ -101,7 +101,7 @@ const TABLE := {
 	2: [3, 6, 31.5, 11.7, 22.5, "Small ferry"],
 	3: [4, 9, 45.0, 12.6, 27.0, "Ferry"],
 	4: [4, 12, 57.0, 12.9, 28.5, "Large ferry"],
-	5: [5, 20, 70.13 * JUMBO_STRETCH * MID_SCALE, 13.716 * JUMBO_STRETCH * MID_SCALE, 30.0, "Jumbo Mk II class"],
+	5: [5, 20, FerryHullDimensions.MAX_HALF_LENGTH, FerryHullDimensions.MAX_HALF_BEAM, 30.0, "Jumbo Mk II class"],
 }
 
 # size: [crew, gallons burnt per nautical mile at service speed]. The map's
