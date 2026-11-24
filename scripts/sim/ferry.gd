@@ -202,7 +202,6 @@ var _inset := 0.0
 # curve's 6 m chords one kink at a time (see _build_yaws).
 var _yaws := PackedFloat32Array()
 const YAW_PAD := 120.0
-const YAW_EASE := 16.0      # m, each of the two box filters (so a turn eases in over ~32 m)
 # Lanes: two boats on one route pass each other mid-crossing, each keeping to her
 # own starboard lane off the line joining the docks (see lane_offset_on).
 const LANE_GAP := 50.0      # m, kept between two of the biggest hulls on opposite lanes
@@ -1512,7 +1511,7 @@ func _yaws_of(r: MapData.Route) -> PackedFloat32Array:
 			y = prev + angle_difference(prev, y)
 		raw[i] = y
 		prev = y
-	var ys := _box(_box(raw, int(YAW_EASE)), int(YAW_EASE))
+	var ys := _box(_box(raw, MapData.Route.YAW_EASE_METRES), MapData.Route.YAW_EASE_METRES)
 	_yaw_cache[r.id] = ys
 	return ys
 

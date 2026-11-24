@@ -20,6 +20,8 @@ The [WorldSession](../scripts/world_session.gd) scene root is the **composition 
 
 ## Target dependency direction
 
+At `581853b`, 7 direct project-script dependencies ran from map to simulation and 29 from simulation to world. The shared construction frame budget now lives alongside the session code. Run `python3 -B tools/layer_dependencies.py` to compare global class references and literal script paths against the [remaining dependencies](../tools/layer_dependencies.txt). CI reports both new edges and retired entries to remove. Engine types, art assets and dynamically constructed paths are outside this inventory.
+
 | Boundary | Current dependency | Target and first check |
 | --- | --- | --- |
 | Session construction | Main Map and Sandbox select typed region inputs. WorldSession owns setup, cancellation and teardown. | Keep generation and worker cleanup together. Verify both menu paths, interruption and synchronous tooling when changing startup. [TID-308](https://linear.app/tideways/issue/TID-308) |

@@ -90,7 +90,7 @@ class Town:
 
 	## How far inland of where it used to stand the lot is set back, for the trestle.
 	func lot_shift() -> float:
-		return Layout.TRESTLE_BAY * approach_bays - (SlipRamp.HINGE_U - Layout.LOT_FRONT)
+		return Layout.TRESTLE_BAY * approach_bays - (Layout.RAMP_HINGE_U - Layout.LOT_FRONT)
 
 	## The lot's frame within the terminal's: everything Layout puts on the lot (lanes,
 	## queue slots, the building, the toll plaza) at LOT_Y and LOT_* in this frame comes
@@ -103,11 +103,11 @@ class Town:
 
 	## The lot's seaward edge, along the terminal frame's u (where the trestle starts).
 	func lot_front_u() -> float:
-		return SlipRamp.HINGE_U - Layout.TRESTLE_BAY * approach_bays
+		return Layout.RAMP_HINGE_U - Layout.TRESTLE_BAY * approach_bays
 
 	## The road's height at `u` (terminal frame) from the lot's edge out to the span's hinge.
 	func road_y(u: float) -> float:
-		return Layout.approach_y(u, lot_front_u(), lot_y, SlipRamp.HINGE_U, Layout.LOT_Y)
+		return Layout.approach_y(u, lot_front_u(), lot_y, Layout.RAMP_HINGE_U, Layout.LOT_Y)
 
 	## Lateral offset of slip `i`. The working slips sit centred on the lot; tie-up
 	## slips come after them in `slips` and carry on along the shore to the right.
@@ -357,6 +357,9 @@ class Slip:
 
 
 class Route:
+	## Width in metres of each heading filter. Reserve this distance before the first turn.
+	const YAW_EASE_METRES := 16
+
 	var key := ""                   # independent of the runtime array position
 	var id := 0
 	var a := 0      # town id

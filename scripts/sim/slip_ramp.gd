@@ -10,7 +10,6 @@ extends Node3D
 ## the model); the towers themselves are static scenery (WorldBuilder).
 
 # Dimensions, as art/slip_mid.py has them.
-const HINGE_U := 2.0
 const SPAN_L := 26.5
 const APRON_L := 7.0
 const APRON_T := 0.12                   # the plate's thickness past its deep heel
@@ -39,7 +38,7 @@ const CW_TOP_DOWN := 10.6
 # The apron lying on the deck, toe down: how far it slopes below the horizontal, and where
 # along the slip (u) the span's tip and the apron's toe come.
 static var LAND_DIP := asin((LAND - APRON_T - 0.01) / APRON_L)
-static var TIP_U := HINGE_U + sqrt(SPAN_L * SPAN_L - LAND * LAND)
+static var TIP_U := Layout.RAMP_HINGE_U + sqrt(SPAN_L * SPAN_L - LAND * LAND)
 static var TOE_U := TIP_U + APRON_L * cos(LAND_DIP)
 
 var _span: Node3D
@@ -69,17 +68,17 @@ static func dock_end(gap: float) -> float:
 ## The height above the lot of the span and apron's top, lying on a ferry, at `u` along the
 ## slip (0 off the end of the apron), for the cars crossing it.
 static func lift_at(u: float) -> float:
-	if u <= HINGE_U or u >= TOE_U:
+	if u <= Layout.RAMP_HINGE_U or u >= TOE_U:
 		return 0.0
 	if u <= TIP_U:
-		return LAND * (u - HINGE_U) / (TIP_U - HINGE_U)
+		return LAND * (u - Layout.RAMP_HINGE_U) / (TIP_U - Layout.RAMP_HINGE_U)
 	return lerpf(LAND, APRON_T + 0.01, (u - TIP_U) / (TOE_U - TIP_U))
 
 
 ## The crossing between the lot and the span's tip at lateral offset `dv`, shore end first
 ## (terminal frame).
 func crossing(dv: float) -> PackedVector3Array:
-	return PackedVector3Array([Vector3(position.x + dv, Layout.LOT_Y, HINGE_U),
+	return PackedVector3Array([Vector3(position.x + dv, Layout.LOT_Y, Layout.RAMP_HINGE_U),
 		Vector3(position.x + dv, Layout.LOT_Y + LAND, TIP_U)])
 
 
@@ -87,7 +86,7 @@ func _init(v: float) -> void:
 	name = "SlipRamp"
 	position.x = v
 	_span = _part("span", self)
-	_span.position = Vector3(0.0, Layout.LOT_Y, HINGE_U)
+	_span.position = Vector3(0.0, Layout.LOT_Y, Layout.RAMP_HINGE_U)
 	_apron = _part("apron", _span)
 	_apron.position = Vector3(0.0, 0.0, SPAN_L)
 	for s: float in [-1.0, 1.0]:

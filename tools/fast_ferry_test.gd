@@ -8,11 +8,24 @@ func _initialize() -> void:
 		quit(1)
 		return
 	print("Ferry sizes follow route demand.")
-	if not _captains_suit_different_crossings():
+	if not _hulls_fit_route_clearance() or not _captains_suit_different_crossings():
 		quit(1)
 		return
 	print("TEST PASSED")
 	quit(0)
+
+
+func _hulls_fit_route_clearance() -> bool:
+	var longest := 0.0
+	var widest := 0.0
+	for size: int in FerryClass.TABLE:
+		var hull := FerryClass.of(size)
+		longest = maxf(longest, hull.half_length)
+		widest = maxf(widest, hull.half_beam)
+	if longest != FerryHullDimensions.MAX_HALF_LENGTH or widest != FerryHullDimensions.MAX_HALF_BEAM:
+		push_error("Fleet hull dimensions disagree with route clearance")
+		return false
+	return true
 
 
 ## The same ferry (the mid-size class) on a short hop and on a long crossing: each

@@ -802,10 +802,9 @@ const OUTER_DOLPHIN_CLEAR := Layout.DOLPHIN_OUTER.y + Layout.DOLPHIN_OUTER.z + 6
 
 ## The straight run out of a slip before the turn: the longest hull's centre runs out
 ## from the route's end (a 90 m hull's docked centre) until her far end clears the
-## channel buoys, plus the ferry's eased helm (Ferry.YAW_EASE) starting the turn early.
+## channel buoys, plus the ferry's eased helm starting the turn early.
 static func long_run_in() -> float:
-	var fc := FerryClass.of(FerryClass.MAX_SIZE)
-	return Layout.CHANNEL_BUOY_U + fc.half_length + Ferry.YAW_EASE - Layout.DOCK_U
+	return Layout.CHANNEL_BUOY_U + FerryHullDimensions.MAX_HALF_LENGTH + MapData.Route.YAW_EASE_METRES - Layout.DOCK_U
 
 
 ## Route from dock centre `pa` (facing out along `na`) to dock centre `pb`, or null
