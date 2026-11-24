@@ -7,8 +7,6 @@ extends Node
 ## Follows the simulation clock by default; set_hour() pins a fixed time instead and
 ## follow_clock() hands control back to the clock.
 
-const SUNRISE := 5.5
-const SUNSET := 20.5
 # The night lights switch on over LIGHTS_FADE hours from LIGHTS_ON, a few at a
 # time, and are all off again by LIGHTS_OFF.
 const LIGHTS_ON := 20.0
@@ -104,10 +102,10 @@ func _process(_delta: float) -> void:
 
 
 static func _elevation(h: float) -> float:
-	var day_t := (h - SUNRISE) / (SUNSET - SUNRISE)
+	var day_t := (h - Daylight.SUNRISE) / (Daylight.SUNSET - Daylight.SUNRISE)
 	if day_t <= 0.0 or day_t >= 1.0:
 		# Sink below the horizon over ~1.5 h of dusk / dawn.
-		var from_horizon := minf(fposmod(h - SUNSET, 24.0), fposmod(SUNRISE - h, 24.0))
+		var from_horizon := minf(fposmod(h - Daylight.SUNSET, 24.0), fposmod(Daylight.SUNRISE - h, 24.0))
 		return -12.0 * clampf(from_horizon / 1.5, 0.0, 1.0)
 	return sin(day_t * PI) * MAX_ELEVATION
 
@@ -115,11 +113,11 @@ static func _elevation(h: float) -> float:
 ## Above the horizon the light is the sun sweeping east to west; below it, a moon
 ## riding high opposite. Energy is zero at the horizon so the swap never pops.
 static func _sun_rotation(h: float) -> Vector3:
-	var day_t := (h - SUNRISE) / (SUNSET - SUNRISE)
+	var day_t := (h - Daylight.SUNRISE) / (Daylight.SUNSET - Daylight.SUNRISE)
 	var elev := _elevation(h)
 	if elev > 0.0:
 		return Vector3(-maxf(elev, 9.0), NOON_YAW + (day_t - 0.5) * 190.0, 0.0)
-	var night_t := fposmod(h - SUNSET, 24.0) / (24.0 - SUNSET + SUNRISE)
+	var night_t := fposmod(h - Daylight.SUNSET, 24.0) / (24.0 - Daylight.SUNSET + Daylight.SUNRISE)
 	return Vector3(-(20.0 + sin(night_t * PI) * 35.0), NOON_YAW + 180.0 + (night_t - 0.5) * 120.0, 0.0)
 
 

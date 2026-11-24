@@ -765,8 +765,7 @@ func _clear(p: Vector3, h: float, depth := DEEP) -> bool:
 func _look(v: Visit) -> void:
 	if not v.active():
 		return
-	var h := sim.hour()
-	if h < DayCycle.SUNRISE or h > DayCycle.SUNSET:
+	if Daylight.is_night(sim.hour()):
 		return
 	var p := Vector2(v.pos.x, v.pos.z)
 	for term: Terminal in sim.terminals.values():

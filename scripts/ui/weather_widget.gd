@@ -80,8 +80,7 @@ func setup(s: Simulation, cycle: DayCycle, regular: Font) -> void:
 
 ## Night once the sun is down, following the lighting (so a pinned time of day shows too).
 func is_night() -> bool:
-	var h := day_cycle.hour()
-	return h < DayCycle.SUNRISE or h > DayCycle.SUNSET
+	return Daylight.is_night(day_cycle.hour())
 
 
 func _process(_delta: float) -> void:

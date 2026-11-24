@@ -22,4 +22,3 @@ scripts/sim/vessel.gd -> scripts/world/models.gd
 scripts/sim/vessel.gd -> scripts/world/night_lights.gd
 scripts/sim/vessel.gd -> scripts/world/wake_field.gd
 scripts/sim/vessel_types.gd -> scripts/world/models.gd
-scripts/sim/wildlife.gd -> scripts/world/day_cycle.gd
