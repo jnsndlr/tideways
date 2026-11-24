@@ -6,13 +6,15 @@ extends Node3D
 ## at the slip's lateral offset, like SlipRamp: x across the slip, z (u) out along it.
 ##
 ## The dolphins funnel out to sea as the slip's size (FerryClass size of the widest hull
-## it takes) puts them (Layout.slip_face_v); `fit` rebuilds them for another size.
+## it takes) puts them (_slip_face_v); `fit` rebuilds them for another size.
 ## Everything that doesn't move is one mesh, and the piles carry on down to the
 ## seabed under each. The parts that give are live: each dolphin fender's Compression
 ## blend shape, and each wing wall's fender face, which slides back on its rubber
 ## bushings. Set `Fender.target` / `Wall.target` (0 at rest .. 1 as hard as the
 ## models' own animations press them) and they ease there.
 
+const LIE_SWING := deg_to_rad(2.0)
+const INNER_REACH := 0.55
 const LANTERN := 3.9
 # Each wing wall stands this far clear of the landed end of the widest hull the slip
 # takes, so a landing off the centre of the slip rides it.
@@ -107,9 +109,9 @@ func fit(s: int) -> void:
 	var mb := MeshBuilder.new()
 	var glows := GlowBuilder.new()
 	glows.xform = _world
-	var inner_u := Layout.slip_inner_u(s)
-	var inner := Layout.slip_face_v(s, inner_u)
-	var outer := Layout.slip_face_v(s, Layout.DOLPHIN_OUTER.x)
+	var inner_u := _slip_inner_u(s)
+	var inner := _slip_face_v(s, inner_u)
+	var outer := _slip_face_v(s, Layout.DOLPHIN_OUTER.x)
 	for side: float in [-1.0, 1.0]:
 		_add_wall(mb, side)
 		inner_caps.append(_add_dolphin(mb, side, inner_u, inner, Models.SLIP_DOLPHIN_INNER_GLB))
@@ -169,6 +171,40 @@ func _apply() -> void:
 		w.travel.position = w.rest.lerp(w.full, w.squish)
 		for bushing in w.bushings:
 			bushing.set_blend_shape_value(0, w.squish * w.peak)
+
+
+## Where along the slip (u) a slip of `size`'s inner dolphins stand: INNER_REACH of the
+## way down its widest hull from her landed end, where her sides run full, but never
+## further out than DOLPHIN_INNER (the big boats' slips).
+static func _slip_inner_u(size: int) -> float:
+	var fc := FerryClass.of(size)
+	var end_u := SlipRamp.dock_end(fc.half_length - fc.net_z - 0.35)
+	return minf(Layout.DOLPHIN_INNER.x, end_u + INNER_REACH * 2.0 * fc.half_length)
+
+
+## Lateral offset of the fender face of a slip of `size`'s dolphin at `u` along it: on
+## the side of its widest hull, landed and swung LIE_SWING about her landed end (past
+## her far end, on the line her side makes). A slip takes every boat from the one
+## after the next slip size down's largest up to `size`, so the face clears the
+## widest of them there (the medium slip's Issaquah stands wider than its Evergreen).
+static func _slip_face_v(size: int, u: float) -> float:
+	var smallest := 1
+	for largest: int in MapData.Slip.LARGEST_BOAT:
+		if largest < size:
+			smallest = maxi(smallest, largest + 1)
+	var v := -INF
+	for s in range(smallest, size + 1):
+		v = maxf(v, _hull_face_v(s, u))
+	return v
+
+
+static func _hull_face_v(size: int, u: float) -> float:
+	var fc := FerryClass.of(size)
+	var arm := u - SlipRamp.dock_end(fc.half_length - fc.net_z - 0.35)
+	var hw := fc.half_width_at(-fc.half_length + arm)
+	if hw <= 0.0:
+		hw = fc.half_beam
+	return hw * cos(LIE_SWING) + arm * sin(LIE_SWING)
 
 
 ## A wing wall on `side` fitted to the slip (_wall_line): its face on the line,

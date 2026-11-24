@@ -46,6 +46,8 @@ jobs:
           mv Godot_v4.7.2-stable_linux.x86_64 godot
           chmod +x godot
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Generate a region and step a voyage without imported art
+        run: bash tools/art_free_region_test.sh
       - name: Run game checks
         env:
           SUITE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 'traffic' || 'fast' }}
