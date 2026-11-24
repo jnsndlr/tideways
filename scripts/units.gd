@@ -5,6 +5,8 @@ extends RefCounted
 ## clock's one real second to a game minute a crossing still takes a sensible part
 ## of a game hour; the HUD shows their real speed.
 
+## Game metres per model metre for road vehicles and ferries built to the same scale.
+const VEHICLE_MODEL_SCALE := 1.26
 const KNOT := 0.514444          # m/s
 const SPEED_UP := 3.6
 

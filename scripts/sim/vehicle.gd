@@ -46,7 +46,7 @@ var _hitch := Vector3.ZERO     # the fifth wheel, in the tractor's frame (model 
 var _trailer_axle := Vector3.ZERO  # the trailer's axle centre, in the parent's space
 var _trailer_reach := 0.0          # fifth wheel to that, in the parent's space
 var _on_arrive := Callable()
-var _body: MeshInstance3D      # its mesh, tipped nose up or down a steep ramp (looks only)
+var _body: Node3D              # visual body, pitched to follow the ramp grade
 var _parking_yaw := NAN
 ## The vehicle it follows (the one sent off just before it, or the one ahead in its
 ## queue): while that is on the move it holds back behind its tail.
@@ -60,19 +60,17 @@ var _creep := 0.0              # seconds left edging on regardless
 
 ## Real bumper-to-bumper metres for a model-backed vehicle, including a trailer.
 func length_metres() -> float:
-	return length / Models.VEHICLE_SCALE
+	return length / Units.VEHICLE_MODEL_SCALE
 
 
-func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGACY_SCALE) -> void:
+func setup(body: Node3D, truck: bool, model_key: String, model_scale: float) -> void:
 	is_truck = truck
 	model = model_key
 	is_tall = truck or (model_key != "" and VehicleData.VARIANTS[model_key].size.y > TALL)
 	# (Its lights, drawn by NightLights from its transform, scale with it.)
 	scale = Vector3.ONE * model_scale
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	add_child(mi)
-	_body = mi
+	_body = body
+	add_child(body)
 	if model_key != "":
 		var size: Vector3 = VehicleData.VARIANTS[model_key].size
 		_set_length(size.z * model_scale, 0.0)
@@ -80,19 +78,17 @@ func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGAC
 		length = SLOT * 0.8  # (the code-built car and truck: a slot each)
 
 
-## Hooks trailer `key` (a VehicleData trailer, painted `mesh`) on the fifth wheel.
-func attach_trailer(key: String, mesh: Mesh) -> void:
+## Mounts the supplied trailer body at its kingpin on the tractor’s fifth wheel.
+func attach_trailer(key: String, body: Node3D) -> void:
 	var td: Dictionary = VehicleData.VARIANTS[key]
 	var vd: Dictionary = VehicleData.VARIANTS[model]
 	trailer_model = key
 	_hitch = vd.hitch
 	trailer = Node3D.new()
 	trailer.position = _hitch
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
 	var pin: Vector3 = td.pin
-	mi.position = Vector3(0, -pin.y, -pin.z)
-	trailer.add_child(mi)
+	body.position = Vector3(0, -pin.y, -pin.z)
+	trailer.add_child(body)
 	add_child(trailer)
 	# Front of the tractor to the back of the trailer.
 	var front: float = vd.size.z * 0.5

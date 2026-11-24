@@ -819,7 +819,7 @@ static func car(color_index: int) -> ArrayMesh:
 const VEHICLES_GLB := "res://assets/models/vehicles.glb"
 static var mid_cars := not "--classic-cars" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(VEHICLES_GLB)
-const VEHICLE_SCALE := FerryClass.MID_SCALE
+const VEHICLE_SCALE := Units.VEHICLE_MODEL_SCALE
 # The cars (VehicleData keys) and how common each is on the road: sedans and SUVs
 # (100 each), pickups (45, full-size first), minivans (25) and vans (20), work vans first.
 const VEHICLES := {

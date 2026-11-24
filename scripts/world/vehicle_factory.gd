@@ -11,18 +11,29 @@ static func create(rng: RandomNumberGenerator) -> Vehicle:
 	var truck := rng.randf() < TRUCK_SHARE
 	if not Models.mid_cars:
 		var col := rng.randi_range(0, Models.CAR_COLORS.size() - 1)
-		vehicle.setup(Models.truck(col) if truck else Models.car(col), truck)
+		var mesh := Models.truck(col) if truck else Models.car(col)
+		vehicle.setup(_body(mesh), truck, "", Models.LEGACY_SCALE)
 	elif truck:
 		var model := Models.pick_weighted(Models.TRUCKS, rng.randf())
 		var rig := model == "rig"
 		if rig:
 			model = Models.pick_weighted(Models.TRACTORS, rng.randf())
-		vehicle.setup(Models.vehicle(model, Models.pick_paint(rng.randf())), true, model, Models.VEHICLE_SCALE)
+		vehicle.setup(_painted_body(model, rng), true, model, Models.VEHICLE_SCALE)
 		vehicle.speed = 20.0
 		if rig:
 			var trailer := Models.pick_weighted(Models.TRAILERS, rng.randf())
-			vehicle.attach_trailer(trailer, Models.vehicle(trailer, Models.pick_paint(rng.randf())))
+			vehicle.attach_trailer(trailer, _painted_body(trailer, rng))
 	else:
 		var model := Models.pick_vehicle(rng.randf())
-		vehicle.setup(Models.vehicle(model, Models.pick_paint(rng.randf())), false, model, Models.VEHICLE_SCALE)
+		vehicle.setup(_painted_body(model, rng), false, model, Models.VEHICLE_SCALE)
 	return vehicle
+
+
+static func _painted_body(model: String, rng: RandomNumberGenerator) -> MeshInstance3D:
+	return _body(Models.vehicle(model, Models.pick_paint(rng.randf())))
+
+
+static func _body(mesh: Mesh) -> MeshInstance3D:
+	var body := MeshInstance3D.new()
+	body.mesh = mesh
+	return body
