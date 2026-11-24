@@ -64,11 +64,27 @@ func _initialize() -> void:
 			check(absf(elapsed - captain.crossing_minutes(distance, 20.0)) < 0.1, "Captain forecast matches voyage integration")
 		check(voyage.sailing_speed(1.0, 85.8, 25.0, captain.cruise(20.0), 0.0, INF, captain.harbour) == 0.0, "Captain cannot bypass a hull hold")
 		check(voyage.sailing_speed(1.0, 85.8, 25.0, captain.cruise(20.0), INF, 1.5, captain.harbour) == 0.0, "Captain cannot bypass a corridor hold")
+	var first := Captain.roster()[0]
+	var relief := Captain.roster()[1]
+	var command := CaptainAssignment.new(first)
+	command.advance(5.0)
+	command.arrive()
+	check(command.last_crossing < 0.0, "A crossing already underway at startup has no recorded time")
+	command.depart()
+	command.advance(11.0)
+	command.assign(relief, true)
+	command.advance(9.0)
+	command.arrive()
+	check(command.last_crossing == 20.0 and command.last_crossing_captain == first, "The departing captain receives credit despite an underway reassignment")
+	command.depart()
+	check(command.current == relief, "The scheduled captain takes command at departure")
+	command.advance(16.0)
+	command.arrive()
+	check(command.last_crossing == 16.0 and command.last_crossing_captain == relief, "The relief captain receives the next crossing")
+	check(command.previous_crossing == 20.0 and command.previous_crossing_captain == first, "Crossing history preserves the previous captain and time")
 	var ferry := Ferry.new()
 	ferry.fc = FerryClass.of(3)
-	ferry.captain = Captain.roster()[0]
-	ferry.next_captain = ferry.captain
-	ferry.cruise = ferry.captain.cruise(ferry.fc.cruise)
+	ferry.assign_captain(Captain.roster()[0])
 	ferry.state = Ferry.State.SAILING
 	var underway_cruise := ferry.cruise
 	ferry.assign_captain(Captain.roster()[1])
