@@ -53,7 +53,7 @@ func check_cargo_after_dusk() -> void:
 	second.apply_spec(spec, 1)
 	var night_lamps := lights.fit_vessel(second)
 	expect(night_lamps.visible, "A ship arriving at night lights immediately")
-	expect(night_lamps.mesh == spec.lights.call(1) and night_lamps.scale.is_equal_approx(Vector3.ONE * spec.scale),
+	expect(night_lamps.mesh == Models.cargo_ship_lights() and night_lamps.scale.is_equal_approx(Vector3.ONE * Models.LEGACY_SCALE),
 			"The arriving ship has its variant's lamps in model coordinates")
 	first.free()
 	lights._set_on(false)

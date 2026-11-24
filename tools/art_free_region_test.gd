@@ -3,6 +3,9 @@ extends SceneTree
 
 
 func _initialize() -> void:
+	if not check_marine_catalogue():
+		fail("Marine types must support clearance and wake calculations without imported art")
+		return
 	for size in range(1, 6):
 		var hull := FerryClass.of(size)
 		var measured := FerryWaterlineProfiles.profile(size, hull.half_length)
@@ -53,6 +56,22 @@ func _initialize() -> void:
 		region.routes.size(), region.towns[route.a].key, region.towns[route.b].key, route.length, steps])
 	print("TEST PASSED")
 	quit(0)
+
+
+func check_marine_catalogue() -> bool:
+	var fleet := VesselTypes.sailboats() + VesselTypes.cargo_ships()
+	fleet.append_array(VesselTypes.fishing_boats())
+	fleet.append_array(VesselTypes.motor_yachts())
+	fleet.append_array(VesselTypes.pilot_boats())
+	fleet.append_array(VesselTypes.tugs())
+	for spec: VesselSpec in fleet:
+		if spec.half_seg() <= 0.0 or spec.radius() < spec.half_beam:
+			return false
+		var trail := spec.make_wake()
+		trail.update(1.0, Vector3.FORWARD * spec.cruise, Vector3.FORWARD, spec.cruise, 1.0, true)
+		if trail.is_empty() or not is_equal_approx(trail.odometer, spec.cruise):
+			return false
+	return not fleet.is_empty()
 
 
 func fail(message: String) -> void:

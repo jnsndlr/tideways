@@ -33,7 +33,7 @@ func _exit_tree() -> void:
 
 
 func _set_sails(hoisted: bool) -> void:
-	_hull.mesh = _boat.spec.model.call(0) if hoisted else _boat.spec.model_alt.call(0)
+	_hull.mesh = Models.sailboat() if hoisted else Models.sailboat_furled()
 	_main.visible = hoisted
 	_jib.visible = hoisted
 

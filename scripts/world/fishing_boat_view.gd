@@ -11,7 +11,7 @@ var _warps := MeshInstance3D.new()
 
 func _init(boat: FishingBoat, lights: VesselNightLights) -> void:
 	_boat = boat
-	scale = Vector3.ONE * boat.spec.scale
+	scale = Vector3.ONE * VesselAppearance.model_scale(boat.spec)
 	var lamps := VesselLightGroup.new(lights)
 	add_child(lamps)
 	_navigation = lamps.add_lamp(Models.trawler_nav_lights())

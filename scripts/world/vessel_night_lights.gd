@@ -8,16 +8,16 @@ var _running_lights: Array[MeshInstance3D] = []
 
 func _init(vessel: Vessel) -> void:
 	name = "VesselNightLights"
-	mesh = vessel.spec.lights.call(vessel.model_variant)
-	scale = Vector3.ONE * vessel.spec.scale
+	mesh = VesselAppearance.lights(vessel.spec)
+	scale = Vector3.ONE * VesselAppearance.model_scale(vessel.spec)
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	layers = NightLights.LAYER
 	hide()
 	_tender = vessel as ShipTender
 	if _tender:
-		for build_mesh in vessel.spec.running_lights:
+		for lamp_mesh in VesselAppearance.running_lights(vessel.spec):
 			var lamp := MeshInstance3D.new()
-			lamp.mesh = build_mesh.call()
+			lamp.mesh = lamp_mesh
 			lamp.cast_shadow = cast_shadow
 			lamp.layers = layers
 			lamp.visible = _tender.state != ShipTender.State.ALONGSIDE

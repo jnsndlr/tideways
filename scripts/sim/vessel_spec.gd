@@ -1,9 +1,9 @@
 class_name VesselSpec
 extends RefCounted
-## What a type of vessel is like: its hull, how it handles, the wake it leaves and
-## how it is drawn. Sailboats and cargo ships are built from one, so a new size or
-## type is a few lines in VesselTypes (plus a model, if it looks different)
-## rather than a new script. Lengths are metres, speeds metres per second.
+## Hull dimensions, handling and wake for a type of marine traffic.
+## Lengths are metres and speeds are metres per second.
+
+enum Hull { SLOOP, CONTAINER, TANKER, BULK_CARRIER, TRAWLER, MOTOR_YACHT, PILOT_BOAT, TUG }
 
 var id := ""
 var kind := ""                  # its class, for the HUD ("Sailboat")
@@ -37,16 +37,10 @@ var wash := 0.3
 var kelvin := 0.28
 var shape := Vector4(4.2, 0.0, 0.9, 0.9)
 
-# Drawing: model builders (each takes a variant number and returns an ArrayMesh)
-# drawn `scale` times their built size. `model_alt` is a sailboat's look with
-# its sails stowed.
-var model: Callable
-var model_alt: Callable
-var running_lights: Array[Callable] = []  # Additional light meshes shown while under way.
-var lights: Callable
-var name_plate: Callable        # fn(name) -> ArrayMesh or null: its name painted on, if it has one
-var scale := 1.0
-var variants := 1               # how many variants `model` has
+# Scaled types retain their base hull family (e.g. the feeder uses the container hull).
+var hull: Hull
+var size_factor := 1.0
+var variants := 1               # range of variant indices available when spawning
 
 
 ## Radius of the capsule other vessels keep out of.
@@ -85,7 +79,7 @@ func scaled(f: float, new_id: String, new_name: String) -> VesselSpec:
 	s.wake_spacing *= f
 	s.kelvin *= f
 	s.shape = Vector4(shape.x * f, shape.y, shape.z * f, shape.w)
-	s.scale *= f
+	s.size_factor *= f
 	return s
 
 
