@@ -51,7 +51,7 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, q: MapData.FishQuay, b:
 	traffic = t
 	vessel_name = nm
 	name = nm
-	_hull = apply_spec(sp, variant)
+	hull_model = apply_spec(sp, variant)
 	_nav_lights = MeshInstance3D.new()
 	_nav_lights.mesh = Models.trawler_nav_lights()
 	_steam_lights = MeshInstance3D.new()
@@ -65,7 +65,7 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, q: MapData.FishQuay, b:
 	_warps = MeshInstance3D.new()
 	_warps.mesh = Models.trawler_warps()
 	_warps.visible = false
-	_hull.add_child(_warps)
+	hull_model.add_child(_warps)
 	quay = q
 	wharf = q
 	berth = b
