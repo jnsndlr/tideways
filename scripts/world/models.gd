@@ -3397,6 +3397,14 @@ static func add_cage_lantern(mb: MeshBuilder, base: Vector3, col: Color, s := 1.
 	mb.xform = saved
 
 
+## Size and marking shared by fitted and classic guide dolphins.
+const DOLPHIN_LANTERN := 3.9
+
+
+static func slip_mark(port: bool) -> Color:
+	return GlowBuilder.GREEN if port else GlowBuilder.RED
+
+
 static func cage_lantern_glow_at(base: Vector3, s := 1.0) -> Vector3:
 	return base + Vector3(0, 0.17 * s, 0)
 

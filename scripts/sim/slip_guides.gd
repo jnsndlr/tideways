@@ -13,9 +13,10 @@ extends Node3D
 ## bushings. Set `Fender.target` / `Wall.target` (0 at rest .. 1 as hard as the
 ## models' own animations press them) and they ease there.
 
+signal fitted
+
 const LIE_SWING := deg_to_rad(2.0)
 const INNER_REACH := 0.55
-const LANTERN := 3.9
 # Each wing wall stands this far clear of the landed end of the widest hull the slip
 # takes, so a landing off the centre of the slip rides it.
 const WALL_CLEAR := 0.3
@@ -107,8 +108,6 @@ func fit(s: int) -> void:
 	inner_caps.clear()
 	outer_caps.clear()
 	var mb := MeshBuilder.new()
-	var glows := GlowBuilder.new()
-	glows.xform = slip_to_world
 	var inner_u := _slip_inner_u(s)
 	var inner := _slip_face_v(s, inner_u)
 	var outer := _slip_face_v(s, Layout.DOLPHIN_OUTER.x)
@@ -118,24 +117,14 @@ func fit(s: int) -> void:
 		var cap := _add_dolphin(mb, side, Layout.DOLPHIN_OUTER.x, outer, Models.SLIP_DOLPHIN_OUTER_GLB)
 		outer_caps.append(cap)
 		# The outer dolphins carry the slip's lanterns: green to port, red to starboard.
-		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
-		Models.add_cage_lantern(mb, cap, mark, LANTERN)
-		glows.glow(Models.cage_lantern_glow_at(cap, LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var mark := Models.slip_mark(side < 0)
+		Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
 	var fixed := MeshInstance3D.new()
 	fixed.name = "Fixed"
 	fixed.mesh = mb.commit()
 	add_child(fixed)
-	# The glow builder works in world space (GlowBuilder.xform), so its mesh does too.
-	var lights := MeshInstance3D.new()
-	lights.name = "Lights"
-	lights.mesh = glows.commit()
-	lights.material_override = GlowBuilder.material()
-	lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	lights.top_level = true
-	# Off the minimap's layer: its top-down camera blows glows up over the whole map.
-	lights.layers = NightLights.LAYER
-	add_child(lights)
 	_apply()
+	fitted.emit()
 
 
 func _process(delta: float) -> void:
