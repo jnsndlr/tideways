@@ -819,6 +819,12 @@ func _rebuild() -> void:
 func _save() -> void:
 	var err: Error = main.layout.save_file(MapLayout.MAIN_STORY)
 	var where := MapLayout.MAIN_STORY
+	if err == ERR_INVALID_DATA:
+		_flash("Couldn’t save. Check the layout values and try again.")
+		return
+	if err == ERR_FILE_UNRECOGNIZED:
+		_flash("Existing layout is damaged or uses another version. Use Copy JSON to keep your edits.")
+		return
 	if err != OK:
 		# An exported build can't write into the project: keep it in user:// instead.
 		where = "user://main_story.json"

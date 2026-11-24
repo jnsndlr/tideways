@@ -1333,6 +1333,8 @@ func _build_map_controls() -> void:
 	root.add_child(map_controls)
 	map_controls.setup(sim, main.day_cycle, font)
 	map_controls.weather_toggled.connect(_on_weather_toggled)
+	map_controls.pin_save_failed.connect(func(err: Error) -> void:
+		show_toast("WEATHER PIN", "Couldn’t save the pin (%s). Try again." % error_string(err)))
 
 
 ## Hides the cloud deck and its shadows. The weather itself carries on.

@@ -8,6 +8,7 @@ extends PanelContainer
 ## It rests against the left or right edge, part-way down, for the session. A drag
 ## on the illustration picks the edge and the height.
 
+signal pin_save_failed(error: Error)
 signal weather_toggled(shown: bool)
 
 const GAP := 8.0
@@ -47,8 +48,8 @@ static func shows(layer: String) -> bool:
 ## The sidebar button: open it, or collapse it (which also unpins it).
 func toggle_open() -> void:
 	if visible:
-		visible = false
-		set_pinned(false)
+		if not pinned or set_pinned(false) == OK:
+			visible = false
 	else:
 		visible = true
 
@@ -59,10 +60,14 @@ func dismiss() -> void:
 		visible = false
 
 
-func set_pinned(on: bool) -> void:
+func set_pinned(on: bool) -> Error:
+	var err := GameSettings.set_flag("weather_pinned", on)
+	if err != OK:
+		pin_save_failed.emit(err)
+		return err
 	pinned = on
 	widget.pinned = on
-	GameSettings.set_flag("weather_pinned", on)
+	return OK
 
 
 func set_weather_shown(on: bool) -> void:
