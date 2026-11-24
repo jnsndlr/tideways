@@ -42,6 +42,7 @@ var shape := Vector4(4.2, 0.0, 0.9, 0.9)
 # its sails stowed.
 var model: Callable
 var model_alt: Callable
+var running_lights: Array[Callable] = []  # Additional light meshes shown while under way.
 var lights: Callable
 var name_plate: Callable        # fn(name) -> ArrayMesh or null: its name painted on, if it has one
 var scale := 1.0

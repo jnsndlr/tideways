@@ -35,7 +35,7 @@ var _gap := 0.0                # how far off the ship's side its station is now
 var _locked := false           # holding its station
 var _along := 0.0              # how far its station has dropped back along the ship (sheering off)
 var _holding := false          # lying stopped at its standby or waiting spot
-var _nav_lights: MeshInstance3D
+var _running_lights: Array[MeshInstance3D] = []
 
 
 # --- Hooks ----------------------------------------------------------------------------
@@ -495,8 +495,19 @@ func _pick_side(sh: CargoShip, prefer: float, s0: float, s1: float) -> float:
 	return prefer if bad[0] <= bad[1] else -prefer
 
 
+func _fit_running_lights() -> void:
+	for build_mesh in spec.running_lights:
+		var lamp := MeshInstance3D.new()
+		lamp.mesh = build_mesh.call()
+		lamp.cast_shadow = lights.cast_shadow
+		lamp.layers = lights.layers
+		lights.add_child(lamp)
+		_running_lights.append(lamp)
+
+
 func _show_lights() -> void:
-	_nav_lights.visible = state != State.ALONGSIDE
+	for lamp in _running_lights:
+		lamp.visible = state != State.ALONGSIDE
 
 
 # --- Vessel ---------------------------------------------------------------------------

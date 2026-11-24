@@ -5,7 +5,6 @@ scripts/sim/fishing_boat.gd -> scripts/world/night_lights.gd
 scripts/sim/motor_yacht.gd -> scripts/world/models.gd
 scripts/sim/motor_yacht.gd -> scripts/world/night_lights.gd
 scripts/sim/pilot_boat.gd -> scripts/world/models.gd
-scripts/sim/pilot_boat.gd -> scripts/world/night_lights.gd
 scripts/sim/sailboat.gd -> scripts/world/models.gd
 scripts/sim/slip_guides.gd -> scripts/world/eagles.gd
 scripts/sim/slip_guides.gd -> scripts/world/glow_builder.gd
@@ -15,8 +14,6 @@ scripts/sim/slip_guides.gd -> scripts/world/models.gd
 scripts/sim/slip_guides.gd -> scripts/world/night_lights.gd
 scripts/sim/slip_guides.gd -> scripts/world/seagulls.gd
 scripts/sim/slip_ramp.gd -> scripts/world/models.gd
-scripts/sim/tug.gd -> scripts/world/models.gd
-scripts/sim/tug.gd -> scripts/world/night_lights.gd
 scripts/sim/vessel.gd -> scripts/world/models.gd
 scripts/sim/vessel.gd -> scripts/world/night_lights.gd
 scripts/sim/vessel_types.gd -> scripts/world/models.gd

@@ -232,6 +232,7 @@ static func _pilot_boat() -> VesselSpec:
 	s.scale = MODEL_SCALE
 	s.model = func(v: int) -> ArrayMesh: return Models.pilot_boat(v)
 	s.lights = func(_v: int) -> ArrayMesh: return Models.pilot_boat_lights()
+	s.running_lights = [Models.pilot_boat_nav_lights, Models.pilot_boat_duty_lights]
 	s.variants = 3
 	return s
 
@@ -262,5 +263,6 @@ static func _tug() -> VesselSpec:
 	s.scale = MODEL_SCALE
 	s.model = func(v: int) -> ArrayMesh: return Models.tug(v)
 	s.lights = func(_v: int) -> ArrayMesh: return Models.tug_lights()
+	s.running_lights = [Models.tug_nav_lights, Models.tug_mast_light]
 	s.variants = 3
 	return s
