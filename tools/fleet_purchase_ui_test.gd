@@ -42,6 +42,10 @@ func exercise() -> bool:
 	var bought := sim.ferries[-1]
 	if hud.selected_ferry != bought or bought.berth != Ferry.Berth.DELIVERING:
 		return fail("The purchase did not select the new ferry under tow")
+	for boat: Ferry in [sim.ferries[0], bought]:
+		var views := boat.get_children().filter(func(child: Node): return child is FerryView)
+		if views.size() != 1:
+			return fail("Opening and newly purchased ferries should each have one fitted view")
 	if not await press("FINANCES"):
 		return false
 	var panel_finance := hud._finance_panel

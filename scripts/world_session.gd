@@ -156,6 +156,11 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	sim.routes_changed.connect(builder.rebuild_route_overlay)
 	if not await _setup_frames.can_continue():
 		return
+	for ferry in sim.ferries:
+		_add_ferry_view(ferry)
+		if not await _setup_frames.can_continue():
+			return
+	sim.ferry_added.connect(_add_ferry_view)
 	for boat in sim.marine.sailboats:
 		boat.hull_model.add_child(SailboatView.new(boat))
 	for trawler in sim.marine.fishing_boats:
@@ -381,6 +386,10 @@ func _update_dof() -> void:
 	cam_attr.dof_blur_near_transition = d * 0.4
 	cam_attr.dof_blur_far_distance = d * 1.5
 	cam_attr.dof_blur_far_transition = d * 2.0
+
+
+func _add_ferry_view(ferry: Ferry) -> void:
+	ferry.add_child(FerryView.new(ferry))
 
 
 ## The crews and lane views a terminal's purchases show with.
