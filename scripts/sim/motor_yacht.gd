@@ -57,28 +57,13 @@ var _no_wake_check := 0.0
 var _trim := 0.0
 var _roll := 0.0
 var _last_yaw := 0.0
-var _nav_lights: MeshInstance3D
-var _mast_light: MeshInstance3D
-var _rode: MeshInstance3D
 
 
 func setup(t: MarineTraffic, nm: String, sp: VesselSpec, m: MapData.Marina, b: int, variant: int, first_dwell: float) -> void:
 	traffic = t
 	vessel_name = nm
 	name = nm
-	_hull = apply_spec(sp, variant)
-	_nav_lights = MeshInstance3D.new()
-	_nav_lights.mesh = Models.motor_yacht_nav_lights()
-	_mast_light = MeshInstance3D.new()
-	_mast_light.mesh = Models.motor_yacht_mast_light()
-	for l: MeshInstance3D in [_nav_lights, _mast_light]:
-		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		l.layers = NightLights.LAYER
-		lights.add_child(l)
-	_rode = MeshInstance3D.new()
-	_rode.mesh = Models.motor_yacht_rode()
-	_rode.visible = false
-	_hull.add_child(_rode)
+	apply_spec(sp, variant)
 	marina = m
 	berth = b
 	dwell = first_dwell
@@ -109,7 +94,6 @@ func _process(delta: float) -> void:
 			_weigh(delta)
 		State.ARRIVING:
 			_berth_in(delta)
-	_show_lights()
 	var under_way := state in [State.CRUISING, State.ANCHORING, State.WAITING, State.ARRIVING]
 	var d := Vector3(sin(_yaw), 0.0, cos(_yaw))
 	wake.update(delta, global_position, d, speed * delta if under_way else 0.0,
@@ -348,10 +332,15 @@ func _swing_yaw() -> float:
 	return traffic.sim.wind_yaw() + sin(_swing * 0.05) * 0.22 + sin(_swing * 0.013 + 1.3) * 0.12
 
 
+## Fraction of the anchor lift completed while weighing, from 0 to 1.
+func weighing_progress() -> float:
+	return clampf(_timer / WEIGH_TIME, 0.0, 1.0)
+
+
 ## Motoring up over the anchor and breaking it out, then off home.
 func _weigh(delta: float) -> void:
 	_timer += delta
-	var f := clampf(_timer / WEIGH_TIME, 0.0, 1.0)
+	var f := weighing_progress()
 	var p := spot.pos - Vector2(sin(_yaw), cos(_yaw)) * SCOPE * (1.0 - f)
 	position = Vector3(p.x, sin(_bob * 1.3) * 0.12, p.y)
 	_pose(delta)
@@ -414,15 +403,6 @@ func _pose(delta: float) -> void:
 	position.y = sin(_bob * 1.4) * 0.12 + 0.24 * smoothstep(0.55, 0.9, f)
 	basis = Basis(Vector3.UP, _yaw) * Basis(Vector3.RIGHT, -_trim + sin(_bob * 1.1) * 0.01) \
 			* Basis(Vector3.BACK, _roll + sin(_bob * 0.9) * 0.02)
-
-
-## Masthead (on the arch), sidelights and stern light under way; the anchor
-## light on the arch at anchor.
-func _show_lights() -> void:
-	var under_way := state != State.MOORED and road() != Road.MOORED
-	_nav_lights.visible = under_way
-	_mast_light.visible = under_way or state == State.ANCHORED or state == State.SETTING or state == State.WEIGHING
-	_rode.visible = state == State.ANCHORED or state == State.SETTING or (state == State.WEIGHING and _timer < WEIGH_TIME * 0.85)
 
 
 ## A clean small wake off the plane; climbing onto it, a big wave train (the hump

@@ -156,6 +156,8 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	sim.routes_changed.connect(builder.rebuild_route_overlay)
 	if not await _setup_frames.can_continue():
 		return
+	for yacht in sim.marine.motor_yachts:
+		yacht.add_child(MotorYachtView.new(yacht))
 	for boat in sim.marine.pilotage.pilot_boats:
 		boat.hull_model.add_child(PilotLadder.new(boat))
 	for terminal: Terminal in sim.terminals.values():

@@ -34,6 +34,7 @@ var state := State.MOORED
 var dwell := 0.0
 var motoring := true
 var _goals: Array[Vector2] = []
+var _hull: MeshInstance3D
 var _main: MeshInstance3D
 var _jib: MeshInstance3D
 var _tack := 0                 # which side of the wind it is beating on (+1 / -1), 0 if not beating
