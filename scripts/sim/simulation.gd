@@ -15,6 +15,8 @@ var terrain: Terrain
 var rng := RandomNumberGenerator.new()
 var minutes := 6.0 * 60.0
 var day := 12
+## Whether working slips use an operated transfer span or a fixed landing.
+var uses_transfer_spans: bool
 var slip_guide_parts := SlipGuides.MeshParts.new()
 var terminals := {}             # town id -> Terminal
 ## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
@@ -64,7 +66,8 @@ var wind_speed := 12
 var _tide_phase := 0.0
 
 
-func _init(create_vehicle: Callable) -> void:
+func _init(create_vehicle: Callable, transfer_spans := true) -> void:
+	uses_transfer_spans = transfer_spans
 	_create_vehicle = create_vehicle
 
 

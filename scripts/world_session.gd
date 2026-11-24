@@ -147,7 +147,7 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 
 
 func _setup_simulation(charts: MarineCharts) -> void:
-	sim = Simulation.new(VehicleFactory.create)
+	sim = Simulation.new(VehicleFactory.create, Models.mid_slip)
 	sim.name = "Simulation"
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
@@ -163,6 +163,8 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	sim.ferry_added.connect(_add_ferry_view)
 	for terminal: Terminal in sim.terminals.values():
 		_dress_terminal(terminal)
+		if not await _setup_frames.can_continue():
+			return
 	sim.terminal_opened.connect(_on_terminal_opened)
 	clouds = CloudLayer.new()
 	clouds.setup(sim.weather, sim.wind_from(), sim.wind_speed)
@@ -407,9 +409,8 @@ func _add_ferry_view(ferry: Ferry) -> void:
 
 ## The crews and lane views a terminal's purchases show with.
 func _dress_terminal(terminal: Terminal) -> void:
-	for guide in terminal.slip_guides:
-		if guide:
-			builder.add_slip_guide_lights(guide)
+	for i in terminal.slip_ramps.size():
+		_dress_slip(terminal, i)
 	if RefitCrew.available():
 		var crew := RefitCrew.new()
 		terminal.add_child(crew)
@@ -424,11 +425,18 @@ func _dress_terminal(terminal: Terminal) -> void:
 
 ## A slip bought at `terminal` is built: it goes into the world where it stands.
 func _on_slip_built(i: int, terminal: Terminal) -> void:
+	_dress_slip(terminal, i)
+	builder.build_bought_slip(terminal.town, i)
+	hud.show_toast("SLIP OPEN", "%s's new %s is in use." % [terminal.town.name, "tie-up slip" if terminal.town.slips[i].tie_up else "working slip"], 5.0)
+
+
+func _dress_slip(terminal: Terminal, i: int) -> void:
+	var ramp := terminal.slip_ramps[i]
+	if ramp:
+		ramp.add_child(SlipRampView.new(ramp))
 	var guide := terminal.slip_guides[i]
 	if guide:
 		builder.add_slip_guide_lights(guide)
-	builder.build_bought_slip(terminal.town, i)
-	hud.show_toast("SLIP OPEN", "%s's new %s is in use." % [terminal.town.name, "tie-up slip" if terminal.town.slips[i].tie_up else "working slip"], 5.0)
 
 
 ## A terminal bought in play finished building: it was in the world all along,

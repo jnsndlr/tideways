@@ -364,7 +364,7 @@ func _open_slip(i: int) -> void:
 	var slip := town.slips[i]
 	slip.building = false
 	var v := town.slip_offset(i)
-	if SlipRamp.available() and not slip.tie_up:
+	if sim.uses_transfer_spans and not slip.tie_up:
 		slip_ramps[i] = SlipRamp.new(v)
 		add_child(slip_ramps[i])
 	if SlipGuides.available() and not slip.tie_up:
@@ -475,7 +475,7 @@ func setup(s: Simulation, isl: MapData.Town) -> void:
 	flood_side = 1.0 if hash(isl.key if isl.key != "" else str(isl.id)) % 2 == 0 else -1.0
 	for i in isl.slips.size():
 		var ramp: SlipRamp = null
-		if SlipRamp.available() and not isl.slips[i].tie_up:
+		if sim.uses_transfer_spans and not isl.slips[i].tie_up:
 			ramp = SlipRamp.new(isl.slip_offset(i))
 			add_child(ramp)
 		slip_ramps.append(ramp)

@@ -3,6 +3,9 @@ extends SceneTree
 
 
 func _initialize() -> void:
+	if not check_transfer_span():
+		fail("Transfer span gates did not follow the lowering and lifting sequence without a view")
+		return
 	if not check_marine_catalogue():
 		fail("Marine types must support clearance and wake calculations without imported art")
 		return
@@ -56,6 +59,25 @@ func _initialize() -> void:
 		region.routes.size(), region.towns[route.a].key, region.towns[route.b].key, route.length, steps])
 	print("TEST PASSED")
 	quit(0)
+
+
+func check_transfer_span() -> bool:
+	var ramp := SlipRamp.new(10.0)
+	var passed := ramp.is_clear() and not ramp.is_down()
+	ramp.land()
+	ramp._process(SlipRamp.SPAN_TIME)
+	passed = passed and ramp.is_clear() and not ramp.is_down()
+	ramp._process(SlipRamp.APRON_TIME * 0.5)
+	passed = passed and not ramp.is_clear() and not ramp.is_down()
+	ramp._process(SlipRamp.APRON_TIME * 0.5)
+	passed = passed and ramp.is_down()
+	ramp.lift()
+	ramp._process(SlipRamp.APRON_TIME)
+	passed = passed and ramp.is_clear() and not ramp.is_down()
+	ramp.snap_down()
+	passed = passed and ramp.is_down() and ramp.get_child_count() == 0
+	ramp.free()
+	return passed
 
 
 func check_marine_catalogue() -> bool:
