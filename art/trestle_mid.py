@@ -71,7 +71,7 @@ def profile(u, u0, h0, u1, h1, vc=VC):
     """The road's height along the approach: level at the lot (u0, h0), a vertical curve
     into a steady grade, and another out of it, level again at the span's hinge (u1, h1).
     Level at both ends, so the lot, the trestle and the span meet without a kink.
-    (scripts/sim/layout.gd keeps the same curve for the game.)"""
+    (scripts/map/layout.gd keeps the same curve for the game.)"""
     L = u1 - u0
     if L <= 0.0:
         return h1
