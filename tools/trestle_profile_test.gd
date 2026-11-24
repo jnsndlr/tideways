@@ -7,7 +7,7 @@ func _initialize() -> void:
 	island.approach_bays = Layout.TRESTLE_MAX_BAYS
 	island.lot_y = Layout.LOT_Y + Layout.approach_rise(island.approach_bays)
 	var front := island.lot_front_u()
-	var hinge := SlipRamp.HINGE_U
+	var hinge := Layout.RAMP_HINGE_U
 	var lot_edge := island.lot_offset() * Vector3(0, Layout.LOT_Y, Layout.LOT_FRONT)
 	if not lot_edge.is_equal_approx(Vector3(0, island.road_y(front), front)) or not is_equal_approx(island.road_y(hinge), Layout.LOT_Y):
 		return _fail("The road must join the raised lot and the slip hinge at their exact elevations")

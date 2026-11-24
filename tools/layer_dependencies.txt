@@ -1,5 +1,4 @@
 scripts/map/map_data.gd -> scripts/sim/layout.gd
-scripts/map/map_data.gd -> scripts/sim/slip_ramp.gd
 scripts/map/map_generator.gd -> scripts/sim/ferry.gd
 scripts/map/map_generator.gd -> scripts/sim/ferry_class.gd
 scripts/map/map_generator.gd -> scripts/sim/layout.gd

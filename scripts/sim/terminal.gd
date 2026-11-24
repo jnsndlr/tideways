@@ -702,9 +702,9 @@ func lot_point(v: float, u: float) -> Vector3:
 func _approach(v: float, reverse := false) -> PackedVector3Array:
 	var pts := PackedVector3Array()
 	var u0 := town.lot_front_u()
-	var steps := maxi(1, ceili((SlipRamp.HINGE_U - u0) / 4.0))
+	var steps := maxi(1, ceili((Layout.RAMP_HINGE_U - u0) / 4.0))
 	for k in range(1, steps + 1):
-		var u := lerpf(u0, SlipRamp.HINGE_U, float(k) / steps)
+		var u := lerpf(u0, Layout.RAMP_HINGE_U, float(k) / steps)
 		pts.append(to_global(Vector3(v, town.road_y(u), u)))
 	if reverse:
 		pts.reverse()

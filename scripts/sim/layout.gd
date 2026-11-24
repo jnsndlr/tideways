@@ -6,6 +6,7 @@ extends RefCounted
 ## sea along the pier, +X ("v") is lateral. The holding lot sits at negative u.
 
 const LOT_Y := 3.15             # top surface of lot, piers and ferry car deck
+const RAMP_HINGE_U := 2.0        # transfer span hinge along the dock axis
 const LOT_FRONT := -6.0         # seaward edge of the holding lot
 const LOT_LENGTH := 72.0
 const LOT_BACK := LOT_FRONT - LOT_LENGTH  # road entrance edge
@@ -91,7 +92,7 @@ const DECK_Y := LOT_Y
 
 # The approach (art/trestle_mid.py): the holding lot stands on the ground behind the
 # shore, at the island's lot_y, and a trestle of whole TRESTLE_BAYs runs down from its
-# seaward edge to the transfer span's hinge (SlipRamp.HINGE_U, at LOT_Y). The road's
+# seaward edge to the transfer span's hinge (Layout.RAMP_HINGE_U, at LOT_Y). The road's
 # height along it is approach_y(): level at the lot, a vertical curve TRESTLE_VC long
 # into a steady grade, another out of it, level again at the hinge, so the lot, the
 # trestle and the span meet without a step or a kink. The lot keeps its own frame
