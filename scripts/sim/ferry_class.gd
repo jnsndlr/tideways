@@ -115,6 +115,15 @@ const RUNNING := {
 	5: [15, 160.0],
 }
 
+# size: walk-on passenger capacity for each ferry class.
+const PASSENGER_CAPACITY := {
+	1: 20,
+	2: 100,
+	3: 300,
+	4: 500,
+	5: 1000,
+}
+
 # size: what she costs new from the yard (Simulation.buy_ferry). Rebalance them here.
 const PRICES := {
 	1: 30000,
@@ -131,6 +140,7 @@ var label := ""
 var lanes := 4
 var rows := 9
 var capacity := 36
+var passenger_capacity := 120
 var half_length := 45.0
 var half_beam := 12.6
 var cruise := 27.0
@@ -268,6 +278,7 @@ func _init(s: int) -> void:
 	crew = RUNNING[s][0]
 	burn = RUNNING[s][1]
 	capacity = lanes * rows
+	passenger_capacity = PASSENGER_CAPACITY[s]
 	guemes = s == 1 and small
 	open_deck = s == 1 and not guemes
 	hiyu = s == 2 and hiyu_model

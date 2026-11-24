@@ -30,6 +30,7 @@ var fleet_market := FleetMarket.new(self)
 var scenario: Scenario
 var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
+var passengers: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
 ## A dock site was bought and its terminal is being built (buy_dock).
@@ -57,6 +58,8 @@ var revenue_total: float:
 	get: return ledger.revenue_total
 var cars_today: int:
 	get: return ledger.cars_today
+var passengers_today: int:
+	get: return ledger.passengers_today
 var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
@@ -93,6 +96,9 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 	traffic = Node3D.new()
 	traffic.name = "Traffic"
 	add_child(traffic)
+	passengers = Node3D.new()
+	passengers.name = "Passengers"
+	add_child(passengers)
 	for town in map.terminal_towns():
 		_add_terminal(town)
 		if not await frames.can_continue():
@@ -443,6 +449,7 @@ func _process(delta: float) -> void:
 			ferry.start_day()
 		for term: Terminal in terminals.values():
 			term.served_today = 0
+			term.passengers_served_today = 0
 	minutes += dmin
 	for ferry in ferries:
 		ferry.pay_crew(dmin)
@@ -504,11 +511,57 @@ func make_vehicle(parent: Node3D = null) -> Vehicle:
 	return vehicle
 
 
-func collect_fare(car: Vehicle) -> void:
-	if car.model.is_empty():
-		ledger.credit_flat(car.is_truck)
-	else:
-		ledger.credit_measured(car.length_metres())
+func make_passenger(variant: int, parent: Node3D = null) -> Passenger:
+	var pax := Passenger.create(variant)
+	(parent if parent else passengers).add_child(pax)
+	return pax
+
+
+func collect_fare(car: Vehicle, route_id := -1) -> float:
+	return ledger.credit_vehicle(car.fare_multiplier(), route_id)
+
+
+func collect_passenger_fare(route_id := -1) -> float:
+	return ledger.credit_passenger(route_id)
+
+
+## Active routes currently served by at least one scheduled ferry.
+func active_routes() -> Array[MapData.Route]:
+	var out: Array[MapData.Route] = []
+	if map == null:
+		return out
+	for r in map.routes:
+		if r.in_service:
+			out.append(r)
+	return out
+
+
+func route_label(r: MapData.Route) -> String:
+	var a := map.towns[r.a].name.trim_suffix(" Island")
+	var b := map.towns[r.b].name.trim_suffix(" Island")
+	return "%s ↔ %s" % [a, b]
+
+
+func avg_vehicle_fare_at(isl: MapData.Town) -> float:
+	var total := 0.0
+	var n := 0
+	if map != null:
+		for rid in isl.route_ids():
+			if map.routes[rid].in_service:
+				total += ledger.vehicle_fare_for(rid)
+				n += 1
+	return total / n if n > 0 else ledger.vehicle_fare
+
+
+func avg_passenger_fare_at(isl: MapData.Town) -> float:
+	var total := 0.0
+	var n := 0
+	if map != null:
+		for rid in isl.route_ids():
+			if map.routes[rid].in_service:
+				total += ledger.passenger_fare_for(rid)
+				n += 1
+	return total / n if n > 0 else ledger.passenger_fare
 
 
 ## Game minutes since the start of day 0, running on past midnight.
@@ -539,11 +592,22 @@ func demand_factor() -> float:
 
 
 func demand_rate(isl: MapData.Town) -> float:
-	return TrafficDemand.arrivals_per_minute(isl.population, hour())
+	return TrafficDemand.vehicle_arrivals_per_minute(isl.population, hour(), avg_vehicle_fare_at(isl))
+
+
+func passenger_demand_rate(isl: MapData.Town) -> float:
+	return TrafficDemand.passenger_arrivals_per_minute(isl.population, hour(), avg_passenger_fare_at(isl))
 
 
 func demand_label(isl: MapData.Town) -> String:
 	return TrafficDemand.label(demand_rate(isl))
+
+
+func total_passengers_waiting() -> int:
+	var total := 0
+	for term: Terminal in terminals.values():
+		total += term.passengers_queued()
+	return total
 
 
 func satisfaction() -> float:

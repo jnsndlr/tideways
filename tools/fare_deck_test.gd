@@ -11,29 +11,66 @@ func check(condition: bool, message: String) -> void:
 func _initialize() -> void:
 	_check_midnight_costs()
 	var sim := Simulation.new()
-	var car := Vehicle.new()
-	sim.collect_fare(car)
-	check(is_equal_approx(sim.revenue_today, 18.5), "Fallback car fare")
-	car.is_truck = true
-	sim.collect_fare(car)
-	check(is_equal_approx(sim.revenue_today, 60.5), "Fallback truck fare")
-	car.model = "measured"
-	for metres: float in [4.0, 6.7, 8.7]:
-		car.length = metres * Models.VEHICLE_SCALE
-		var before := sim.revenue_total
-		sim.collect_fare(car)
-		var expected := 29.6 if metres > 6.7 else 18.5
-		check(is_equal_approx(sim.revenue_total - before, expected), "Measured fare at %s m" % metres)
-	check(sim.cars_today == 5 and is_equal_approx(sim.revenue_today, 127.1), "Daily receipts")
-	sim.minutes = 1439.0
-	sim._process(1.0)
-	check(sim.cars_today == 0 and sim.revenue_today == 0.0 and is_equal_approx(sim.revenue_total, 127.1), "Midnight preserves lifetime receipts")
 	var ledger := sim.ledger
-	check(is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 127.1), "Fares go into cash")
-	check(is_equal_approx(CompanyLedger.net(ledger.yesterday), 127.1), "Yesterday's lines kept at midnight")
+	check(is_equal_approx(ledger.vehicle_fare, 18.0) and is_equal_approx(ledger.passenger_fare, 6.0), "Default ticket prices")
+	var car := Vehicle.new()
+	car.setup(BoxMesh.new(), false, "sedan_modern", Models.VEHICLE_SCALE)
+	check(car.slots == 1 and car.fare_multiplier() == 1, "Sedan takes 1 slot and pays 1x")
+	sim.collect_fare(car)
+	check(is_equal_approx(sim.revenue_today, 18.0), "Standard car fare")
+
+	var van := Vehicle.new()
+	van.setup(BoxMesh.new(), false, "van_cargo", Models.VEHICLE_SCALE)
+	check(van.slots == 2 and van.fare_multiplier() == 2, "Van takes 2 slots and pays 2x")
+	sim.collect_fare(van)
+	check(is_equal_approx(sim.revenue_today, 54.0), "Van pays double vehicle fare")
+
+	var small_truck := Vehicle.new()
+	small_truck.setup(BoxMesh.new(), true, "truck_step", Models.VEHICLE_SCALE)
+	check(small_truck.slots == 2 and small_truck.fare_multiplier() == 2, "Small truck takes 2 slots and pays 2x")
+	sim.collect_fare(small_truck)
+	check(is_equal_approx(sim.revenue_today, 90.0), "Small truck pays double vehicle fare")
+
+	var rig := Vehicle.new()
+	rig.setup(BoxMesh.new(), true, "tractor_day", Models.VEHICLE_SCALE)
+	rig.attach_trailer("trailer_container", BoxMesh.new())
+	check(rig.slots >= 3 and rig.fare_multiplier() == 3, "Large truck takes ~3+ slots and pays 3x")
+	sim.collect_fare(rig)
+	check(is_equal_approx(sim.revenue_today, 144.0), "Large truck pays triple vehicle fare")
+
+	sim.collect_passenger_fare()
+	sim.collect_passenger_fare()
+	check(sim.passengers_today == 2 and is_equal_approx(sim.revenue_today, 156.0), "Walk-on passenger fares")
+
+	# Custom per-route and default ticket prices take effect immediately and shift demand.
+	ledger.set_vehicle_fare(25.0)
+	ledger.set_passenger_fare(10.0)
+	sim.collect_fare(van)
+	sim.collect_passenger_fare()
+	check(is_equal_approx(sim.revenue_today, 216.0), "Custom vehicle (2x) and walk-on fares")
+	ledger.set_route_vehicle_fare(7, 30.0)
+	ledger.set_route_passenger_fare(7, 8.0)
+	check(is_equal_approx(ledger.vehicle_fare_for(7), 30.0) and is_equal_approx(ledger.passenger_fare_for(7), 8.0), "Per-route fare overrides")
+	check(is_equal_approx(ledger.vehicle_fare_for(2), 25.0), "Unset route falls back to default vehicle fare")
+	check(TrafficDemand.price_multiplier(10.0, 18.0) > 1.0, "Lower fare increases demand")
+	check(TrafficDemand.price_multiplier(30.0, 18.0) < 1.0, "Higher fare reduces demand")
+	var expected_pax_caps := {1: 20, 2: 100, 3: 300, 4: 500, 5: 1000}
+	for sz in expected_pax_caps:
+		check(FerryClass.of(sz).passenger_capacity == expected_pax_caps[sz], "Class %d passenger capacity" % sz)
+
+	check(sim.cars_today == 5 and sim.passengers_today == 3 and is_equal_approx(sim.revenue_today, 216.0), "Daily receipts")
+	sim.minutes = 1439.0
+	sim._process(2.0)
+	check(sim.cars_today == 0 and sim.passengers_today == 0 and sim.revenue_today == 0.0 and is_equal_approx(sim.revenue_total, 216.0), "Midnight preserves lifetime receipts")
+	check(ledger.cars_yesterday == 5 and ledger.passengers_yesterday == 3, "Yesterday's counts kept at midnight")
+	check(is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 216.0), "Fares go into cash")
+	check(is_equal_approx(CompanyLedger.net(ledger.yesterday), 216.0), "Yesterday's lines kept at midnight")
 	ledger.spend("fuel", 30.0)
 	ledger.spend("crew", 20.0)
-	check(is_equal_approx(CompanyLedger.net(ledger.today), -50.0) and is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 77.1), "Running costs leave cash")
+	check(is_equal_approx(CompanyLedger.net(ledger.today), -50.0) and is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 166.0), "Running costs leave cash")
+	van.free()
+	small_truck.free()
+	rig.free()
 	sim.free()
 
 	# Easing off burns less fuel a crossing, but the crossing takes longer.
@@ -90,7 +127,7 @@ func _check_midnight_costs() -> void:
 	boat._burn(Ferry.METRES_PER_NM)
 	var fuel := Ferry.FUEL_PRICE * boat.fc.burn
 	var half_minute_pay := boat.crew_per_hour() / 120.0
-	sim._process(1.0)
+	sim._process(1.0 / Units.MINUTES_PER_SECOND)
 	check(is_equal_approx(sim.ledger.yesterday["fuel"], fuel), "Midnight posts fuel once")
 	check(is_equal_approx(sim.ledger.yesterday["crew"], half_minute_pay), "Yesterday ends at midnight")
 	boat.post_costs(true)

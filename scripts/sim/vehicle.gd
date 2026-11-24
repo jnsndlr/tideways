@@ -63,6 +63,25 @@ func length_metres() -> float:
 	return length / Models.VEHICLE_SCALE
 
 
+## Whether this vehicle is a van or small/straight truck (2x slots & 2x fare).
+func is_van_or_small_truck() -> bool:
+	return trailer == null and (is_truck or model.begins_with("van_"))
+
+
+## Whether this vehicle is a large truck / tractor-trailer rig (~3x slots & 3x fare).
+func is_large_truck() -> bool:
+	return trailer != null or slots >= 3
+
+
+## Ticket fare multiplier: 1x standard car, 2x van/small truck, 3x large truck.
+func fare_multiplier() -> int:
+	if is_large_truck():
+		return 3
+	if is_van_or_small_truck() or slots >= 2:
+		return 2
+	return 1
+
+
 func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGACY_SCALE) -> void:
 	is_truck = truck
 	model = model_key
@@ -77,7 +96,10 @@ func setup(mesh: Mesh, truck: bool, model_key := "", model_scale := Models.LEGAC
 		var size: Vector3 = VehicleData.VARIANTS[model_key].size
 		_set_length(size.z * model_scale, 0.0)
 	else:
-		length = SLOT * 0.8  # (the code-built car and truck: a slot each)
+		length = SLOT * (1.6 if truck else 0.8)
+		slots = 2 if truck else 1
+	if is_van_or_small_truck():
+		slots = maxi(2, slots)
 
 
 ## Hooks trailer `key` (a VehicleData trailer, painted `mesh`) on the fifth wheel.
@@ -98,6 +120,7 @@ func attach_trailer(key: String, mesh: Mesh) -> void:
 	var front: float = vd.size.z * 0.5
 	var back: float = _hitch.z - (pin.z + td.size.z * 0.5)
 	_set_length((front - back) * scale.x, ((front + back) * 0.5) * scale.x)
+	slots = maxi(3, slots)
 	_reset_trailer()
 
 

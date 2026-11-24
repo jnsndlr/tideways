@@ -183,7 +183,11 @@ Deck space and fares follow vehicle length and height. Commercial traffic needs 
 
 ### Walk-on Passengers
 
-Walk-ons are not in Phase 1, but they will become an integral core system on every boat, even without passenger-only vessels.
+Walk-ons are a core system on every boat, even without passenger-only vessels.
+
+- **Boarding flow:** By default, walk-on passengers queue up and board together as a group with no vehicle traffic on the ramp. Once walk-on boarding cuts off and passengers clear the ramp, vehicles drive on before departure.
+- **Waiting areas (planned):** Terminals will feature dedicated waiting areas where walk-on passengers can mill and walk around while waiting for their boat.
+- **Upgradable passenger walkways (planned):** Terminals can upgrade to separated/overhead passenger walkways, allowing walk-on passengers and vehicles to load simultaneously to speed up turnaround times.
 
 ### Fares
 
