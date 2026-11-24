@@ -22,11 +22,13 @@ var _load_error: Label
 
 
 func _ready() -> void:
-	var args := OS.get_cmdline_user_args()
-	if not args.is_empty():
-		Scenes.go.call_deferred(get_tree(), Scenes.MAIN_MAP if "--main" in args else Scenes.SANDBOX)
-		return
-	_build()
+	match Scenes.launch_options.entry:
+		SessionLaunchOptions.Entry.MAIN_MAP:
+			Scenes.go.call_deferred(get_tree(), Scenes.MAIN_MAP)
+		SessionLaunchOptions.Entry.SANDBOX:
+			Scenes.go.call_deferred(get_tree(), Scenes.SANDBOX)
+		SessionLaunchOptions.Entry.MENU:
+			_build()
 
 
 func _build() -> void:
