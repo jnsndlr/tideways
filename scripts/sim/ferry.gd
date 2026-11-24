@@ -98,13 +98,19 @@ var _crossing_fuel := 0.0   # metered since she last posted
 var _crew_owed := 0.0
 # Her master sets how she is handled (Captain.speed_limit). A new one takes the
 # helm when she next casts off, so a crossing is made under one captain.
-var captain: Captain = Captain.roster()[0]
-var next_captain: Captain = captain
-var last_crossing := -1.0         # game minutes dock to dock, -1 before the first timed one
-var last_crossing_captain: Captain
-var previous_crossing := -1.0     # the timed crossing before that, to compare with
-var previous_crossing_captain: Captain
-var _sail_time := -1.0            # into this crossing; -1 if it wasn't timed from the dock
+var _command := CaptainAssignment.new(Captain.roster()[0])
+var captain: Captain:
+	get: return _command.current
+var next_captain: Captain:
+	get: return _command.scheduled
+var last_crossing: float:
+	get: return _command.last_crossing
+var last_crossing_captain: Captain:
+	get: return _command.last_crossing_captain
+var previous_crossing: float:
+	get: return _command.previous_crossing
+var previous_crossing_captain: Captain:
+	get: return _command.previous_crossing_captain
 var _forecasts := {}              # captain id -> unhindered crossing minutes on this route
 var aboard: Array[Vehicle] = []
 ## In service at her working slip, or laid up: moving to, lying at, or coming
@@ -213,8 +219,7 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	ferry_name = nm
 	vessel_name = nm
 	name = nm
-	captain = Captain.roster()[r.id % Captain.roster().size()]
-	next_captain = captain
+	_command.assign(Captain.roster()[r.id % Captain.roster().size()], false)
 	cruise = captain.cruise(paced_cruise())
 	yield_decel = YIELD_DECEL
 	_inset = Layout.FERRY_HALF - fc.half_length
@@ -756,14 +761,13 @@ func _tick_loading(delta: float) -> void:
 		late_by = maxf(now - due_at, 0.0) if timed else 0.0
 		if timed and call == 0:
 			_timetable.leave_first_stop()
-		captain = next_captain
+		_command.depart()
 		_take_leg()
 		call = (call + 1) % stops.size()
 		cruise = captain.cruise(paced_cruise())
 		voyage.depart()
 		_slip_chosen = false
 		term.sort_overflow()
-		_sail_time = 0.0
 		# The last crossing's wake has long faded by now, and it lies along the same
 		# water, so start a fresh trail.
 		wake.clear()
@@ -818,8 +822,7 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 
 func _tick_sailing(delta: float) -> void:
-	if _sail_time >= 0.0:
-		_sail_time += delta
+	_command.advance(delta)
 	var remaining := run_length() - traveled
 	var zone := FerryVoyage.DOCKING_ZONE
 	var rem := maxf(remaining, 0.0)
@@ -855,12 +858,7 @@ func _tick_sailing(delta: float) -> void:
 		speed = 0.0
 		position.y = 0.0
 		voyage.arrive()
-		if _sail_time >= 0.0:
-			previous_crossing = last_crossing
-			previous_crossing_captain = last_crossing_captain
-			last_crossing = _sail_time
-			last_crossing_captain = captain
-		_sail_time = -1.0
+		_command.arrive()
 		last_crossing_fuel = _crossing_fuel
 		post_costs(true)
 		_begin_unloading()
@@ -1702,11 +1700,10 @@ func eta_minutes() -> float:
 ## Puts `c` in command from her next sailing (at once if she is alongside; a
 ## crossing under way is finished by the captain who began it).
 func assign_captain(c: Captain) -> void:
-	next_captain = c
+	_command.assign(c, state == State.SAILING)
 	_offsets.clear()
 	if state != State.SAILING:
-		captain = c
-		cruise = c.cruise(paced_cruise())
+		cruise = captain.cruise(paced_cruise())
 
 
 ## Unhindered crossing time of this route under `c`, in game minutes.
