@@ -821,7 +821,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
 	# With the mid-poly slip a trestle runs out from the lot to the transfer span's hinge
-	# (the span, apron and counterweights are SlipRamp's, the towers are scenery here).
+	# (the span, apron and counterweights are SlipRampView's, the towers are scenery here).
 	var mid := Models.mid_slip
 	var deck_end := Layout.RAMP_HINGE_U if mid else pe
 	if Models.mid_trestle:
@@ -838,7 +838,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 			for side: float in [-6.0, -2.0, 2.0, 6.0]:
 				mb.box(Vector3(v + side, -4.5, deck_end), Vector3(1.0, 9.0, 1.0), CONCRETE.darkened(0.2))
 		Models._append_part(mb, Models.slip_part("towers"), mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, 0, 0)))
-		tower_x = SlipRamp.TOWER_X
+		tower_x = SlipRampView.TOWER_X
 		beam_x = 8.0
 	else:
 		mb.box(Vector3(v, ly - 0.36, pe - 4.5), Vector3(15.6, 1.08, 9.0), Color(0.4, 0.42, 0.45))

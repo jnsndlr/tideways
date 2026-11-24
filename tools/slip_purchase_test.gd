@@ -79,6 +79,12 @@ func _process(_delta: float) -> bool:
 			return _fail("Madrona has %d working slips after the build" % madrona.town.working_slips())
 		if madrona.slip_guides[new_slip] == null and SlipGuides.available():
 			return _fail("the new slip has no guides")
+		var ramp := madrona.slip_ramps[new_slip]
+		if Models.mid_slip:
+			if ramp == null or ramp.get_children().filter(func(node: Node): return node is SlipRampView).size() != 1:
+				return _fail("the newly built working slip should have one fitted ramp view")
+		elif ramp != null:
+			return _fail("the classic slip should open without a transfer span")
 		if main.builder.root.get_child_count() <= world_children:
 			return _fail("the new slip wasn't built into the world")
 		world_children = 0
@@ -102,6 +108,8 @@ func _process(_delta: float) -> bool:
 				used_by = f.ferry_name
 				print("%s alongside at the new slip (%.0f m off its berth)" % [f.ferry_name, off])
 	if used_by != "" and built.has("rosario %d" % new_tie):
+		if rosario.slip_ramps[new_tie] != null:
+			return _fail("the tie-up berth should open without a transfer span")
 		if rosario.town.tie_ups() != [new_tie]:
 			return _fail("Port Rosario's tie-ups are %s" % [rosario.town.tie_ups()])
 		print("TEST PASSED")

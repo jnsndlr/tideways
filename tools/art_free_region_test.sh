@@ -8,7 +8,7 @@ trap 'rm -rf "$project"' EXIT
 mkdir -p "$project/scripts/map" "$project/scripts/sim"
 cp scripts/map/*.gd "$project/scripts/map/"
 cp scripts/units.gd "$project/scripts/"
-cp scripts/sim/{ferry_class,ferry_deck,ferry_voyage,ferry_waterline_profiles,hull_waterline,vessel_spec,vessel_types,wake_trail}.gd "$project/scripts/sim/"
+cp scripts/sim/{ferry_class,ferry_deck,ferry_voyage,ferry_waterline_profiles,hull_waterline,slip_ramp,vessel_spec,vessel_types,wake_trail}.gd "$project/scripts/sim/"
 cp tools/art_free_region_test.gd "$project/"
 echo 'config_version=5' > "$project/project.godot"
 

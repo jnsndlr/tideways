@@ -225,7 +225,7 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	cruise = captain.cruise(paced_cruise())
 	yield_decel = YIELD_DECEL
 	_inset = Layout.FERRY_HALF - fc.half_length
-	if SlipRamp.available():
+	if sim.uses_transfer_spans:
 		# In far enough for the apron's toe to land on her apron line, just outboard of the
 		# yellow band across her deck at the net.
 		_inset = Layout.DOCK_U - SlipRamp.dock_end(fc.half_length - fc.net_z - 0.35) - fc.half_length

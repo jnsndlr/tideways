@@ -134,16 +134,22 @@ func buy_working_slip(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 	if offer == null or not offer.blocked.is_empty():
 		return fail("The opening terminal had no second working slip to buy")
 	var label := "%s · %s" % [offer.title, Hud.fmt_money(offer.price)]
-	var spent: float = ledger.today["purchases"]
-	var cash := ledger.cash
 	for button: Button in hud.find_children("*", "Button", true, false):
 		if button.text != label or not button.is_visible_in_tree():
 			continue
 		hud._info_scroll.ensure_control_visible(button)
-		if not await press(label):
+		await process_frame
+		await process_frame
+		if not is_instance_valid(button) or not button.is_visible_in_tree() or button.disabled:
+			return fail("The quoted second slip is unavailable in the inspector")
+		# Take both ledger readings around the same input dispatch.
+		var spent: float = ledger.today["purchases"]
+		var cash := ledger.cash
+		if not click_control(button, button.size * 0.5, label):
 			return false
 		if not is_equal_approx(ledger.cash, cash - offer.price) or ledger.today["purchases"] != spent + offer.price:
-			return fail("The second slip did not debit its quoted price exactly once")
+			return fail("Second slip quoted %d, cash delta %.2f, purchases delta %.2f" % [
+				offer.price, ledger.cash - cash, ledger.today["purchases"] - spent])
 		if not port.refit_new or port.town.working_slips() != 1:
 			return fail("A purchased slip must remain under construction until it opens")
 		if port.buy(offer) or not is_equal_approx(ledger.cash, cash - offer.price):
