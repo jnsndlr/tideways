@@ -1,15 +1,18 @@
 extends WorldSession
 ## A generated region, with its seed retained across direct scene loads.
 
-static var map_seed := 0
+## Direct-load tools set this before instantiating the scene.
+static var map_seed: int:
+	get: return RegionEntryState.sandbox_seed
+	set(value): RegionEntryState.sandbox_seed = value
 
 
 func _ready() -> void:
 	SessionDiagnostics.attach(self)
 	var options := Scenes.launch_options.values
-	if map_seed == 0:
-		map_seed = int(options["seed"]) if options.has("seed") else randi_range(1, 99999)
-	await start_generated(map_seed)
+	if RegionEntryState.sandbox_seed == 0:
+		RegionEntryState.sandbox_seed = int(options["seed"]) if options.has("seed") else randi_range(1, 99999)
+	await start_generated(RegionEntryState.sandbox_seed)
 
 
 ## The HUD's opening toast: [title, body].
@@ -20,5 +23,5 @@ func intro(islands: int) -> Array:
 
 func regenerate() -> void:
 	Engine.time_scale = 1.0
-	map_seed = randi_range(1, 99999)
+	RegionEntryState.sandbox_seed = randi_range(1, 99999)
 	get_tree().reload_current_scene()

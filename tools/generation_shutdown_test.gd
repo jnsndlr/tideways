@@ -15,7 +15,8 @@ func run() -> void:
 		var path: String = entries[attempt]
 		LoadingScreen.open(self, path, "Loading")
 		await scene_changed
-		if current_scene.scene_file_path != path or current_scene.build_to != 0.3 or current_scene.built:
+		var session := current_scene as WorldSession
+		if not session or session.scene_file_path != path or session.build_to != 0.3 or session.built:
 			push_error("Expected to interrupt region generation before the world build.")
 			quit(1)
 			return

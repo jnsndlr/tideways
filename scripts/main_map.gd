@@ -10,24 +10,17 @@ const ISLAND_NAMES := ["Port Rosario", "Madrona Island", "Cypress Island", "Juni
 	"Bracken Island", "Kestrel Island", "Gullrock Island", "San Vela Island", "Cordero Landing",
 	"Eagle Island"]
 
-## The working copy, kept across rebuilds (a rebuild reloads the scene).
-static var layout: MapLayout
-## The working copy differs from the saved file.
-static var unsaved := false
-## Camera and editor state carried across a rebuild.
-static var _carry := {}
+## The editor reads and updates the working layout across rebuilds.
+var layout: MapLayout:
+	get: return RegionEntryState.layout
+	set(value): RegionEntryState.layout = value
+var unsaved: bool:
+	get: return RegionEntryState.unsaved
+	set(value): RegionEntryState.unsaved = value
+
 ## A pin on the selected dock site for sale.
 var _site_pins: Node3D
-## A scenario file for the next Play instead of the opening (the menu's Mission
-## trial sets it; "" plays the opening).
-static var scenario_path := ""
-
 var editor: IslandEditor
-
-
-static func start_session(path: String) -> void:
-	scenario_path = path
-	_carry.clear()
 
 
 func _ready() -> void:
@@ -44,7 +37,7 @@ func _ready() -> void:
 	var plan := "full-network"
 	if not options.has("full-network"):
 		var file: String = "res://maps/%s.json" % options["scenario"] if options.has("scenario") else (
-			scenario_path if scenario_path != "" else Scenario.OPENING)
+			RegionEntryState.scenario_path if RegionEntryState.scenario_path != "" else Scenario.OPENING)
 		opening = Scenario.load_file(file)
 		plan = file.get_file().get_basename()
 	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
@@ -58,15 +51,15 @@ func _ready() -> void:
 	editor = IslandEditor.new()
 	add_child(editor)
 	editor.setup(self)
-	if _carry.has("cam"):
-		var c: Array = _carry["cam"]
+	if RegionEntryState.editor_restore.has("cam"):
+		var c: Array = RegionEntryState.editor_restore["cam"]
 		rig.target_pos = c[0]
 		rig.target_dist = c[1]
 		rig.target_yaw = c[2]
 		rig.target_pitch = c[3]
 		rig.snap()
-	if _carry.get("editor_open", false):
-		editor.open(_carry.get("selected", 0))
+	if RegionEntryState.editor_restore.get("editor_open", false):
+		editor.open(RegionEntryState.editor_restore.get("selected", 0))
 	elif options.has("edit"):
 		editor.open(int(options["edit"]))
 	# --pick=Cypress: select the island whose name starts so (any, terminal or not).
@@ -76,7 +69,7 @@ func _ready() -> void:
 				hud.select_island(isl, true)
 				rig.snap()
 				break
-	_carry.clear()
+	RegionEntryState.editor_restore.clear()
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
 	if scenario and scenario.mission:
@@ -129,7 +122,7 @@ func show_dock_sites(town: MapData.Town) -> void:
 
 ## Builds the whole map again from the working layout.
 func rebuild() -> void:
-	_carry = {
+	RegionEntryState.editor_restore = {
 		"cam": [rig.target_pos, rig.target_dist, rig.target_yaw, rig.target_pitch],
 		"editor_open": editor.is_open(),
 		"selected": editor.selected,

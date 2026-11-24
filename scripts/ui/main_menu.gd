@@ -17,7 +17,6 @@ const MISSION_TRIAL := "res://maps/mission_trial.json"
 ## Two boats to try mechanics on. It starts as a copy of two_boats.json but no test
 ## reads it, so edit it freely.
 const MISSION_SANDBOX := "res://maps/mission_sandbox.json"
-const MainMapScript := preload("res://scripts/main_map.gd")
 var _load_error: Label
 
 
@@ -83,7 +82,7 @@ func _build() -> void:
 ## Play the main map from `scenario` ("" for the opening).
 func _play(scenario: String, caption := "Setting out for the islands") -> void:
 	if _start(Scenes.MAIN_MAP, caption):
-		MainMapScript.start_session(scenario)
+		RegionEntryState.select_authored(scenario)
 
 
 func _start(path: String, caption: String) -> bool:
