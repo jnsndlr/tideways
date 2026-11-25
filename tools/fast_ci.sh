@@ -78,6 +78,8 @@ check eagle-departure test --script tests/world/eagle_departure_test.gd
 check shared-forecourt test --script tests/simulation/shared_forecourt_test.gd
 check refit-crane test --script tests/world/refit_crane_test.gd
 check model-parts test --script tests/world/model_parts_test.gd
+check authored-gull test --script tests/world/seagull_model_test.gd
+check classic-gull test --script tests/world/seagull_model_test.gd -- --classic-gull
 check trailer-paint test --script tests/world/trailer_paint_test.gd
 check tie-up-pier test --script tests/world/tie_up_pier_test.gd
 check trestle-profile test --script tests/world/trestle_profile_test.gd
