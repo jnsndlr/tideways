@@ -6,6 +6,8 @@ extends RefCounted
 ## vans/small trucks pay 2x and large trucks (rigs) pay 3x the vehicle price.
 
 const STARTING_CASH := 50000.0
+## Mission sandbox cash: spending never brings it down.
+const UNLIMITED_CASH := 999999999.0
 const INCOME := ["fares", "sales"]
 const EXPENSES := ["fuel", "crew", "purchases"]
 
@@ -130,7 +132,8 @@ func receive(category: String, amount: float) -> void:
 ## Pays out `amount` under one of EXPENSES. Running costs may take cash below zero.
 func spend(category: String, amount: float) -> void:
 	today[category] += amount
-	cash -= amount
+	if cash < UNLIMITED_CASH:
+		cash -= amount
 
 
 func start_day() -> void:

@@ -1314,15 +1314,6 @@ func _on_photographed(v: Wildlife.Visit) -> void:
 
 func _build_toast() -> void:
 	_toast = PanelContainer.new()
-	_toast.anchor_left = 1.0
-	_toast.anchor_right = 1.0
-	_toast.anchor_top = 1.0
-	_toast.anchor_bottom = 1.0
-	_toast.offset_left = -360
-	_toast.offset_right = -20
-	_toast.offset_bottom = -262
-	_toast.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	# A finger meant for the panel under it goes through.
 	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_toast)
@@ -1343,6 +1334,26 @@ func show_toast(title: String, body: String, seconds := 6.0) -> void:
 	_toast_body.text = body
 	_toast.visible = true
 	_toast_time = seconds
+
+
+## Bottom right above the minimap, stepped left past any open panel it would cover.
+func _place_toast() -> void:
+	var usable := _usable_rect()
+	var sz := _toast.get_combined_minimum_size()
+	_toast.size = sz
+	var pos := Vector2(usable.end.x - sz.x, root.size.y - 262.0 - sz.y)
+	var panels: Array[Control] = [_top_bar, sidebar, _info_panel, _ferry_panel, _fleet_panel, _finance_panel, _wild_panel, _terminal_bar, _minimap_panel]
+	for _pass in panels.size():
+		var moved := false
+		for panel in panels:
+			var r := panel.get_rect().grow(10.0)
+			if panel.visible and r.intersects(Rect2(pos, sz)):
+				pos.x = r.position.x - sz.x
+				moved = true
+		if not moved:
+			break
+	pos.x = maxf(pos.x, usable.position.x)
+	_toast.position = pos
 
 
 # --- Map controls (screen edge) ----------------------------------------------------
@@ -1523,6 +1534,7 @@ func _process(delta: float) -> void:
 
 	var real_dt := delta / maxf(Engine.time_scale, 0.001) if Engine.time_scale > 0.0 else 1.0 / 60.0
 	if _toast.visible:
+		_place_toast()
 		_toast_time -= real_dt
 		if _toast_time <= 0.0:
 			_toast.visible = false

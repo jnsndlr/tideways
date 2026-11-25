@@ -1,7 +1,6 @@
 extends Control
-## Title screen: Play (the main map), Mission trial (a scenario with goals), Mission
-## sandbox (two boats, for trying mechanics), Sandbox (the procedural
-## test map) or Quit.
+## Title screen: Play (the main mission), Mission sandbox (the main mission with
+## unlimited money, for quick testing), Sandbox (the procedural test map) or Quit.
 ##
 ## Debug args after `--` skip the menu so the existing command-line workflow keeps
 ## working: `--main` opens the main map, any other arg (e.g. --seed=123) the sandbox.
@@ -11,12 +10,6 @@ const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
 
-
-## A scenario with goals to try missions out on (not used by any test).
-const MISSION_TRIAL := "res://maps/mission_trial.json"
-## Two boats to try mechanics on. It starts as a copy of two_boats.json but no test
-## reads it, so edit it freely.
-const MISSION_SANDBOX := "res://maps/mission_sandbox.json"
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _load_error: Label
 
@@ -63,8 +56,7 @@ func _build() -> void:
 	col.add_child(gap)
 
 	var play := _button(col, "Play", func(): _play(""))
-	_button(col, "Mission trial", func(): _play(MISSION_TRIAL, "Reading the mission brief"))
-	_button(col, "Mission sandbox", func(): _play(MISSION_SANDBOX, "Readying two boats"))
+	_button(col, "Mission sandbox", func(): _play("", "Setting out with an open purse", true))
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
 	_button(col, "Quit", func(): get_tree().quit())
@@ -79,9 +71,9 @@ func _build() -> void:
 
 
 ## Play the main map from `scenario` ("" for the opening).
-func _play(scenario: String, caption := "Setting out for the islands") -> void:
+func _play(scenario: String, caption := "Setting out for the islands", unlimited := false) -> void:
 	if _start(Scenes.MAIN_MAP, caption):
-		MainMapScript.start_session(scenario)
+		MainMapScript.start_session(scenario, unlimited)
 
 
 func _start(path: String, caption: String) -> bool:

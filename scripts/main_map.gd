@@ -21,12 +21,16 @@ var _site_pins: Node3D
 ## A scenario file for the next Play instead of the opening (the menu's Mission
 ## trial sets it; "" plays the opening).
 static var scenario_path := ""
+## Mission sandbox: the main mission with money that never runs out (more debug
+## and quick-test tools to come).
+static var unlimited_cash := false
 
 var editor: IslandEditor
 
 
-static func start_session(path: String) -> void:
+static func start_session(path: String, unlimited := false) -> void:
 	scenario_path = path
+	unlimited_cash = unlimited
 	_carry.clear()
 
 
@@ -43,6 +47,8 @@ func _generation_job(gen: MapGenerator) -> Callable:
 		var file: String = "res://maps/%s.json" % _args["scenario"] if _args.has("scenario") else (
 			scenario_path if scenario_path != "" else Scenario.OPENING)
 		scenario = Scenario.load_file(file)
+		if unlimited_cash:
+			scenario.cash = CompanyLedger.UNLIMITED_CASH
 		plan = file.get_file().get_basename()
 	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
 	# Every dock site's routes are in them, so buying one plans nothing (TID-319).
