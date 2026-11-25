@@ -43,8 +43,6 @@ var _timetable := Timetable.new()
 var _offsets: Array[float] = []  # plan_offsets(stops), cached
 var late_by := 0.0           # minutes late she left her last stop
 var _loading_since := 0.0    # game minute (Simulation.abs_minutes) she began loading
-## Crew come on this long before her first sailing of the day.
-const CREW_CALL := 30.0
 ## Her +Z end faces the current route's B → A rather than A → B (she came onto
 ## this leg from one running the other way; a double-ended ferry never turns).
 var _rev := false
@@ -1799,20 +1797,20 @@ func round_fuel(ids: Array[int], p := pace) -> float:
 
 ## What a day on `times` (Timetable) round `ids` at pace `p` should cost her, on
 ## the planning numbers the timetable is built from: each sailing makes every
-## leg once, unhindered, and her crew are on from CREW_CALL before the first
+## leg once, unhindered, and her crew are on from the crew call before the first
 ## sailing until she is due back and unloaded after the last (off_shift).
 ## {fuel, crew, hours (crew), sailings}; empty with no times or a leg with no route.
 func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	var o := plan_offsets(ids, p)
 	if o.is_empty() or times.is_empty():
 		return {}
-	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
+	var span := float(times.max() - times.min()) + dwell.crew_call + shift_tail(o)
 	# Overnight at a tie-up (FerryLayUp.GAP_TIE_UP): her crew move her over after the last
 	# sailing, and come on early enough to bring her back before the first.
 	var distance := _overnight_distance(ids, times, o)
 	var night := shift_minutes(distance, p)
 	var move_fuel := _shift_fuel(distance, p)
-	var morning := maxf(0.0, dwell.maximum_loading + FerryLayUp.GAP_MARGIN + night - CREW_CALL) if night > 0.0 else 0.0
+	var morning := maxf(0.0, dwell.maximum_loading + FerryLayUp.GAP_MARGIN + night - dwell.crew_call) if night > 0.0 else 0.0
 	span += night + morning
 	var hours := minf(span, Timetable.DAY) / 60.0
 	return {"fuel": round_fuel(ids, p) * times.size() + 2.0 * move_fuel, "morning_fuel": move_fuel, "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
@@ -1887,7 +1885,7 @@ func off_shift() -> bool:
 	var now := sim.abs_minutes()
 	if _timetable.last_departure >= 0.0 and now < _timetable.last_departure + shift_tail(_round_offsets()):
 		return false
-	return d - now > CREW_CALL
+	return d - now > dwell.crew_call
 
 
 # --- Running costs ------------------------------------------------------------------

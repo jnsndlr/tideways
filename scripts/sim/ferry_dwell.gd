@@ -5,6 +5,11 @@ extends RefCounted
 
 const SETTING := "tideways/operations/dwell"
 
+## The crew report at least half an hour before the first departure, or
+## earlier when a longer boarding window needs them on the slip.
+var crew_call: float:
+	get: return maxf(30.0, maximum_loading)
+
 var minimum_loading := 10.0
 var maximum_loading := 24.0
 var boarding_close := 8.0
