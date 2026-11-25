@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode blend_mix, cull_back, specular_schlick_ggx;
+render_mode blend_mix, depth_draw_always, cull_back, specular_schlick_ggx;
 
 // Open water.
 //
