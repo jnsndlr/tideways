@@ -67,6 +67,7 @@ check session-launch-options test --script tools/session_launch_options_test.gd
 check persistence test --script tools/persistence_test.gd
 check ferry-assignment test --script tools/fast_ferry_test.gd
 check region-voyage test --script tools/art_free_region_test.gd
+check ferry-lay-up test --script tools/ferry_lay_up_test.gd
 check ferry-voyage test --script tools/ferry_voyage_test.gd
 check ferry-waterline test --script tools/ferry_waterline_test.gd
 check ferry-view test --script tools/ferry_view_test.gd

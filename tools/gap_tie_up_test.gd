@@ -1,5 +1,5 @@
 extends SceneTree
-## Stage 4, ties-ups between sailings (Ferry.GAP_TIE_UP): on the shared-slip map
+## Stage 4, ties-ups between sailings (FerryLayUp.GAP_TIE_UP): on the shared-slip map
 ## Rhododendron runs Madrona → Gullrock on two sailings with a long gap between
 ## them. Back at Madrona after the first she must move to its tie-up slip with
 ## her crew still paid, come back and leave on time for the second, and after
