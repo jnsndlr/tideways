@@ -26,6 +26,8 @@ The vehicle-overlap diagnostic reports proximity, including known contacts; a ze
 
 ## Starting a rule check without generating a map
 
+Scene-free ferry rules live in `tests/rules/`. Extend `res://tests/rule_test_case.gd`, call `check(condition, message)` for each expectation and `finish()` once the case completes. Run an individual case with `godot --headless --script tests/rules/ferry_voyage_test.gd`. Register new regression scripts in `tools/fast_ci.sh`. The inventory fixture checks both `tests/` and the existing cases in `tools/`.
+
 `TinyRegion` in [tools/tiny_region.gd](../tools/tiny_region.gd) builds two island towns and one ferry route in about 50 ms, laid out with the map generator's own dock, route and town helpers. `TinyRegion.build().start(root)` returns a running simulation in about half a second; call it from the first `_process` frame, once the tree is live. `TinyRegion.build(3)` gives three towns whose routes meet. Use it for a rule that needs real terminals, ferries or navigation. Keep the seed-123 launch for whole-game behavior.
 
 ## Watching the cost of a frame

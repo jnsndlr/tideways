@@ -1,21 +1,11 @@
-extends SceneTree
+extends "res://tests/rule_test_case.gd"
 ## Lay-up commands and timed berth transitions without a scene or ferry actor.
-
-var failures := 0
-
-
-func check(condition: bool, message: String) -> void:
-	if not condition:
-		failures += 1
-		push_error(message)
 
 
 func _initialize() -> void:
 	check_manual_orders()
 	check_scheduled_gap()
-	if failures == 0:
-		print("TEST PASSED")
-	quit(1 if failures else 0)
+	finish()
 
 
 func check_manual_orders() -> void:

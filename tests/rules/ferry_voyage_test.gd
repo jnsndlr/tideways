@@ -1,13 +1,5 @@
-extends SceneTree
+extends "res://tests/rule_test_case.gd"
 ## Crossing decisions run without constructing a ferry, terminal or scene mesh.
-
-var failures := 0
-
-
-func check(condition: bool, message: String) -> void:
-	if not condition:
-		failures += 1
-		push_error(message)
 
 
 ## A manoeuvre must back straight out, reverse direction beyond the buoys, and
@@ -122,6 +114,4 @@ func _initialize() -> void:
 	check(voyage.has_arrived(425.0), "Keep the existing arrival tolerance")
 	voyage.advance(1.0, 10.0, 425.0)
 	check(voyage.traveled == 425.0, "A large step cannot overshoot the dock")
-	if failures == 0:
-		print("TEST PASSED")
-	quit(1 if failures else 0)
+	finish()
