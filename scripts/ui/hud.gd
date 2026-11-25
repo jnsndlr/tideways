@@ -591,9 +591,9 @@ func _build_info_panel() -> void:
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
 	_pace_row.add_theme_constant_override("separation", 4)
-	for i in Ferry.PACES.size():
+	for i in FerryPace.SETTINGS.size():
 		var b := Button.new()
-		b.text = Ferry.PACES[i][1]
+		b.text = FerryPace.label(i)
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(0, 40)

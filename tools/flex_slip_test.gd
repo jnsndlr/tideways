@@ -51,8 +51,8 @@ func _process(_delta: float) -> bool:
 		if not madrona.town.slips[second].routes.is_empty():
 			return _fail("a route already calls at the new slip")
 		# Different paces so the two boats meet at Madrona.
-		sim.ferries[1].pace = 0
-		sim.ferries[0].pace = 2
+		sim.ferries[1].set_pace(FerryPace.ECONOMY)
+		sim.ferries[0].set_pace(FerryPace.FULL_AHEAD)
 		Engine.time_scale = 6.0
 		return false
 	if frames < 8:

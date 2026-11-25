@@ -26,8 +26,8 @@ func _process(_delta: float) -> bool:
 	if frames == 5:
 		Engine.time_scale = 6.0
 		# Different paces so the two boats drift into each other at the slip.
-		sim.ferries[1].pace = 0
-		sim.ferries[0].pace = 2
+		sim.ferries[1].set_pace(FerryPace.ECONOMY)
+		sim.ferries[0].set_pace(FerryPace.FULL_AHEAD)
 		for r in sim.map.routes:
 			for c in sim.marine.corridors[r.id]:
 				print("Route %d (%.0f m) corridor span %s docked %s" % [r.id, r.length, c.span[r.id], c.docked[r.id]])
