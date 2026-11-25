@@ -181,12 +181,6 @@
 			"community_type": "residential",
 			"docks": [
 				{
-					"u": 108.963,
-					"v": -2779.295,
-					"facing": 259.495,
-					"tier": "standard"
-				},
-				{
 					"u": -65.452,
 					"v": -188.649,
 					"facing": 240.495,
