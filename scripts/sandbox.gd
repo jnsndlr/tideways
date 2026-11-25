@@ -7,8 +7,8 @@ extends Node3D
 ##   --bench=seconds (print frame/GPU time and render stats, then quit)
 ##   --orcas (start an orca visit now and follow it)  --wildlife=ID (the same for any species:
 ##     humpback, gray, sea_lion, dalls_porpoise, harbor_porpoise, harbor_seal)
-##   --vessel=cargo|sail|yacht|pilot|tug (follow a cargo ship, a sailboat under way, a
-##     motor yacht, a pilot boat or a tug)
+##   --vessel=cargo|sail|yacht|pilot|tug|navy|nautilus (follow a cargo ship, a sailboat under way, a
+##     motor yacht, a pilot boat, a tug, or a navy convoy sent now; nautilus forces the easter egg)
 ##   --aa=msaa|smaa|none (anti-aliasing, to compare)  --dof=0 (no depth-of-field blur)
 
 static var map_seed := 0
@@ -478,9 +478,12 @@ func _apply_debug_args() -> void:
 			rig.snap()
 	if _args.has("vessel"):
 		var want := str(_args["vessel"])
+		if want == "navy" or want == "nautilus":
+			sim.marine.spawn_convoy(want == "nautilus")
 		for v in sim.marine.vessels:
 			if (want == "cargo" and v is CargoShip) or (want == "sail" and v is Sailboat and v.wants_to_move()) \
-					or (want == "yacht" and v is MotorYacht) or (want == "pilot" and v is PilotBoat) or (want == "tug" and v is Tug):
+					or (want == "yacht" and v is MotorYacht) or (want == "pilot" and v is PilotBoat) or (want == "tug" and v is Tug) \
+					or ((want == "navy" or want == "nautilus") and v is NavalVessel and v.lead == null):
 				hud.select_vessel(v)
 				rig.target_pos = v.global_position
 				rig.snap()
