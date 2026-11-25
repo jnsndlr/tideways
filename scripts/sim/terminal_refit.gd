@@ -35,11 +35,7 @@ func advance(delta: float, slip_clear: bool) -> void:
 			_set_stage(Stage.ARRIVING)
 		return
 	remaining = maxf(0.0, remaining - delta)
-	if remaining == 0.0:
-		slip = -1
-		new_slip = false
-		_set_stage(Stage.NONE)
-	elif remaining <= DEPARTURE and stage != Stage.LEAVING:
+	if remaining <= DEPARTURE and stage != Stage.LEAVING:
 		if not new_slip:
 			widen_slip.emit(slip)
 		_set_stage(Stage.LEAVING)
@@ -47,6 +43,11 @@ func advance(delta: float, slip_clear: bool) -> void:
 			open_new_slip.emit(slip)
 	elif remaining <= work + DEPARTURE and stage == Stage.ARRIVING:
 		_set_stage(Stage.WORKING)
+	# One update can cross both completion boundaries. Apply the work before releasing the crane.
+	if remaining == 0.0:
+		slip = -1
+		new_slip = false
+		_set_stage(Stage.NONE)
 
 
 func occupies(index: int) -> bool:
