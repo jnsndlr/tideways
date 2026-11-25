@@ -3,12 +3,12 @@ extends RefCounted
 ## Builds the visible vehicle and initializes its dimensions and movement for the
 ## terminal queue or ferry deck. Draw from the simulation RNG in spawn order.
 
-const TRUCK_SHARE := 0.12
+const TRUCK_SHARE := TrafficDemand.DEFAULT_TRUCK_SHARE
 
 
-static func create(rng: RandomNumberGenerator) -> Vehicle:
+static func create(rng: RandomNumberGenerator, truck_share := TRUCK_SHARE) -> Vehicle:
 	var vehicle := Vehicle.new()
-	var truck := rng.randf() < TRUCK_SHARE
+	var truck := rng.randf() < clampf(truck_share, 0.0, 1.0)
 	if not Models.mid_cars:
 		var col := rng.randi_range(0, Models.CAR_COLORS.size() - 1)
 		var mesh := Models.truck(col) if truck else Models.car(col)

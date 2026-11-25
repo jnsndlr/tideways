@@ -60,7 +60,7 @@ func _check_waterline_profile() -> bool:
 # for consecutive slots owned by the same instance, even when trails overlap.
 func _check_repeated_slots() -> bool:
 	var field := WakeField.new()
-	var simulation := Simulation.new(Vehicle.new.unbind(1))
+	var simulation := Simulation.new(Vehicle.new.unbind(2))
 	var traffic := MarineTraffic.new()
 	simulation.marine = traffic
 	field.sim = simulation

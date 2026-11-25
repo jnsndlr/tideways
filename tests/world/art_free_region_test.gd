@@ -82,7 +82,7 @@ func check_slip_guides() -> bool:
 		var wall := guide.walls[0]
 		fender.target = 1.0
 		wall.target = 1.0
-		guide._process(0.2)
+		guide._process(0.1)
 		valid = is_equal_approx(fender.squish, 0.5) and is_equal_approx(wall.squish, 0.5)
 		guide.fit(4)
 		valid = valid and guide.fenders[0].face > fender.face and is_zero_approx(guide.fenders[0].squish)

@@ -37,12 +37,12 @@ func _process(_delta: float) -> bool:
 	if main.sim == null or main.hud == null:
 		return false
 	var hud: Hud = main.hud
-	var ed: ScheduleEditor = hud._schedule_editor
+	var ed: ScheduleEditor = hud._ferry_panel._schedule_editor
 	var hiyu: Ferry = main.sim.ferries[0]
 	match frames:
 		30:
 			hud.select_ferry(hiyu)
-			ed.open(hiyu)
+			hud._ferry_panel.open_schedule()
 			_press(ed, "Set times")
 			_press(ed, "Add a sailing")
 		40:

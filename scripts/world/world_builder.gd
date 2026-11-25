@@ -34,52 +34,43 @@ const TERRAIN_TILE := 50
 const LIFT_LAMP := 4.8
 # Scale of the 360° lanterns on top of the lift.
 const LIFT_LANTERN := 3.9
+# The modelled channel buoys (art/buoys.py) are life-size; the world is drawn a bit larger.
+const BUOY_PORT_GLB := "res://assets/models/buoys/buoy_port_can.glb"
+const BUOY_STARBOARD_GLB := "res://assets/models/buoys/buoy_starboard_nun.glb"
+const BUOY_SCALE := 1.7
+const SPAR_GLB := "res://assets/models/buoys/buoy_hazard_spar.glb"
+const BELL_GLB := "res://assets/models/buoys/buoy_bell_tower.glb"
+const MARKER_PORT_GLB := "res://assets/models/buoys/marker_channel_port.glb"
+const MARKER_STARBOARD_GLB := "res://assets/models/buoys/marker_channel_starboard.glb"
+const AMBER := Color(1.0, 0.65, 0.15)
 # Side (m) of the tiles that trees, rocks and houses are batched in for culling.
 const MULTIMESH_TILE := 192.0
 # Eagle trees: within this of the water, the tallest one in each cell this size.
 const EAGLE_SHORE := 45.0
 const EAGLE_CELL := 27.0
 
-var _frames := BuildFrameBudget.new()
-var _tie_up_piers := {}         # town id -> TieUpPier node
+const CITY_HALL := "city_hall"
+## Shell size before awnings and decks. Pair each foundation with its authored model.
+const SHOP_SHELLS := {
+	"salt_and_rye": Vector2(8, 5.8),
+	"sound_chandlery": Vector2(7, 6.6),
+	"tideline_cafe": Vector2(8.4, 6),
+	"harbor_inn": Vector2(11.6, 7),
+	"glass_hall": Vector2(11.2, 7),
+	"brick_mercantile": Vector2(9.8, 6.3),
+	"sunset_terrace": Vector2(12, 6),
+	"harbor_office": Vector2(10.5, 6),
+	"seafoam_cafe": Vector2(9.1, 5.65),
+	"tidetable_books": Vector2(6.4, 5.6),
+	"post_office": Vector2(3.3, 5.4),
+	"poppy_and_stem": Vector2(6.6, 5.8),
+	"sound_fish_market": Vector2(6.2, 5.4),
+	CITY_HALL: Vector2(11, 7),
+}
 
-var map: MapData
-var terrain: Terrain
-var rng := RandomNumberGenerator.new()
-## Tree cards inside the map, on the mainland's shores (the Backdrop draws them).
-var edge_cards: Array[Vector3] = []
-# Card picks by the edge, kept apart from `rng` so the rest of the woods don't reshuffle.
-var _edge_rng := RandomNumberGenerator.new()
-## The terrain's material (its `facet` sets how faceted the ground looks).
-var terrain_material: ShaderMaterial
-var _forest_noise := FastNoiseLite.new()
-var _pasture_noise := FastNoiseLite.new()
-var root: Node3D
-var route_overlay: MeshInstance3D
-var water_material: ShaderMaterial
-var night_lights: MeshInstance3D
-var glows := GlowBuilder.new()
-## Terminals not open yet: town id -> [hidden node, its lights (MeshInstance3D)].
-var _sites := {}
+const PIER_RESTAURANTS := ["sea_glass_grill", "red_net_kitchen"]
 
-## Places seagulls can sit (where the feet go, in world space).
-var gull_perches: Array[Seagulls.Perch] = []
-## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
-var tree_shadows: Array[MultiMeshInstance3D] = []
-## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
-var tree_cells := {}
-var _highest_tree_crown := -INF
 const TREE_CELL := 64.0
-## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
-var eagle_perches: Array[Eagles.Perch] = []
-var _blocked := {}
-## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
-## in RGB and how much grass grows there in A (Grass reads it as a texture).
-var ground_rgba := PackedByteArray()
-## The tops of the shore rocks' grassy caps, for the grass blades (Grass.gd): one byte
-## a LIFT_CELL square, 0 for none, else the cap's height as (h + 4) * 4.
-var grass_lift := PackedByteArray()
-var lift_side := 0
 const LIFT_CELL := 2.0
 # The most the ground may fall (m) across a building's plan; steeper lots are
 # left empty rather than graded.
@@ -88,6 +79,53 @@ const KIT_MAX_DROP := 3.5
 # hillside over KIT_LOT_BLEND (m).
 const KIT_LOT_MARGIN := 1.5
 const KIT_LOT_BLEND := 6.0
+
+var map: MapData
+var terrain: Terrain
+var rng := RandomNumberGenerator.new()
+## Tree cards inside the map, on the mainland's shores (the Backdrop draws them).
+var edge_cards: Array[Vector3] = []
+## The terrain's material (its `facet` sets how faceted the ground looks).
+var terrain_material: ShaderMaterial
+var root: Node3D
+## Where the bell buoys float (world, at the waterline), for Ambience to ring them.
+var landmarks := LandmarkMeshes.new()
+var bell_buoys: Array[Vector3] = []
+var route_overlay: MeshInstance3D
+var water_material: ShaderMaterial
+var night_lights: MeshInstance3D
+var glows := GlowBuilder.new()
+## Cached town building meshes & names so runtime growth reuses exact variants.
+var house_meshes: Array[Mesh] = []
+var house_kit_names: Array[String] = []
+var shop_meshes: Array[Mesh] = []
+var shop_names_list: Array[String] = []
+## Places seagulls can sit (where the feet go, in world space).
+var gull_perches: Array[Seagulls.Perch] = []
+## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
+var tree_shadows: Array[MultiMeshInstance3D] = []
+## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
+var tree_cells := {}
+## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
+var eagle_perches: Array[Eagles.Perch] = []
+## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
+## in RGB and how much grass grows there in A (Grass reads it as a texture).
+var ground_rgba := PackedByteArray()
+## The tops of the shore rocks' grassy caps, for the grass blades (Grass.gd): one byte
+## a LIFT_CELL square, 0 for none, else the cap's height as (h + 4) * 4.
+var grass_lift := PackedByteArray()
+var lift_side := 0
+
+var _frames := BuildFrameBudget.new()
+var _tie_up_piers := {}  # town id -> TieUpPier node
+# Card picks by the edge, kept apart from `rng` so the rest of the woods don't reshuffle.
+var _edge_rng := RandomNumberGenerator.new()
+var _forest_noise := FastNoiseLite.new()
+var _pasture_noise := FastNoiseLite.new()
+## Terminals not open yet: town id -> [hidden node, its lights (MeshInstance3D)].
+var _sites := {}
+var _highest_tree_crown := -INF
+var _blocked := {}
 
 
 func _init(m: MapData, t: Terrain) -> void:
@@ -103,9 +141,23 @@ func build(frame: Signal = Signal()) -> Node3D:
 	root = Node3D.new()
 	root.name = "World"
 	# Towns grade their lots before terrain tiles read the heights.
-	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_quays,
-			_build_roads, _build_towns, _build_terrain, _build_lighthouses, _build_haul_outs,
-			_build_vegetation, _build_shore_rocks, _build_route_overlay, _clear_grass_where_blocked]:
+	for part: Callable in [
+		_build_water,
+		_build_terminals,
+		_build_marinas,
+		_build_quays,
+		_build_roads,
+		_build_towns,
+		_build_radio_towers,
+		_build_terrain,
+		_build_lighthouses,
+		_build_nav_aids,
+		_build_haul_outs,
+		_build_vegetation,
+		_build_shore_rocks,
+		_build_route_overlay,
+		_clear_grass_where_blocked
+	]:
 		if not await _frames.can_continue():
 			break
 		await part.call()
@@ -878,8 +930,17 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 		# Channel buoy, flashing.
 		var buoy := Vector3(v + side * 25.5, 0.0, Layout.CHANNEL_BUOY_U)
 		var phase := Models.blink_phase_at(mb.xform * buoy)
-		Models.add_buoy(mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase)
-		glows.glow(Models.buoy_glow_at(buoy), mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+		var glow_at := _buoy_model(
+			mb.xform, buoy, side < 0, "%s Buoy %d %s" % [isl.name, int(v), "G" if side < 0 else "R"]
+		)
+		if glow_at == Vector3.INF:
+			Models.add_buoy(
+				mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase
+			)
+			glow_at = Models.buoy_glow_at(buoy)
+		glows.glow(
+			glow_at, mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT
+		)
 		# A caged lamp on the inside of each lift tower, lighting the ramp.
 		var lamp := Vector3(v + side * 7.95, 13.8, pe - 3.0)
 		var out := Vector3(-side, 0, 0)
@@ -887,6 +948,107 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 		glows.glow(Models.bulkhead_glow_at(lamp, out, LIFT_LAMP), GlowBuilder.WARM,
 			Models.bulkhead_glow_size(LIFT_LAMP), 5.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
+
+
+## Places the modelled can (port, green) or nun (starboard, red) buoy at `base` in
+## the frame `xf`, and returns where its lantern's glow goes in that frame, or
+## Vector3.INF if the model isn't there (the caller draws the plain one).
+func _buoy_model(xf: Transform3D, base: Vector3, port: bool, node_name: String) -> Vector3:
+	return _nav_aid(BUOY_PORT_GLB if port else BUOY_STARBOARD_GLB, xf, base, 0.0, node_name)
+
+
+## Instances the nav-aid model at `path` at `base` (turned by `yaw`) in the frame
+## `xf`; returns its lantern's glow point in that frame, or Vector3.INF if missing.
+func _nav_aid(
+	path: String, xf: Transform3D, base: Vector3, yaw: float, node_name: String
+) -> Vector3:
+	if root == null or not ResourceLoader.exists(path):
+		return Vector3.INF
+	var aid := (load(path) as PackedScene).instantiate() as Node3D
+	aid.name = node_name
+	root.add_child(aid)
+	var b := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * BUOY_SCALE)
+	aid.transform = xf * Transform3D(b, base)
+	var beacon := aid.find_child("BeaconLight", true, false) as Node3D
+	var lamp := beacon.position if beacon else Vector3(0, 2.9, 0)
+	return base + b * (lamp + Vector3(0, 0.35, 0))
+
+
+## Open-water marks: a hazard spar off the shoal edge of most islands, a bell
+## buoy out in deep water off each inhabited one, and a pair of channel markers
+## further out on each terminal's approach. All flash at night.
+func _build_nav_aids() -> void:
+	glows.xform = Transform3D.IDENTITY
+	var n := 0
+	for isl in map.islands:
+		if isl.is_mainland:
+			continue
+		var c := Vector3(isl.center.x, 0, isl.center.y)
+		# Spar on the shoal's edge, bell further out in deep water.
+		for kind in ["spar", "bell"]:
+			if kind == "bell" and not isl.inhabited:
+				continue
+			if kind == "spar" and rng.randf() > 0.7:
+				continue
+			var depth := -2.5 if kind == "spar" else -14.0
+			for _try in 6:
+				var ang := rng.randf() * TAU
+				var dir := Vector3(cos(ang), 0, sin(ang))
+				var r := 0.0
+				while r < isl.radius * 3.0 and terrain.height_v(c + dir * r) > depth:
+					r += 2.0
+				var p := c + dir * (r + (6.0 if kind == "spar" else 40.0))
+				if terrain.height_v(p) > depth or _is_blocked(p.x, p.z):
+					continue
+				var path := SPAR_GLB if kind == "spar" else BELL_GLB
+				var col := AMBER if kind == "spar" else GlowBuilder.LED
+				var at := _nav_aid(
+					path, Transform3D.IDENTITY, p, rng.randf() * TAU, "Nav %s %d" % [kind, n]
+				)
+				if at != Vector3.INF:
+					if kind == "bell":
+						bell_buoys.append(p)
+					var phase := Models.blink_phase_at(p)
+					glows.glow(
+						at,
+						col,
+						0.6,
+						7.0,
+						true,
+						Models.blink_of(phase),
+						Vector3.ZERO,
+						Models.LAMP_ON_AT
+					)
+					_block(p, 12.0)
+					n += 1
+				break
+	# Channel markers out on each terminal's approach, wider than the slip buoys.
+	for town in map.towns:
+		if town.slips.is_empty():
+			continue
+		var xf := town.terminal_xform()
+		for side: float in [-1.0, 1.0]:
+			var base := Vector3(side * 48.0, 0.0, Layout.CHANNEL_BUOY_U + 70.0)
+			var w := xf * base
+			if terrain.height_v(w) > -1.5 or _is_blocked(w.x, w.z):
+				continue
+			var path := MARKER_PORT_GLB if side < 0 else MARKER_STARBOARD_GLB
+			var at := _nav_aid(
+				path, xf, base, 0.0, "%s Channel Marker %s" % [town.name, "G" if side < 0 else "R"]
+			)
+			if at != Vector3.INF:
+				var phase := Models.blink_phase_at(w)
+				glows.glow(
+					xf * at,
+					GlowBuilder.GREEN if side < 0 else GlowBuilder.RED,
+					0.6,
+					7.0,
+					true,
+					Models.blink_of(phase),
+					Vector3.ZERO,
+					Models.LAMP_ON_AT
+				)
+				_block(w, 10.0)
 
 
 ## When the authored deck is unavailable, the concrete deck still follows the
@@ -1229,22 +1391,15 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array, crossing: Vector3)
 		walked += seg
 
 
-const CITY_HALL := "city_hall"
-## Shell size before awnings and decks. Pair each foundation with its authored model.
-const SHOP_SHELLS := {
-	"salt_and_rye": Vector2(8, 5.8), "sound_chandlery": Vector2(7, 6.6),
-	"tideline_cafe": Vector2(8.4, 6), "harbor_inn": Vector2(11.6, 7),
-	"glass_hall": Vector2(11.2, 7), "brick_mercantile": Vector2(9.8, 6.3),
-	"sunset_terrace": Vector2(12, 6), "harbor_office": Vector2(10.5, 6),
-	"seafoam_cafe": Vector2(9.1, 5.65), "tidetable_books": Vector2(6.4, 5.6),
-	"post_office": Vector2(3.3, 5.4), "poppy_and_stem": Vector2(6.6, 5.8),
-	"sound_fish_market": Vector2(6.2, 5.4), CITY_HALL: Vector2(11, 7),
-}
 
 
 func _build_towns() -> void:
 	# The kit houses: the painted families twice each in different colours, the
 	# contemporary ones as authored. Then the downtown storefronts.
+	house_meshes.clear()
+	house_kit_names.clear()
+	shop_meshes.clear()
+	shop_names_list.clear()
 	var variants: Array[Mesh] = []
 	var kit_names: Array[String] = []
 	for k in Models.KIT_HOUSES.size():
@@ -1254,11 +1409,17 @@ func _build_towns() -> void:
 			if not await _frames.can_continue():
 				return
 			var n := kit_names.size()
+			var mesh: Mesh
 			if coats == 1:
-				variants.append(Models.kit_house(kit_name))
+				mesh = Models.kit_house(kit_name)
 			else:
-				variants.append(Models.kit_house(kit_name, WALLS[n % WALLS.size()], ROOFS[(n * 3 + 1) % ROOFS.size()]))
+				mesh = Models.kit_house(
+					kit_name, WALLS[n % WALLS.size()], ROOFS[(n * 3 + 1) % ROOFS.size()]
+				)
+			variants.append(mesh)
+			house_meshes.append(mesh)
 			kit_names.append(kit_name)
+			house_kit_names.append(kit_name)
 	var houses := kit_names.size()
 	var shop_names := SHOP_SHELLS.keys()
 	shop_names.erase(CITY_HALL)
@@ -1277,37 +1438,44 @@ func _build_towns() -> void:
 		var bounds := mesh.get_aabb()
 		shop_plans.append(Rect2(bounds.position.x, bounds.position.z, bounds.size.x, bounds.size.z))
 		variants.append(mesh)
+		shop_meshes.append(mesh)
+		shop_names_list.append(shop_name)
 	var per_variant: Array = []
 	for v in variants:
 		var list: Array[Transform3D] = []
 		per_variant.append(list)
 
+	var town_rng := RandomNumberGenerator.new()
+	town_rng.seed = map.map_seed * 41 + 19
+	const RESERVE_LANDMARKS := 4
+	const RESERVE_COMMERCIAL := 12
+	const RESERVE_HOUSES := 36
+
 	for isl in map.towns:
+		isl.growth_lots.clear()
+		isl.initial_houses = 0
+		isl.initial_commercial = 0
 		var tc := isl.town_center
 		var t := isl.town_axis
 		var inland := Vector3.UP.cross(t)  # perpendicular to the cross street
 		if isl.has_dock:
 			inland = -isl.dock_dir
-		var has_city_hall := false
-		var town_r := sqrt(isl.population / 90.0) * 9.0
 		var spacing := 16.5
-		for b in range(-8, 9):
+		var candidates: Array[Dictionary] = []
+		for b in range(-10, 11):
 			if not await _frames.can_continue():
 				return
-			for a in range(-8, 9):
+			for a in range(-10, 11):
 				if isl.has_dock and (a == 0 or b == 0):
 					continue  # the streets
 				var p := tc + t * (a * spacing) + inland * (b * spacing)
-				p += Vector3(rng.randf_range(-2.4, 2.4), 0, rng.randf_range(-2.4, 2.4))
-				var r := Vector2(a, b).length() * spacing
-				if rng.randf() > exp(-pow(r / town_r, 2.0)) * 1.15:
-					continue
+				p += Vector3(town_rng.randf_range(-2.2, 2.2), 0, town_rng.randf_range(-2.2, 2.2))
 				if isl.has_dock and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - isl.lot_shift() - 12.0:
 					continue
 				if _is_blocked(p.x, p.z):
 					continue
 				var h := terrain.height_v(p)
-				if h < 4.2 or h > 45.0:
+				if h < 4.2 or h > 55.0:
 					continue
 				var hmin := h
 				var hmax := h
@@ -1320,43 +1488,259 @@ func _build_towns() -> void:
 				var front := -inland * signf(b) if absi(b) <= absi(a) or a == 0 else -t * signf(a)
 				if not isl.has_dock:
 					front = -inland
-				var basis := Basis(Vector3.UP, atan2(front.x, front.z) + rng.randf_range(-0.05, 0.05))
-				var vi := rng.randi_range(0, houses - 1)
-				var block := r < town_r * 0.4 and isl.population > 3500 and rng.randf() < 0.5
-				if block:
-					# Reserve the first suitable downtown lot for the civic landmark.
-					vi = rng.randi_range(houses, city_hall_variant - 1) if has_city_hall else city_hall_variant
-					basis = basis.scaled(Vector3.ONE * rng.randf_range(0.9, 1.1))
-				var bucket: Array[Transform3D] = per_variant[vi]
-				# Each building gets a level lot graded under its whole plan (porch and
-				# steps included) at the ground's mean height there, so its steps and
-				# foundation meet the grass all round.
-				var plan: Rect2 = shop_plans[vi - houses] if block else Models.kit_footprint(kit_names[vi])
-				var lot := _kit_lot_heights(p, basis, plan)
-				if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
-					continue
-				var k := basis.get_scale().x
-				var pad := Rect2(plan.position * k, plan.size * k).grow(KIT_LOT_MARGIN)
+				var yaw := atan2(front.x, front.z) + town_rng.randf_range(-0.05, 0.05)
+				var r := Vector2(a, b).length() * spacing
+				(
+					candidates
+					. append(
+						{
+							"p": p,
+							"yaw": yaw,
+							"r": r,
+							"sort_r": r + town_rng.randf_range(-9.0, 9.0),
+							"drop": hmax - hmin,
+							"h": h,
+						}
+					)
+				)
+		candidates.sort_custom(
+			func(x: Dictionary, y: Dictionary) -> bool:
+				return float(x["sort_r"]) < float(y["sort_r"])
+		)
+
+		var want_houses := TownGrowth.target_houses_for(isl.population)
+		var want_commercial := TownGrowth.target_commercial_for(isl.population)
+		var has_city_hall := false
+		var placed_comm := 0
+		var placed_houses := 0
+		var reserved_landmarks := 0
+		var reserved_comm := 0
+		var reserved_houses := 0
+		var used_idx := {}
+
+		# 1. Reserve up to 4 flat landmark pads (1 near downtown, 3 on the outer apron for
+		# Depot / Hangar+Windsock / Observatory) so milestones always have clean room.
+		for idx in candidates.size():
+			if reserved_landmarks >= RESERVE_LANDMARKS:
+				break
+			var c: Dictionary = candidates[idx]
+			if float(c["drop"]) > 2.6:
+				continue
+			var r: float = float(c["r"])
+			if reserved_landmarks == 0 and r > 70.0:
+				continue
+			if reserved_landmarks >= 1 and r < 52.0:
+				continue
+			var p: Vector3 = c["p"]
+			var too_close := false
+			for existing in isl.growth_lots:
+				if existing.pos.distance_to(p) < 28.0:
+					too_close = true
+					break
+			if too_close:
+				continue
+			used_idx[idx] = true
+			var llot := MapData.TownLot.new()
+			llot.pos = Vector3(p.x, float(c["h"]), p.z)
+			llot.yaw = float(c["yaw"])
+			llot.lot_y = float(c["h"])
+			llot.kind = MapData.TownLot.Kind.LANDMARK
+			llot.waterfront = float(c["h"]) < 15.0
+			isl.growth_lots.append(llot)
+			_block(p, 7.5)
+			reserved_landmarks += 1
+
+		# 2. Place initial commercial buildings (1 per 333 pop) and reserve commercial growth lots.
+		var shop_count := shop_names.size()
+		var regular_shop_count := maxi(shop_count - 1, 1)
+		for idx in candidates.size():
+			if used_idx.has(idx):
+				continue
+			if placed_comm >= want_commercial and reserved_comm >= RESERVE_COMMERCIAL:
+				break
+			var c: Dictionary = candidates[idx]
+			var p: Vector3 = c["p"]
+			var yaw: float = float(c["yaw"])
+			var sc := town_rng.randf_range(0.92, 1.08)
+			var shop_idx := town_rng.randi_range(0, regular_shop_count - 1)
+			if (
+				placed_comm < want_commercial
+				and not has_city_hall
+				and isl.population >= 2500
+				and isl.community_type == "residential"
+			):
+				shop_idx = city_hall_variant - houses
+			var vi := houses + shop_idx
+			var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
+			var plan: Rect2 = shop_plans[shop_idx]
+			var lot := _kit_lot_heights(p, basis, plan)
+			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
+				continue
+			used_idx[idx] = true
+			if placed_comm < want_commercial:
+				var pad := Rect2(plan.position * sc, plan.size * sc).grow(KIT_LOT_MARGIN)
 				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
 					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
-				bucket.append(xf)
-				if block:
-					if vi == city_hall_variant:
-						has_city_hall = true
-					var shop_name: String = shop_names[vi - houses]
-					var front_z: float = SHOP_SHELLS[shop_name].y / 2
-					if shop_name == "glass_hall":
-						front_z += 0.46
-					_entry_light(xf, Vector3(.83, 2.59, front_z + .30), Vector3(0, .34, front_z + .64), h < 15.0)
-				else:
-					_entry_light(xf, Models.kit_marker(kit_names[vi], "PorchLight"), Models.kit_marker(kit_names[vi], "Entry"), h < 15.0)
+				(per_variant[vi] as Array[Transform3D]).append(xf)
+				if vi == city_hall_variant:
+					has_city_hall = true
+				var shop_name: String = shop_names[shop_idx]
+				var front_z: float = SHOP_SHELLS[shop_name].y / 2
+				if shop_name == "glass_hall":
+					front_z += 0.46
+				_entry_light(
+					xf,
+					Vector3(.83, 2.59, front_z + .30),
+					Vector3(0, .34, front_z + .64),
+					float(c["h"]) < 15.0
+				)
 				_block(p, 7.8)
+				placed_comm += 1
+			else:
+				var clot := MapData.TownLot.new()
+				clot.pos = Vector3(p.x, lot.z, p.z)
+				clot.yaw = yaw
+				clot.scale = sc
+				clot.lot_y = lot.z
+				clot.kind = MapData.TownLot.Kind.COMMERCIAL
+				clot.variant = shop_idx
+				clot.waterfront = float(c["h"]) < 15.0
+				isl.growth_lots.append(clot)
+				_block(p, 5.5)
+				reserved_comm += 1
+
+		# 3. Place initial houses (1 per 100 pop) and reserve residential expansion lots.
+		for idx in candidates.size():
+			if used_idx.has(idx):
+				continue
+			if placed_houses >= want_houses and reserved_houses >= RESERVE_HOUSES:
+				break
+			var c: Dictionary = candidates[idx]
+			var p: Vector3 = c["p"]
+			var yaw: float = float(c["yaw"])
+			var vi := town_rng.randi_range(0, houses - 1)
+			var basis := Basis(Vector3.UP, yaw)
+			var plan: Rect2 = Models.kit_footprint(kit_names[vi])
+			var lot := _kit_lot_heights(p, basis, plan)
+			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
+				continue
+			used_idx[idx] = true
+			if placed_houses < want_houses:
+				var pad := Rect2(plan.position, plan.size).grow(KIT_LOT_MARGIN)
+				terrain.level_now(
+					Vector3(p.x, 0, p.z),
+					basis.z.normalized(),
+					pad.position.y,
+					pad.end.y,
+					pad.position.x,
+					pad.end.x,
+					lot.z,
+					KIT_LOT_BLEND
+				)
+				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
+				(per_variant[vi] as Array[Transform3D]).append(xf)
+				_entry_light(
+					xf,
+					Models.kit_marker(kit_names[vi], "PorchLight"),
+					Models.kit_marker(kit_names[vi], "Entry"),
+					float(c["h"]) < 15.0
+				)
+				_block(p, 7.8)
+				placed_houses += 1
+			else:
+				var hlot := MapData.TownLot.new()
+				hlot.pos = Vector3(p.x, lot.z, p.z)
+				hlot.yaw = yaw
+				hlot.scale = 1.0
+				hlot.lot_y = lot.z
+				hlot.kind = MapData.TownLot.Kind.HOUSE
+				hlot.variant = vi
+				hlot.waterfront = float(c["h"]) < 15.0
+				isl.growth_lots.append(hlot)
+				_block(p, 5.5)
+				reserved_houses += 1
+
+		isl.initial_houses = placed_houses
+		isl.initial_commercial = placed_comm
+
 	var no_colors: Array[Color] = []
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
 		var group_name: String = "Houses%d" % i if i < houses else shop_names[i - houses]
 		await _multimesh(variants[i], xforms, no_colors, group_name)
+
+
+## Reserves a hilltop radio tower pad on each inhabited island and builds the
+## starting tower on Madrona Island immediately (other islands build at 6k pop).
+func _build_radio_towers() -> void:
+	for isl in map.islands:
+		if isl.is_mainland or not isl.inhabited:
+			continue
+		if not await _frames.can_continue():
+			return
+		var best_pos := Vector3.ZERO
+		var best_h := -INF
+		var span := minf(isl.radius * 0.6, 360.0)
+		var step := 24.0
+		var z := -span
+		while z <= span:
+			var x := -span
+			while x <= span:
+				var px := isl.center.x + x
+				var pz := isl.center.y + z
+				if not _is_blocked(px, pz):
+					var h := terrain.height_at(px, pz)
+					if h > best_h and h >= 10.0:
+						var hmin := h
+						var hmax := h
+						for o: Vector2 in [
+							Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5)
+						]:
+							var hh := terrain.height_at(px + o.x, pz + o.y)
+							hmin = minf(hmin, hh)
+							hmax = maxf(hmax, hh)
+						if hmax - hmin <= 4.5 and hmin >= 6.0:
+							best_h = h
+							best_pos = Vector3(px, (hmin + hmax) * 0.5, pz)
+				x += step
+			z += step
+		if best_h <= -INF:
+			continue
+		var rlot := MapData.TownLot.new()
+		rlot.pos = best_pos
+		rlot.lot_y = best_pos.y
+		rlot.yaw = 0.0
+		rlot.kind = MapData.TownLot.Kind.RADIO_TOWER
+		isl.radio_tower_lot = rlot
+		_block(best_pos, 8.0)
+		if isl.radio_tower_built:
+			rlot.occupied = true
+			terrain.level_now(
+				Vector3(best_pos.x, 0.0, best_pos.z),
+				Vector3.FORWARD,
+				-6.5,
+				6.5,
+				-6.5,
+				6.5,
+				best_pos.y,
+				KIT_LOT_BLEND
+			)
+			var mesh := landmarks.mesh_for("radio_tower")
+			if mesh != null:
+				var mi := _add_mesh(mesh, "RadioTower_%s" % isl.name)
+				mi.position = best_pos
+			glows.xform = Transform3D(Basis.IDENTITY, best_pos)
+			glows.glow(
+				Vector3(0.0, 55.2, 0.0),
+				Color(1.0, 0.22, 0.16),
+				0.75,
+				18.0,
+				false,
+				0.0,
+				Vector3.ZERO,
+				Models.LAMP_ON_AT
+			)
 
 
 ## The highest (x), lowest (y) and mean (z) ground under `plan` (house frame x, z)
@@ -1695,7 +2079,6 @@ func lift_image() -> Image:
 	return Image.create_from_data(lift_side, lift_side, false, Image.FORMAT_R8, grass_lift)
 
 
-const PIER_RESTAURANTS := ["sea_glass_grill", "red_net_kitchen"]
 
 
 ## Put the dining deck flush with the right edge of the jetty, landward of its T-head.

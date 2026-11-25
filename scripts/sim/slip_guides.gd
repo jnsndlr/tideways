@@ -15,7 +15,7 @@ const WALL_ANGLES := Vector2i(14, 60)   # the splays (degrees off the centreline
 # Its corner stands just off the apron's side (6.55 m out), so the bow nestles in.
 const WALL_V_MIN := 6.9
 # How quickly the parts ease to their targets (per second).
-const EASE := 2.5
+const EASE := 5.0
 # From the fender face to the dolphin centre, and the height of its deck.
 const DOLPHIN_FACE := 3.5
 const DOLPHIN_DECK := 4.17

@@ -91,8 +91,8 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 		return _fail("Couldn't time the Hiyu")
 	# The editor, on the Heron with the clashing sailing drafted.
 	var hud: Hud = main.hud
-	var ed: ScheduleEditor = hud._schedule_editor
-	ed.open(heron)
+	hud.select_ferry(heron)
+	var ed := hud._ferry_panel.open_schedule()
 	ed._timed = true
 	ed._times.assign([heron_t])
 	ed._rebuild()
@@ -134,7 +134,7 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 	ed._times.assign([heron_t])
 	ed._rebuild()
 	ed._on_apply()
-	if ed.visible or heron.timetable != ed._times and heron._next_timetable != ed._times:
+	if heron.timetable != [heron_t] and heron._next_timetable != [heron_t]:
 		return _fail("Apply didn't put the Heron on her clashing sailing")
 	if hud._slip_clash_text(heron) == "" or hud._slip_clash_text(hiyu) == "":
 		return _fail("The ferry panel doesn't mention the clash for both boats")

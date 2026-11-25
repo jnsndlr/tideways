@@ -21,11 +21,46 @@ var unsaved: bool:
 ## A pin on the selected dock site for sale.
 var _site_pins: Node3D
 var editor: IslandEditor
+var _played_scenario := ""
 
 
-static func start_session(path: String) -> void:
+static func start_session(path: String, unlimited := false, company := "") -> void:
 	RegionEntryState.scenario_path = path
 	RegionEntryState.editor_restore.clear()
+	RegionEntryState.unlimited_cash = unlimited
+	RegionEntryState.company_name = company
+	RegionEntryState.saved_date.clear()
+
+
+static func load_session(data: Dictionary) -> void:
+	start_session(data.scenario, data.unlimited, data.get("company", ""))
+	RegionEntryState.saved_date = {"day": data.day, "minutes": data.minutes}
+
+
+func can_quick_save() -> bool:
+	return scenario != null
+
+
+func quick_save() -> void:
+	var path := _played_scenario
+	if SaveGame.save(
+		path, RegionEntryState.unlimited_cash, sim.day, sim.minutes, RegionEntryState.company_name
+	):
+		hud.show_toast(
+			"GAME SAVED",
+			(
+				"%s · %s · day %d, %s"
+				% [
+					RegionEntryState.company_name,
+					path.get_file().get_basename(),
+					sim.day,
+					sim.clock_text(sim.minutes)
+				]
+			),
+			3.0
+		)
+	else:
+		hud.show_toast("SAVE FAILED", "Couldn't write the save file.", 3.0)
 
 
 func _ready() -> void:
@@ -44,12 +79,17 @@ func _ready() -> void:
 		var file: String = "res://maps/%s.json" % options["scenario"] if options.has("scenario") else (
 			RegionEntryState.scenario_path if RegionEntryState.scenario_path != "" else Scenario.OPENING)
 		opening = Scenario.load_file(file)
+		_played_scenario = file
+		if opening and RegionEntryState.unlimited_cash:
+			opening.cash = CompanyLedger.UNLIMITED_CASH
 		plan = file.get_file().get_basename()
 	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
 	# Every dock site's routes are in them, so buying one plans nothing (TID-319).
 	var route_cache_path := ""
 	if not unsaved:
 		route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+	starting_date = RegionEntryState.saved_date.duplicate()
+	RegionEntryState.saved_date.clear()
 	await start_authored(layout, opening, route_cache_path)
 	if not built:
 		return

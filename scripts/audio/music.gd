@@ -1,11 +1,14 @@
 class_name Music
 extends Node
-## The soundtrack: one looping track that carries on across scene changes (it
-## lives under the tree root, not in a scene). Full on the menu and loading
+## The soundtrack: every track in FOLDER, played in a random order without an
+## immediate repeat, carrying on across scene changes (it lives under the tree
+## root, not in a scene). Drop an .mp3, .ogg or .wav in FOLDER to add a track. Full on the menu
+## and loading
 ## screen, fading down to a soft bed once a map is built. Its level is set by the
 ## Music bus (GameSettings).
 
-const TRACK := "res://assets/audio/harbor_exploration.mp3"
+const FOLDER := "res://assets/audio/music"
+const EXTENSIONS := ["mp3", "ogg", "wav"]
 
 enum Mood { FULL, SOFT }
 
@@ -19,6 +22,9 @@ const DUCK_DB := -8.0
 const DUCK_FADE := 0.6
 
 var _player: AudioStreamPlayer
+var _tracks: PackedStringArray = []
+var _queue: PackedStringArray = []
+var _last := ""
 var _tween: Tween
 var _mood := Mood.FULL
 var _ducked := false
@@ -54,15 +60,37 @@ static func duck(tree: SceneTree, on: bool) -> void:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	GameSettings.ensure()
-	var stream: AudioStreamMP3 = load(TRACK)
-	stream.loop = true
+	for f in ResourceLoader.list_directory(FOLDER):
+		if f.get_extension().to_lower() in EXTENSIONS:
+			_tracks.append(FOLDER.path_join(f))
 	_player = AudioStreamPlayer.new()
-	_player.stream = stream
 	_player.bus = "Music"
 	_player.volume_db = SILENT_DB
+	_player.finished.connect(_play_next)
 	add_child(_player)
-	_player.play()
+	_play_next()
 	_fade_to(_mood)
+
+
+## Plays a random track; each plays once before any repeats, never back to back.
+func _play_next() -> void:
+	if _tracks.is_empty():
+		return
+	if _queue.is_empty():
+		var order := Array(_tracks)
+		order.shuffle()
+		if order.size() > 1 and order[0] == _last:
+			order.push_back(order.pop_front())
+		_queue = PackedStringArray(order)
+	_last = _queue[0]
+	_queue.remove_at(0)
+	var stream := load(_last) as AudioStream
+	if stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = false
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = false
+	_player.stream = stream
+	_player.play()
 
 
 ## Let the audio server drop the stream before quitting, or it reports it leaked.

@@ -32,6 +32,10 @@ func _init(town: MapData.Town, terminal: Terminal, simulation: Simulation, anima
 	wildlife = animals
 	island = sim.map.island_of(isl)
 	_can_buy_docks = can_buy_docks
+	sim.town_growth.metrics_refreshed.connect(_invalidate_layout)
+	sim.town_growth.population_changed.connect(_population_changed)
+	sim.town_growth.construction_started.connect(_construction_changed)
+	sim.town_growth.construction_completed.connect(_construction_changed)
 	sim.routes_changed.connect(_invalidate_layout)
 	sim.dock_bought.connect(_dock_bought)
 	if term:
@@ -41,6 +45,16 @@ func _init(town: MapData.Town, terminal: Terminal, simulation: Simulation, anima
 		sim.berths_changed.connect(_invalidate_slips)
 		sim.ferry_removed.connect(_fleet_changed)
 		sim.ferry_added.connect(_fleet_changed)
+
+
+func _population_changed(town: MapData.Town, _new_pop: int) -> void:
+	if town == isl:
+		_invalidate_layout()
+
+
+func _construction_changed(job: TownGrowth.BuildJob) -> void:
+	if job.town_id == isl.id:
+		_invalidate_layout()
 
 
 func _dock_bought(town: MapData.Town) -> void:
@@ -124,14 +138,27 @@ func _refresh_live() -> void:
 	if _changed("Satisfaction", percent):
 		_update("Satisfaction", "%d%%" % percent)
 	var growth := island.growth + (sat - 70.0) * 0.05
-	if _changed("Growth", _tenth_key(growth)):
+	if not sim.town_growth.state_for_town(isl) and _changed("Growth", _tenth_key(growth)):
 		_update("Growth", "%+.1f%% / yr" % growth)
 	if term:
 		var demand := sim.demand_label(isl)
 		if _changed("Demand", demand):
 			_update("Demand", demand)
-		if _changed("Carried today", term.served_today):
-			_update("Carried today", Hud.fmt_int(term.served_today))
+		if (
+			_changed("Cars carried", term.served_today)
+			or _shown.get("Walk-ons carried") != term.passengers_served_today
+		):
+			_shown["Walk-ons carried"] = term.passengers_served_today
+			_update(
+				"Carried today",
+				(
+					"%s cars · %s walk-ons"
+					% [Hud.fmt_int(term.served_today), Hud.fmt_int(term.passengers_served_today)]
+				)
+			)
+		var waiting := term.passengers_queued()
+		if _changed("Walk-ons waiting", waiting):
+			_update("Walk-ons waiting", str(waiting))
 		if _indices.has("Avg. wait") and _changed("Avg. wait", roundi(term.avg_wait)):
 			_update("Avg. wait", "%d min" % roundi(term.avg_wait))
 
@@ -174,15 +201,101 @@ func _update(key: String, text: String) -> void:
 
 func _build_rows() -> Array:
 	var building := sim.dock_building(isl)
+	var tg: TownGrowth.TownState = sim.town_growth.state_for_town(isl)
 	var rows := []
 	if isl.name != island.name:
 		rows.append(["Island", island.name])
-	rows.append_array([
-		["Population", Hud.fmt_int(isl.population)],
-		["Satisfaction", ""],
-		["Growth", ""],
-		["Demand", "-"],
-	])
+	rows.append(["Community", TownGrowth.community_label(isl.community_type)])
+	if tg != null:
+		rows.append(
+			["Population", "%s (+%d / day)" % [Hud.fmt_int(isl.population), roundi(tg.total_daily)]]
+		)
+		rows.append(
+			[
+				"Growth",
+				"Organic +%d · Ferry +%d" % [roundi(tg.organic_daily), roundi(tg.ferry_daily)]
+			]
+		)
+		if tg.has_service:
+			rows.append(
+				[
+					"Accessibility",
+					(
+						"%d%% · %d/%d links"
+						% [
+							roundi(tg.accessibility * 100.0),
+							tg.active_connections,
+							tg.expected_connections
+						]
+					)
+				]
+			)
+			rows.append(
+				[
+					"Service",
+					(
+						"Freq %d%% · Fair %d%% · Rel %d%% (%dd)"
+						% [
+							roundi(tg.frequency_score * 100.0),
+							roundi(tg.affordability_score * 100.0),
+							roundi(tg.reliability_score * 100.0),
+							int(tg.stable_days)
+						]
+					)
+				]
+			)
+		else:
+			rows.append(["Accessibility", "0%% · 0/%d links expected" % tg.expected_connections])
+		rows.append(
+			[
+				"Attractiveness",
+				(
+					"Res %d · Ind %d · Tour %d"
+					% [
+						roundi(tg.attractiveness_residents),
+						roundi(tg.attractiveness_industry),
+						roundi(tg.attractiveness_tourism)
+					]
+				)
+			]
+		)
+		rows.append(
+			[
+				"Economy",
+				(
+					"%d · %d%% commercial"
+					% [
+						roundi(tg.economic_activity),
+						roundi(sim.town_growth.commercial_truck_share(isl) * 100.0)
+					]
+				)
+			]
+		)
+		var bldg := "%d houses · %d shops" % [tg.built_houses, tg.built_commercial]
+		if not tg.active_builds.is_empty():
+			bldg += " · %d building" % tg.active_builds.size()
+		rows.append(["Town buildings", bldg])
+		var next_ms := sim.town_growth.next_milestone_for(isl)
+		if not next_ms.is_empty():
+			rows.append(
+				[
+					"Next milestone",
+					"%s (%s pop)" % [str(next_ms["title"]), Hud.fmt_int(int(next_ms["pop"]))]
+				]
+			)
+		rows.append_array([["Satisfaction", ""], ["Demand", "-"]])
+	else:
+		(
+			rows
+			. append_array(
+				[
+					["Population", Hud.fmt_int(isl.population)],
+					["Satisfaction", ""],
+					["Growth", ""],
+					["Demand", sim.demand_label(isl) if term else "-"],
+				]
+			)
+		)
 	rows.append(["Wildlife draw", ""])
 	rows.append(["Wildlife appeal", ""])
 	if not term and _can_buy_docks:
@@ -201,6 +314,7 @@ func _build_rows() -> Array:
 	if term:
 		var queue := term.queue_summary()
 		rows.append(["Vehicles waiting", ""])
+		rows.append(["Walk-ons waiting", ""])
 		rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
 		rows.append(["Slips", ""])
 		if term.refit_stage != Terminal.RefitStage.NONE:

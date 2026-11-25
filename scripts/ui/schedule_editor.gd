@@ -14,14 +14,38 @@ extends PanelContainer
 ## repeats, and the sailings list scrolls by dragging anywhere on it. On a tall
 ## screen (an iPad in portrait) the whole editor is drawn larger.
 
+signal applied
+
 const TAP := 52.0 ## least height of anything to tap (about 44 pt on an iPad in landscape)
 const HOLD_DELAY := 0.4 ## seconds a stepper is held before it repeats
 const REPEAT := 0.09 ## seconds between repeats while held
 const DRAG_SLOP := 10.0 ## a press that moves this far is a drag, not a tap
 const LIST_MAX := 330.0 ## tallest the sailings list grows before it scrolls
 
+
+class _StopRow:
+	extends HBoxContainer
+	var index := 0
+	var label_text := ""
+	var on_reorder: Callable
+
+	func _get_drag_data(_at_position: Vector2) -> Variant:
+		var preview := Label.new()
+		preview.text = "≡  " + label_text
+		set_drag_preview(preview)
+		return {"stop_index": index}
+
+	func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+		return data is Dictionary and data.has("stop_index") and int(data["stop_index"]) != index
+
+	func _drop_data(_at_position: Vector2, data: Variant) -> void:
+		if on_reorder.is_valid():
+			on_reorder.call(int(data["stop_index"]), index)
+
+
 var sim: Simulation
 var ferry: Ferry
+var embedded := false
 var _draft: Array[int] = []
 var _times: Array[int] = []
 var _timed := false
@@ -57,15 +81,20 @@ var _clash_note: Label
 
 
 ## `make_label(text, size, color, bold)` builds a label in the HUD's fonts.
-func setup(s: Simulation, make_label: Callable) -> void:
+func setup(s: Simulation, make_label: Callable, is_embedded := false) -> void:
 	sim = s
 	_make_label = make_label
-	anchor_left = 0.5
-	anchor_right = 0.5
-	offset_left = -220
-	offset_right = 220
-	offset_top = 96
-	grow_horizontal = Control.GROW_DIRECTION_BOTH
+	embedded = is_embedded
+	if embedded:
+		add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		anchor_left = 0.5
+		anchor_right = 0.5
+		offset_left = -220
+		offset_right = 220
+		offset_top = 96
+		grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_fill = StyleBoxFlat.new()
 	_fill.bg_color = Color(1, 1, 1, 0.07)
 	_fill.set_corner_radius_all(6)
@@ -139,13 +168,20 @@ func setup(s: Simulation, make_label: Callable) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	column.add_child(row)
-	var cancel := _button("Cancel")
-	cancel.pressed.connect(hide)
+	var cancel := _button("Reset" if embedded else "Cancel")
+	cancel.pressed.connect(
+		func():
+			if embedded:
+				open(ferry)
+			else:
+				hide()
+	)
 	row.add_child(cancel)
 	_apply = _button("Apply")
 	_apply.pressed.connect(_on_apply)
 	row.add_child(_apply)
-	hide()
+	if not embedded:
+		hide()
 
 
 func _ready() -> void:
@@ -173,7 +209,7 @@ func _button(text: String, width := 0.0) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(width, TAP)
+	b.custom_minimum_size = Vector2(maxf(width, TAP), TAP)
 	b.add_theme_stylebox_override("normal", _fill)
 	b.add_theme_stylebox_override("hover", _fill_hover)
 	if width == 0.0:
@@ -197,12 +233,22 @@ func _rebuild() -> void:
 	_clear(_stops)
 	_clear(_adds)
 	for i in _draft.size():
-		var row := HBoxContainer.new()
+		var row := _StopRow.new()
+		row.index = i
+		row.label_text = "%d. %s" % [i + 1, _name(_draft[i])]
+		row.on_reorder = _on_reorder
+		row.mouse_default_cursor_shape = Control.CURSOR_DRAG
 		row.add_theme_constant_override("separation", 6)
-		var label: Label = _make_label.call("%d.  %s" % [i + 1, _name(_draft[i])], 16, Hud.TEXT, true)
+		var grip: Label = _make_label.call("≡", 15, Hud.MUTED, true)
+		grip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(grip)
+		var label: Label = _make_label.call(
+			"%d.  %s" % [i + 1, _name(_draft[i])], 14 if embedded else 16, Hud.TEXT, true
+		)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(label)
-		var drop := _button("Remove", 104)
+		var drop := _button("Remove", 78 if embedded else 104)
 		drop.pressed.connect(_on_drop.bind(i))
 		row.add_child(drop)
 		_stops.add_child(row)
@@ -234,7 +280,19 @@ func _rebuild() -> void:
 	_apply.disabled = problem != "" or unchanged
 	_apply.text = "Apply"
 	if problem == "" and not unchanged:
-		_apply.text = "Apply · she starts from %s" % _name(ferry.here().town.id) if not ferry.assigned else "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
+		_apply.text = (
+			"Apply · she starts from %s" % _name(ferry.here().town.id)
+			if not ferry.assigned
+			else (
+				"Apply · now"
+				if _draft == ferry.stops
+				else (
+					"Apply · she crosses empty to start them"
+					if ferry.here().town.id not in _draft and ferry.berth == Ferry.Berth.TIED_UP
+					else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
+				)
+			)
+		)
 	_fit.call_deferred()
 
 
@@ -445,11 +503,30 @@ func _on_add(id: int) -> void:
 	_rebuild()
 
 
+func _on_reorder(from_idx: int, to_idx: int) -> void:
+	if (
+		from_idx < 0
+		or from_idx >= _draft.size()
+		or to_idx < 0
+		or to_idx >= _draft.size()
+		or from_idx == to_idx
+	):
+		return
+	var moved := _draft[from_idx]
+	_draft.remove_at(from_idx)
+	_draft.insert(to_idx, moved)
+	_rebuild()
+
+
 func _on_apply() -> void:
 	var was := ferry.pace
 	ferry.set_pace(_pace)
 	if sim.reschedule(ferry, _draft.duplicate(), _times.duplicate() if _timed else []):
-		hide()
+		applied.emit()
+		if embedded:
+			open(ferry)
+		else:
+			hide()
 	else:
 		ferry.set_pace(was)
 
@@ -458,6 +535,12 @@ func _on_apply() -> void:
 ## it (Apply included) stays on screen; if it still doesn't fit, draws it a
 ## little smaller. Runs again when the screen turns.
 func _fit() -> void:
+	if embedded:
+		var shown_e := _sailings_scroll.visible
+		_sailings_scroll.custom_minimum_size.y = (
+			minf(_sailings.get_combined_minimum_size().y, 180.0) if shown_e else 0.0
+		)
+		return
 	var view := get_viewport_rect().size
 	var room := view.y - offset_top - 12.0
 	var s := clampf(view.y / 1600.0, 1.0, 1.4)

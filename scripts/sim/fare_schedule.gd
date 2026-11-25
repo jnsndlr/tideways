@@ -1,26 +1,58 @@
 class_name FareSchedule
 extends RefCounted
-## A company reads its fare schedule once when its ledger is created.
-## Each extra metre costs a fraction of the base car fare.
+## Company defaults and player-set route overrides.
 
 const SETTING := "tideways/economy/fares"
+const DEFAULT_VEHICLE_FARE := 18.0
+const DEFAULT_PASSENGER_FARE := 6.0
+const MIN_VEHICLE_FARE := 0.0
+const MAX_VEHICLE_FARE := 60.0
+const MIN_PASSENGER_FARE := 0.0
+const MAX_PASSENGER_FARE := 30.0
 
-var _car := 18.5
-var _truck := 42.0
-var _included_metres := 6.7
-var _extra_fraction_per_metre := 0.3
+var vehicle_fare := DEFAULT_VEHICLE_FARE
+var passenger_fare := DEFAULT_PASSENGER_FARE
+## Per-route ticket prices: route id -> price (falls back to company default).
+var route_vehicle_fares := {}
+var route_passenger_fares := {}
 
 
 func _init(settings: Variant = {}) -> void:
-	_car = EconomyConfig.nonnegative_rate(settings, "car", _car)
-	_truck = EconomyConfig.nonnegative_rate(settings, "truck", _truck)
-	_included_metres = EconomyConfig.nonnegative_rate(settings, "included_metres", _included_metres)
-	_extra_fraction_per_metre = EconomyConfig.nonnegative_rate(settings, "extra_fraction_per_metre", _extra_fraction_per_metre)
+	set_vehicle_fare(EconomyConfig.nonnegative_rate(settings, "car", DEFAULT_VEHICLE_FARE))
+	set_passenger_fare(
+		EconomyConfig.nonnegative_rate(settings, "passenger", DEFAULT_PASSENGER_FARE)
+	)
 
 
-func measured(metres: float) -> float:
-	return _car * (1.0 + _extra_fraction_per_metre * maxf(metres - _included_metres, 0.0))
+func set_vehicle_fare(price: float) -> void:
+	vehicle_fare = clampf(price, MIN_VEHICLE_FARE, MAX_VEHICLE_FARE)
 
 
-func flat(is_truck: bool) -> float:
-	return _truck if is_truck else _car
+func set_passenger_fare(price: float) -> void:
+	passenger_fare = clampf(price, MIN_PASSENGER_FARE, MAX_PASSENGER_FARE)
+
+
+func vehicle_fare_for(route_id: int) -> float:
+	if route_id >= 0 and route_vehicle_fares.has(route_id):
+		return float(route_vehicle_fares[route_id])
+	return vehicle_fare
+
+
+func passenger_fare_for(route_id: int) -> float:
+	if route_id >= 0 and route_passenger_fares.has(route_id):
+		return float(route_passenger_fares[route_id])
+	return passenger_fare
+
+
+func set_route_vehicle_fare(route_id: int, price: float) -> void:
+	if route_id < 0:
+		set_vehicle_fare(price)
+		return
+	route_vehicle_fares[route_id] = clampf(price, MIN_VEHICLE_FARE, MAX_VEHICLE_FARE)
+
+
+func set_route_passenger_fare(route_id: int, price: float) -> void:
+	if route_id < 0:
+		set_passenger_fare(price)
+		return
+	route_passenger_fares[route_id] = clampf(price, MIN_PASSENGER_FARE, MAX_PASSENGER_FARE)

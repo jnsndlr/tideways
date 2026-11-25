@@ -19,7 +19,8 @@ func _run() -> void:
 		var ramp := ferry._ramp(terminal)
 		if ramp:
 			ramp.snap_down()
-		ferry._unload_queue.assign([sim.make_vehicle(ferry)])
+		# (a car: the test places it by hand, and a rig's long tail would read as clear)
+		ferry._unload_queue.assign([sim.make_vehicle(ferry, 0.0)])
 		ferry.state = Ferry.State.UNLOADING
 		ferry._dispatch_timer = 0
 	first._tick_unloading(0.1)

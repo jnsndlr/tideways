@@ -10,12 +10,16 @@ const RefitCrew := preload("res://scripts/world/slip_refit_crew.gd")
 const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
-const SPEEDS := [0.0, 1.0, 3.0, 8.0]
+const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0]
+const SPEED_LABELS := ["", "1x", "8x", "16x", "32x"]
 const WILD := Color(0.98, 0.78, 0.42)
 
 ## Emitted for the authored map to show the selected site or clear its pins.
 signal dock_site_selected(town: MapData.Town)
 
+var _game_menu: PopupMenu
+var _menu_button: Button
+var _clash_cache := {}  # ferry -> [msec checked, text]
 var _session: WorldSession
 var _offers_dock_sites := false
 var sim: Simulation
@@ -35,6 +39,7 @@ var selected_ferry: Ferry
 var selected_vessel: Vessel   # anything afloat but a ferry
 
 var root: Control
+var _label_layer: Control
 var font: SystemFont
 var bold: SystemFont
 var _labels := {}
@@ -45,31 +50,22 @@ var _speed_buttons: Array[Button] = []
 var _speed_index := 1
 var _last_running_speed := 1
 var _info_panel: PanelContainer
+var _ferry_panel: FerryPanel
 var _info_scroll: ScrollContainer
 var _info_title: Label
 var _info_sub: Label
 var _info_grid: GridContainer
-## The left-hand menu (COMPANY … SETTINGS); the island editor sits its toggle below it.
+## The left-hand menu (COMPANY … MENU); the island editor sits its toggle below it.
 var sidebar: PanelContainer
 var _upgrades_box := TerminalUpgradesPanel.new()
 ## Buys the shown locked dock site on an island with no terminal yet (main map).
 var _dock_button := Button.new()
-var _service_button := Button.new()
-var _stops_button := Button.new()
-var _sell_button := Button.new()
-var _schedule_editor: ScheduleEditor
 var _info_button: Button
-var _captain_box: VBoxContainer
-var _captain_why: Label
-var _captain_buttons: Array[Button] = []
-var _captain_note: Label
 var _crossings_seen := -1
 var _terminal_bar: PanelContainer
 var _tb := {}
 var _fleet_panel: FleetPanel
 var _finance_panel: FinancePanel
-var _pace_row := HBoxContainer.new()
-var _pace_buttons: Array[Button] = []
 var _cost_tags: Array = []      # [label, ferry, real seconds shown]
 const COST_TAG_SECONDS := 2.6
 var _wild_panel: PanelContainer
@@ -93,6 +89,7 @@ func setup(session: WorldSession, offers_dock_sites := false) -> void:
 	_session = session
 	_offers_dock_sites = offers_dock_sites
 	sim = session.sim
+	sim.routes_changed.connect(_invalidate_slip_clashes)
 	wildlife = sim.wildlife
 	rig = session.rig
 	map = session.map
@@ -102,23 +99,35 @@ func setup(session: WorldSession, offers_dock_sites := false) -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+	# Place labels live in their own layer under every panel (rebuilt labels too).
+	_label_layer = Control.new()
+	_label_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_label_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_label_layer)
 	_build_theme()
 	_build_labels()
 	_build_top_bar()
 	_build_sidebar()
 	_build_info_panel()
+	_ferry_panel = FerryPanel.new()
+	root.add_child(_ferry_panel)
+	_ferry_panel.setup(sim, _label)
+	_ferry_panel.follow_toggled.connect(_on_info_button)
+	_ferry_panel.pace_changed.connect(_set_pace)
+	_ferry_panel.captain_chosen.connect(_on_captain_chosen)
+	_ferry_panel.service_toggled.connect(_toggle_service)
+	_ferry_panel.sell_requested.connect(_sell_selected)
+	_ferry_panel.move_requested.connect(_move_selected)
 	_build_terminal_bar()
 	_build_fleet_panel()
 	_build_finance_panel()
-	_schedule_editor = ScheduleEditor.new()
-	root.add_child(_schedule_editor)
-	_schedule_editor.setup(sim, _label)
 	_build_wildlife_panel()
 	_build_minimap(session.env)
 	_build_help()
 	_build_toast()
 	_build_map_controls()
 	rig.ground_clicked.connect(_on_ground_clicked)
+	rig.ground_right_clicked.connect(_on_ground_right_clicked)
 	wildlife.visit_started.connect(_on_visit_started)
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
@@ -249,17 +258,26 @@ func _build_top_bar() -> void:
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(40, 26)
-		b.tooltip_text = "Pause" if i == 0 else "Speed %d" % i
+		b.tooltip_text = "Pause" if i == 0 else "%s speed" % SPEED_LABELS[i]
 		b.pressed.connect(set_speed.bind(i))
-		# Drawn rather than typed: iPad's system fonts lack the ❚❚ / ▶ glyphs.
-		var icon := Control.new()
-		icon.set_anchors_preset(Control.PRESET_FULL_RECT)
-		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon.draw.connect(_draw_speed_icon.bind(icon, b, i))
-		b.add_child(icon)
-		b.toggled.connect(func(_on: bool) -> void: icon.queue_redraw())
-		b.mouse_entered.connect(icon.queue_redraw)
-		b.mouse_exited.connect(icon.queue_redraw)
+		if i == 0:
+			# Drawn rather than typed: iPad's system fonts lack the ❚❚ glyph.
+			var icon := Control.new()
+			icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			icon.draw.connect(_draw_speed_icon.bind(icon, b, i))
+			b.add_child(icon)
+			b.toggled.connect(func(_on: bool) -> void: icon.queue_redraw())
+			b.mouse_entered.connect(icon.queue_redraw)
+			b.mouse_exited.connect(icon.queue_redraw)
+		else:
+			b.text = SPEED_LABELS[i]
+			b.add_theme_font_override("font", bold)
+			b.add_theme_font_size_override("font_size", 12)
+			b.add_theme_color_override("font_color", TEXT)
+			b.add_theme_color_override("font_hover_color", Color.WHITE)
+			b.add_theme_color_override("font_pressed_color", ACCENT)
+			b.add_theme_color_override("font_hover_pressed_color", ACCENT)
 		speeds.add_child(b)
 		_speed_buttons.append(b)
 	clock.add_child(speeds)
@@ -274,9 +292,16 @@ func _build_sidebar() -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 2)
 	sidebar.add_child(col)
-	for item in [["COMPANY", "company"], ["RESEARCH", "research"], ["FLEET", "fleet"],
-			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["WEATHER", "weather"],
-			["MAP", "map"], ["SETTINGS", "settings"]]:
+	for item in [
+		["COMPANY", "company"],
+		["RESEARCH", "research"],
+		["FLEET", "fleet"],
+		["WILDLIFE", "wildlife"],
+		["FINANCES", "finances"],
+		["WEATHER", "weather"],
+		["MAP", "map"],
+		["MENU", "menu"]
+	]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(96, 46)
@@ -285,11 +310,34 @@ func _build_sidebar() -> void:
 		b.add_theme_font_size_override("font_size", 12)
 		b.pressed.connect(_on_sidebar.bind(item[1]))
 		col.add_child(b)
+		if item[1] == "menu":
+			_menu_button = b
+	_game_menu = PopupMenu.new()
+	_game_menu.add_item("Save game  (F5)", 0)
+	_game_menu.add_item("Settings", 1)
+	_game_menu.add_separator()
+	_game_menu.add_item("Main menu", 2)
+	_game_menu.id_pressed.connect(_on_game_menu)
+	root.add_child(_game_menu)
+
+
+func _on_game_menu(id: int) -> void:
+	match id:
+		0:
+			_session.quick_save()
+		1:
+			SettingsPanel.open(get_tree())
+		2:
+			Scenes.go(get_tree(), Scenes.MENU)
 
 
 func _build_help() -> void:
-	var text := "Drag: pan · Right-drag / Q E: rotate & tilt · Wheel / pinch: zoom · Click: select (or photograph wildlife)\n" + \
-		"Space: pause · 1-3: speed · Tab: next ferry · Esc: deselect · G: new map · [ ]: time of day · T: follow clock · V: weather"
+	var text := (
+		"Drag: pan · Right-drag / Q E: rotate & tilt · Wheel / pinch: zoom · "
+		+ "Click: select (or photograph wildlife)\n"
+		+ "Space: pause · 1-4: speed · Tab: next ferry · Esc: deselect · "
+		+ "G: new map · [ ]: time of day · T: follow clock · V: weather"
+	)
 	if DisplayServer.is_touchscreen_available() and OS.has_feature("mobile"):
 		text = "Drag: pan · Two fingers: pinch to zoom, twist to rotate · Three fingers up/down: tilt · Tap: select"
 	var l := _label(text, 12, Color(1, 1, 1, 0.75))
@@ -327,8 +375,10 @@ func _on_sidebar(id: String) -> void:
 			_finance_panel.refresh(sim)
 		"map":
 			rig.focus_on(Vector3.ZERO, 1680.0)
-		"settings":
-			SettingsPanel.open(get_tree())
+		"menu":
+			_game_menu.set_item_disabled(0, not _session.can_quick_save())
+			var r := _menu_button.get_global_rect()
+			_game_menu.popup(Rect2i(Vector2i(r.end.x + 6, r.position.y), Vector2i.ZERO))
 		_:
 			show_toast(id.to_upper(), "Coming soon: this screen is a placeholder in the preview.")
 
@@ -374,10 +424,13 @@ func _build_labels() -> void:
 			title.add_child(_label("•", 13, ACCENT))
 		title.add_child(_label(isl.name.to_upper(), 13, TEXT, true))
 		v.add_child(title)
-		v.add_child(_label("pop. " + fmt_int(isl.population), 12, MUTED))
+		var pop_label := _label("pop. " + fmt_int(isl.population), 12, MUTED)
+		v.add_child(pop_label)
 		p.add_child(v)
+		p.set_meta("pop_label", pop_label)
+		p.set_meta("pop", isl.population)
 		p.gui_input.connect(_on_label_input.bind(isl))
-		root.add_child(p)
+		_label_layer.add_child(p)
 		_labels[isl.id] = p
 
 
@@ -405,6 +458,9 @@ func _update_labels() -> void:
 		p.visible = not off
 		if off:
 			continue
+		if int(p.get_meta("pop")) != isl.population:
+			p.set_meta("pop", isl.population)
+			(p.get_meta("pop_label") as Label).text = "pop. " + fmt_int(isl.population)
 		p.position = cam.unproject_position(isl.label_pos) - Vector2(p.size.x * 0.5, p.size.y)
 		p.modulate = Color(1.15, 1.25, 1.15) if isl == selected_town else Color.WHITE
 
@@ -537,6 +593,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		set_speed(2)
 	elif event.is_action(&"hud_speed_fastest"):
 		set_speed(3)
+	elif event.is_action(&"hud_speed_max"):
+		set_speed(4)
 	elif event.is_action(&"hud_clear_selection"):
 		clear_selection()
 	elif event.is_action(&"hud_next_ferry"):
@@ -545,6 +603,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			select_ferry(sim.ferries[(i + 1) % sim.ferries.size()])
 	elif event.is_action(&"hud_regenerate_map"):
 		_session.regenerate()
+	elif event.is_action(&"hud_quick_save"):
+		if _session.can_quick_save():
+			_session.quick_save()
 	elif event.is_action(&"hud_return_to_menu"):
 		Scenes.go(get_tree(), Scenes.MENU)
 	elif event.is_action(&"hud_light_previous_hour"):
@@ -597,38 +658,11 @@ func _build_info_panel() -> void:
 	_info_grid.add_theme_constant_override("h_separation", 24)
 	_info_grid.add_theme_constant_override("v_separation", 4)
 	v.add_child(_info_grid)
-	_build_captain_box(v)
 	_info_button = Button.new()
 	_info_button.focus_mode = Control.FOCUS_NONE
 	_info_button.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 8, 5))
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
-	_pace_row.add_theme_constant_override("separation", 4)
-	for i in FerryPace.SETTINGS.size():
-		var b := Button.new()
-		b.text = FerryPace.label(i)
-		b.toggle_mode = true
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(0, 40)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 12)
-		b.pressed.connect(_set_pace.bind(i))
-		_pace_row.add_child(b)
-		_pace_buttons.append(b)
-	v.add_child(_pace_row)
-	_service_button.focus_mode = Control.FOCUS_NONE
-	_service_button.custom_minimum_size.y = 44
-	_service_button.pressed.connect(_toggle_service)
-	v.add_child(_service_button)
-	_stops_button.text = "Edit stops"
-	_stops_button.focus_mode = Control.FOCUS_NONE
-	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
-	_stops_button.pressed.connect(_edit_selected_stops)
-	v.add_child(_stops_button)
-	_sell_button.focus_mode = Control.FOCUS_NONE
-	_sell_button.custom_minimum_size.y = 44
-	_sell_button.pressed.connect(_sell_selected)
-	v.add_child(_sell_button)
 	_upgrades_box.setup(_label("TERMINAL UPGRADES", 11, MUTED, true))
 	_upgrades_box.purchase_requested.connect(_buy_upgrade)
 	_upgrades_box.visible = false
@@ -637,6 +671,59 @@ func _build_info_panel() -> void:
 	_dock_button.pressed.connect(_buy_dock)
 	v.add_child(_dock_button)
 	_info_panel.visible = false
+
+
+## RTS orders for the selected ferry (TID-329): right-click a dock to send her
+## there (everyone gets off; she lies there out of service), open water to pull
+## her aside where she is, riders kept aboard.
+func _on_ground_right_clicked(screen_pos: Vector2) -> void:
+	var f := selected_ferry
+	if f == null or not is_instance_valid(f):
+		return
+	var cam := rig.camera
+	var best: Terminal = null
+	var best_d := 70.0
+	for term: Terminal in sim.terminals.values():
+		var c: Vector3 = term.town.shore
+		if cam.is_position_behind(c):
+			continue
+		var d := cam.unproject_position(c).distance_to(screen_pos)
+		if d < best_d:
+			best_d = d
+			best = term
+	if best:
+		var id := best.town.id
+		if id not in f.manual_reach():
+			show_toast(
+				f.ferry_name.to_upper(),
+				"No route she fits from where she is to %s." % best.town.name,
+				3.0
+			)
+			return
+		var slip := f.best_slip(id)
+		if slip < 0 or not f.order_move(id, slip):
+			show_toast(f.ferry_name.to_upper(), "No slip at %s she fits." % best.town.name, 3.0)
+			return
+		show_toast(
+			f.ferry_name.to_upper(), "Bound for %s · everyone gets off there." % best.town.name, 3.0
+		)
+		_refresh_panels()
+		return
+	if f.order_hold():
+		show_toast(f.ferry_name.to_upper(), "Pulled aside · Return to service to carry on.", 3.0)
+		_refresh_panels()
+	else:
+		show_toast(
+			f.ferry_name.to_upper(),
+			"She can only pull aside under way. Right-click a dock to send her there.",
+			3.0
+		)
+
+
+## Send the selected ferry by hand to `slip` at `town_id` (TID-328).
+func _move_selected(town_id: int, slip: int) -> void:
+	if selected_ferry and selected_ferry.order_move(town_id, slip):
+		_refresh_panels()
 
 
 ## Lay the selected ferry up at a tie-up slip, or bring her back into service.
@@ -649,43 +736,10 @@ func _toggle_service() -> void:
 		selected_ferry.request_return()
 
 
-func _edit_selected_stops() -> void:
-	if selected_ferry:
-		_schedule_editor.open(selected_ferry)
-
-
 func _set_pace(i: int) -> void:
 	if selected_ferry:
 		selected_ferry.set_pace(i)
 		_refresh_panels()
-
-
-## The selected ferry's choice of captain: one button each, showing what the
-## crossing would take under them (the simulation's forecast).
-func _build_captain_box(parent: VBoxContainer) -> void:
-	_captain_box = VBoxContainer.new()
-	_captain_box.add_theme_constant_override("separation", 5)
-	parent.add_child(_captain_box)
-	_captain_box.add_child(HSeparator.new())
-	_captain_box.add_child(_label("CAPTAIN", 11, MUTED, true))
-	_captain_why = _label("", 12, TEXT)
-	_captain_why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_captain_box.add_child(_captain_why)
-	for c in Captain.roster():
-		var b := Button.new()
-		b.focus_mode = Control.FOCUS_NONE
-		b.toggle_mode = true
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size.y = 58
-		b.add_theme_font_size_override("font_size", 13)
-		b.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 10, 6))
-		b.pressed.connect(_on_captain_chosen.bind(c))
-		_captain_box.add_child(b)
-		_captain_buttons.append(b)
-	_captain_note = _label("", 12, MUTED)
-	_captain_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_captain_box.add_child(_captain_note)
-	_captain_box.add_child(HSeparator.new())
 
 
 func _on_captain_chosen(c: Captain) -> void:
@@ -694,32 +748,6 @@ func _on_captain_chosen(c: Captain) -> void:
 		_refresh_panels()
 
 
-func _refresh_captains(f: Ferry) -> void:
-	var roster := Captain.roster()
-	var best := f.best_captain()
-	var slowest := 0.0
-	for c in roster:
-		slowest = maxf(slowest, f.forecast_minutes(c))
-	var saved := roundi(slowest - f.forecast_minutes(best))
-	var km := "%.1f km" % (f.run_length() / 1000.0)
-	if saved < 1:
-		_captain_why.text = "A %s crossing: either captain makes it in about the same time." % km
-	elif best.sea > 1.0:
-		_captain_why.text = "A %s crossing is mostly open water, so speed at sea counts most. %s saves about %d min a sailing." % [km, best.surname(), saved]
-	else:
-		_captain_why.text = "A %s crossing is mostly getting in and out of the slips, so docking counts most. %s saves about %d min a sailing." % [km, best.surname(), saved]
-	for i in roster.size():
-		var c := roster[i]
-		var b := _captain_buttons[i]
-		b.text = "%s%s  ·  ~%d min\n%s" % ["★ " if c == best and saved >= 1 else "", c.name, roundi(f.forecast_minutes(c)), c.strength]
-		b.set_pressed_no_signal(c == f.next_captain)
-	if f.next_captain != f.captain:
-		_captain_note.text = "%s finishes this crossing. %s takes the helm at the next sailing." % [f.captain.surname(), f.next_captain.surname()]
-	else:
-		_captain_note.text = "Tap a captain to put them in command from the next sailing."
-
-
-## What a timed crossing took, and under whom.
 ## "As loading allows", or her sailings from her first stop, with any she can't
 ## make at her pace now (Ferry.late_sailings).
 func _timetable_text(f: Ferry) -> String:
@@ -735,7 +763,9 @@ func _timetable_text(f: Ferry) -> String:
 	return text
 
 
-var _clash_cache := {}   # ferry -> [msec checked, text]
+
+func _invalidate_slip_clashes() -> void:
+	_clash_cache.clear()
 
 
 ## A short line when her timetable and another boat's want one slip at once
@@ -751,10 +781,6 @@ func _slip_clash_text(f: Ferry) -> String:
 		text = SlipConflictText.short_text(SlipConflicts.check(f, plan.ids, plan.times, plan.pace))
 	_clash_cache[f] = [now, text]
 	return text
-
-
-func _crossing_text(minutes: float, c: Captain) -> String:
-	return "%d min · %s" % [roundi(minutes), c.surname()] if minutes >= 0.0 else "—"
 
 
 func _buy_upgrade(terminal: Terminal, u: TerminalUpgrade) -> void:
@@ -828,56 +854,17 @@ func _refresh_panels() -> void:
 		selected_vessel = null
 	var offer_dock := false
 	var offer_upgrades := false
-	_info_panel.visible = selected_town != null or selected_ferry != null or selected_vessel != null
+	_ferry_panel.visible = selected_ferry != null
+	_info_panel.visible = (
+		selected_ferry == null and (selected_town != null or selected_vessel != null)
+	)
 	_terminal_bar.visible = selected_town != null and sim.terminals.has(selected_town.id)
 	_help.visible = not _terminal_bar.visible
-	_captain_box.visible = selected_ferry != null
 	if selected_ferry:
 		var f := selected_ferry
-		_info_title.text = f.ferry_name.to_upper()
-		var stop_names := func(ids: Array[int]) -> String:
-			return " – ".join(ids.map(func(id): return sim.map.towns[id].name.trim_suffix(" Island")))
-		_info_sub.text = "M/V · " + stop_names.call(f.stops)
-		var rows := [["Status", f.status_text()]]
-		if not f.next_stops.is_empty():
-			rows.append(["New stops", "%s · from %s" % [stop_names.call(f.next_stops), f.next_dock().town.name.trim_suffix(" Island")]])
-		rows.append(["Timetable", _timetable_text(f)])
-		var clash := _slip_clash_text(f)
-		if clash != "":
-			rows.append(["Slip clash", clash])
-		rows.append_array([
-			["Class", f.fc.label],
-			["Vehicles aboard", "%d / %d" % [f.load_count(), f.fc.capacity]],
-			["Speed", "%.1f kn" % Units.knots(f.speed)],
-			["Captain", f.captain.name],
-			["Pace", "%s · %.0f kn" % [f.pace_name(), Units.knots(f.cruise_speed())]],
-			["Forecast crossing", "~%d min" % roundi(f.crossing_minutes())],
-			["Last crossing", _crossing_text(f.last_crossing, f.last_crossing_captain)],
-			["Before that", _crossing_text(f.previous_crossing, f.previous_crossing_captain)],
-			["Fuel per crossing", "~" + fmt_money(f.crossing_fuel_estimate())],
-			["Crew", "%d · %s / hr" % [f.fc.crew, fmt_money(f.crew_per_hour())]],
-			["Running cost today", fmt_money(f.fuel_today + f.crew_today)],
-			["Crossings", str(f.trips)],
-			["Resale value", "%s · %d%% of %s new" % ["$" + fmt_int(f.resale_value()), roundi(Ferry.RESALE_SHARE * f.condition * 100.0), "$" + fmt_int(f.fc.price())]],
-		])
-		_set_rows(rows)
-		for i in _pace_buttons.size():
-			_pace_buttons[i].set_pressed_no_signal(i == f.pace)
-		if f.berth == Ferry.Berth.DELIVERING:
-			_service_button.text = "Under tow · %s to go" % hours_text(f.tow.minutes_left()) if f.tow else "Under tow"
-			_service_button.disabled = true
-		elif not f.assigned:
-			_service_button.text = "Give her stops to start her"
-			_service_button.disabled = true
-		elif f.in_service():
-			_service_button.text = "Lay up" if f.can_lay_up() else "Nowhere free on her route to lay her up"
-			_service_button.disabled = not f.can_lay_up()
-		else:
-			_service_button.text = "Return to service"
-			_service_button.disabled = f.return_requested
-		_sell_button.text = "Sell for %s" % ("$" + fmt_int(f.resale_value())) if f.can_sell() else "Sell · lay her up first"
-		_sell_button.disabled = not f.can_sell()
-		_refresh_captains(f)
+		_ferry_panel.refresh(
+			f, rig.follow == f, _timetable_text(f), _slip_clash_text(f), hours_text
+		)
 		if f.trips != _crossings_seen:
 			if _crossings_seen >= 0 and f.last_crossing >= 0.0 and f.last_crossing_captain == f.captain:
 				var body := "%d min under Captain %s." % [roundi(f.last_crossing), f.captain.surname()]
@@ -885,7 +872,6 @@ func _refresh_panels() -> void:
 					body += "\nThe crossing before took %d min under Captain %s." % [roundi(f.previous_crossing), f.previous_crossing_captain.surname()]
 				show_toast("%s DOCKED AT %s" % [f.ferry_name.to_upper(), f.here().town.name.to_upper()], body, 8.0)
 			_crossings_seen = f.trips
-		_info_button.text = "Stop following" if rig.follow == f else "Follow"
 	elif selected_vessel:
 		var v := selected_vessel
 		_info_title.text = v.vessel_name.to_upper()
@@ -951,13 +937,6 @@ func _refresh_panels() -> void:
 	_dock_button.visible = offer_dock
 	if _offers_dock_sites:
 		dock_site_selected.emit(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
-	_pace_row.visible = selected_ferry != null
-	_service_button.visible = selected_ferry != null
-	# (A boat bought in play gets her first stops laid up, or still under tow.)
-	_stops_button.visible = selected_ferry != null and (selected_ferry.in_service() or not selected_ferry.assigned)
-	_sell_button.visible = selected_ferry != null
-	if _schedule_editor.visible and selected_ferry != _schedule_editor.ferry:
-		_schedule_editor.hide()
 
 
 # --- Terminal bar (bottom) ----------------------------------------------------------
@@ -1004,7 +983,7 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 func _update_terminal_bar(term: Terminal) -> void:
 	_tb_set("terminal", term.town.name.to_upper() + " TERMINAL",
-		"Queue: %d vehicles" % term.queue_summary().waiting,
+		"Queue: %d cars · %d walk-ons" % [term.queue_summary().waiting, term.passengers_queued()],
 		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
 	var f: Ferry = nd[1]
@@ -1249,15 +1228,6 @@ func _on_photographed(v: Wildlife.Visit) -> void:
 
 func _build_toast() -> void:
 	_toast = PanelContainer.new()
-	_toast.anchor_left = 1.0
-	_toast.anchor_right = 1.0
-	_toast.anchor_top = 1.0
-	_toast.anchor_bottom = 1.0
-	_toast.offset_left = -360
-	_toast.offset_right = -20
-	_toast.offset_bottom = -262
-	_toast.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	# A finger meant for the panel under it goes through.
 	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_toast)
@@ -1278,6 +1248,36 @@ func show_toast(title: String, body: String, seconds := 6.0) -> void:
 	_toast_body.text = body
 	_toast.visible = true
 	_toast_time = seconds
+
+
+## Bottom right above the minimap, stepped left past any open panel it would cover.
+func _place_toast() -> void:
+	var usable := _usable_rect()
+	var sz := _toast.get_combined_minimum_size()
+	_toast.size = sz
+	var pos := Vector2(usable.end.x - sz.x, root.size.y - 262.0 - sz.y)
+	var panels: Array[Control] = [
+		_top_bar,
+		sidebar,
+		_info_panel,
+		_ferry_panel,
+		_fleet_panel,
+		_finance_panel,
+		_wild_panel,
+		_terminal_bar,
+		_minimap_panel
+	]
+	for _pass in panels.size():
+		var moved := false
+		for panel in panels:
+			var r := panel.get_rect().grow(10.0)
+			if panel.visible and r.intersects(Rect2(pos, sz)):
+				pos.x = r.position.x - sz.x
+				moved = true
+		if not moved:
+			break
+	pos.x = maxf(pos.x, usable.position.x)
+	_toast.position = pos
 
 
 # --- Map controls (screen edge) ----------------------------------------------------
@@ -1301,11 +1301,20 @@ func _on_weather_toggled(shown: bool) -> void:
 ## The inspector and the minimap share the right edge: the inspector stops a gap
 ## above the minimap and scrolls the rest, so neither covers the other.
 func _fit_info_panel() -> void:
+	var bottom := (
+		_minimap_panel.get_rect().position.y - 10.0
+		if _minimap_panel.visible
+		else _usable_rect().end.y
+	)
+	if _ferry_panel.visible:
+		var f_frame := _ferry_panel.get_theme_stylebox("panel").get_minimum_size().y
+		var f_room := maxf(220.0, bottom - _ferry_panel.position.y - f_frame)
+		_ferry_panel.fit_height(f_room)
+		_ferry_panel.size.y = 0.0
 	if not _info_panel.visible:
 		return
 	var content := _info_scroll.get_child(0) as Control
 	var frame := _info_panel.get_theme_stylebox("panel").get_minimum_size().y
-	var bottom := _minimap_panel.get_rect().position.y - 10.0 if _minimap_panel.visible else _usable_rect().end.y
 	var room := maxf(120.0, bottom - _info_panel.position.y - frame)
 	var height := minf(content.get_combined_minimum_size().y, room)
 	if not is_equal_approx(_info_scroll.custom_minimum_size.y, height):
@@ -1317,7 +1326,16 @@ func _fit_info_panel() -> void:
 ## open, so it stays reachable beside the inspector.
 func _place_map_controls() -> void:
 	var obstacles: Array[Rect2] = []
-	for panel: Control in [_top_bar, sidebar, _info_panel, _fleet_panel, _wild_panel, _terminal_bar, _minimap_panel]:
+	for panel: Control in [
+		_top_bar,
+		sidebar,
+		_info_panel,
+		_ferry_panel,
+		_fleet_panel,
+		_wild_panel,
+		_terminal_bar,
+		_minimap_panel
+	]:
 		if panel.visible:
 			obstacles.append(panel.get_rect())
 	map_controls.place(_usable_rect(), obstacles)
@@ -1455,6 +1473,7 @@ func _process(delta: float) -> void:
 
 	var real_dt := delta / maxf(Engine.time_scale, 0.001) if Engine.time_scale > 0.0 else 1.0 / 60.0
 	if _toast.visible:
+		_place_toast()
 		_toast_time -= real_dt
 		if _toast_time <= 0.0:
 			_toast.visible = false

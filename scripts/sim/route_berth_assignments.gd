@@ -205,3 +205,28 @@ func _reaimed_curve(r: MapData.Route, dv: float) -> Curve3D:
 	for p in out:
 		c.add_point(p)
 	return c
+
+
+## Moves route `rid` to slip `to` here at once (a boat too big for its slip was
+## given it). False if its new end would run over land.
+func move_now(rid: int, to: int) -> bool:
+	var from := town.slip_index(rid)
+	if from == to:
+		return true
+	var c := _reaimed_curve(sim.map.routes[rid], town.slip_offset(to) - town.slip_offset(from))
+	if c == null:
+		return false
+	_pending.erase(rid)
+	town.slips[from].routes.erase(rid)
+	town.slips[to].routes.append(rid)
+	terminal.slip_v[rid] = town.slip_offset(to)
+	if terminal.slip_ramps[to]:
+		terminal.ramps[rid] = terminal.slip_ramps[to]
+	else:
+		terminal.ramps.erase(rid)
+	var r := sim.map.routes[rid]
+	r.curve = c
+	r.length = r.curve.get_baked_length()
+	for f in sim.ferries:
+		f.route_reshaped(r)
+	return true

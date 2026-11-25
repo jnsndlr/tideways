@@ -261,7 +261,7 @@ func _process(delta: float) -> void:
 			r.floor = 0.0
 			r.best = r.value
 			r.sightings = 0
-	var k := pow(0.5, delta / (REP_HALF_LIFE_DAYS * 1440.0))
+	var k := pow(0.5, Units.game_minutes(delta) / (REP_HALF_LIFE_DAYS * 1440.0))
 	for r: Reputation in _rep.values():
 		r.value = r.floor + (r.value - r.floor) * k
 	if sim.day != _planned_day:
@@ -561,13 +561,13 @@ func _open(p: Vector3, r: float, depth := DEEP) -> bool:
 func _tick(v: Visit, dt: float) -> void:
 	if v.species.behavior == Behavior.PERCH:
 		# Eagles fly themselves (Eagles); time to go once it's nearly up.
-		v.age += dt
+		v.age += Units.game_minutes(dt)
 		if v.age > v.length - 30.0:
 			v.phase = Phase.DEPART
 		if v.age >= v.length:
 			_end(v)
 		return
-	v.age += dt
+	v.age += Units.game_minutes(dt)
 	var c := Vector3(v.target.center.x, 0.0, v.target.center.y)
 	var dist := Vector2(v.pos.x - c.x, v.pos.z - c.z).length()
 	var aim := v.exit

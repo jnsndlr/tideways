@@ -40,11 +40,15 @@ func _init(settings: Variant = {}) -> void:
 
 
 func planned_unload(capacity: int) -> float:
-	return capacity * planned_car_gap + unload_clearance
+	return Units.game_minutes(capacity * planned_car_gap + unload_clearance)
 
 
 func planned_dwell(capacity: int) -> float:
-	return planned_unload(capacity) + clampf(capacity * planned_car_gap, minimum_loading, maximum_loading) + boarding_close
+	return (
+		planned_unload(capacity)
+		+ clampf(Units.game_minutes(capacity * planned_car_gap), minimum_loading, maximum_loading)
+		+ boarding_close
+	)
 
 
 func boarding_open(elapsed: float, now: float, due: float, loading_since: float) -> bool:

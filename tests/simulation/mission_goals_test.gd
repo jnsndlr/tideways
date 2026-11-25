@@ -5,7 +5,7 @@ var failures := 0
 
 func _initialize() -> void:
 	var mission := Scenario.load_file("res://maps/mission_trial.json").mission
-	var sim := Simulation.new(Vehicle.new.unbind(1))
+	var sim := Simulation.new(Vehicle.new.unbind(2))
 	sim.map = MapData.new()
 	var island := MapData.Island.new()
 	island.key = "island-3"

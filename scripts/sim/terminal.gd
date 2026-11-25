@@ -49,8 +49,22 @@ const REAIM_BLEND := 500.0
 const SLIP_LEAVE_CLEAR := 200.0
 const DREDGE_PRICE := 0.25      # $ per cubic metre (rounded up to $500, at least $1,000)
 const DREDGE_RATE := 12000.0    # cubic metres an hour, added to the build
+# Walk-on passengers wait outside the passenger terminal and board along the trestle walkway.
+const PASSENGER_CAPACITY := 1000
+const MAX_VISIBLE_PASSENGERS := 24
+const WALK_V := -7.2  # lateral offset on the trestle's -v walkway (TRESTLE_V_WALK = -9.2)
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
+
+## How far a driven road path may stray from the road's points every couple of
+## metres: few enough points that Vehicle rounds the town's corners, enough that
+## cars keep to the road's rise and fall.
+const ROAD_TOLERANCE := 0.06
+
+var passengers_served_today := 0
+## Walk-on passengers waiting at the passenger terminal: {dest, arrival, variant, node}.
+var passenger_queue: Array[Dictionary] = []
+
 
 ## A snapshot of the holding lot. Waiting counts vehicles; inbound counts reserved spaces.
 class QueueSummary:
@@ -126,6 +140,7 @@ var served_today := 0
 var _inbound: Array[PackedVector3Array] = []
 var _outbound: Array[PackedVector3Array] = []
 var _spawn_acc := 0.0
+var _pax_spawn_acc := 0.0
 
 
 func _init() -> void:
@@ -409,6 +424,13 @@ func spread_routes() -> void:
 	_assignments.plan()
 
 
+## Puts route `rid` on working slip `to` now (see RouteBerthAssignments.move_now).
+func move_route_now(rid: int, to: int) -> bool:
+	if _assignments == null:
+		_assignments = RouteBerthAssignments.new(self)
+	return _assignments.move_now(rid, to)
+
+
 ## Whether slip `i` is closed for a refit (not a new slip whose crew is leaving).
 func slip_shut(i: int) -> bool:
 	return _refit.slip_shut(i)
@@ -538,6 +560,7 @@ func relane(dests: Array[int]) -> void:
 		lanes[keys[i]] = arr
 		start += n
 	_redirect_overflow()
+	_prune_unserved_passengers(dests)
 	_queue_changed()
 
 
@@ -631,12 +654,6 @@ func _build_road_paths() -> void:
 		var outbound := town.road_main_a.duplicate()
 		outbound.append_array(b)
 		_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
-
-
-## How far a driven road path may stray from the road's points every couple of
-## metres: few enough points that Vehicle rounds the town's corners, enough that
-## cars keep to the road's rise and fall.
-const ROAD_TOLERANCE := 0.06
 
 
 ## Douglas-Peucker: the fewest of `pts` (ends kept) that stay within `tol` of the rest.
@@ -737,17 +754,22 @@ func _close_up(lane: Lane) -> void:
 
 
 func _process(delta: float) -> void:
+	var dmin := Units.game_minutes(delta)
 	if build_remaining > 0.0:
-		_advance_construction(delta)
+		_advance_construction(dmin)
 	if refit_stage != RefitStage.NONE:
-		_refit.advance(delta, refit_stage == RefitStage.CLEARING and _refit_slip_clear())
+		_refit.advance(dmin, refit_stage == RefitStage.CLEARING and _refit_slip_clear())
 	if _assignments != null and _assignments.has_moves():
 		_assignments.apply_when_clear()
-	_spawn_acc += sim.demand_rate(town) * delta
+	_spawn_acc += sim.demand_rate(town) * dmin
 	while _spawn_acc >= 1.0:
 		_spawn_acc -= 1.0
 		_spawn_car()
-	turned_recent *= pow(0.985, delta)
+	_pax_spawn_acc += sim.passenger_demand_rate(town) * dmin
+	while _pax_spawn_acc >= 1.0:
+		_pax_spawn_acc -= 1.0
+		_spawn_passenger()
+	turned_recent *= pow(0.985, dmin)
 
 
 ## Whether any route calls at this terminal (an idle slip draws no traffic).
@@ -765,7 +787,10 @@ func _pick_destination() -> int:
 	for dest in lanes.keys():
 		if not MapData.is_route(dest):
 			continue
-		weights[dest] = sim.map.towns[dest].population + 600.0
+		var dest_town := sim.map.towns[dest]
+		weights[dest] = (
+			(dest_town.population + 600.0) * sim.town_growth.destination_pull_multiplier(dest_town)
+		)
 		total += weights[dest]
 	var pick := sim.rng.randf() * total
 	for rid in weights.keys():
@@ -782,7 +807,7 @@ func _pick_lane(key: int, need := 1) -> Lane:
 func _spawn_car() -> void:
 	if not has_service():
 		return
-	var car := sim.make_vehicle()
+	var car := sim.make_vehicle(null, sim.town_growth.commercial_truck_share(town))
 	car.dest = _pick_destination()
 	var lane := _pick_lane(car.dest, car.slots)
 	if lane == null:
@@ -849,7 +874,175 @@ func prefill() -> void:
 				car.lot_arrival = sim.minutes - sim.rng.randf_range(0.0, 20.0)
 				lane.enqueue(car.get_instance_id(), car.slots)
 				k += car.slots
+	_prefill_passengers()
 	_queue_changed()
+
+
+func _passenger_door_pos() -> Vector3:
+	return _local(town.lot_half_width + 6.5, -36.0)
+
+
+func _waiting_spot(slot_index: int) -> Vector3:
+	# Two orderly queue lines outside the passenger terminal porch, head closest to the pier.
+	var col := slot_index % 2
+	var row := (slot_index / 2) % 12
+	var v := town.lot_half_width + 2.2 + col * 1.45
+	var u := -26.0 - row * 1.65 - (0.35 if col == 1 else 0.0)
+	return _local(v, u)
+
+
+func _close_up_passengers() -> void:
+	var face := atan2(town.dock_dir.x, town.dock_dir.z)
+	var vis := 0
+	for p in passenger_queue:
+		var node: Passenger = p["node"]
+		if node != null and is_instance_valid(node):
+			var spot := _waiting_spot(vis)
+			if node.position.distance_squared_to(spot) > 0.25:
+				node.walk(PackedVector3Array([spot]), Callable(), 0.0, face)
+			vis += 1
+
+
+func _visible_passenger_count() -> int:
+	var n := 0
+	for p in passenger_queue:
+		if p["node"] != null and is_instance_valid(p["node"]):
+			n += 1
+	return n
+
+
+func _spawn_passenger() -> void:
+	if not has_service():
+		return
+	if passenger_queue.size() >= PASSENGER_CAPACITY:
+		turned_recent += 0.5
+		return
+	var dest := _pick_destination()
+	var variant := sim.rng.randi() % Passenger.VARIANT_COUNT
+	var node: Passenger = null
+	if _visible_passenger_count() < MAX_VISIBLE_PASSENGERS:
+		node = sim.make_passenger(variant)
+		var door := _passenger_door_pos()
+		var spot := _waiting_spot(_visible_passenger_count())
+		var face := atan2(town.dock_dir.x, town.dock_dir.z)
+		node.position = door
+		node.walk(PackedVector3Array([spot]), Callable(), 0.0, face)
+	(
+		passenger_queue
+		. append(
+			{
+				"dest": dest,
+				"arrival": sim.minutes,
+				"variant": variant,
+				"node": node,
+			}
+		)
+	)
+
+
+func _prefill_passengers() -> void:
+	if not has_service():
+		return
+	var count := sim.rng.randi_range(4, 10)
+	var face := atan2(town.dock_dir.x, town.dock_dir.z)
+	for i in count:
+		var dest := _pick_destination()
+		var variant := sim.rng.randi() % Passenger.VARIANT_COUNT
+		var node := sim.make_passenger(variant)
+		node.stand_at(_waiting_spot(i), face)
+		(
+			passenger_queue
+			. append(
+				{
+					"dest": dest,
+					"arrival": sim.minutes - sim.rng.randf_range(0.0, 15.0),
+					"variant": variant,
+					"node": node,
+				}
+			)
+		)
+
+
+func _prune_unserved_passengers(dests: Array[int]) -> void:
+	var door := _passenger_door_pos()
+	for i in range(passenger_queue.size() - 1, -1, -1):
+		var p := passenger_queue[i]
+		if p["dest"] not in dests:
+			var node: Passenger = p["node"]
+			if node != null and is_instance_valid(node):
+				node.walk(PackedVector3Array([door]), func(w: Passenger): w.queue_free())
+			passenger_queue.remove_at(i)
+
+
+## Boards the next walk-on passenger heading to one of `serves`. Returns {} if none wait.
+func board_next_passenger(serves: Array[int]) -> Dictionary:
+	for i in passenger_queue.size():
+		if passenger_queue[i]["dest"] in serves:
+			var pax := passenger_queue[i]
+			passenger_queue.remove_at(i)
+			avg_wait = lerpf(avg_wait, maxf(0.0, sim.minutes - float(pax["arrival"])), 0.05)
+			passengers_served_today += 1
+			_close_up_passengers()
+			return pax
+	return {}
+
+
+func has_waiting_passengers(serves: Array[int]) -> bool:
+	for p in passenger_queue:
+		if p["dest"] in serves:
+			return true
+	return false
+
+
+func passengers_queued() -> int:
+	return passenger_queue.size()
+
+
+## Walk-on boarding path from outside the passenger terminal down the trestle walkway onto slip `i`.
+func passenger_boarding_path(i: int, lateral_jitter := 0.0) -> PackedVector3Array:
+	var sv := town.slip_offset(i)
+	var walk_v := sv + WALK_V + lateral_jitter
+	var path := PackedVector3Array(
+		[
+			_local(town.lot_half_width + 2.2 + lateral_jitter, Layout.LOT_FRONT + 1.5),
+			_local(walk_v, Layout.LOT_FRONT + 1.5),
+		]
+	)
+	path.append_array(_approach(walk_v))
+	if slip_ramps[i]:
+		var ramp := slip_ramps[i]
+		path.append(to_global(ramp.crossing(-5.0 + clampf(lateral_jitter, -0.6, 0.6))[1]))
+	else:
+		path.append(to_global(Vector3(sv - 4.8 + lateral_jitter, Layout.LOT_Y, Layout.PIER_END)))
+	return path
+
+
+## Walk-on exit path off slip `i` up the trestle walkway into the passenger terminal.
+func passenger_exit_path(i: int) -> PackedVector3Array:
+	var sv := town.slip_offset(i)
+	var walk_v := sv + WALK_V
+	var path := PackedVector3Array()
+	if slip_ramps[i]:
+		var ramp := slip_ramps[i]
+		var over := ramp.crossing(-5.0)
+		path.append(to_global(over[1]))
+		path.append(to_global(over[0]))
+	else:
+		path.append(to_global(Vector3(sv - 4.8, Layout.LOT_Y, Layout.PIER_END)))
+	path.append_array(_approach(walk_v, true))
+	(
+		path
+		. append_array(
+			PackedVector3Array(
+				[
+					_local(walk_v, Layout.LOT_FRONT + 1.5),
+					_local(town.lot_half_width + 2.0, Layout.LOT_FRONT + 1.5),
+					_passenger_door_pos(),
+				]
+			)
+		)
+	)
+	return path
 
 
 ## The next car for a boat serving `serves` (town ids, her stops in order): from
@@ -1103,7 +1296,18 @@ func capacity() -> int:
 
 
 func satisfaction() -> float:
-	return clampf(96.0 - maxf(avg_wait - 18.0, 0.0) * 0.9 - turned_recent * 2.0, 15.0, 99.0)
+	var fare_effect := 0.0
+	if sim != null:
+		var v_ratio := sim.avg_vehicle_fare_at(town) / CompanyLedger.DEFAULT_VEHICLE_FARE
+		var p_ratio := sim.avg_passenger_fare_at(town) / CompanyLedger.DEFAULT_PASSENGER_FARE
+		var avg_ratio := (v_ratio + p_ratio) * 0.5
+		if avg_ratio > 1.1:
+			fare_effect = -(avg_ratio - 1.1) * 14.0
+		elif avg_ratio < 1.0:
+			fare_effect = (1.0 - avg_ratio) * 5.0
+	return clampf(
+		96.0 - maxf(avg_wait - 18.0, 0.0) * 0.9 - turned_recent * 2.0 + fare_effect, 15.0, 99.0
+	)
 
 
 ## Returns [minutes until next departure, Ferry] across this terminal's routes.

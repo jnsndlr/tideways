@@ -50,6 +50,8 @@ func _loading() -> bool:
 func enter_game(button_text: String, scene_path: String) -> bool:
 	if not await press(button_text):
 		return false
+	if button_text in ["Play", "Mission sandbox"] and not await press("Start"):
+		return false
 	# The menu goes through the loading screen first. Bound the wait even if the
 	# control is disconnected.
 	var deadline := Time.get_ticks_msec() + 90000
