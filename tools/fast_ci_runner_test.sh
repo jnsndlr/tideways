@@ -15,12 +15,12 @@ case " $* " in
 esac
 for arg in "$@"; do
   case "$arg" in
-    tools/*_test.gd|tests/*_test.gd) echo "$arg" >> "$TEST_INVENTORY" ;;
+    tests/*_test.gd) echo "$arg" >> "$TEST_INVENTORY" ;;
   esac
 done
 case "$OUTCOME" in
   unrelated-load-error)
-    if [[ " $* " == *" tools/region_load_recovery_test.gd "* ]]; then
+    if [[ " $* " == *" tests/session/region_load_recovery_test.gd "* ]]; then
       echo 'ERROR: Failed loading resource: res://scenes/main_map.tscn.'
     fi ;;
   recovery-error-other-phase) echo "ERROR: Cannot open file 'user://region_part_17.tscn'." ;;
@@ -30,7 +30,7 @@ case "$OUTCOME" in
   multiple-leaks) echo 'WARNING: 2 ObjectDB instances were leaked at exit (run with `--verbose` for details).' ;;
   pass)
     echo 'WARNING: Cannot schedule Test ferry: no suitable slip for this leg'
-    if [[ " $* " == *" tools/region_load_recovery_test.gd "* ]]; then
+    if [[ " $* " == *" tests/session/region_load_recovery_test.gd "* ]]; then
       echo "ERROR: Cannot open file 'user://region_part_17.tscn'."
       echo 'ERROR: Failed loading resource: user://region_part_17.tscn.'
       echo 'ERROR: user://region_retry_17.tscn:3 - Parse Error: [ext_resource] referenced non-existent resource at: user://region_part_17.tscn.'
@@ -45,8 +45,8 @@ export TEST_INVENTORY="$fixture/invoked"
 for suite in fast traffic; do
   OUTCOME=pass GODOT_BIN="$fixture/engine" bash tools/fast_ci.sh "$suite" > "$fixture/control"
 done
-if ! diff -u <(find tools tests -type f -name '*_test.gd' | LC_ALL=C sort) <(LC_ALL=C sort -u "$TEST_INVENTORY"); then
-  echo "Every *_test.gd under tools/ or tests/ should run in the fast or traffic suite." >&2
+if ! diff -u <(find tests tools -type f -name '*_test.gd' | LC_ALL=C sort) <(LC_ALL=C sort -u "$TEST_INVENTORY"); then
+  echo "Every *_test.gd should be under tests/ and run in the fast or traffic suite." >&2
   exit 1
 fi
 for outcome in unrelated-load-error recovery-error-other-phase early-exit script-error one-leak multiple-leaks process-failure; do

@@ -2,7 +2,7 @@ class_name FerryWaterlineProfiles
 extends RefCounted
 ## Measured outlines for the five authored, double-ended ferry hulls, in model metres.
 ## Each row holds the half-length followed by half-widths from the tip to midships.
-## tools/ferry_waterline_measurement.gd measures the same stations on the imported hulls.
+## tests/support/ferry_waterline_measurement.gd measures the same stations on the imported hulls.
 
 const MEASUREMENTS := {
 	1: [  # Guemes
