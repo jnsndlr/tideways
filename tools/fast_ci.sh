@@ -48,10 +48,10 @@ check session-launch-options test --script tools/session_launch_options_test.gd
 check persistence test --script tools/persistence_test.gd
 check ferry-assignment test --script tools/fast_ferry_test.gd
 check region-voyage test --script tools/art_free_region_test.gd
-check terminal-refit test --script tools/terminal_refit_test.gd
+check terminal-refit test --script tests/rules/terminal_refit_test.gd
 check slip-completion test --script tools/slip_completion_test.gd
-check ferry-lay-up test --script tools/ferry_lay_up_test.gd
-check ferry-voyage test --script tools/ferry_voyage_test.gd
+check ferry-lay-up test --script tests/rules/ferry_lay_up_test.gd
+check ferry-voyage test --script tests/rules/ferry_voyage_test.gd
 check ferry-waterline test --script tools/ferry_waterline_test.gd
 check ferry-view test --script tools/ferry_view_test.gd
 check fare-and-deck test --script tools/fare_deck_test.gd
@@ -62,7 +62,7 @@ check vessel-hull test --script tools/vessel_hull_view_test.gd
 check vessel-night-lights test --script tools/vessel_night_lights_test.gd
 check trawler-gear test --script tools/trawler_gear_test.gd
 check sailboat-rig test --script tools/sailboat_rig_test.gd
-check timetable-round test --script tools/timetable_round_test.gd
+check timetable-round test --script tests/rules/timetable_round_test.gd
 check mission-goals test --script tools/mission_goals_test.gd
 check land-distance-field test --script tools/land_distance_field_test.gd
 check route-sample-grid test --script tools/route_sample_grid_test.gd

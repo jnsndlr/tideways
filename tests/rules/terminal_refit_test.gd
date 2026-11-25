@@ -1,15 +1,8 @@
-extends SceneTree
+extends "res://tests/rule_test_case.gd"
 ## Advance a terminal's crane job without scene nodes or hulls.
 
 var job := TerminalRefit.new()
 var events: Array[String] = []
-var failures := 0
-
-
-func check(ok: bool, message: String) -> void:
-	if not ok:
-		failures += 1
-		push_error(message)
 
 
 func _initialize() -> void:
@@ -21,9 +14,7 @@ func _initialize() -> void:
 		for starting_stage in [TerminalRefit.Stage.ARRIVING, TerminalRefit.Stage.WORKING, TerminalRefit.Stage.LEAVING]:
 			for extra: float in [0.0, 30.0]:
 				check_large_step(building, starting_stage, extra)
-	if failures == 0:
-		print("TEST PASSED")
-	quit(1 if failures else 0)
+	finish()
 
 
 func check_job(building: bool) -> void:

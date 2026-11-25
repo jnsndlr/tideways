@@ -15,7 +15,7 @@ case " $* " in
 esac
 for arg in "$@"; do
   case "$arg" in
-    tools/*_test.gd) echo "$arg" >> "$TEST_INVENTORY" ;;
+    tools/*_test.gd|tests/*_test.gd) echo "$arg" >> "$TEST_INVENTORY" ;;
   esac
 done
 case "$OUTCOME" in
@@ -45,8 +45,8 @@ export TEST_INVENTORY="$fixture/invoked"
 for suite in fast traffic; do
   OUTCOME=pass GODOT_BIN="$fixture/engine" bash tools/fast_ci.sh "$suite" > "$fixture/control"
 done
-if ! diff -u <(printf '%s\n' tools/*_test.gd | LC_ALL=C sort) <(LC_ALL=C sort -u "$TEST_INVENTORY"); then
-  echo "Every tools/*_test.gd should run in the fast or traffic suite." >&2
+if ! diff -u <(find tools tests -type f -name '*_test.gd' | LC_ALL=C sort) <(LC_ALL=C sort -u "$TEST_INVENTORY"); then
+  echo "Every *_test.gd under tools/ or tests/ should run in the fast or traffic suite." >&2
   exit 1
 fi
 for outcome in unrelated-load-error recovery-error-other-phase early-exit script-error one-leak multiple-leaks process-failure; do
