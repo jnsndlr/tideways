@@ -16,8 +16,6 @@ echo 'config_version=5' > "$project/project.godot"
 # compilation errors without setting a failing exit code.
 log="$project/engine.log"
 "$engine" --headless --path "$project" --editor --import 2>&1 | tee "$log"
-"$engine" --headless --path "$project" --quit-after 5 --script res://art_free_region_test.gd 2>&1 | tee -a "$log"
-if grep -Eq 'SCRIPT ERROR:|ERROR:|ObjectDB instances? .*leaked at exit' "$log"; then
-  exit 1
-fi
-grep -qx 'TEST PASSED' "$log"
+awk -v phase=art-free-import -v expected=smoke -f tools/godot_result.awk "$log"
+"$engine" --headless --path "$project" --quit-after 5 --script res://art_free_region_test.gd 2>&1 | tee "$log"
+awk -v phase=art-free-region -v expected=test -f tools/godot_result.awk "$log"
