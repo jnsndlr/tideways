@@ -386,8 +386,11 @@ func _build_labels() -> void:
 			title.add_child(_label("•", 13, ACCENT))
 		title.add_child(_label(isl.name.to_upper(), 13, TEXT, true))
 		v.add_child(title)
-		v.add_child(_label("pop. " + fmt_int(isl.population), 12, MUTED))
+		var pop_label := _label("pop. " + fmt_int(isl.population), 12, MUTED)
+		v.add_child(pop_label)
 		p.add_child(v)
+		p.set_meta("pop_label", pop_label)
+		p.set_meta("pop", isl.population)
 		p.gui_input.connect(_on_label_input.bind(isl))
 		root.add_child(p)
 		_labels[isl.id] = p
@@ -417,6 +420,9 @@ func _update_labels() -> void:
 		p.visible = not off
 		if off:
 			continue
+		if int(p.get_meta("pop")) != isl.population:
+			p.set_meta("pop", isl.population)
+			(p.get_meta("pop_label") as Label).text = "pop. " + fmt_int(isl.population)
 		p.position = cam.unproject_position(isl.label_pos) - Vector2(p.size.x * 0.5, p.size.y)
 		p.modulate = Color(1.15, 1.25, 1.15) if isl == selected_town else Color.WHITE
 

@@ -21,6 +21,10 @@ const STABILITY_DAYS_FULL := 5.0
 const RADIO_TOWER_ISLAND_POP := 6000
 const CONNECTIVITY_POP_STEP := 1000
 const MAX_EXPECTED_CONNECTIONS := 6
+## Multiplies every town's daily growth. A game day is 48 real minutes at 1x, so the
+## profile rates alone (5-50 people/day) meant a new house every few real hours.
+## Raise it to speed every town up together.
+const GROWTH_SCALE := 1.0
 
 const PROFILES := {
 	"rural": {
@@ -428,7 +432,7 @@ func refresh_metrics() -> void:
 
 		_recompute_overall_attractiveness(town, st)
 		var prof := profile_for(town.community_type)
-		st.organic_daily = float(prof["organic_daily"]) * (1.0 + st.milestone_growth_bonus)
+		st.organic_daily = float(prof["organic_daily"]) * GROWTH_SCALE * (1.0 + st.milestone_growth_bonus)
 		if st.has_service:
 			var attract_factor := 0.70 + 0.45 * (st.attractiveness / 100.0)
 			var ferry_mult := clampf(4.0 * st.accessibility * attract_factor, 0.0, 4.0)
