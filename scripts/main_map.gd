@@ -84,12 +84,9 @@ func _ready() -> void:
 		panel.setup(self, scenario.mission)
 
 
-## Buys `town`'s dock site: its terminal is built in place over
-## Simulation.DOCK_BUILD_MINUTES and opens on its own, with no rebuild (TID-319).
-func buy_dock(town: MapData.Town) -> void:
-	if not sim.buy_dock(town):
-		return
-	hud.show_toast("NEW TERMINAL", "Building %s's terminal. It opens in %d hours." % [town.name, int(Simulation.DOCK_BUILD_MINUTES / 60.0)], 4.0)
+func _setup_hud() -> void:
+	hud.dock_site_selected.connect(show_dock_sites)
+	hud.setup(self, true)
 
 
 ## Pins `town`'s dock site (null: none).
@@ -137,7 +134,7 @@ func rebuild() -> void:
 	get_tree().reload_current_scene()
 
 
-func intro(islands: int) -> Array:
+func intro(islands: int) -> Array[String]:
 	return ["MAIN MAP", "%d islands · %d route%s%s.\nPress I to edit the islands." % [
 		islands, map.routes.size(), "" if map.routes.size() == 1 else "s", " · unsaved layout" if unsaved else ""]]
 

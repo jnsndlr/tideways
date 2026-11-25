@@ -13,13 +13,17 @@ const ACCENT := Color(0.47, 0.86, 0.6)
 const SPEEDS := [0.0, 1.0, 3.0, 8.0]
 const WILD := Color(0.98, 0.78, 0.42)
 
-var main: Node
+## Emitted for the authored map to show the selected site or clear its pins.
+signal dock_site_selected(town: MapData.Town)
+
+var _session: WorldSession
+var _offers_dock_sites := false
 var sim: Simulation
 var wildlife: Wildlife
 var rig: CameraRig
 var map: MapData
 var route_overlay: Node3D
-## Water zones drawn on the map, if this region has any (the sandbox has none).
+## Optional map layer supplied by a region that draws water zones.
 var area_overlay: Node3D
 var map_controls: MapControls
 ## The town selected (its terminal, or its dock site for sale).
@@ -85,14 +89,15 @@ var _refresh := 0.0
 var _last_hour := -1.0
 
 
-func setup(m: Node) -> void:
-	main = m
-	sim = m.sim
-	wildlife = m.sim.wildlife
-	rig = m.rig
-	map = m.map
-	route_overlay = m.route_overlay
-	area_overlay = m.get("area_overlay")
+func setup(session: WorldSession, offers_dock_sites := false) -> void:
+	_session = session
+	_offers_dock_sites = offers_dock_sites
+	sim = session.sim
+	wildlife = sim.wildlife
+	rig = session.rig
+	map = session.map
+	route_overlay = session.route_overlay
+	area_overlay = session.area_overlay
 	root = Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -109,7 +114,7 @@ func setup(m: Node) -> void:
 	root.add_child(_schedule_editor)
 	_schedule_editor.setup(sim, _label)
 	_build_wildlife_panel()
-	_build_minimap(m.env)
+	_build_minimap(session.env)
 	_build_help()
 	_build_toast()
 	_build_map_controls()
@@ -122,7 +127,7 @@ func setup(m: Node) -> void:
 	sim.ferry_delivered.connect(_on_ferry_delivered)
 	sim.ferry_removed.connect(_on_ferry_removed)
 	set_speed(1)
-	var intro: Array = main.intro(_labels.size())
+	var intro := session.intro(_labels.size())
 	show_toast(intro[0], intro[1])
 
 
@@ -409,7 +414,7 @@ func _update_labels() -> void:
 func _on_ground_clicked(screen_pos: Vector2) -> void:
 	map_controls.dismiss()
 	var cam := rig.camera
-	var visit: Wildlife.Visit = main.pick_wildlife(screen_pos, cam)
+	var visit: Wildlife.Visit = _session.pick_wildlife(screen_pos, cam)
 	if visit:
 		if not wildlife.photograph(visit):
 			show_toast(visit.species.plural.to_upper(), "Already photographed this %s." % _group_word(visit), 3.0)
@@ -477,7 +482,7 @@ func select_island(isl: MapData.Island, focus: bool) -> void:
 func select_town(town: MapData.Town, focus: bool) -> void:
 	_reset_selection()
 	selected_town = town
-	if focus and town.has_dock and not town.built and main.has_method("buy_dock"):
+	if focus and town.has_dock and not town.built and _offers_dock_sites:
 		_focus_site()
 	elif focus:
 		rig.focus_on(town.town_center, 390.0)
@@ -540,15 +545,15 @@ func _unhandled_input(event: InputEvent) -> void:
 				var i := sim.ferries.find(selected_ferry)
 				select_ferry(sim.ferries[(i + 1) % sim.ferries.size()])
 		KEY_G:
-			main.regenerate()
+			_session.regenerate()
 		KEY_M:
 			Scenes.go(get_tree(), Scenes.MENU)
 		KEY_BRACKETLEFT, KEY_BRACKETRIGHT:
 			var step := -1.0 if (event as InputEventKey).physical_keycode == KEY_BRACKETLEFT else 1.0
-			main.day_cycle.set_hour(roundf(main.day_cycle.hour()) + step)
-			show_toast("TIME OF DAY", "Lighting pinned to %s. Press T to follow the clock." % sim.clock_text(main.day_cycle.hour() * 60.0), 3.0)
+			_session.day_cycle.set_hour(roundf(_session.day_cycle.hour()) + step)
+			show_toast("TIME OF DAY", "Lighting pinned to %s. Press T to follow the clock." % sim.clock_text(_session.day_cycle.hour() * 60.0), 3.0)
 		KEY_T:
-			main.day_cycle.follow_clock()
+			_session.day_cycle.follow_clock()
 			show_toast("TIME OF DAY", "Lighting follows the game clock.", 3.0)
 		KEY_V:
 			if (event as InputEventKey).shift_pressed:
@@ -757,9 +762,10 @@ func _buy_upgrade(terminal: Terminal, u: TerminalUpgrade) -> void:
 
 ## Starts building a terminal at the selected town's dock site (Simulation.buy_dock).
 func _buy_dock() -> void:
-	if selected_town == null or not main.has_method("buy_dock"):
+	if selected_town == null or not _offers_dock_sites:
 		return
-	main.buy_dock(selected_town)
+	if sim.buy_dock(selected_town):
+		show_toast("NEW TERMINAL", "Building %s's terminal. It opens in %d hours." % [selected_town.name, int(Simulation.DOCK_BUILD_MINUTES / 60.0)], 4.0)
 	_refresh_panels()
 
 
@@ -917,11 +923,11 @@ func _refresh_panels() -> void:
 			"Ferry terminal · idle slip" if served == 0 else
 			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
 		if _terminal_rows == null or _terminal_rows.term != term:
-			_terminal_rows = TerminalInspectorRows.new(isl, term, sim, wildlife, main.has_method("buy_dock"))
+			_terminal_rows = TerminalInspectorRows.new(isl, term, sim, wildlife, _offers_dock_sites)
 			_terminal_rows.layout_changed.connect(_set_rows)
 			_terminal_rows.value_changed.connect(_set_row_value)
 		_terminal_rows.refresh()
-		if not term and main.has_method("buy_dock") and isl.has_dock and building < 0.0:
+		if not term and _offers_dock_sites and isl.has_dock and building < 0.0:
 			var price := sim.dock_price(isl)
 			if price > 0:
 				_dock_button.text = "Build terminal · %s" % fmt_money(price)
@@ -934,8 +940,8 @@ func _refresh_panels() -> void:
 			offer_upgrades = true
 	_upgrades_box.visible = offer_upgrades
 	_dock_button.visible = offer_dock
-	if main.has_method("show_dock_sites"):
-		main.show_dock_sites(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
+	if _offers_dock_sites:
+		dock_site_selected.emit(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
 	_pace_row.visible = selected_ferry != null
 	_service_button.visible = selected_ferry != null
 	# (A boat bought in play gets her first stops laid up, or still under tow.)
@@ -1271,7 +1277,7 @@ func _build_map_controls() -> void:
 	map_controls = MapControls.new()
 	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 4, 4))
 	root.add_child(map_controls)
-	map_controls.setup(sim, main.day_cycle, font)
+	map_controls.setup(sim, _session.day_cycle, font)
 	map_controls.weather_toggled.connect(_on_weather_toggled)
 	map_controls.pin_save_failed.connect(func(err: Error) -> void:
 		show_toast("WEATHER PIN", "Couldn’t save the pin (%s). Try again." % error_string(err)))
@@ -1279,7 +1285,7 @@ func _build_map_controls() -> void:
 
 ## Hides the cloud deck and its shadows. The weather itself carries on.
 func _on_weather_toggled(shown: bool) -> void:
-	main.clouds.set_shown(shown)
+	_session.clouds.set_shown(shown)
 	show_toast("WEATHER", "Map weather shown." if shown else "Map weather hidden. Conditions keep changing.", 2.5)
 
 

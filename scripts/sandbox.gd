@@ -16,7 +16,7 @@ func _ready() -> void:
 
 
 ## The HUD's opening toast: [title, body].
-func intro(islands: int) -> Array:
+func intro(islands: int) -> Array[String]:
 	return ["PROCEDURAL ARCHIPELAGO", "Map seed %d · %d islands · %d routes.\nPress G for a new map." % [
 		map.map_seed, islands, map.routes.size()]]
 
