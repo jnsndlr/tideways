@@ -55,6 +55,8 @@ check slip-completion test --script tests/simulation/slip_completion_test.gd
 check ferry-lay-up test --script tests/rules/ferry_lay_up_test.gd
 check ferry-voyage test --script tests/rules/ferry_voyage_test.gd
 check ferry-waterline test --script tests/world/ferry_waterline_test.gd
+check authored-ferry-nets test --script tests/world/ferry_net_model_test.gd
+check classic-ferry-nets test --script tests/world/ferry_net_model_test.gd -- --classic-net
 check ferry-view test --script tests/world/ferry_view_test.gd
 check fare-and-deck test --script tests/simulation/fare_deck_test.gd
 check vehicle-spawn test --script tests/simulation/vehicle_spawn_test.gd
