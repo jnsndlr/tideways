@@ -2,7 +2,7 @@ extends SceneTree
 ## Compare the game-facing mesh to the authored GLB, so the artwork may evolve.
 
 func _initialize() -> void:
-	var asset := (load(Models.MID_SEAGULL_GLB) as PackedScene).instantiate()
+	var asset := (load(SeagullModel.ASSET) as PackedScene).instantiate()
 	var source: Mesh
 	for node: MeshInstance3D in asset.find_children("*", "MeshInstance3D", true, false):
 		if String(node.name).to_lower() == "seagull":
@@ -19,7 +19,7 @@ func _initialize() -> void:
 	var vertices: PackedVector3Array = input[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = input[Mesh.ARRAY_NORMAL]
 	var colors: PackedColorArray = input[Mesh.ARRAY_COLOR]
-	var merged := ModelParts.merge_named(Models.MID_SEAGULL_GLB, ["seagull"])
+	var merged := ModelParts.merge_named(SeagullModel.ASSET, ["seagull"])
 	if indices.is_empty() or merged.verts.size() != indices.size() or merged.normals.size() != indices.size() or merged.colors.size() != indices.size():
 		push_error("Flattened gull geometry must have one vertex, normal and color per triangle index")
 		quit(1)
@@ -31,17 +31,17 @@ func _initialize() -> void:
 			quit(1)
 			return
 
-	var library := ModelParts.library(Models.MID_SEAGULL_GLB)
+	var library := ModelParts.library(SeagullModel.ASSET)
 	var cached: MeshBuilder = library["seagull"]
 	var first_vertex := vertices[indices[0]]
 	merged.verts[0] += Vector3.ONE
-	var fresh := ModelParts.merge_named(Models.MID_SEAGULL_GLB, ["seagull"])
+	var fresh := ModelParts.merge_named(SeagullModel.ASSET, ["seagull"])
 	if cached.verts[0] != first_vertex or fresh.verts[0] != first_vertex:
 		push_error("Editing a merged part changed the cached or freshly loaded geometry")
 		quit(1)
 		return
 
-	var mesh := ModelParts.shader_mesh(Models.MID_SEAGULL_GLB, "seagull", Models.vc_material())
+	var mesh := ModelParts.shader_mesh(SeagullModel.ASSET, "seagull", Models.vc_material())
 	if mesh.get_surface_count() != 1 or mesh.surface_get_material(0) != Models.vc_material():
 		push_error("Indexed gull mesh lost its shader surface")
 		quit(1)

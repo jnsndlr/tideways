@@ -205,9 +205,7 @@ func setup(s: Simulation, d: DayCycle, perches: Array[Perch]) -> void:
 
 
 func _build_pool() -> void:
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/seagull.gdshader")
-	mat.set_shader_parameter("baked_fold", Models.mid_seagull)
+	var mat := SeagullModel.wing_material()
 	_mm = MultiMesh.new()
 	_mm.transform_format = MultiMesh.TRANSFORM_3D
 	_mm.use_custom_data = true

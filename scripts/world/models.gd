@@ -1408,51 +1408,9 @@ static func _rail(mb: MeshBuilder, a: Vector3, b: Vector3, col: Color) -> void:
 		mb.box(Vector3(p.x, a.y + 1.35, p.z), Vector3(0.15, 2.7, 0.15), col)
 
 
-## A gull, about 1.4 m across (+Z forward, wings out along X, upper sides facing
-## up). Wing vertices carry alpha 0.5, which seagull.gdshader flaps and folds about
-## the shoulder (|x| = 0.06); it also lightens their undersides, so they are single panels.
-## Gulls use the mid-poly gull modelled in Blender (MID_SEAGULL_GLB, built by
-## art/seagull_mid.py), whose wing vertices also carry their folded position in UV and
-## UV2.x for seagull.gdshader. The one below is the fallback: with `--classic-gull`, or
-## if the model is missing (its wings fold by formula instead).
-const MID_SEAGULL_GLB := "res://assets/models/seagull_mid.glb"
-static var mid_seagull := not "--classic-gull" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(MID_SEAGULL_GLB)
-
-
 static func seagull() -> ArrayMesh:
-	if mid_seagull:
-		return _cached("seagull_mid", func(): return ModelParts.shader_mesh(MID_SEAGULL_GLB, "seagull", vc_material()))
-	return _cached("seagull", func():
-		var mb := MeshBuilder.new()
-		var white := Color(0.95, 0.95, 0.93)
-		var mantle := Color(0.66, 0.7, 0.74, 0.5)
-		var tip := Color(0.12, 0.12, 0.13, 0.5)
-		# Body: an octahedron stretched along the spine, and a smaller one for the head.
-		_octa(mb, Vector3(0, 0.01, 0.03), Vector3(0.065, 0.065, 0.0), 0.24, -0.23, white)
-		_octa(mb, Vector3(0, 0.075, 0.22), Vector3(0.045, 0.045, 0.0), 0.06, -0.05, white)
-		var beak := Color(0.95, 0.74, 0.2)
-		var bp := Vector3(0, 0.06, 0.36)
-		var b0 := Vector3(0.016, 0.075, 0.275)
-		var b1 := Vector3(-0.016, 0.075, 0.275)
-		var b2 := Vector3(0, 0.05, 0.275)
-		mb.tri(b0, b1, bp, beak, Vector3.UP)
-		mb.tri(b1, b2, bp, beak, Vector3(-1, -1, 0))
-		mb.tri(b2, b0, bp, beak, Vector3(1, -1, 0))
-		mb.quad(Vector3(-0.05, 0.03, -0.16), Vector3(0.05, 0.03, -0.16), Vector3(0.075, 0.02, -0.32),
-			Vector3(-0.075, 0.02, -0.32), white, Vector3.UP)
-		for side: float in [-1.0, 1.0]:
-			var sh_f := Vector3(0.06 * side, 0.04, 0.1)
-			var sh_b := Vector3(0.06 * side, 0.04, -0.07)
-			var el_f := Vector3(0.4 * side, 0.04, 0.08)
-			var el_b := Vector3(0.4 * side, 0.04, -0.09)
-			var mid_f := Vector3(0.58 * side, 0.04, 0.03)
-			var mid_b := Vector3(0.58 * side, 0.04, -0.1)
-			var end := Vector3(0.72 * side, 0.04, -0.12)
-			mb.quad(sh_f, el_f, el_b, sh_b, mantle, Vector3.UP)
-			mb.quad(el_f, mid_f, mid_b, el_b, mantle, Vector3.UP)
-			mb.tri(mid_f, end, mid_b, tip, Vector3.UP)
-		return mb.commit())
+	var key := "seagull_mid" if SeagullModel.baked_fold else "seagull"
+	return _cached(key, func(): return SeagullModel.build(vc_material()))
 
 
 ## A bald eagle at life size, 2.1 m across (+Z forward, wings out along X), modelled
@@ -1893,19 +1851,6 @@ static func spout() -> ArrayMesh:
 		mb.cylinder(Vector3.ZERO, 0.12, 0.45, 0.6, 6, Color(0.95, 0.97, 1.0, 0.85))
 		mb.cylinder(Vector3(0, 0.6, 0), 0.45, 0.2, 0.4, 6, Color(0.95, 0.97, 1.0, 0.6))
 		return mb.commit(unshaded_material()))
-
-
-## An octahedron at `c`, `r` wide (x) and tall (y), reaching `front` ahead and `back` behind.
-static func _octa(mb: MeshBuilder, c: Vector3, r: Vector3, front: float, back: float, col: Color) -> void:
-	var f := c + Vector3(0, 0, front)
-	var b := c + Vector3(0, 0, back)
-	var ring := [c + Vector3(r.x, 0, 0), c + Vector3(0, r.y, 0), c + Vector3(-r.x, 0, 0), c + Vector3(0, -r.y, 0)]
-	for i in 4:
-		var p0: Vector3 = ring[i]
-		var p1: Vector3 = ring[(i + 1) % 4]
-		var out := (p0 + p1) * 0.5 - c
-		mb.tri(p0, p1, f, col, out)
-		mb.tri(p1, p0, b, col, out)
 
 
 ## Head and tail lights for every car and truck (+Z is the front), plus the cone
