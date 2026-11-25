@@ -138,7 +138,8 @@ func setup(s: Simulation, f: Ferry, pts: PackedVector2Array, away := false) -> v
 	else:
 		consort = f
 		f.consort = self
-		self.s = maxf(0.0, path.length - MAX_TOW_MINUTES * _tow_speed())
+		var tow_seconds := MAX_TOW_MINUTES / Units.MINUTES_PER_SECOND
+		self.s = maxf(0.0, path.length - tow_seconds * _tow_speed())
 		_place(0.0)
 
 

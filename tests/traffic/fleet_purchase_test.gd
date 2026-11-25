@@ -130,7 +130,7 @@ func _process(_delta: float) -> bool:
 				_log(sim, "%s sailing: %s" % [boat.ferry_name, boat.status_text()])
 				if not boat.route.in_service:
 					return _fail("Her route isn't in service while she sails it")
-				boat.request_lay_up()
+				boat.request_lay_up(rosario.town.id)
 				phase = 3
 		3:
 			if boat.can_sell() != (boat.berth == Ferry.Berth.TIED_UP and not boat.return_requested):
