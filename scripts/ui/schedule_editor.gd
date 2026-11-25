@@ -149,9 +149,14 @@ func setup(s: Simulation, make_label: Callable) -> void:
 
 
 func _ready() -> void:
-	get_viewport().size_changed.connect(func(): if visible: _fit())
+	get_viewport().size_changed.connect(_fit_if_visible)
 	# Grows from its top centre, wherever its width settles.
 	resized.connect(func(): pivot_offset = Vector2(size.x * 0.5, 0.0))
+
+
+func _fit_if_visible() -> void:
+	if visible:
+		_fit()
 
 
 func open(f: Ferry) -> void:

@@ -623,7 +623,7 @@ func _build_info_panel() -> void:
 	_stops_button.text = "Edit stops"
 	_stops_button.focus_mode = Control.FOCUS_NONE
 	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
-	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
+	_stops_button.pressed.connect(_edit_selected_stops)
 	v.add_child(_stops_button)
 	_sell_button.focus_mode = Control.FOCUS_NONE
 	_sell_button.custom_minimum_size.y = 44
@@ -647,6 +647,11 @@ func _toggle_service() -> void:
 		selected_ferry.request_lay_up()
 	else:
 		selected_ferry.request_return()
+
+
+func _edit_selected_stops() -> void:
+	if selected_ferry:
+		_schedule_editor.open(selected_ferry)
 
 
 func _set_pace(i: int) -> void:

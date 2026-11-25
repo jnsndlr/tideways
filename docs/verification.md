@@ -24,6 +24,12 @@ Run `bash tools/fast_ci_runner_test.sh` to verify the runner itself. Fast CI, th
 
 The vehicle-overlap diagnostic reports proximity, including known contacts; a zero exit status alone does not prove visual clearance. The 6,000-frame baseline on seed 123 had 615 overlapping pair-frames and zero stalls. For changed traffic, compare that seed and investigate changed counts. The separate 20,000-frame marine baseline completed 145 ferry trips with zero reported vessel overlaps or groundings.
 
+## Check GDScript lint and formatting
+
+From a feature checkout with uv installed, run `uv run --locked --script tools/check_gdscript.py`. This uses the same gdtoolkit 4.5.0 linter, 100-column formatter and dependency lock as CI. The command compares your working tree (including new scripts) with the common ancestor of HEAD and `origin/main`. Use `--base REV` for another baseline. CI checks the PR against its target or the push against the previous revision. Run `bash tools/test_gdscript_style.sh` for the passing and failing fixtures.
+
+The gate reports formatting on changed lines and lint on changed lines or newly reported lint in the surrounding file. It leaves files untouched. A pure rename keeps its baseline. The initial inventory after making the two UI callbacks parseable was 264 scripts, 1,954 lint findings and 228 files with formatter differences. Line length accounted for 1,280 findings and declaration order for 574. Those counts describe the starting tree. Changes are checked against Git so resolving an old finding reduces the baseline for later PRs.
+
 ## Starting a rule check without generating a map
 
 Scene-free ferry rules live in `tests/rules/`. Extend `res://tests/rule_test_case.gd`, call `check(condition, message)` for each expectation and `finish()` once the case completes. Run an individual case with `godot --headless --script tests/rules/ferry_voyage_test.gd`. Register new regression scripts in `tools/fast_ci.sh`. The inventory fixture checks both `tests/` and the existing cases in `tools/`.
