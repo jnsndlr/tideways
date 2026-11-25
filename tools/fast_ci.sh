@@ -84,6 +84,7 @@ check refit-crane test --script tests/world/refit_crane_test.gd
 check model-parts test --script tests/world/model_parts_test.gd
 check authored-whales test --script tests/world/whale_model_test.gd
 check classic-whales test --script tests/world/whale_model_test.gd -- --classic-whales
+check porpoise-models test --script tests/world/porpoise_model_test.gd
 check authored-pinnipeds test --script tests/world/pinniped_model_test.gd
 check classic-pinnipeds test --script tests/world/pinniped_model_test.gd -- --classic-seals
 check authored-orca test --script tests/world/orca_model_test.gd
