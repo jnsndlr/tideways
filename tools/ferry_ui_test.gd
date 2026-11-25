@@ -39,6 +39,8 @@ func exercise_layout() -> bool:
 		return false
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
+	if not exercise_shortcuts(hud):
+		return false
 	if not await press("FLEET") or not await press(boat.ferry_name, true):
 		return false
 	if not hud._info_panel.visible or hud._info_title.text != boat.ferry_name.to_upper() or hud.rig.follow != boat:
@@ -69,6 +71,44 @@ func exercise_layout() -> bool:
 		await process_frame
 	if current_scene == null or current_scene.scene_file_path != Scenes.MENU or Engine.time_scale != 1.0:
 		return fail("Return to menu or speed reset failed")
+	return true
+
+
+## Physical shortcuts survive layout changes. A held key and its release apply the command only once.
+func exercise_shortcuts(hud: Hud) -> bool:
+	var weather := hud.sim.weather
+	var expected := weather.next_kind()
+	var event := InputEventKey.new()
+	event.physical_keycode = KEY_V
+	event.keycode = KEY_B
+	event.pressed = true
+	root.push_input(event)
+	event.echo = true
+	root.push_input(event)
+	event.echo = false
+	event.pressed = false
+	root.push_input(event)
+	if not weather.pinned or weather.kind != expected:
+		return fail("The physical V shortcut should advance the weather exactly once")
+	event.shift_pressed = true
+	event.pressed = true
+	root.push_input(event)
+	event.pressed = false
+	root.push_input(event)
+	if weather.pinned or weather.kind != expected:
+		return fail("Shift+V should resume the weather without advancing it")
+
+	var action := InputEventAction.new()
+	action.action = &"hud_speed_fast"
+	action.pressed = true
+	root.push_input(action)
+	action.pressed = false
+	root.push_input(action)
+	if Engine.time_scale != 3.0:
+		return fail("A named speed action must work independently of its physical key")
+	key(KEY_1)
+	if Engine.time_scale != 1.0:
+		return fail("The physical 1 shortcut should restore normal speed")
 	return true
 
 

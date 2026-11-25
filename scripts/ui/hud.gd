@@ -527,41 +527,45 @@ func _reset_selection() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey and event.pressed and not event.echo):
+	if not event.is_pressed() or event.is_echo():
 		return
-	match (event as InputEventKey).physical_keycode:
-		KEY_SPACE:
-			set_speed(0 if _speed_index > 0 else _last_running_speed)
-		KEY_1:
-			set_speed(1)
-		KEY_2:
-			set_speed(2)
-		KEY_3:
-			set_speed(3)
-		KEY_ESCAPE:
-			clear_selection()
-		KEY_TAB:
-			if not sim.ferries.is_empty():
-				var i := sim.ferries.find(selected_ferry)
-				select_ferry(sim.ferries[(i + 1) % sim.ferries.size()])
-		KEY_G:
-			_session.regenerate()
-		KEY_M:
-			Scenes.go(get_tree(), Scenes.MENU)
-		KEY_BRACKETLEFT, KEY_BRACKETRIGHT:
-			var step := -1.0 if (event as InputEventKey).physical_keycode == KEY_BRACKETLEFT else 1.0
-			_session.day_cycle.set_hour(roundf(_session.day_cycle.hour()) + step)
-			show_toast("TIME OF DAY", "Lighting pinned to %s. Press T to follow the clock." % sim.clock_text(_session.day_cycle.hour() * 60.0), 3.0)
-		KEY_T:
-			_session.day_cycle.follow_clock()
-			show_toast("TIME OF DAY", "Lighting follows the game clock.", 3.0)
-		KEY_V:
-			if (event as InputEventKey).shift_pressed:
-				sim.weather.resume()
-				show_toast("WEATHER", "Weather changes on its own again.", 3.0)
-			else:
-				sim.weather.set_kind(sim.weather.next_kind(), 10.0)
-				show_toast("WEATHER", "Pinned to %s. Shift+V lets it change on its own." % sim.weather.kind, 3.0)
+	if event.is_action(&"hud_toggle_pause"):
+		set_speed(0 if _speed_index > 0 else _last_running_speed)
+	elif event.is_action(&"hud_speed_normal"):
+		set_speed(1)
+	elif event.is_action(&"hud_speed_fast"):
+		set_speed(2)
+	elif event.is_action(&"hud_speed_fastest"):
+		set_speed(3)
+	elif event.is_action(&"hud_clear_selection"):
+		clear_selection()
+	elif event.is_action(&"hud_next_ferry"):
+		if not sim.ferries.is_empty():
+			var i := sim.ferries.find(selected_ferry)
+			select_ferry(sim.ferries[(i + 1) % sim.ferries.size()])
+	elif event.is_action(&"hud_regenerate_map"):
+		_session.regenerate()
+	elif event.is_action(&"hud_return_to_menu"):
+		Scenes.go(get_tree(), Scenes.MENU)
+	elif event.is_action(&"hud_light_previous_hour"):
+		_step_light_hour(-1.0)
+	elif event.is_action(&"hud_light_next_hour"):
+		_step_light_hour(1.0)
+	elif event.is_action(&"hud_light_follow_clock"):
+		_session.day_cycle.follow_clock()
+		show_toast("TIME OF DAY", "Lighting follows the game clock.", 3.0)
+	# The modified shortcut takes precedence because V also accepts extra modifiers.
+	elif event.is_action(&"hud_weather_resume"):
+		sim.weather.resume()
+		show_toast("WEATHER", "Weather changes on its own again.", 3.0)
+	elif event.is_action(&"hud_weather_cycle"):
+		sim.weather.set_kind(sim.weather.next_kind(), 10.0)
+		show_toast("WEATHER", "Pinned to %s. Shift+V lets it change on its own." % sim.weather.kind, 3.0)
+
+
+func _step_light_hour(step: float) -> void:
+	_session.day_cycle.set_hour(roundf(_session.day_cycle.hour()) + step)
+	show_toast("TIME OF DAY", "Lighting pinned to %s. Press T to follow the clock." % sim.clock_text(_session.day_cycle.hour() * 60.0), 3.0)
 
 
 # --- Info panel (top right) ---------------------------------------------------------
