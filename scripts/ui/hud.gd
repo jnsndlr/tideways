@@ -32,6 +32,7 @@ var selected_ferry: Ferry
 var selected_vessel: Vessel   # anything afloat but a ferry
 
 var root: Control
+var _label_layer: Control
 var font: SystemFont
 var bold: SystemFont
 var _labels := {}
@@ -97,6 +98,11 @@ func setup(m: Node) -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+	# Place labels live in their own layer under every panel (rebuilt labels too).
+	_label_layer = Control.new()
+	_label_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_label_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_label_layer)
 	_build_theme()
 	_build_labels()
 	_build_top_bar()
@@ -123,6 +129,7 @@ func setup(m: Node) -> void:
 	_build_toast()
 	_build_map_controls()
 	rig.ground_clicked.connect(_on_ground_clicked)
+	rig.ground_right_clicked.connect(_on_ground_right_clicked)
 	wildlife.visit_started.connect(_on_visit_started)
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
@@ -392,7 +399,7 @@ func _build_labels() -> void:
 		p.set_meta("pop_label", pop_label)
 		p.set_meta("pop", isl.population)
 		p.gui_input.connect(_on_label_input.bind(isl))
-		root.add_child(p)
+		_label_layer.add_child(p)
 		_labels[isl.id] = p
 
 
@@ -652,6 +659,43 @@ func _build_info_panel() -> void:
 	_dock_button.pressed.connect(_buy_dock)
 	v.add_child(_dock_button)
 	_info_panel.visible = false
+
+
+## RTS orders for the selected ferry (TID-329): right-click a dock to send her
+## there (everyone gets off; she lies there out of service), open water to pull
+## her aside where she is, riders kept aboard.
+func _on_ground_right_clicked(screen_pos: Vector2) -> void:
+	var f := selected_ferry
+	if f == null or not is_instance_valid(f):
+		return
+	var cam := rig.camera
+	var best: Terminal = null
+	var best_d := 70.0
+	for term: Terminal in sim.terminals.values():
+		var c: Vector3 = term.town.shore
+		if cam.is_position_behind(c):
+			continue
+		var d := cam.unproject_position(c).distance_to(screen_pos)
+		if d < best_d:
+			best_d = d
+			best = term
+	if best:
+		var id := best.town.id
+		if id not in f.manual_reach():
+			show_toast(f.ferry_name.to_upper(), "No route she fits from where she is to %s." % best.town.name, 3.0)
+			return
+		var slip := f.best_slip(id)
+		if slip < 0 or not f.order_move(id, slip):
+			show_toast(f.ferry_name.to_upper(), "No slip at %s she fits." % best.town.name, 3.0)
+			return
+		show_toast(f.ferry_name.to_upper(), "Bound for %s · everyone gets off there." % best.town.name, 3.0)
+		_refresh_panels()
+		return
+	if f.order_hold():
+		show_toast(f.ferry_name.to_upper(), "Pulled aside · Return to service to carry on.", 3.0)
+		_refresh_panels()
+	else:
+		show_toast(f.ferry_name.to_upper(), "She can only pull aside under way. Right-click a dock to send her there.", 3.0)
 
 
 ## Send the selected ferry by hand to `slip` at `town_id` (TID-328).

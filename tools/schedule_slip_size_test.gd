@@ -35,7 +35,12 @@ func _run() -> void:
 		var ids: Array[int] = [0, 1, 2]
 		accepted = ferry.timetable == service.departures
 		accepted = accepted and not sim.reschedule(ferry, ids, [-1]) and not sim.reschedule(ferry, ids, [1440])
+		# Another slip at the town that fits is used instead (TID-329)...
 		berth.size = 1
+		accepted = accepted and sim.stops_problem(ferry, ids) == ""
+		# ...but with none big enough there, she's refused.
+		for slip in last.slips:
+			slip.size = 1
 		accepted = accepted and sim.stops_problem(ferry, ids) != ""
 		accepted = accepted and sim.leg_problem(ferry, -1, 0) != ""
 	sim.free()

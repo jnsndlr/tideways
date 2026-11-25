@@ -216,13 +216,38 @@ func leg_problem(f: Ferry, a: int, b: int) -> String:
 		return "No route between %s and %s" % [map.towns[a].name, map.towns[b].name]
 	for id in [a, b]:
 		var island := map.towns[id]
-		var berth := island.slip_index(route.id)
-		if berth < 0:
+		if island.slip_index(route.id) < 0:
 			return "%s has no slip for this route" % island.name
-		var slip := island.slips[berth]
-		if not slip.fits(f.fc.size):
-			return "%s's %s slip is too small for her" % [island.name, slip.size_name()]
+		if fitting_slip(id, route, f.fc.size) < 0:
+			return "%s has no slip big enough for her" % island.name
 	return ""
+
+
+## The slip at town `id` a boat of `size` can use for `route`: its own if she
+## fits, else the first working slip big enough (-1 if none).
+func fitting_slip(id: int, route: MapData.Route, size: int) -> int:
+	var island := map.towns[id]
+	var own := island.slip_index(route.id)
+	if own >= 0 and island.slips[own].fits(size):
+		return own
+	var term: Terminal = terminals.get(id)
+	for i in island.slips.size():
+		var s := island.slips[i]
+		if s.tie_up or s.building or not s.fits(size):
+			continue
+		if term and term.slip_shut(i):
+			continue
+		return i
+	return -1
+
+
+## Moves each leg of `routes` onto a slip boat `f` fits at both ends.
+func _fit_routes(f: Ferry, routes: Array[MapData.Route]) -> void:
+	for route in routes:
+		for id in [route.a, route.b]:
+			var to := fitting_slip(id, route, f.fc.size)
+			if to >= 0 and to != map.towns[id].slip_index(route.id) and terminals.has(id):
+				terminals[id].move_route_now(route.id, to)
 
 
 ## Why boat `f` can't run `ids` (island ids in turn), or "" if she can.
@@ -233,13 +258,13 @@ func stops_problem(f: Ferry, ids: Array[int]) -> String:
 		var reason := leg_problem(f, ids[i], ids[(i + 1) % ids.size()])
 		if reason != "":
 			return reason
-	if f.next_dock().town.id not in ids:
-		# Lying out of service, her crew can take her across empty to the new stops.
-		if f.berth == Ferry.Berth.TIED_UP and f.assigned:
-			if positioning_stop(f, ids) < 0:
-				return "No route from %s to any of her new stops" % f.here().town.name
-			return ""
-		return "Keep %s, where she calls next" % f.next_dock().town.name
+	if f.next_dock().town.id not in ids and f.assigned:
+		# She sets down there and her crew take her across empty to the new stops.
+		var from := f.next_dock().town.id
+		for id in ids:
+			if route_between(from, id) != null and leg_problem(f, from, id) == "":
+				return ""
+		return "No route from %s to any of her new stops" % f.next_dock().town.name
 	return ""
 
 
@@ -305,6 +330,7 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	var leg_routes: Array[MapData.Route] = []
 	for i in n:
 		leg_routes.append(route_between(ids[i], ids[(i + 1) % n]))
+	_fit_routes(f, leg_routes)
 	if not f.assigned:
 		# Bought in play: these are her first stops, from where she lies.
 		f.take_first_stops(ids, leg_routes, new_times)
@@ -325,10 +351,13 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 			f.set_timetable(new_times)
 	elif f.berth == Ferry.Berth.TIED_UP and f.here().town.id not in ids:
 		var target := positioning_stop(f, ids)
-		f.reposition(target, route_between(f.here().town.id, target), ids, leg_routes, new_times)
+		var to_first: Array[MapData.Route] = [route_between(f.here().town.id, target)]
+		_fit_routes(f, to_first)
+		f.reposition(target, to_first[0], ids, leg_routes, new_times)
 		stops_changed(f)
 	else:
 		f.plan_stops(ids, leg_routes, new_times)
+		f.apply_stops_now()
 	if f.schedule:
 		f.schedule.stops.assign(ids.map(func(id): return map.towns[id].key))
 		f.schedule.departures = new_times

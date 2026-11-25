@@ -392,6 +392,13 @@ func spread_routes() -> void:
 	_assignments.plan()
 
 
+## Puts route `rid` on working slip `to` now (see RouteBerthAssignments.move_now).
+func move_route_now(rid: int, to: int) -> bool:
+	if _assignments == null:
+		_assignments = RouteBerthAssignments.new(self)
+	return _assignments.move_now(rid, to)
+
+
 ## Whether slip `i` is closed for a refit (not a new slip whose crew is leaving).
 func slip_shut(i: int) -> bool:
 	return refit_stage != RefitStage.NONE and i == refit_slip and not (refit_new and refit_stage == RefitStage.LEAVING)

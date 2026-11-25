@@ -362,8 +362,10 @@ func set_timetable(times: Array[int]) -> void:
 ## no longer reaches from here drive off here instead.
 func _take_next_stops() -> bool:
 	var term_id := here().town.id
-	if next_stops.is_empty() or term_id not in next_stops:
+	if next_stops.is_empty() or manual:
 		return false
+	if term_id not in next_stops:
+		return _divert_to_next_stops()
 	var came_from := stops[(call - 1 + stops.size()) % stops.size()]
 	var k := next_stops.find(term_id)
 	for i in next_stops.size():
@@ -387,6 +389,40 @@ func _take_next_stops() -> bool:
 			pax["dest"] = term_id
 	sim.stops_changed(self)
 	return true
+
+
+## New stops that leave out where she is: everyone not for here gets off (fares
+## refunded, their towns unhappy) and she sails across empty to the first new
+## stop she can reach, where she takes them up.
+func _divert_to_next_stops() -> bool:
+	var term_id := here().town.id
+	var target := sim.positioning_stop(self, next_stops)
+	if target < 0:
+		return false
+	_set_down_short(term_id)
+	var leg := sim.route_between(term_id, target)
+	var fit: Array[MapData.Route] = [leg]
+	sim._fit_routes(self, fit)
+	stops = [term_id, target]
+	legs = [leg, leg]
+	call = 0
+	_positioning = true
+	set_timetable([])
+	_offsets.clear()
+	_take_leg()
+	sim.stops_changed(self)
+	return true
+
+
+## A schedule change takes effect now: alongside, she sets down at once anyone
+## her new stops leave behind; under way, she does at the dock she's bound for.
+func apply_stops_now() -> void:
+	if berth != Berth.WORKING or manual or next_stops.is_empty():
+		return
+	if state == State.LOADING:
+		_begin_unloading()
+	elif state == State.UNLOADING:
+		_take_next_stops()
 
 
 ## Where on the route curve her hull lies docked at the end she is at.
@@ -1048,6 +1084,9 @@ func _tick_sailing(delta: float) -> void:
 		_choose_slip()
 	var wait := minf(minf(_corridor_wait(), _refit_wait()), minf(_slip_wait(), _occupied_wait()))
 	wait = minf(wait, _shift_wait())
+	if holding:
+		wait = minf(wait, maxf(_hold_at - traveled, 0.0))
+		_tick_hold(delta)
 	hold = wait
 	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
@@ -1873,6 +1912,8 @@ func kind_text() -> String:
 
 
 func status_text() -> String:
+	if holding:
+		return "Pulled aside, bound for %s · %d min · Return to service when ready" % [destination().town.name, int(_held_for)]
 	if manual:
 		return _manual_text()
 	match berth:
@@ -2234,7 +2275,11 @@ func resale_value() -> int:
 
 ## Only a boat lying laid up (not between sailings, not on her way) can be sold.
 func can_sell() -> bool:
-	return berth == Berth.TIED_UP and not between_sailings() and not return_requested
+	if berth == Berth.TIED_UP and not between_sailings() and not return_requested:
+		return true
+	# Out of service by hand and empty, wherever she lies (at a slip or held off).
+	return ((manual and _manual_landed) or holding) and aboard.is_empty() and passengers_aboard.is_empty() \
+			and state != State.UNLOADING and _boarding <= 0 and _manual_pending.is_empty()
 
 
 ## She can always be laid up: in a free tie-up slip if one of her stops has one,
@@ -2299,18 +2344,49 @@ func free_tie_up(term: Terminal) -> int:
 
 ## The player asks her out of service: she finishes the crossing under way,
 ## unloads, and ties up at the first terminal of her route with a free tie-up slip.
-func request_lay_up() -> void:
+## Lay up is at once: boarding closes, she sets everyone down where she is (or,
+## under way, at the dock she's bound for, unless `town_id` names another) and
+## lies there out of service, in a free tie-up slip she fits, else a working one.
+func request_lay_up(town_id := -1) -> void:
 	if berth == Berth.DELIVERING:
 		return
 	return_requested = false
 	_gap_due = -1.0   # tied up between sailings: she stays there
-	if berth == Berth.WORKING:
-		lay_up_requested = true
+	if berth == Berth.TIED_UP and town_id < 0:
+		return
+	if town_id < 0:
+		town_id = next_dock().town.id if berth == Berth.WORKING else here().town.id
+	var slip := best_slip(town_id)
+	if slip < 0 or not order_move(town_id, slip):
+		lay_up_requested = berth == Berth.WORKING   # (the old way: at her next tie-up)
+
+
+## The slip at `town_id` she'd best lie in: a free tie-up she fits, else the
+## working slip she's in there, else an idle working slip she fits (-1 if none).
+func best_slip(town_id: int) -> int:
+	if not sim.terminals.has(town_id):
+		return -1
+	var term: Terminal = sim.terminals[town_id]
+	var i := free_tie_up(term)
+	if i >= 0:
+		return i
+	if here() == term and slip_at(term) >= 0 and term.town.slips[slip_at(term)].fits(fc.size):
+		return slip_at(term)
+	i = idle_slip(term, fc.size, self)
+	if i >= 0:
+		return i
+	for j in term.town.slips.size():
+		if not term.town.slips[j].building and term.town.slips[j].fits(fc.size):
+			return j
+	return -1
 
 
 ## Back into service: from the tie-up to her working slip once it is free.
 func request_return() -> void:
 	if berth == Berth.DELIVERING:
+		return
+	if holding:
+		holding = false
 		return
 	_manual_pending = []
 	if manual:
@@ -2324,7 +2400,7 @@ func request_return() -> void:
 
 
 func in_service() -> bool:
-	return (berth == Berth.WORKING or between_sailings()) and not lay_up_requested and not manual
+	return (berth == Berth.WORKING or between_sailings()) and not lay_up_requested and not manual and not holding
 
 
 ## At or moving to or from a tie-up slip between timed sailings (GAP_TIE_UP),
@@ -2672,6 +2748,47 @@ func _follow_shift(delta: float) -> bool:
 	return _shift_s >= length - 0.01
 
 
+# --- Pulled aside (TID-329) -------------------------------------------------------
+# The player pulls her aside mid-crossing: she eases to a stop on her track and
+# holds there, riders and all, until Return to service, when she carries on. She
+# idles her engines (a slow burn) and the longer she holds the unhappier the towns
+# her riders are bound for.
+
+const HOLD_FUEL_PER_MIN := 6.0     # $ a game minute idling
+const HOLD_GRACE_MIN := 15.0       # riders put up with this long before it tells
+const HOLD_GRUMBLE := 0.003        # turned-away weight per rider per minute after that
+var holding := false
+var _hold_at := 0.0                # where along her run she comes to a stop
+var _held_for := 0.0               # game minutes she's held
+
+
+## Pulls her aside where she is (only under way). False if she can't.
+func order_hold() -> bool:
+	if berth != Berth.WORKING or state != State.SAILING or manual:
+		return false
+	holding = true
+	_held_for = 0.0
+	_hold_at = minf(traveled + speed * speed / (2.0 * FerryVoyage.YIELD_DECEL) + 2.0, run_length() - FerryVoyage.DOCKING_ZONE)
+	_hold_at = maxf(_hold_at, traveled)
+	return true
+
+
+func _tick_hold(delta: float) -> void:
+	var dmin := Units.game_minutes(delta)
+	_held_for += dmin
+	_crossing_fuel += HOLD_FUEL_PER_MIN * dmin
+	if _held_for < HOLD_GRACE_MIN:
+		return
+	var riders := {}
+	for car in aboard:
+		riders[car.dest] = riders.get(car.dest, 0.0) + 1.0
+	for p in passengers_aboard:
+		riders[int(p["dest"])] = riders.get(int(p["dest"]), 0.0) + 0.5
+	for dest in riders:
+		if sim.terminals.has(dest):
+			sim.terminals[dest].turned_recent += riders[dest] * HOLD_GRUMBLE * dmin
+
+
 # --- Manual orders (TID-328) -----------------------------------------------------
 # The player's safety valve for a jam: send her by hand to any slip at a terminal
 # a route reaches from where she is (or is bound), under way or alongside. Her
@@ -2751,6 +2868,7 @@ func order_move(town_id: int, slip: int) -> bool:
 		_manual_pending = [town_id, slip]   # (once she's done moving between slips)
 		return true
 	_manual_pending = []
+	holding = false
 	if not manual:
 		if not next_stops.is_empty():
 			_manual_prev = {"stops": next_stops.duplicate(), "legs": _next_legs.duplicate(), "times": _next_timetable.duplicate()}
@@ -2921,7 +3039,12 @@ func _manual_set_down() -> void:
 		return
 	_manual_landed = true
 	_positioning = false
-	var stop := manual_target
+	_set_down_short(manual_target)
+
+
+## Everyone aboard bound anywhere but `stop` gets off there: fares refunded, and
+## the town they were bound for counts it against the service.
+func _set_down_short(stop: int) -> void:
 	for car in aboard:
 		if car.dest >= 0 and car.dest != stop:
 			_strand(car.dest, 1.0, sim.ledger.vehicle_fare_for(_fare_route_id(car.dest)) * maxi(1, car.fare_multiplier()))
