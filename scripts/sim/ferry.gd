@@ -1216,7 +1216,11 @@ func _blocked_at_dock() -> bool:
 		if run[0] - traveled > ARRIVAL_PRIORITY:
 			break
 		var holder := _run_holder(run, traveled)
-		if holder != null and holder._waiting_for != self:
+		# The water round her destination slip, kept by the boat lying there, doesn't
+		# hold her in: she leaves and holds off outside it (freeing this slip).
+		var at_far_slip: bool = run[0] > 3.0 and run[1] >= run_length() - 3.0 \
+				and holder != null and holder.state != State.SAILING
+		if holder != null and holder._waiting_for != self and not at_far_slip:
 			_waiting_for = holder
 			return true
 		holder = _arriving_through(run)

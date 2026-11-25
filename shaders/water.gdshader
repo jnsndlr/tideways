@@ -40,11 +40,10 @@ uniform float normal_strength = 1.0;
 uniform float gust_size = 180.0;
 uniform float gust_strength = 0.55;
 // Macro variation so the wave lattice never repeats visibly from high up:
-// a slow large-scale warp (UNITs of size, UNITs of push), a local swing of the
-// wind heading (radians), and patchy per-octave strength (0 = uniform).
-uniform float macro_size = 60.0;
-uniform float macro_warp = 14.0;
-uniform float macro_turn = 0.35;
+// a gentle large-scale warp (UNITs of size, UNITs of push; keep push well under
+// a tenth of size or fine ripples smear) and patchy per-octave strength.
+uniform float macro_size = 80.0;
+uniform float macro_warp = 4.0;
 uniform float macro_patchiness = 0.6;
 
 group_uniforms water;
@@ -191,15 +190,13 @@ const float OCT_AMP = 0.44;
 // `gust` 0..1. Outputs the longest octave's crest value (0..2) and the slope the
 // dropped octaves would have added, and the height's gradient over world xz.
 float waves(vec2 p, vec2 wind, float t, float fp, float gust, out float crest, out float lost, out vec2 slope) {
-	// Macro warp + local wind swing: breaks the octaves' lattice on a scale far
-	// bigger than any crest, so wide views stop showing a repeating pattern.
+	// Macro warp: bends the octaves' lattice on a scale far bigger than any crest,
+	// so wide views stop showing a repeating pattern. (Never turn the wind per
+	// pixel here: that rotates about the world origin and tears the field.)
 	vec2 mp = p / macro_size;
 	vec2 mw = vec2(gnoise(mp + vec2(17.1, 3.4)), gnoise(mp * 1.3 + vec2(-8.2, 21.7)))
 			+ 0.5 * vec2(gnoise(mp * 2.7 + 40.0), gnoise(mp * 2.7 - 40.0));
 	p += mw * macro_warp;
-	float turn = gnoise(mp * 0.7 + 63.0) * macro_turn;
-	vec2 tw = vec2(cos(turn), sin(turn));
-	wind = vec2(wind.x * tw.x - wind.y * tw.y, wind.x * tw.y + wind.y * tw.x);
 	// Wind frame: x downwind, y across.
 	vec2 q0 = vec2(dot(p, wind), dot(p, vec2(-wind.y, wind.x)));
 	float len = wave_length;
@@ -216,7 +213,7 @@ float waves(vec2 p, vec2 wind, float t, float fp, float gust, out float crest, o
 		float g = mix(1.0 - gust_strength, 1.0 + gust_strength, gust);
 		float a = amp * (i == 0 ? mix(1.0, g, 0.4) : g);
 		// Each octave waxes and wanes in its own patches.
-		a *= 1.0 + macro_patchiness * gnoise(mp * (1.6 + 0.4 * float(i)) + float(i) * 13.7);
+		a *= max(1.0 + macro_patchiness * gnoise(mp * (1.6 + 0.4 * float(i)) + float(i) * 13.7), 0.25);
 		lost += (1.0 - lod) * a / len;
 		if (lod > 0.0) {
 			float ang = OCT_ANGLE[i];
