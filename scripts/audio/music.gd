@@ -2,7 +2,8 @@ class_name Music
 extends Node
 ## The soundtrack: every track in FOLDER, played in a random order without an
 ## immediate repeat, carrying on across scene changes (it lives under the tree
-## root, not in a scene). Drop an .mp3, .ogg or .wav in FOLDER to add a track. Full on the menu and loading
+## root, not in a scene). Drop an .mp3, .ogg or .wav in FOLDER to add a track. Full on the menu
+## and loading
 ## screen, fading down to a soft bed once a map is built. Its level is set by the
 ## Music bus (GameSettings).
 

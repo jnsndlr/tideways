@@ -49,54 +49,28 @@ const MULTIMESH_TILE := 192.0
 const EAGLE_SHORE := 45.0
 const EAGLE_CELL := 27.0
 
-var _frames := BuildFrameBudget.new()
-var _tie_up_piers := {}         # town id -> TieUpPier node
+const CITY_HALL := "city_hall"
+## Shell size before awnings and decks. Pair each foundation with its authored model.
+const SHOP_SHELLS := {
+	"salt_and_rye": Vector2(8, 5.8),
+	"sound_chandlery": Vector2(7, 6.6),
+	"tideline_cafe": Vector2(8.4, 6),
+	"harbor_inn": Vector2(11.6, 7),
+	"glass_hall": Vector2(11.2, 7),
+	"brick_mercantile": Vector2(9.8, 6.3),
+	"sunset_terrace": Vector2(12, 6),
+	"harbor_office": Vector2(10.5, 6),
+	"seafoam_cafe": Vector2(9.1, 5.65),
+	"tidetable_books": Vector2(6.4, 5.6),
+	"post_office": Vector2(3.3, 5.4),
+	"poppy_and_stem": Vector2(6.6, 5.8),
+	"sound_fish_market": Vector2(6.2, 5.4),
+	CITY_HALL: Vector2(11, 7),
+}
 
-var map: MapData
-var terrain: Terrain
-var rng := RandomNumberGenerator.new()
-## Tree cards inside the map, on the mainland's shores (the Backdrop draws them).
-var edge_cards: Array[Vector3] = []
-# Card picks by the edge, kept apart from `rng` so the rest of the woods don't reshuffle.
-var _edge_rng := RandomNumberGenerator.new()
-## The terrain's material (its `facet` sets how faceted the ground looks).
-var terrain_material: ShaderMaterial
-var _forest_noise := FastNoiseLite.new()
-var _pasture_noise := FastNoiseLite.new()
-var root: Node3D
-## Where the bell buoys float (world, at the waterline), for Ambience to ring them.
-var bell_buoys: Array[Vector3] = []
-var route_overlay: MeshInstance3D
-var water_material: ShaderMaterial
-var night_lights: MeshInstance3D
-var glows := GlowBuilder.new()
-## Terminals not open yet: town id -> [hidden node, its lights (MeshInstance3D)].
-var _sites := {}
-## Cached town building meshes & names so runtime growth reuses exact variants.
-var house_meshes: Array[Mesh] = []
-var house_kit_names: Array[String] = []
-var shop_meshes: Array[Mesh] = []
-var shop_names_list: Array[String] = []
-var _landmark_meshes := {}
+const PIER_RESTAURANTS := ["sea_glass_grill", "red_net_kitchen"]
 
-## Places seagulls can sit (where the feet go, in world space).
-var gull_perches: Array[Seagulls.Perch] = []
-## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
-var tree_shadows: Array[MultiMeshInstance3D] = []
-## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
-var tree_cells := {}
-var _highest_tree_crown := -INF
 const TREE_CELL := 64.0
-## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
-var eagle_perches: Array[Eagles.Perch] = []
-var _blocked := {}
-## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
-## in RGB and how much grass grows there in A (Grass reads it as a texture).
-var ground_rgba := PackedByteArray()
-## The tops of the shore rocks' grassy caps, for the grass blades (Grass.gd): one byte
-## a LIFT_CELL square, 0 for none, else the cap's height as (h + 4) * 4.
-var grass_lift := PackedByteArray()
-var lift_side := 0
 const LIFT_CELL := 2.0
 # The most the ground may fall (m) across a building's plan; steeper lots are
 # left empty rather than graded.
@@ -105,6 +79,53 @@ const KIT_MAX_DROP := 3.5
 # hillside over KIT_LOT_BLEND (m).
 const KIT_LOT_MARGIN := 1.5
 const KIT_LOT_BLEND := 6.0
+
+var map: MapData
+var terrain: Terrain
+var rng := RandomNumberGenerator.new()
+## Tree cards inside the map, on the mainland's shores (the Backdrop draws them).
+var edge_cards: Array[Vector3] = []
+## The terrain's material (its `facet` sets how faceted the ground looks).
+var terrain_material: ShaderMaterial
+var root: Node3D
+## Where the bell buoys float (world, at the waterline), for Ambience to ring them.
+var landmarks := LandmarkMeshes.new()
+var bell_buoys: Array[Vector3] = []
+var route_overlay: MeshInstance3D
+var water_material: ShaderMaterial
+var night_lights: MeshInstance3D
+var glows := GlowBuilder.new()
+## Cached town building meshes & names so runtime growth reuses exact variants.
+var house_meshes: Array[Mesh] = []
+var house_kit_names: Array[String] = []
+var shop_meshes: Array[Mesh] = []
+var shop_names_list: Array[String] = []
+## Places seagulls can sit (where the feet go, in world space).
+var gull_perches: Array[Seagulls.Perch] = []
+## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
+var tree_shadows: Array[MultiMeshInstance3D] = []
+## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
+var tree_cells := {}
+## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
+var eagle_perches: Array[Eagles.Perch] = []
+## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
+## in RGB and how much grass grows there in A (Grass reads it as a texture).
+var ground_rgba := PackedByteArray()
+## The tops of the shore rocks' grassy caps, for the grass blades (Grass.gd): one byte
+## a LIFT_CELL square, 0 for none, else the cap's height as (h + 4) * 4.
+var grass_lift := PackedByteArray()
+var lift_side := 0
+
+var _frames := BuildFrameBudget.new()
+var _tie_up_piers := {}  # town id -> TieUpPier node
+# Card picks by the edge, kept apart from `rng` so the rest of the woods don't reshuffle.
+var _edge_rng := RandomNumberGenerator.new()
+var _forest_noise := FastNoiseLite.new()
+var _pasture_noise := FastNoiseLite.new()
+## Terminals not open yet: town id -> [hidden node, its lights (MeshInstance3D)].
+var _sites := {}
+var _highest_tree_crown := -INF
+var _blocked := {}
 
 
 func _init(m: MapData, t: Terrain) -> void:
@@ -953,14 +974,6 @@ func _nav_aid(
 	return base + b * (lamp + Vector3(0, 0.35, 0))
 
 
-## Camera (or any point) to the nearest bell buoy, in metres; INF if there are none.
-func nearest_bell_distance(from: Vector3) -> float:
-	var best := INF
-	for b in bell_buoys:
-		best = minf(best, from.distance_to(b))
-	return best
-
-
 ## Open-water marks: a hazard spar off the shoal edge of most islands, a bell
 ## buoy out in deep water off each inhabited one, and a pair of channel markers
 ## further out on each terminal's approach. All flash at night.
@@ -1378,17 +1391,6 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array, crossing: Vector3)
 		walked += seg
 
 
-const CITY_HALL := "city_hall"
-## Shell size before awnings and decks. Pair each foundation with its authored model.
-const SHOP_SHELLS := {
-	"salt_and_rye": Vector2(8, 5.8), "sound_chandlery": Vector2(7, 6.6),
-	"tideline_cafe": Vector2(8.4, 6), "harbor_inn": Vector2(11.6, 7),
-	"glass_hall": Vector2(11.2, 7), "brick_mercantile": Vector2(9.8, 6.3),
-	"sunset_terrace": Vector2(12, 6), "harbor_office": Vector2(10.5, 6),
-	"seafoam_cafe": Vector2(9.1, 5.65), "tidetable_books": Vector2(6.4, 5.6),
-	"post_office": Vector2(3.3, 5.4), "poppy_and_stem": Vector2(6.6, 5.8),
-	"sound_fish_market": Vector2(6.2, 5.4), CITY_HALL: Vector2(11, 7),
-}
 
 
 func _build_towns() -> void:
@@ -1724,7 +1726,7 @@ func _build_radio_towers() -> void:
 				best_pos.y,
 				KIT_LOT_BLEND
 			)
-			var mesh := build_landmark_mesh("radio_tower")
+			var mesh := landmarks.mesh_for("radio_tower")
 			if mesh != null:
 				var mi := _add_mesh(mesh, "RadioTower_%s" % isl.name)
 				mi.position = best_pos
@@ -1739,87 +1741,6 @@ func _build_radio_towers() -> void:
 				Vector3.ZERO,
 				Models.LAMP_ON_AT
 			)
-
-
-## Cached baked mesh + foundation plinth for milestone landmark GLBs.
-func build_landmark_mesh(model_name: String) -> ArrayMesh:
-	if _landmark_meshes.has(model_name):
-		return _landmark_meshes[model_name]
-	var path := ""
-	if SHOP_SHELLS.has(model_name):
-		path = "res://assets/models/coastal_shops/%s.glb" % model_name
-	else:
-		path = "res://assets/models/%s.glb" % model_name
-	if not ResourceLoader.exists(path):
-		return null
-	var mb := MeshBuilder.new()
-	Models._append_part(mb, ModelParts.baked(path), Transform3D.IDENTITY)
-	var temp := mb.commit()
-	var aabb := temp.get_aabb()
-	var pad_w := clampf(aabb.size.x * 0.92, 3.0, 26.0)
-	var pad_d := clampf(aabb.size.z * 0.92, 3.0, 26.0)
-	var cx := aabb.position.x + aabb.size.x * 0.5
-	var cz := aabb.position.z + aabb.size.z * 0.5
-	mb.box(
-		Vector3(cx, -KIT_MAX_DROP * 0.5 + 0.05, cz),
-		Vector3(pad_w, KIT_MAX_DROP, pad_d),
-		Models.KIT_FOUNDATION
-	)
-	var mesh := mb.commit()
-	_landmark_meshes[model_name] = mesh
-	return mesh
-
-
-## Levels a single building lot in play and updates the affected terrain tile(s).
-func level_lot_runtime(
-	pos: Vector3, yaw: float, half_w: float, half_d: float, target_y: float
-) -> void:
-	if terrain == null:
-		return
-	var dir := Vector3(sin(yaw), 0.0, cos(yaw))
-	terrain.level_now(
-		Vector3(pos.x, 0.0, pos.z),
-		dir,
-		-half_d - KIT_LOT_MARGIN,
-		half_d + KIT_LOT_MARGIN,
-		-half_w - KIT_LOT_MARGIN,
-		half_w + KIT_LOT_MARGIN,
-		target_y,
-		KIT_LOT_BLEND
-	)
-	var reach := maxf(half_w, half_d) + KIT_LOT_MARGIN + KIT_LOT_BLEND + 2.0
-	var i0 := clampi(floori((pos.x - reach + terrain.half_size) / Terrain.CELL), 0, terrain.n)
-	var i1 := clampi(ceili((pos.x + reach + terrain.half_size) / Terrain.CELL), 0, terrain.n)
-	var j0 := clampi(floori((pos.z - reach + terrain.half_size) / Terrain.CELL), 0, terrain.n)
-	var j1 := clampi(ceili((pos.z + reach + terrain.half_size) / Terrain.CELL), 0, terrain.n)
-	rebuild_terrain(Rect2i(i0, j0, maxi(1, i1 - i0), maxi(1, j1 - j0)))
-
-
-## Adds a night glow (entry lamp or tower beacon) for a building constructed at runtime.
-func add_runtime_building_light(
-	xf: Transform3D,
-	local_pos: Vector3,
-	color: Color,
-	radius: float,
-	waterfront := false,
-	pool_pos := Vector3.INF
-) -> void:
-	if night_lights == null:
-		return
-	var g := GlowBuilder.new()
-	g.xform = xf
-	g.glow(
-		local_pos, color, radius, radius * 16.0, waterfront, 0.0, Vector3.ZERO, Models.LAMP_ON_AT
-	)
-	if pool_pos != Vector3.INF:
-		g.pool(pool_pos, color, 4.5, 0.3)
-	var mesh := g.commit()
-	if mesh == null:
-		return
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	night_lights.add_child(mi)
 
 
 ## The highest (x), lowest (y) and mean (z) ground under `plan` (house frame x, z)
@@ -2158,7 +2079,6 @@ func lift_image() -> Image:
 	return Image.create_from_data(lift_side, lift_side, false, Image.FORMAT_R8, grass_lift)
 
 
-const PIER_RESTAURANTS := ["sea_glass_grill", "red_net_kitchen"]
 
 
 ## Put the dining deck flush with the right edge of the jetty, landward of its T-head.

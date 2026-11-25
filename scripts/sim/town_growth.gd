@@ -15,9 +15,9 @@ signal island_radio_tower_unlocked(island: MapData.Island)
 const PEOPLE_PER_HOUSE := 100
 const PEOPLE_PER_COMMERCIAL := 333
 const MAX_CONCURRENT_BUILDS := 2
-const HOUSE_BUILD_MINUTES := 240.0       # 4 game hours
+const HOUSE_BUILD_MINUTES := 240.0  # 4 game hours
 const COMMERCIAL_BUILD_MINUTES := 420.0  # 7 game hours
-const LANDMARK_BUILD_MINUTES := 480.0    # 8 game hours
+const LANDMARK_BUILD_MINUTES := 480.0  # 8 game hours
 const STABILITY_DAYS_FULL := 5.0
 const RADIO_TOWER_ISLAND_POP := 6000
 const CONNECTIVITY_POP_STEP := 1000
@@ -28,16 +28,18 @@ const MAX_EXPECTED_CONNECTIONS := 6
 const GROWTH_SCALE := 1.0
 
 const PROFILES := {
-	"rural": {
+	"rural":
+	{
 		"label": "Rural",
 		"organic_daily": 5.0,
 		"base_economy": 22.0,
 		"base_residents": 30.0,
 		"base_industry": 18.0,
 		"base_tourism": 38.0,
-		"weights": Vector3(0.35, 0.20, 0.45), # residents, industry, tourism
+		"weights": Vector3(0.35, 0.20, 0.45),  # residents, industry, tourism
 	},
-	"residential": {
+	"residential":
+	{
 		"label": "Residential",
 		"organic_daily": 10.0,
 		"base_economy": 38.0,
@@ -46,7 +48,8 @@ const PROFILES := {
 		"base_tourism": 30.0,
 		"weights": Vector3(0.55, 0.20, 0.25),
 	},
-	"industrial": {
+	"industrial":
+	{
 		"label": "Industrial",
 		"organic_daily": 8.0,
 		"base_economy": 54.0,
@@ -125,8 +128,8 @@ class TownState:
 
 
 var sim: Simulation
-var states := {}                  # town_id -> TownState
-var island_builds := {}           # island_id -> BuildJob (radio tower)
+var states := {}  # town_id -> TownState
+var island_builds := {}  # island_id -> BuildJob (radio tower)
 var observatory_claimed_town := -1
 var _next_job_id := 1
 var _metrics_acc := 0.0
@@ -140,7 +143,9 @@ static func community_label(community_type: String) -> String:
 	return str(profile_for(community_type)["label"])
 
 
-static func expected_connections_for(population: int, max_possible := MAX_EXPECTED_CONNECTIONS) -> int:
+static func expected_connections_for(
+	population: int, max_possible := MAX_EXPECTED_CONNECTIONS
+) -> int:
 	var raw := 1 + int(maxi(population, 0) / CONNECTIVITY_POP_STEP)
 	return clampi(raw, 1, maxi(1, mini(MAX_EXPECTED_CONNECTIONS, max_possible)))
 
@@ -172,15 +177,23 @@ func setup(simulation: Simulation) -> void:
 		st.attractiveness_tourism = float(prof["base_tourism"])
 		var isl := sim.map.island_of(town)
 		if isl != null:
-			st.attractiveness_tourism = clampf(st.attractiveness_tourism + isl.wildlife_appeal * 4.5, 0.0, 100.0)
-		st.built_houses = town.initial_houses if town.initial_houses > 0 else target_houses_for(town.population)
-		st.built_commercial = town.initial_commercial if town.initial_commercial > 0 else target_commercial_for(town.population)
+			st.attractiveness_tourism = clampf(
+				st.attractiveness_tourism + isl.wildlife_appeal * 4.5, 0.0, 100.0
+			)
+		st.built_houses = (
+			town.initial_houses if town.initial_houses > 0 else target_houses_for(town.population)
+		)
+		st.built_commercial = (
+			town.initial_commercial
+			if town.initial_commercial > 0
+			else target_commercial_for(town.population)
+		)
 		_seed_starting_milestones(town, st)
 		if isl != null and isl.radio_tower_built:
 			_apply_radio_tower_bonuses(st)
 		states[town.id] = st
 
-	# Towns that start with active ferry service begin with 1 stable day so opening day feels responsive.
+	# Active ferry service starts with one stable day.
 	refresh_metrics()
 	for town in sim.map.towns:
 		var st: TownState = states[town.id]
@@ -189,7 +202,10 @@ func setup(simulation: Simulation) -> void:
 	refresh_metrics()
 	_sync_island_populations()
 
-	if sim.wildlife != null and not sim.wildlife.photographed.is_connected(_on_wildlife_photographed):
+	if (
+		sim.wildlife != null
+		and not sim.wildlife.photographed.is_connected(_on_wildlife_photographed)
+	):
 		sim.wildlife.photographed.connect(_on_wildlife_photographed)
 
 
@@ -211,41 +227,145 @@ func _town_milestone_defs(community_type: String) -> Array[Dictionary]:
 	var defs: Array[Dictionary] = []
 	match community_type:
 		"rural":
-			defs.append({
-				"id": "tier_1500", "pop": 1500, "title": "Village Post & Market",
-				"model": "post_office", "growth": 0.10, "res": 6.0, "ind": 2.0, "tour": 8.0, "econ": 4.0, "rec": 4.0,
-			})
-			defs.append({
-				"id": "tier_2500", "pop": 2500, "title": "Harbor Inn",
-				"model": "harbor_inn", "growth": 0.15, "res": 5.0, "ind": 3.0, "tour": 14.0, "econ": 6.0, "rec": 10.0,
-			})
+			(
+				defs
+				. append(
+					{
+						"id": "tier_1500",
+						"pop": 1500,
+						"title": "Village Post & Market",
+						"model": "post_office",
+						"growth": 0.10,
+						"res": 6.0,
+						"ind": 2.0,
+						"tour": 8.0,
+						"econ": 4.0,
+						"rec": 4.0,
+					}
+				)
+			)
+			(
+				defs
+				. append(
+					{
+						"id": "tier_2500",
+						"pop": 2500,
+						"title": "Harbor Inn",
+						"model": "harbor_inn",
+						"growth": 0.15,
+						"res": 5.0,
+						"ind": 3.0,
+						"tour": 14.0,
+						"econ": 6.0,
+						"rec": 10.0,
+					}
+				)
+			)
 		"industrial":
-			defs.append({
-				"id": "tier_1500", "pop": 1500, "title": "Harbor Freight Shed",
-				"model": "crab_wharf_shack", "growth": 0.10, "res": 3.0, "ind": 10.0, "tour": 0.0, "econ": 8.0, "rec": 0.0,
-			})
-			defs.append({
-				"id": "tier_2500", "pop": 2500, "title": "Waterfront Depot",
-				"model": "waterfront_depot", "growth": 0.15, "res": 4.0, "ind": 14.0, "tour": 2.0, "econ": 12.0, "rec": 0.0,
-			})
+			(
+				defs
+				. append(
+					{
+						"id": "tier_1500",
+						"pop": 1500,
+						"title": "Harbor Freight Shed",
+						"model": "crab_wharf_shack",
+						"growth": 0.10,
+						"res": 3.0,
+						"ind": 10.0,
+						"tour": 0.0,
+						"econ": 8.0,
+						"rec": 0.0,
+					}
+				)
+			)
+			(
+				defs
+				. append(
+					{
+						"id": "tier_2500",
+						"pop": 2500,
+						"title": "Waterfront Depot",
+						"model": "waterfront_depot",
+						"growth": 0.15,
+						"res": 4.0,
+						"ind": 14.0,
+						"tour": 2.0,
+						"econ": 12.0,
+						"rec": 0.0,
+					}
+				)
+			)
 		_:
-			defs.append({
-				"id": "tier_1500", "pop": 1500, "title": "Neighborhood Post Office",
-				"model": "post_office", "growth": 0.10, "res": 10.0, "ind": 3.0, "tour": 4.0, "econ": 4.0, "rec": 3.0,
-			})
-			defs.append({
-				"id": "tier_2500", "pop": 2500, "title": "Civic Hall",
-				"model": "city_hall", "growth": 0.15, "res": 12.0, "ind": 5.0, "tour": 6.0, "econ": 8.0, "rec": 5.0,
-			})
-	defs.append({
-		"id": "airfield_4000", "pop": 4000, "title": "Regional Airfield Hangar",
-		"model": "airplane_hangar_low", "growth": 0.20, "res": 8.0, "ind": 10.0, "tour": 10.0, "econ": 12.0, "rec": 6.0,
-	})
+			(
+				defs
+				. append(
+					{
+						"id": "tier_1500",
+						"pop": 1500,
+						"title": "Neighborhood Post Office",
+						"model": "post_office",
+						"growth": 0.10,
+						"res": 10.0,
+						"ind": 3.0,
+						"tour": 4.0,
+						"econ": 4.0,
+						"rec": 3.0,
+					}
+				)
+			)
+			(
+				defs
+				. append(
+					{
+						"id": "tier_2500",
+						"pop": 2500,
+						"title": "Civic Hall",
+						"model": "city_hall",
+						"growth": 0.15,
+						"res": 12.0,
+						"ind": 5.0,
+						"tour": 6.0,
+						"econ": 8.0,
+						"rec": 5.0,
+					}
+				)
+			)
+	(
+		defs
+		. append(
+			{
+				"id": "airfield_4000",
+				"pop": 4000,
+				"title": "Regional Airfield Hangar",
+				"model": "airplane_hangar_low",
+				"growth": 0.20,
+				"res": 8.0,
+				"ind": 10.0,
+				"tour": 10.0,
+				"econ": 12.0,
+				"rec": 6.0,
+			}
+		)
+	)
 	if community_type == "rural":
-		defs.append({
-			"id": "observatory_4000", "pop": 4000, "title": "Coastal Observatory",
-			"model": "observatory", "growth": 0.15, "res": 4.0, "ind": 2.0, "tour": 20.0, "econ": 5.0, "rec": 16.0,
-		})
+		(
+			defs
+			. append(
+				{
+					"id": "observatory_4000",
+					"pop": 4000,
+					"title": "Coastal Observatory",
+					"model": "observatory",
+					"growth": 0.15,
+					"res": 4.0,
+					"ind": 2.0,
+					"tour": 20.0,
+					"econ": 5.0,
+					"rec": 16.0,
+				}
+			)
+		)
 	return defs
 
 
@@ -348,7 +468,7 @@ func step(dmin: float) -> void:
 				any_pop_changed = true
 				population_changed.emit(town, new_pop)
 				_check_town_milestones(town, st)
-		_advance_town_builds(town, st, dmin)
+		_advance_town_builds(st, dmin)
 		_queue_needed_builds(town, st)
 
 	if any_pop_changed:
@@ -379,11 +499,19 @@ func start_day() -> void:
 
 		var targets := _pillar_targets(town, st)
 		var drift := 0.22
-		st.attractiveness_residents = clampf(lerpf(st.attractiveness_residents, targets["residents"], drift), 5.0, 100.0)
-		st.attractiveness_industry = clampf(lerpf(st.attractiveness_industry, targets["industry"], drift), 5.0, 100.0)
-		st.attractiveness_tourism = clampf(lerpf(st.attractiveness_tourism, targets["tourism"], drift), 5.0, 100.0)
+		st.attractiveness_residents = clampf(
+			lerpf(st.attractiveness_residents, targets["residents"], drift), 5.0, 100.0
+		)
+		st.attractiveness_industry = clampf(
+			lerpf(st.attractiveness_industry, targets["industry"], drift), 5.0, 100.0
+		)
+		st.attractiveness_tourism = clampf(
+			lerpf(st.attractiveness_tourism, targets["tourism"], drift), 5.0, 100.0
+		)
 		_recompute_overall_attractiveness(town, st)
-		st.economic_activity = clampf(lerpf(st.economic_activity, targets["economy"], drift), 5.0, 100.0)
+		st.economic_activity = clampf(
+			lerpf(st.economic_activity, targets["economy"], drift), 5.0, 100.0
+		)
 	refresh_metrics()
 
 
@@ -418,11 +546,14 @@ func refresh_metrics() -> void:
 			var base_conn := float(st.active_connections) / float(st.expected_connections)
 			st.connectivity_score = clampf(base_conn + (0.10 if mainland_link else 0.0), 0.0, 1.0)
 			st.accessibility = clampf(
-				st.frequency_score * 0.30
-				+ st.affordability_score * 0.25
-				+ st.reliability_score * 0.25
-				+ st.connectivity_score * 0.20,
-				0.0, 1.0
+				(
+					st.frequency_score * 0.30
+					+ st.affordability_score * 0.25
+					+ st.reliability_score * 0.25
+					+ st.connectivity_score * 0.20
+				),
+				0.0,
+				1.0
 			)
 		else:
 			st.frequency_score = 0.0
@@ -433,7 +564,9 @@ func refresh_metrics() -> void:
 
 		_recompute_overall_attractiveness(town, st)
 		var prof := profile_for(town.community_type)
-		st.organic_daily = float(prof["organic_daily"]) * GROWTH_SCALE * (1.0 + st.milestone_growth_bonus)
+		st.organic_daily = (
+			float(prof["organic_daily"]) * GROWTH_SCALE * (1.0 + st.milestone_growth_bonus)
+		)
 		if st.has_service:
 			var attract_factor := 0.70 + 0.45 * (st.attractiveness / 100.0)
 			var ferry_mult := clampf(4.0 * st.accessibility * attract_factor, 0.0, 4.0)
@@ -500,45 +633,59 @@ func _pillar_targets(town: MapData.Town, st: TownState) -> Dictionary:
 	var prof := profile_for(town.community_type)
 	var isl := sim.map.island_of(town)
 	var wildlife_appeal := isl.wildlife_appeal if isl != null else 1.0
-	var wildlife_rep := sim.wildlife.reputation(isl) if (sim.wildlife != null and isl != null) else 0.0
+	var wildlife_rep := (
+		sim.wildlife.reputation(isl) if (sim.wildlife != null and isl != null) else 0.0
+	)
 	var wildlife_contrib := clampf(wildlife_appeal * 5.0 + wildlife_rep * 2.5, 0.0, 26.0)
 
 	# Residents prioritize affordability (plus frequency & connectivity).
 	var residents := clampf(
-		float(prof["base_residents"])
-		+ st.affordability_score * 36.0
-		+ st.frequency_score * 12.0
-		+ st.connectivity_score * 8.0
-		+ st.milestone_residents_bonus,
-		5.0, 100.0
+		(
+			float(prof["base_residents"])
+			+ st.affordability_score * 36.0
+			+ st.frequency_score * 12.0
+			+ st.connectivity_score * 8.0
+			+ st.milestone_residents_bonus
+		),
+		5.0,
+		100.0
 	)
 	# Industry prioritizes stability/reliability (plus connectivity & frequency).
 	var industry := clampf(
-		float(prof["base_industry"])
-		+ st.reliability_score * 38.0
-		+ st.connectivity_score * 12.0
-		+ st.frequency_score * 6.0
-		+ st.milestone_industry_bonus,
-		5.0, 100.0
+		(
+			float(prof["base_industry"])
+			+ st.reliability_score * 38.0
+			+ st.connectivity_score * 12.0
+			+ st.frequency_score * 6.0
+			+ st.milestone_industry_bonus
+		),
+		5.0,
+		100.0
 	)
 	# Tourism prioritizes amenities & attractions: wildlife appeal, wildlife photos,
 	# milestones, and future hot air balloons / recreational buildings.
 	var tourism := clampf(
-		float(prof["base_tourism"])
-		+ wildlife_contrib
-		+ st.wildlife_photo_bonus
-		+ st.recreation_bonus
-		+ st.accessibility * 14.0
-		+ st.milestone_tourism_bonus,
-		5.0, 100.0
+		(
+			float(prof["base_tourism"])
+			+ wildlife_contrib
+			+ st.wildlife_photo_bonus
+			+ st.recreation_bonus
+			+ st.accessibility * 14.0
+			+ st.milestone_tourism_bonus
+		),
+		5.0,
+		100.0
 	)
 	var economy := clampf(
-		float(prof["base_economy"])
-		+ (industry / 100.0) * 28.0
-		+ st.accessibility * 14.0
-		+ minf(float(st.built_commercial) * 1.4, 16.0)
-		+ st.milestone_economy_bonus,
-		5.0, 100.0
+		(
+			float(prof["base_economy"])
+			+ (industry / 100.0) * 28.0
+			+ st.accessibility * 14.0
+			+ minf(float(st.built_commercial) * 1.4, 16.0)
+			+ st.milestone_economy_bonus
+		),
+		5.0,
+		100.0
 	)
 	return {
 		"residents": residents,
@@ -551,14 +698,18 @@ func _pillar_targets(town: MapData.Town, st: TownState) -> Dictionary:
 func _recompute_overall_attractiveness(town: MapData.Town, st: TownState) -> void:
 	var w: Vector3 = profile_for(town.community_type)["weights"]
 	st.attractiveness = clampf(
-		st.attractiveness_residents * w.x
-		+ st.attractiveness_industry * w.y
-		+ st.attractiveness_tourism * w.z,
-		0.0, 100.0
+		(
+			st.attractiveness_residents * w.x
+			+ st.attractiveness_industry * w.y
+			+ st.attractiveness_tourism * w.z
+		),
+		0.0,
+		100.0
 	)
 
 
 # --- Demand modifiers (consumed by Simulation / Terminal / VehicleFactory) ----------
+
 
 ## Vehicle arrival multiplier driven by economic activity & resident/industry demand.
 func vehicle_demand_multiplier(town: MapData.Town) -> float:
@@ -573,7 +724,9 @@ func commercial_truck_share(town: MapData.Town) -> float:
 	var st := state_for_town(town)
 	if st == null:
 		return TrafficDemand.DEFAULT_TRUCK_SHARE
-	var drive := clampf((st.economic_activity * 0.65 + st.attractiveness_industry * 0.35) / 100.0, 0.0, 1.0)
+	var drive := clampf(
+		(st.economic_activity * 0.65 + st.attractiveness_industry * 0.35) / 100.0, 0.0, 1.0
+	)
 	return lerpf(0.08, 0.34, drive)
 
 
@@ -582,7 +735,9 @@ func passenger_demand_multiplier(town: MapData.Town) -> float:
 	var st := state_for_town(town)
 	if st == null:
 		return 1.0
-	var drive := clampf((st.attractiveness_tourism * 0.60 + st.attractiveness_residents * 0.40) / 100.0, 0.0, 1.0)
+	var drive := clampf(
+		(st.attractiveness_tourism * 0.60 + st.attractiveness_residents * 0.40) / 100.0, 0.0, 1.0
+	)
 	return lerpf(0.70, 1.65, drive)
 
 
@@ -591,11 +746,23 @@ func destination_pull_multiplier(town: MapData.Town) -> float:
 	var st := state_for_town(town)
 	if st == null:
 		return 1.0
-	var drive := clampf((st.attractiveness_tourism * 0.50 + st.economic_activity * 0.30 + st.attractiveness_residents * 0.20) / 100.0, 0.0, 1.0)
+	var drive := clampf(
+		(
+			(
+				st.attractiveness_tourism * 0.50
+				+ st.economic_activity * 0.30
+				+ st.attractiveness_residents * 0.20
+			)
+			/ 100.0
+		),
+		0.0,
+		1.0
+	)
 	return lerpf(0.75, 1.55, drive)
 
 
 # --- Milestones & Construction Jobs -------------------------------------------------
+
 
 func _check_town_milestones(town: MapData.Town, st: TownState) -> void:
 	for def in _town_milestone_defs(town.community_type):
@@ -612,9 +779,10 @@ func _check_town_milestones(town: MapData.Town, st: TownState) -> void:
 		_apply_milestone_bonuses(st, def)
 		st.pending_milestones.append(def)
 		var title := str(def["title"])
-		var detail := "%s reached %d residents and unlocked %s (+%d%% base growth)." % [
-			town.name, int(def["pop"]), title, roundi(float(def["growth"]) * 100.0)
-		]
+		var detail := (
+			"%s reached %d residents and unlocked %s (+%d%% base growth)."
+			% [town.name, int(def["pop"]), title, roundi(float(def["growth"]) * 100.0)]
+		)
 		milestone_unlocked.emit(town, mid, title, detail)
 
 
@@ -630,7 +798,12 @@ func _sync_island_populations() -> void:
 
 func _check_island_radio_towers() -> void:
 	for isl in sim.map.islands:
-		if isl.is_mainland or not isl.inhabited or isl.radio_tower_built or island_builds.has(isl.id):
+		if (
+			isl.is_mainland
+			or not isl.inhabited
+			or isl.radio_tower_built
+			or island_builds.has(isl.id)
+		):
 			continue
 		if isl.population < RADIO_TOWER_ISLAND_POP:
 			continue
@@ -656,7 +829,7 @@ func _check_island_radio_towers() -> void:
 		island_radio_tower_unlocked.emit(isl)
 
 
-func _advance_town_builds(town: MapData.Town, st: TownState, dmin: float) -> void:
+func _advance_town_builds(st: TownState, dmin: float) -> void:
 	for i in range(st.active_builds.size() - 1, -1, -1):
 		var job := st.active_builds[i]
 		job.elapsed += dmin
@@ -688,8 +861,15 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 			if lot == null:
 				break  # (keep it pending until a lot frees up)
 			var def: Dictionary = st.pending_milestones.pop_front()
-			_start_build(town, st, lot, MapData.TownLot.Kind.LANDMARK, LANDMARK_BUILD_MINUTES,
-				str(def["id"]), str(def["model"]))
+			_start_build(
+				town,
+				st,
+				lot,
+				MapData.TownLot.Kind.LANDMARK,
+				LANDMARK_BUILD_MINUTES,
+				str(def["id"]),
+				str(def["model"])
+			)
 			continue
 
 		# 2. Commercial buildings: 1 per 333 people.
@@ -697,7 +877,9 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 		if st.built_commercial + pending_comm < target_commercial_for(town.population):
 			var lot := _claim_lot(town, MapData.TownLot.Kind.COMMERCIAL)
 			if lot != null:
-				_start_build(town, st, lot, MapData.TownLot.Kind.COMMERCIAL, COMMERCIAL_BUILD_MINUTES)
+				_start_build(
+					town, st, lot, MapData.TownLot.Kind.COMMERCIAL, COMMERCIAL_BUILD_MINUTES
+				)
 				continue
 
 		# 3. Houses: 1 per 100 people.
@@ -726,8 +908,15 @@ func _claim_lot(town: MapData.Town, kind: int) -> MapData.TownLot:
 	return null
 
 
-func _start_build(town: MapData.Town, st: TownState, lot: MapData.TownLot, kind: int,
-		duration: float, milestone_id := "", landmark_model := "") -> void:
+func _start_build(
+	town: MapData.Town,
+	st: TownState,
+	lot: MapData.TownLot,
+	kind: int,
+	duration: float,
+	milestone_id := "",
+	landmark_model := ""
+) -> void:
 	var job := BuildJob.new()
 	job.id = _next_job_id
 	_next_job_id += 1

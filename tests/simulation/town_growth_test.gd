@@ -3,30 +3,25 @@ extends SceneTree
 ## - Community types & main_story.json island assignments (keeping Cypress as Rural)
 ## - Sliding connectivity expectation (+1 connection per 1,000 pop)
 ## - 4-factor accessibility (frequency, affordability, reliability/schedule stability, connectivity)
-## - Three-part attractiveness (residents -> affordability, industry -> stability, tourism -> wildlife photos)
+## - Three-part attractiveness (residents -> affordability, industry -> stability, tourism ->
+## wildlife photos)
 ## - Organic (5/8/10/day), ferry-driven (up to 5x), and milestone growth
 ## - 1 house / 100 pop and 1 commercial / 333 pop construction triggers & TownConstruction lifecycle
-## - 4,000 pop Hangar + Windsock, unique first-rural-only Observatory, and Madrona + 6,000 island Radio Tower
+## - 4,000 pop Hangar + Windsock, unique first-rural-only Observatory, and Madrona + 6,000 island
+## Radio Tower
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tests/simulation/town_growth_test.gd
 
 var _region: TinyRegion
 var _sim: Simulation
 var _ran := false
+var _failed := false
 
 
-func _fail(msg: String) -> bool:
-	push_error("TOWN GROWTH TEST FAILED: " + msg)
-	if is_instance_valid(_sim):
-		_sim.free()
-	quit(1)
-	return true
-
-
-func _assert_true(cond: bool, msg: String) -> bool:
-	if not cond:
-		return _fail(msg)
-	return false
+func _expect(condition: bool, message: String) -> void:
+	if not condition:
+		_failed = true
+		push_error(message)
 
 
 func _process(_delta: float) -> bool:
@@ -36,7 +31,9 @@ func _process(_delta: float) -> bool:
 
 	# 1. Verify main_story.json community type assignments & Cypress kept as Rural.
 	var layout := MapLayout.load_file(MapLayout.MAIN_STORY)
-	if _assert_true(layout != null, "Could not load main_story.json"):
+	if layout == null:
+		push_error("Could not load main_story.json")
+		quit(1)
 		return true
 	var expected_types := {
 		"Port Rosario": "industrial",
@@ -51,28 +48,34 @@ func _process(_delta: float) -> bool:
 		"Eagle Island": "rural",
 	}
 	for spec in layout.islands:
-		if _assert_true(expected_types.has(spec.name), "Unexpected island in main_story: %s" % spec.name):
-			return true
-		if _assert_true(spec.community_type == expected_types[spec.name],
-				"%s expected %s, got %s" % [spec.name, expected_types[spec.name], spec.community_type]):
-			return true
-	if _assert_true(layout.islands.size() == expected_types.size(), "Expected 10 islands in main_story.json"):
-		return true
+		_expect(expected_types.has(spec.name), "Unexpected island in main_story: %s" % spec.name)
+		_expect(
+			spec.community_type == expected_types[spec.name],
+			"%s expected %s, got %s" % [spec.name, expected_types[spec.name], spec.community_type]
+		)
+	_expect(
+		layout.islands.size() == expected_types.size(), "Expected 10 islands in main_story.json"
+	)
 
 	# 2. Verify sliding connectivity expectation (+1 per 1,000 pop).
 	var conn_cases := [
-		[500, 1], [999, 1], [1000, 2], [1999, 2], [2000, 3], [3000, 4], [4000, 5], [5000, 6], [8000, 6],
+		[500, 1],
+		[999, 1],
+		[1000, 2],
+		[1999, 2],
+		[2000, 3],
+		[3000, 4],
+		[4000, 5],
+		[5000, 6],
+		[8000, 6],
 	]
 	for c in conn_cases:
 		var got := TownGrowth.expected_connections_for(c[0], 10)
-		if _assert_true(got == c[1], "Pop %d expected %d connections, got %d" % [c[0], c[1], got]):
-			return true
+		_expect(got == c[1], "Pop %d expected %d connections, got %d" % [c[0], c[1], got])
 
 	# 3. Verify 1 house / 100 pop and 1 commercial / 333 pop formulas.
-	if _assert_true(TownGrowth.target_houses_for(1250) == 12, "1250 pop -> 12 houses"):
-		return true
-	if _assert_true(TownGrowth.target_commercial_for(1000) == 3, "1000 pop -> 3 commercial"):
-		return true
+	_expect(TownGrowth.target_houses_for(1250) == 12, "1250 pop -> 12 houses")
+	_expect(TownGrowth.target_commercial_for(1000) == 3, "1000 pop -> 3 commercial")
 
 	# 4. Spin up a 3-town TinyRegion simulation for live progression tests.
 	_region = TinyRegion.build(3)
@@ -121,18 +124,23 @@ func _process(_delta: float) -> bool:
 	var st_rur := tg.state_for_town(t_rur)
 
 	# Verify organic baselines (Madrona has starting radio tower +15% bonus).
-	if _assert_true(is_equal_approx(st_ind.organic_daily, 8.0), "Industrial organic baseline should be 8/day"):
-		return true
-	if _assert_true(is_equal_approx(st_res.organic_daily, 10.0 * 1.15), "Madrona residential baseline + radio tower should be 11.5/day"):
-		return true
-	if _assert_true(is_equal_approx(st_rur.organic_daily, 5.0), "Rural organic baseline should be 5/day"):
-		return true
+	_expect(
+		is_equal_approx(st_ind.organic_daily, 8.0), "Industrial organic baseline should be 8/day"
+	)
+	_expect(
+		is_equal_approx(st_res.organic_daily, 10.0 * 1.15),
+		"Madrona residential baseline + radio tower should be 11.5/day"
+	)
+	_expect(is_equal_approx(st_rur.organic_daily, 5.0), "Rural organic baseline should be 5/day")
 
 	# Verify ferry-driven growth accelerates served towns without exceeding 5x total.
-	if _assert_true(st_ind.has_service and st_ind.ferry_daily > 0.0, "Served town must earn ferry-driven growth"):
-		return true
-	if _assert_true(st_ind.total_daily <= st_ind.organic_daily * 5.0 + 0.01, "Total growth must cap at 5x baseline"):
-		return true
+	_expect(
+		st_ind.has_service and st_ind.ferry_daily > 0.0, "Served town must earn ferry-driven growth"
+	)
+	_expect(
+		st_ind.total_daily <= st_ind.organic_daily * 5.0 + 0.01,
+		"Total growth must cap at 5x baseline"
+	)
 
 	# Verify affordability affects Residents attractiveness & accessibility.
 	_sim.ledger.set_vehicle_fare(10.0)
@@ -147,12 +155,16 @@ func _process(_delta: float) -> bool:
 	_sim.ledger.set_passenger_fare(28.0)
 	tg.refresh_metrics()
 	var pricey_aff := st_res.affordability_score
-	if _assert_true(cheap_aff > pricey_aff + 0.4, "Lower fares must improve affordability (%.2f vs %.2f)" % [cheap_aff, pricey_aff]):
-		return true
+	_expect(
+		cheap_aff > pricey_aff + 0.4,
+		"Lower fares must improve affordability (%.2f vs %.2f)" % [cheap_aff, pricey_aff]
+	)
 	for _d in 4:
 		tg.start_day()
-	if _assert_true(st_res.attractiveness_residents < cheap_res_attr, "High fares must lower resident attractiveness"):
-		return true
+	_expect(
+		st_res.attractiveness_residents < cheap_res_attr,
+		"High fares must lower resident attractiveness"
+	)
 
 	# Reset to fair fares and test Reliability / schedule stability (Industry prioritizes stability).
 	_sim.ledger.set_vehicle_fare(CompanyLedger.DEFAULT_VEHICLE_FARE)
@@ -163,13 +175,17 @@ func _process(_delta: float) -> bool:
 	var stable_ind_attr := st_ind.attractiveness_industry
 	tg.on_schedule_changed([t_ind.id], true)
 	var churned_rel := st_ind.reliability_score
-	if _assert_true(churned_rel < stable_rel - 0.15, "Changing route must reduce reliability (%.2f -> %.2f)" % [stable_rel, churned_rel]):
-		return true
+	_expect(
+		churned_rel < stable_rel - 0.15,
+		"Changing route must reduce reliability (%.2f -> %.2f)" % [stable_rel, churned_rel]
+	)
 	for _d in 3:
 		tg.on_schedule_changed([t_ind.id], false)
 		tg.start_day()
-	if _assert_true(st_ind.attractiveness_industry < stable_ind_attr, "Schedule churn must hurt industry attractiveness"):
-		return true
+	_expect(
+		st_ind.attractiveness_industry < stable_ind_attr,
+		"Schedule churn must hurt industry attractiveness"
+	)
 
 	# Verify wildlife photography plugs into Tourism attractiveness!
 	var tour_before := st_rur.attractiveness_tourism
@@ -178,34 +194,45 @@ func _process(_delta: float) -> bool:
 	visit.target = _region.map.islands[2]
 	visit.credited = [_region.map.islands[2]]
 	visit.phase = Wildlife.Phase.CIRCLE
-	if _assert_true(_sim.wildlife.photograph(visit), "Wildlife.photograph should succeed"):
-		return true
-	if _assert_true(st_rur.wildlife_photos == 1 and st_rur.wildlife_photo_bonus > 5.0 and st_rur.attractiveness_tourism > tour_before + 3.0,
-			"Wildlife photography must boost tourism attractiveness"):
-		return true
+	_expect(_sim.wildlife.photograph(visit), "Wildlife.photograph should succeed")
+	_expect(
+		(
+			st_rur.wildlife_photos == 1
+			and st_rur.wildlife_photo_bonus > 5.0
+			and st_rur.attractiveness_tourism > tour_before + 3.0
+		),
+		"Wildlife photography must boost tourism attractiveness"
+	)
 
 	# Verify economic activity raises commercial truck share & vehicle demand,
 	# and attractiveness raises passenger demand.
 	st_ind.economic_activity = 90.0
 	st_rur.economic_activity = 20.0
-	if _assert_true(tg.commercial_truck_share(t_ind) > tg.commercial_truck_share(t_rur) + 0.10,
-			"Higher economic activity must raise commercial truck share"):
-		return true
-	if _assert_true(tg.vehicle_demand_multiplier(t_ind) > tg.vehicle_demand_multiplier(t_rur) + 0.30,
-			"Higher economic activity must raise vehicle demand multiplier"):
-		return true
+	_expect(
+		tg.commercial_truck_share(t_ind) > tg.commercial_truck_share(t_rur) + 0.10,
+		"Higher economic activity must raise commercial truck share"
+	)
+	_expect(
+		tg.vehicle_demand_multiplier(t_ind) > tg.vehicle_demand_multiplier(t_rur) + 0.30,
+		"Higher economic activity must raise vehicle demand multiplier"
+	)
 	st_rur.attractiveness_tourism = 92.0
 	st_ind.attractiveness_tourism = 20.0
-	if _assert_true(tg.passenger_demand_multiplier(t_rur) > tg.passenger_demand_multiplier(t_ind) + 0.25,
-			"Higher tourism attractiveness must raise passenger demand multiplier"):
-		return true
+	_expect(
+		tg.passenger_demand_multiplier(t_rur) > tg.passenger_demand_multiplier(t_ind) + 0.25,
+		"Higher tourism attractiveness must raise passenger demand multiplier"
+	)
 
 	# Verify 1 house/100 pop and 1 commercial/333 pop trigger construction jobs & complete cleanly.
 	var started_kinds: Array[int] = []
 	var completed_models: Array[String] = []
 	tg.construction_started.connect(func(job: TownGrowth.BuildJob): started_kinds.append(job.kind))
-	tg.construction_completed.connect(func(job: TownGrowth.BuildJob):
-		completed_models.append(job.landmark_model if job.kind >= MapData.TownLot.Kind.LANDMARK else str(job.kind)))
+	tg.construction_completed.connect(
+		func(job: TownGrowth.BuildJob):
+			completed_models.append(
+				job.landmark_model if job.kind >= MapData.TownLot.Kind.LANDMARK else str(job.kind)
+			)
+	)
 
 	# Attach TownConstruction to verify scene instantiation & cleanup with zero errors.
 	var tc := TownConstruction.new()
@@ -214,60 +241,92 @@ func _process(_delta: float) -> bool:
 
 	var houses_before := st_rur.built_houses
 	var comm_before := st_rur.built_commercial
-	st_rur.population_exact = 1350.0 # crosses +2 houses (11->13) and +1 commercial (3->4)
+	st_rur.population_exact = 1350.0  # crosses +2 houses (11->13) and +1 commercial (3->4)
 	tg.step(1.0)
-	if _assert_true(MapData.TownLot.Kind.HOUSE in started_kinds or MapData.TownLot.Kind.COMMERCIAL in started_kinds,
-			"Crossing 100/333 pop thresholds must start construction jobs"):
-		return true
+	_expect(
+		(
+			MapData.TownLot.Kind.HOUSE in started_kinds
+			or MapData.TownLot.Kind.COMMERCIAL in started_kinds
+		),
+		"Crossing 100/333 pop thresholds must start construction jobs"
+	)
 	# Advance enough game minutes to finish queued house & commercial builds.
 	for _s in 60:
 		tg.step(30.0)
-	if _assert_true(st_rur.built_houses >= houses_before + 2,
-			"Expected at least 2 new houses built (was %d, now %d)" % [houses_before, st_rur.built_houses]):
-		return true
-	if _assert_true(st_rur.built_commercial >= comm_before + 1,
-			"Expected at least 1 new commercial building (was %d, now %d)" % [comm_before, st_rur.built_commercial]):
-		return true
+	_expect(
+		st_rur.built_houses >= houses_before + 2,
+		(
+			"Expected at least 2 new houses built (was %d, now %d)"
+			% [houses_before, st_rur.built_houses]
+		)
+	)
+	_expect(
+		st_rur.built_commercial >= comm_before + 1,
+		(
+			"Expected at least 1 new commercial building (was %d, now %d)"
+			% [comm_before, st_rur.built_commercial]
+		)
+	)
 
 	# Verify 4,000 pop Hangar + unique first-rural-only Observatory!
 	var milestones_hit: Array[String] = []
-	tg.milestone_unlocked.connect(func(town: MapData.Town, mid: String, _title: String, _detail: String):
-		milestones_hit.append("%d:%s" % [town.id, mid]))
+	tg.milestone_unlocked.connect(
+		func(town: MapData.Town, mid: String, _title: String, _detail: String):
+			milestones_hit.append("%d:%s" % [town.id, mid])
+	)
 	st_rur.population_exact = 4005.0
 	tg.step(1.0)
-	if _assert_true("%d:airfield_4000" % t_rur.id in milestones_hit, "Rural town at 4k must unlock airfield_4000"):
-		return true
-	if _assert_true("%d:observatory_4000" % t_rur.id in milestones_hit, "First rural town at 4k must unlock observatory_4000"):
-		return true
-	if _assert_true(tg.observatory_claimed_town == t_rur.id, "Observatory must be claimed by first rural town"):
-		return true
+	_expect(
+		"%d:airfield_4000" % t_rur.id in milestones_hit,
+		"Rural town at 4k must unlock airfield_4000"
+	)
+	_expect(
+		"%d:observatory_4000" % t_rur.id in milestones_hit,
+		"First rural town at 4k must unlock observatory_4000"
+	)
+	_expect(
+		tg.observatory_claimed_town == t_rur.id, "Observatory must be claimed by first rural town"
+	)
 
-	# Make town 0 rural too and push it past 4k -> must get airfield_4000, MUST NOT get observatory_4000!
+	# Make town 0 rural too and push it past 4k -> must get airfield_4000, MUST NOT get
+	# observatory_4000!
 	t_ind.community_type = "rural"
 	st_ind.population_exact = 4005.0
 	tg.step(1.0)
-	if _assert_true("%d:airfield_4000" % t_ind.id in milestones_hit, "Second town at 4k must still unlock airfield_4000"):
-		return true
-	if _assert_true(not ("%d:observatory_4000" % t_ind.id in milestones_hit), "Only the FIRST rural town at 4k may get the Observatory"):
-		return true
+	_expect(
+		"%d:airfield_4000" % t_ind.id in milestones_hit,
+		"Second town at 4k must still unlock airfield_4000"
+	)
+	_expect(
+		not ("%d:observatory_4000" % t_ind.id in milestones_hit),
+		"Only the FIRST rural town at 4k may get the Observatory"
+	)
 
-	# Verify Island Radio Tower at 6,000 island total pop (Madrona started with one; island 2 earns one).
+	# Verify Island Radio Tower at 6,000 island total pop (Madrona started with one; island 2 earns
+	# one).
 	var radio_islands: Array[int] = []
 	tg.island_radio_tower_unlocked.connect(func(isl: MapData.Island): radio_islands.append(isl.id))
 	st_rur.population_exact = 6010.0
 	tg.step(1.0)
-	if _assert_true(t_rur.island in radio_islands and _region.map.islands[t_rur.island].radio_tower_built,
-			"Island hitting 6,000 total population must unlock Radio Tower"):
-		return true
+	_expect(
+		t_rur.island in radio_islands and _region.map.islands[t_rur.island].radio_tower_built,
+		"Island hitting 6,000 total population must unlock Radio Tower"
+	)
 	# Advance to finish all milestone & radio tower builds cleanly.
 	for _s in 60:
 		tg.step(30.0)
-	if _assert_true("airplane_hangar_low" in completed_models and "observatory" in completed_models and "radio_tower" in completed_models,
-			"Hangar, Observatory, and Radio Tower builds must complete (got %s)" % [completed_models]):
-		return true
+	_expect(
+		(
+			"airplane_hangar_low" in completed_models
+			and "observatory" in completed_models
+			and "radio_tower" in completed_models
+		),
+		"Hangar, Observatory, and Radio Tower builds must complete (got %s)" % [completed_models]
+	)
 
 	tc.free()
 	_sim.free()
-	print("TEST PASSED")
-	quit(0)
+	if not _failed:
+		print("TEST PASSED")
+	quit(1 if _failed else 0)
 	return true

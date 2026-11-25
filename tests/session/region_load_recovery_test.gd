@@ -51,6 +51,10 @@ func exercise() -> bool:
 		return fail("A stale region request replaced the menu")
 	if repaired.get_ref() != null:
 		return fail("Repaired scene was retained after returning to the menu")
+	return await reopen_company()
+
+
+func reopen_company() -> bool:
 	# Simulate a previous company's editor state.
 	RegionEntryState.editor_restore["editor_open"] = true
 	if not await press("Play") or not await press("Start"):

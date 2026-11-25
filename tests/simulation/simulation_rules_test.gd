@@ -9,6 +9,8 @@ func expect(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	check_cross_midnight_build()
+	check_walk_on()
 	check_saved_volume()
 	check_weather()
 	check_wind()
@@ -165,7 +167,13 @@ func check_pilot_transfer() -> void:
 	boat.setup(traffic, "Test", VesselTypes.pilot_boats()[0], MapData.PilotStation.new(), 0, 0)
 	boat.ship = cargo
 	boat._start_work()
-	expect(not boat._work_done(0.0) and boat._work_done(PilotBoat.TRANSFER.y / Units.MINUTES_PER_SECOND), "Pilot transfer completes without a view")
+	expect(
+		(
+			not boat._work_done(0.0)
+			and boat._work_done(PilotBoat.TRANSFER.y / Units.MINUTES_PER_SECOND)
+		),
+		"Pilot transfer completes without a view"
+	)
 
 	var hull := VesselHullView.new(boat)
 	boat.add_child(hull)
@@ -183,7 +191,10 @@ func check_pilot_transfer() -> void:
 			boat._release_ship()
 			expect(cargo.pilot_boat == null, "Releasing the ship clears the pilot assignment")
 		else:
-			expect(boat._work_done(PilotBoat.TRANSFER.y / Units.MINUTES_PER_SECOND), "Transfer finishes with a ladder attached")
+			expect(
+				boat._work_done(PilotBoat.TRANSFER.y / Units.MINUTES_PER_SECOND),
+				"Transfer finishes with a ladder attached"
+			)
 		expect(not ladder.visible, "Completed and interrupted transfers stow the ladder")
 	boat.free()
 	cargo.free()
@@ -284,3 +295,36 @@ func check_saved_volume() -> void:
 	GameSettings._cfg.set_value("audio", "radio", 2.0)
 	expect(is_equal_approx(GameSettings.volume("Radio"), 1.0), "Out-of-range saved radio volume stays bounded")
 	GameSettings._cfg = null
+
+
+func check_cross_midnight_build() -> void:
+	var sim := Simulation.new(Vehicle.new.unbind(2))
+	sim.minutes = 1439.0
+	sim.docks_building[7] = 10.0
+	sim._process(4.0 / Units.MINUTES_PER_SECOND)
+	expect(sim.docks_building[7] == 6.0, "Dock construction advances on both sides of midnight")
+	sim.free()
+
+
+func check_walk_on() -> void:
+	var sim := Simulation.new(Vehicle.new.unbind(2))
+	sim.passengers = Node3D.new()
+	sim.add_child(sim.passengers)
+	var passenger := sim.make_passenger(3)
+	var arrivals: Array[Passenger] = []
+	passenger.walk(
+		PackedVector3Array([Vector3.RIGHT, Vector3.BACK]),
+		func(arrived: Passenger): arrivals.append(arrived)
+	)
+	passenger._process(1.0)
+	passenger._process(1.0)
+	expect(
+		passenger.variant == 3 and passenger.position == Vector3.BACK,
+		"Walk-on reaches its destination without imported art"
+	)
+	expect(arrivals == [passenger], "Walk-on completes the crossing path once")
+	expect(
+		Passenger.VARIANT_COUNT == PassengerView.MODELS.size(),
+		"Every walk-on variant has a presentation entry"
+	)
+	sim.free()

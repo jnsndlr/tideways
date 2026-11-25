@@ -53,9 +53,28 @@ func _initialize() -> void:
 				speed = trip.sailing_speed(0.05, distance, speed, captain.cruise(20.0), INF, INF, captain.harbour)
 				trip.advance(0.05, speed, distance)
 				elapsed += 0.05
-			check(absf(Units.game_minutes(elapsed) - captain.crossing_minutes(distance, 20.0)) < 0.1, "Captain forecast matches voyage integration")
-		check(voyage.sailing_speed(1.0, 85.8, 25.0, captain.cruise(20.0), 0.0, INF, captain.harbour) == 0.0, "Captain cannot bypass a hull hold")
-		check(voyage.sailing_speed(1.0, 85.8, 25.0, captain.cruise(20.0), INF, 1.5, captain.harbour) == 0.0, "Captain cannot bypass a corridor hold")
+			check(
+				absf(Units.game_minutes(elapsed) - captain.crossing_minutes(distance, 20.0)) < 0.1,
+				"Captain forecast matches voyage integration"
+			)
+		check(
+			(
+				voyage.sailing_speed(
+					1.0, 85.8, 25.0, captain.cruise(20.0), 0.0, INF, captain.harbour
+				)
+				== 0.0
+			),
+			"Captain cannot bypass a hull hold"
+		)
+		check(
+			(
+				voyage.sailing_speed(
+					1.0, 85.8, 25.0, captain.cruise(20.0), INF, 1.5, captain.harbour
+				)
+				== 0.0
+			),
+			"Captain cannot bypass a corridor hold"
+		)
 	var first := Captain.roster()[0]
 	var relief := Captain.roster()[1]
 	var command := CaptainAssignment.new(first)

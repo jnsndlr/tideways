@@ -64,8 +64,12 @@ func _init(map: MapData, t: Terrain, should_stop := Callable()) -> void:
 			var d := dist[j * n + i]
 			small.set_point_solid(Vector2i(i, j), d < SMALL_CLEAR)
 			large.set_point_solid(Vector2i(i, j), d < LARGE_CLEAR)
-			small.set_point_weight_scale(Vector2i(i, j), _shore_cost(d, SMALL_SHORE_REACH, SMALL_SHORE_COST))
-			large.set_point_weight_scale(Vector2i(i, j), _shore_cost(d, LARGE_SHORE_REACH, LARGE_SHORE_COST))
+			small.set_point_weight_scale(
+				Vector2i(i, j), _shore_cost(d, SMALL_SHORE_REACH, SMALL_SHORE_COST)
+			)
+			large.set_point_weight_scale(
+				Vector2i(i, j), _shore_cost(d, LARGE_SHORE_REACH, LARGE_SHORE_COST)
+			)
 	_mark_docks(map)
 	_mark_lanes(map)
 	_close_terminals(map)
@@ -118,9 +122,13 @@ func _mark_lanes(map: MapData) -> void:
 		for k in range(0, pts.size(), 4):
 			var p := Vector2(pts[k].x, pts[k].z)
 			for c in _cells_within(p, 42.0):
-				small.set_point_weight_scale(c, maxf(small.get_point_weight_scale(c), SMALL_LANE_COST))
+				small.set_point_weight_scale(
+					c, maxf(small.get_point_weight_scale(c), SMALL_LANE_COST)
+				)
 			for c in _cells_within(p, 66.0):
-				large.set_point_weight_scale(c, maxf(large.get_point_weight_scale(c), LARGE_LANE_COST))
+				large.set_point_weight_scale(
+					c, maxf(large.get_point_weight_scale(c), LARGE_LANE_COST)
+				)
 
 
 ## The terminal, its slips, dolphins and channel buoys.
@@ -273,7 +281,11 @@ func _sight(g: AStarGrid2D, a: Vector2, b: Vector2, max_weight := INF) -> bool:
 	var steps := ceili(a.distance_to(b) / (CELL * 0.4))
 	for k in range(1, steps):
 		var c := cell(a.lerp(b, float(k) / steps))
-		if c != ca and c != cb and (g.is_point_solid(c) or g.get_point_weight_scale(c) > max_weight):
+		if (
+			c != ca
+			and c != cb
+			and (g.is_point_solid(c) or g.get_point_weight_scale(c) > max_weight)
+		):
 			return false
 	return true
 

@@ -78,8 +78,14 @@ func _drag(from: Vector2, to: Vector2, steps := 8) -> void:
 	await _frames(2)
 
 
-func _tap(b: Control) -> void:
+func _reveal(control: Control) -> void:
+	var scroll := main.hud._ferry_panel._scroll as ScrollContainer
+	scroll.ensure_control_visible(control)
 	await _frames(2)
+
+
+func _tap(b: Control) -> void:
+	await _reveal(b)
 	var p := b.get_global_rect().get_center()
 	if OS.get_environment("TAP_DEBUG") != "":
 		print("tap %s at %s → screen %s, window %s" % [b.text, p, _screen(p), DisplayServer.window_get_size()])
@@ -90,7 +96,7 @@ func _tap(b: Control) -> void:
 
 
 func _hold(b: Control, seconds: float) -> void:
-	await _frames(2)
+	await _reveal(b)
 	var p := b.get_global_rect().get_center()
 	_touch(p, true)
 	await create_timer(seconds).timeout
@@ -140,7 +146,7 @@ func _check_sizes() -> String:
 			continue
 		if b.size.y < ScheduleEditor.TAP - 0.5 or b.size.x < ScheduleEditor.TAP - 0.5:
 			return "Button %s is %s, under %d" % [b.text, b.size, ScheduleEditor.TAP]
-	var r := ed.get_global_rect()
+	var r := (main.hud._ferry_panel as FerryPanel).get_global_rect()
 	if not view.grow(1.0).encloses(r):
 		return "Editor %s spills off the %s screen" % [r, view.size]
 	print("Editor at %s on a %s screen, drawn ×%.2f" % [r, view.size, s])
@@ -173,6 +179,10 @@ func _run() -> void:
 	await _tap(tab)
 	if not ed.is_visible_in_tree() or ed.ferry != hiyu:
 		return _fail("The Schedule tab didn't open the editor by tap")
+	await _check_timetable_controls(hiyu, cam_before)
+
+
+func _check_timetable_controls(hiyu: Ferry, cam_before: Vector3) -> void:
 	await _tap(_button("Set times"))
 	if ed._times != [360]:
 		return _fail("Set times by tap gave %s" % [ed._times])
@@ -202,7 +212,12 @@ func _run() -> void:
 	if problem != "":
 		return _fail(problem)
 	await _shot("sailings")
+	await _check_drag(hiyu, cam_before)
+
+
+func _check_drag(hiyu: Ferry, cam_before: Vector3) -> void:
 	var scroll := ed._sailings_scroll
+	await _reveal(scroll)
 	var bar := scroll.get_v_scroll_bar()
 	if bar.max_value - bar.page <= 1.0:
 		return _fail("The sailings list fits (%d of %d), so the drag check needs more sailings" % [bar.page, bar.max_value])
@@ -230,6 +245,10 @@ func _run() -> void:
 	await _tap(_row_button(ed._times.size() - 1, "DropSailing"))
 	if ed._times.size() != times_before.size() - 1:
 		return _fail("A tap on ✕ didn't drop a sailing")
+	await _check_stops(hiyu)
+
+
+func _check_stops(hiyu: Ferry) -> void:
 	# Stops by tap: take Madrona off, put Gullrock and Madrona on.
 	var madrona: String = ed._name(ed._draft[1])
 	var removes: Array = ed._stops.find_children("*", "Button", true, false)
@@ -242,12 +261,12 @@ func _run() -> void:
 		return _fail("Taps on Add a stop gave %d stops" % ed._draft.size())
 	print("Stops by tap: %s" % " → ".join(ed._draft.map(func(id): return ed._name(id))))
 	await _frames(4)
-	problem = _check_sizes()
+	var problem := _check_sizes()
 	if problem != "":
 		return _fail(problem)
 	await _shot("three_stops")
-	await _tap(_button("Cancel"))
-	if ed.visible:
-		return _fail("Cancel by tap left the editor open")
+	await _tap(_button("Reset"))
+	if not ed.is_visible_in_tree() or ed._draft != hiyu.stops or ed._times != hiyu.timetable:
+		return _fail("Reset should restore the active schedule and keep the tab open")
 	print("TEST PASSED")
 	quit(0)

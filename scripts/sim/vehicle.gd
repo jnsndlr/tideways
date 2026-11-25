@@ -26,6 +26,8 @@ const MAX_HOLD := 4.0
 const SAME_WAY := 0.7
 
 ## Vehicles under way in the same simulation. Shared before entering the scene tree.
+var fare_paid := 0.0
+
 var moving_traffic: Array[Vehicle] = []
 
 var path := PackedVector3Array()
@@ -80,9 +82,6 @@ func fare_multiplier() -> int:
 	if is_van_or_small_truck() or slots >= 2:
 		return 2
 	return 1
-
-
-var fare_paid := 0.0
 
 
 func setup(body: Node3D, truck: bool, model_key: String, model_scale: float) -> void:

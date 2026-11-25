@@ -63,8 +63,20 @@ func _build() -> void:
 	var save := SaveGame.read()
 	load_btn.disabled = save.is_empty()
 	if not save.is_empty():
-		load_btn.tooltip_text = "%s · %s · day %d · saved %s" % [save.get("company", ""), str(save.get("scenario", "")).get_file().get_basename(), int(save.get("day", 0)), save.get("saved_at", "")]
-	_button(col, "Mission sandbox", func(): _ask_name(func(n): _play("", n, "Setting out with an open purse", true)))
+		load_btn.tooltip_text = (
+			"%s · %s · day %d · saved %s"
+			% [
+				save.get("company", ""),
+				str(save.get("scenario", "")).get_file().get_basename(),
+				int(save.get("day", 0)),
+				save.get("saved_at", "")
+			]
+		)
+	_button(
+		col,
+		"Mission sandbox",
+		func(): _ask_name(func(n): _play("", n, "Setting out with an open purse", true))
+	)
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
 	_button(col, "Quit", func(): get_tree().quit())
@@ -129,7 +141,9 @@ func _ask_name(on_done: Callable) -> void:
 
 
 ## Play the main map from `scenario` ("" for the opening).
-func _play(scenario: String, company: String, caption := "Setting out for the islands", unlimited := false) -> void:
+func _play(
+	scenario: String, company: String, caption := "Setting out for the islands", unlimited := false
+) -> void:
 	if _start(Scenes.MAIN_MAP, caption):
 		MainMapScript.start_session(scenario, unlimited, company)
 

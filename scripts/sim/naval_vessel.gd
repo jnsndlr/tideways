@@ -6,21 +6,20 @@ extends Vessel
 ## flankers hold station on it, `offset` across and behind its track.
 ## Drawn straight from their Blender glbs, materials and all.
 
-const DIVE_FROM := 1150.0       # the sub starts down this far short of its path's end (inside the map),
-const DIVE_RUN := 520.0         # and is under after this far
+const DIVE_FROM := 1150.0  # the sub starts down this far short of its path's end (inside the map),
+const DIVE_RUN := 520.0  # and is under after this far
 const DIVE_DEPTH := 36.0
-const ART_SCALE := 1.7          # the glbs are life-size; the world is drawn a bit larger
+const ART_SCALE := 1.7  # the glbs are life-size; the world is drawn a bit larger
 
 var traffic: MarineTraffic
 var path: NavPath
 var s := 0.0
-var lead: NavalVessel           # null for the lead
-var offset := Vector2.ZERO      # (across to starboard, back) from the lead's track
+var lead: NavalVessel  # null for the lead
+var offset := Vector2.ZERO  # (across to starboard, back) from the lead's track
 var _bob := 0.0
-var _drift := Vector3.ZERO      # phases of its slow wander about its station
-var _yaw := INF                 # its heading, easing after the track's (flankers lag a little in turns)
+var _drift := Vector3.ZERO  # phases of its slow wander about its station
+var _yaw := INF  # its heading, easing after the track's (flankers lag a little in turns)
 var _waterline := PackedFloat32Array()
-
 
 
 static func make_spec(kind: String) -> VesselSpec:
@@ -56,8 +55,15 @@ static func make_spec(kind: String) -> VesselSpec:
 	return sp
 
 
-func setup(t: MarineTraffic, nm: String, kind: String, p: NavPath, start: float, leader: NavalVessel = null,
-		off := Vector2.ZERO) -> void:
+func setup(
+	t: MarineTraffic,
+	nm: String,
+	kind: String,
+	p: NavPath,
+	start: float,
+	leader: NavalVessel = null,
+	off := Vector2.ZERO
+) -> void:
 	traffic = t
 	vessel_name = nm
 	name = nm.validate_node_name()
@@ -129,8 +135,14 @@ func _process(delta: float) -> void:
 	if under >= 0.45:
 		wake.clear()
 		return
-	wake.update(delta, Vector3(global_position.x, 0.0, global_position.z), Vector3(h.x, 0.0, h.y), speed * delta,
-			speed / cruise * (1.0 - under), speed > 0.3 and under <= 0.0)
+	wake.update(
+		delta,
+		Vector3(global_position.x, 0.0, global_position.z),
+		Vector3(h.x, 0.0, h.y),
+		speed * delta,
+		speed / cruise * (1.0 - under),
+		speed > 0.3 and under <= 0.0
+	)
 
 
 ## How far down a submarine is in its dive at the end, 0 (surfaced) to 1 (gone).
@@ -153,7 +165,9 @@ func _place() -> void:
 		across += 2.0 * sin(_bob * 0.045 + _drift.z) + 0.8 * sin(_bob * 0.13 + _drift.x)
 	p += Vector2(-t.y, t.x) * across
 	var under := _dive()
-	position = Vector3(p.x, sin(_bob * 0.6) * 0.2 * (1.0 - under) - DIVE_DEPTH * smoothstep(0.0, 1.0, under), p.y)
+	position = Vector3(
+		p.x, sin(_bob * 0.6) * 0.2 * (1.0 - under) - DIVE_DEPTH * smoothstep(0.0, 1.0, under), p.y
+	)
 	var yaw := atan2(t.x, t.y)
 	if lead != null and _yaw != INF:
 		# Comes round a beat behind, plus the small heading its sideways wander needs.
@@ -161,8 +175,11 @@ func _place() -> void:
 		yaw = lerp_angle(_yaw, yaw + 0.012 * cos(_bob * 0.045 + _drift.z), 1.0 - exp(-dt * 0.9))
 	_yaw = yaw
 	# Nose down as it goes under, levelling off once it's down.
-	basis = Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, 0.07 * sin(PI * under)) \
-			* Basis(Vector3.BACK, sin(_bob * 0.45) * 0.01)
+	basis = (
+		Basis(Vector3.UP, yaw)
+		* Basis(Vector3.RIGHT, 0.07 * sin(PI * under))
+		* Basis(Vector3.BACK, sin(_bob * 0.45) * 0.01)
+	)
 
 
 func wants_to_move() -> bool:

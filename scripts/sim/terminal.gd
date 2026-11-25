@@ -52,9 +52,19 @@ const DREDGE_RATE := 12000.0    # cubic metres an hour, added to the build
 # Walk-on passengers wait outside the passenger terminal and board along the trestle walkway.
 const PASSENGER_CAPACITY := 1000
 const MAX_VISIBLE_PASSENGERS := 24
-const WALK_V := -7.2            # lateral offset on the trestle's -v walkway (TRESTLE_V_WALK = -9.2)
+const WALK_V := -7.2  # lateral offset on the trestle's -v walkway (TRESTLE_V_WALK = -9.2)
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
+
+## How far a driven road path may stray from the road's points every couple of
+## metres: few enough points that Vehicle rounds the town's corners, enough that
+## cars keep to the road's rise and fall.
+const ROAD_TOLERANCE := 0.06
+
+var passengers_served_today := 0
+## Walk-on passengers waiting at the passenger terminal: {dest, arrival, variant, node}.
+var passenger_queue: Array[Dictionary] = []
+
 
 ## A snapshot of the holding lot. Waiting counts vehicles; inbound counts reserved spaces.
 class QueueSummary:
@@ -127,9 +137,6 @@ var slots_per_lane := Layout.slots_per_lane()
 var avg_wait := 6.0    # minutes, moving average
 var turned_recent := 0.0
 var served_today := 0
-var passengers_served_today := 0
-## Walk-on passengers waiting at the passenger terminal: {dest, arrival, variant, node}.
-var passenger_queue: Array[Dictionary] = []
 var _inbound: Array[PackedVector3Array] = []
 var _outbound: Array[PackedVector3Array] = []
 var _spawn_acc := 0.0
@@ -649,12 +656,6 @@ func _build_road_paths() -> void:
 		_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
 
 
-## How far a driven road path may stray from the road's points every couple of
-## metres: few enough points that Vehicle rounds the town's corners, enough that
-## cars keep to the road's rise and fall.
-const ROAD_TOLERANCE := 0.06
-
-
 ## Douglas-Peucker: the fewest of `pts` (ends kept) that stay within `tol` of the rest.
 static func simplify(pts: PackedVector3Array, tol: float) -> PackedVector3Array:
 	if pts.size() < 3:
@@ -787,7 +788,9 @@ func _pick_destination() -> int:
 		if not MapData.is_route(dest):
 			continue
 		var dest_town := sim.map.towns[dest]
-		weights[dest] = (dest_town.population + 600.0) * sim.town_growth.destination_pull_multiplier(dest_town)
+		weights[dest] = (
+			(dest_town.population + 600.0) * sim.town_growth.destination_pull_multiplier(dest_town)
+		)
 		total += weights[dest]
 	var pick := sim.rng.randf() * total
 	for rid in weights.keys():
@@ -924,12 +927,17 @@ func _spawn_passenger() -> void:
 		var face := atan2(town.dock_dir.x, town.dock_dir.z)
 		node.position = door
 		node.walk(PackedVector3Array([spot]), Callable(), 0.0, face)
-	passenger_queue.append({
-		"dest": dest,
-		"arrival": sim.minutes,
-		"variant": variant,
-		"node": node,
-	})
+	(
+		passenger_queue
+		. append(
+			{
+				"dest": dest,
+				"arrival": sim.minutes,
+				"variant": variant,
+				"node": node,
+			}
+		)
+	)
 
 
 func _prefill_passengers() -> void:
@@ -942,12 +950,17 @@ func _prefill_passengers() -> void:
 		var variant := sim.rng.randi() % Passenger.VARIANT_COUNT
 		var node := sim.make_passenger(variant)
 		node.stand_at(_waiting_spot(i), face)
-		passenger_queue.append({
-			"dest": dest,
-			"arrival": sim.minutes - sim.rng.randf_range(0.0, 15.0),
-			"variant": variant,
-			"node": node,
-		})
+		(
+			passenger_queue
+			. append(
+				{
+					"dest": dest,
+					"arrival": sim.minutes - sim.rng.randf_range(0.0, 15.0),
+					"variant": variant,
+					"node": node,
+				}
+			)
+		)
 
 
 func _prune_unserved_passengers(dests: Array[int]) -> void:
@@ -989,10 +1002,12 @@ func passengers_queued() -> int:
 func passenger_boarding_path(i: int, lateral_jitter := 0.0) -> PackedVector3Array:
 	var sv := town.slip_offset(i)
 	var walk_v := sv + WALK_V + lateral_jitter
-	var path := PackedVector3Array([
-		_local(town.lot_half_width + 2.2 + lateral_jitter, Layout.LOT_FRONT + 1.5),
-		_local(walk_v, Layout.LOT_FRONT + 1.5),
-	])
+	var path := PackedVector3Array(
+		[
+			_local(town.lot_half_width + 2.2 + lateral_jitter, Layout.LOT_FRONT + 1.5),
+			_local(walk_v, Layout.LOT_FRONT + 1.5),
+		]
+	)
 	path.append_array(_approach(walk_v))
 	if slip_ramps[i]:
 		var ramp := slip_ramps[i]
@@ -1015,11 +1030,18 @@ func passenger_exit_path(i: int) -> PackedVector3Array:
 	else:
 		path.append(to_global(Vector3(sv - 4.8, Layout.LOT_Y, Layout.PIER_END)))
 	path.append_array(_approach(walk_v, true))
-	path.append_array(PackedVector3Array([
-		_local(walk_v, Layout.LOT_FRONT + 1.5),
-		_local(town.lot_half_width + 2.0, Layout.LOT_FRONT + 1.5),
-		_passenger_door_pos(),
-	]))
+	(
+		path
+		. append_array(
+			PackedVector3Array(
+				[
+					_local(walk_v, Layout.LOT_FRONT + 1.5),
+					_local(town.lot_half_width + 2.0, Layout.LOT_FRONT + 1.5),
+					_passenger_door_pos(),
+				]
+			)
+		)
+	)
 	return path
 
 
@@ -1283,7 +1305,9 @@ func satisfaction() -> float:
 			fare_effect = -(avg_ratio - 1.1) * 14.0
 		elif avg_ratio < 1.0:
 			fare_effect = (1.0 - avg_ratio) * 5.0
-	return clampf(96.0 - maxf(avg_wait - 18.0, 0.0) * 0.9 - turned_recent * 2.0 + fare_effect, 15.0, 99.0)
+	return clampf(
+		96.0 - maxf(avg_wait - 18.0, 0.0) * 0.9 - turned_recent * 2.0 + fare_effect, 15.0, 99.0
+	)
 
 
 ## Returns [minutes until next departure, Ferry] across this terminal's routes.

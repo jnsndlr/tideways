@@ -44,7 +44,11 @@ func planned_unload(capacity: int) -> float:
 
 
 func planned_dwell(capacity: int) -> float:
-	return planned_unload(capacity) + clampf(Units.game_minutes(capacity * planned_car_gap), minimum_loading, maximum_loading) + boarding_close
+	return (
+		planned_unload(capacity)
+		+ clampf(Units.game_minutes(capacity * planned_car_gap), minimum_loading, maximum_loading)
+		+ boarding_close
+	)
 
 
 func boarding_open(elapsed: float, now: float, due: float, loading_since: float) -> bool:

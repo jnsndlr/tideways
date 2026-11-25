@@ -104,7 +104,7 @@ func _process(delta: float) -> bool:
 		if at.size() > 1:
 			return _fail("%s and %s both at %s's slip" % [at[0].ferry_name, at[1].ferry_name, term.town.name])
 	# Never stuck.
-	var minutes := delta   # (already scaled; a second is a game minute)
+	var minutes := Units.game_minutes(delta)
 	var held := func(f: Ferry, by: Ferry) -> bool:
 		return f.state == Ferry.State.SAILING and f.speed < 0.3 and (f._waiting_for == by or f.blocker == by)
 	if held.call(hiyu, rhodo) and held.call(rhodo, hiyu):

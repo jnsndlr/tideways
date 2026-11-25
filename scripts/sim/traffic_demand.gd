@@ -29,11 +29,21 @@ static func price_multiplier(price: float, base_price: float) -> float:
 
 
 static func vehicle_arrivals_per_minute(population: int, hour: float, vehicle_fare: float) -> float:
-	return arrivals_per_minute(population, hour) * price_multiplier(vehicle_fare, CompanyLedger.DEFAULT_VEHICLE_FARE)
+	return (
+		arrivals_per_minute(population, hour)
+		* price_multiplier(vehicle_fare, CompanyLedger.DEFAULT_VEHICLE_FARE)
+	)
 
 
-static func passenger_arrivals_per_minute(population: int, hour: float, passenger_fare: float) -> float:
-	return population / 4200.0 * factor(hour) * price_multiplier(passenger_fare, CompanyLedger.DEFAULT_PASSENGER_FARE)
+static func passenger_arrivals_per_minute(
+	population: int, hour: float, passenger_fare: float
+) -> float:
+	return (
+		population
+		/ 4200.0
+		* factor(hour)
+		* price_multiplier(passenger_fare, CompanyLedger.DEFAULT_PASSENGER_FARE)
+	)
 
 
 static func price_effect_label(price: float, base_price: float) -> String:

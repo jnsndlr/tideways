@@ -19,11 +19,12 @@ const MIN_PASSENGER_FARE := FareSchedule.MIN_PASSENGER_FARE
 const MAX_PASSENGER_FARE := FareSchedule.MAX_PASSENGER_FARE
 
 var cash := STARTING_CASH
-var _fares := FareSchedule.new(ProjectSettings.get_setting(FareSchedule.SETTING, {}))
 var vehicle_fare: float:
-	get: return _fares.vehicle_fare
+	get:
+		return _fares.vehicle_fare
 var passenger_fare: float:
-	get: return _fares.passenger_fare
+	get:
+		return _fares.passenger_fare
 var today := _blank_day()
 var yesterday := _blank_day()
 var revenue_total := 0.0
@@ -38,6 +39,8 @@ var passengers_total := 0
 
 var revenue_today: float:
 	get: return today["fares"]
+
+var _fares := FareSchedule.new(ProjectSettings.get_setting(FareSchedule.SETTING, {}))
 
 
 static func _blank_day() -> Dictionary:

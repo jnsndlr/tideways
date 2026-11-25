@@ -16,9 +16,9 @@ var _cash: Label
 var _cash_note: Label
 var _routes_box := VBoxContainer.new()
 var _route_ids: Array[int] = []
-var _route_rows := {}       # route_id -> {v_price, v_effect, v_tiers, p_price, p_effect}
+var _route_rows := {}  # route_id -> {v_price, v_effect, v_tiers, p_price, p_effect}
 var _grid := GridContainer.new()
-var _cells := {}            # [line, column] -> Label
+var _cells := {}  # [line, column] -> Label
 var _boats := VBoxContainer.new()
 var _displayed: Array[Ferry] = []
 var _make_label: Callable

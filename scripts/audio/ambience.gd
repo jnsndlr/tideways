@@ -125,7 +125,7 @@ func _process(delta: float) -> void:
 			_gull_dist = gulls.nearest_distance(rig.camera.global_position)
 		if builder:
 			_tree_dist = builder.nearest_tree_distance(rig.camera.global_position, GULLS_GONE)
-			_bell_dist = builder.nearest_bell_distance(rig.camera.global_position)
+			_bell_dist = _nearest_bell_distance(rig.camera.global_position)
 	var near_want := _ramp(_gull_dist, GULLS_GONE, GULLS_FULL, GULLS_CURVE) * gull_level
 	_sea_gain = move_toward(_sea_gain, sea_want, EASE * dt)
 	_near_gain = move_toward(_near_gain, near_want, EASE * dt)
@@ -163,3 +163,11 @@ static func _sea_level(height: float) -> float:
 static func _ramp(v: float, gone: float, full: float, curve: float) -> float:
 	var t := clampf(inverse_lerp(gone, full, v), 0.0, 1.0)
 	return pow(t, curve)
+
+
+## Camera (or any point) to the nearest bell buoy, in metres; INF if there are none.
+func _nearest_bell_distance(from: Vector3) -> float:
+	var best := INF
+	for b in builder.bell_buoys:
+		best = minf(best, from.distance_to(b))
+	return best

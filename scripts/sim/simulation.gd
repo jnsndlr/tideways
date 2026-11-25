@@ -5,40 +5,6 @@ extends Node3D
 ## Two real seconds = one game minute at 1x speed (Units.MINUTES_PER_SECOND;
 ## Engine.time_scale scales clock and movement together).
 
-const WIND_DIRECTIONS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-const SEASON_DAYS := 30
-const SEASONS := ["Spring", "Summer", "Autumn", "Winter"]
-const FERRY_NAMES := ["Cedar Star", "Orca Spirit", "Madrona Belle", "Tidewater", "Salish Dawn",
-	"Heron", "Sea Lark", "Kelp Runner", "Evergreen", "Cormorant", "Island Pride", "Driftwood Queen"]
-
-var map: MapData
-var terrain: Terrain
-var rng := RandomNumberGenerator.new()
-var minutes := 6.0 * 60.0
-var day := 12
-## Whether working slips use an operated transfer span or a fixed landing.
-var uses_transfer_spans: bool
-var uses_slip_guides: bool
-var terminals := {}             # town id -> Terminal
-## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
-const DOCK_BUILD_MINUTES := 12.0 * 60.0
-## Terminals being built: town id -> game minutes until they open.
-var docks_building := {}
-var ferries: Array[Ferry] = []
-## Tugs delivering boats bought, or taking sold ones away (DeliveryTow).
-var tows: Array[DeliveryTow] = []
-var fleet_market := FleetMarket.new(self)
-## How the company started; its schedules are the only links between terminals.
-var scenario: Scenario
-## Builds one vehicle using this simulation's RNG. The session chooses its presentation.
-var _create_vehicle: Callable
-var _create_passenger: Callable
-var moving_vehicles: Array[Vehicle] = []
-var traffic: Node3D
-var passengers: Node3D
-var wildlife: Wildlife
-var marine: MarineTraffic
-var town_growth := TownGrowth.new()
 ## A terminal changed its holding queue or lane allocation.
 signal queues_changed
 ## A ferry changes berth during a lay-up, return or delivery.
@@ -59,6 +25,50 @@ signal ferry_delivered(ferry: Ferry)
 ## A boat was sold (sell_ferry); she leaves `ferries` and the scene after this.
 signal ferry_removed(ferry: Ferry)
 
+const WIND_DIRECTIONS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+const SEASON_DAYS := 30
+const SEASONS := ["Spring", "Summer", "Autumn", "Winter"]
+const FERRY_NAMES := [
+	"Cedar Star",
+	"Orca Spirit",
+	"Madrona Belle",
+	"Tidewater",
+	"Salish Dawn",
+	"Heron",
+	"Sea Lark",
+	"Kelp Runner",
+	"Evergreen",
+	"Cormorant",
+	"Island Pride",
+	"Driftwood Queen"
+]
+
+## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
+const DOCK_BUILD_MINUTES := 12.0 * 60.0
+
+var map: MapData
+var terrain: Terrain
+var rng := RandomNumberGenerator.new()
+var minutes := 6.0 * 60.0
+var day := 12
+## Whether working slips use an operated transfer span or a fixed landing.
+var uses_transfer_spans: bool
+var uses_slip_guides: bool
+var terminals := {}  # town id -> Terminal
+## Terminals being built: town id -> game minutes until they open.
+var docks_building := {}
+var ferries: Array[Ferry] = []
+## Tugs delivering boats bought, or taking sold ones away (DeliveryTow).
+var tows: Array[DeliveryTow] = []
+var fleet_market := FleetMarket.new(self)
+## How the company started; its schedules are the only links between terminals.
+var scenario: Scenario
+var moving_vehicles: Array[Vehicle] = []
+var traffic: Node3D
+var passengers: Node3D
+var wildlife: Wildlife
+var marine: MarineTraffic
+var town_growth := TownGrowth.new()
 var ledger := CompanyLedger.new()
 var dwell := FerryDwell.new(ProjectSettings.get_setting(FerryDwell.SETTING, {}))
 var operating_costs := FerryOperatingCosts.new(ProjectSettings.get_setting(FerryOperatingCosts.SETTING, {}))
@@ -71,14 +81,27 @@ var revenue_total: float:
 var cars_today: int:
 	get: return ledger.cars_today
 var passengers_today: int:
-	get: return ledger.passengers_today
+	get:
+		return ledger.passengers_today
 var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
+## Research projects finished (stage 8 fills this; nothing is researched yet).
+var research_done: Array[String] = []
+
+## Builds one vehicle using this simulation's RNG. The session chooses its presentation.
+var _create_vehicle: Callable
+var _create_passenger: Callable
+
 var _tide_phase := 0.0
 
 
-func _init(create_vehicle: Callable, transfer_spans := true, slip_guides := true, create_passenger := Passenger.create) -> void:
+func _init(
+	create_vehicle: Callable,
+	transfer_spans := true,
+	slip_guides := true,
+	create_passenger := Passenger.create
+) -> void:
 	uses_transfer_spans = transfer_spans
 	uses_slip_guides = slip_guides
 	_create_vehicle = create_vehicle
@@ -338,7 +361,7 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	if stops_problem(f, ids) != "":
 		return false
 	var new_times: Array[int] = []
-	new_times.assign(times if times != null else (f._next_timetable if not f.next_stops.is_empty() else f.timetable))
+	new_times.assign(times if times != null else f.service_times())
 	new_times.sort()
 	if not new_times.is_empty() and (new_times[0] < 0 or new_times[-1] >= Timetable.DAY):
 		return false
@@ -359,11 +382,15 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 		stops_changed(f)
 		town_growth.refresh_metrics()
 		return true
-	var prev_stops: Array[int] = f.stops.duplicate()
-	var prev_times: Array[int] = f.timetable.duplicate()
+	var prev_stops: Array[int] = f.service_stops().duplicate() if f.manual else f.stops.duplicate()
+	var prev_times: Array[int] = (
+		f.service_times().duplicate() if f.manual else f.timetable.duplicate()
+	)
 	var stops_edited := ids != prev_stops
 	var times_edited := new_times != prev_times
-	if not stops_edited:
+	if f.manual:
+		f.set_manual_service_plan(ids, leg_routes, new_times)
+	elif not stops_edited:
 		f.next_stops = []
 		f._next_legs = []
 		if times_edited:
@@ -574,10 +601,6 @@ func _advance_docks(delta: float) -> void:
 			open_terminal(map.towns[id])
 
 
-## Research projects finished (stage 8 fills this; nothing is researched yet).
-var research_done: Array[String] = []
-
-
 ## Whether research `key` is done ("" needs none). Upgrades ask before they are bought.
 func has_research(key: String) -> bool:
 	return key == "" or key in research_done
@@ -589,7 +612,9 @@ func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> v
 	running_costs_posted.emit(ferry, fuel, crew, trip)
 
 
-func make_vehicle(parent: Node3D = null, truck_share := TrafficDemand.DEFAULT_TRUCK_SHARE) -> Vehicle:
+func make_vehicle(
+	parent: Node3D = null, truck_share := TrafficDemand.DEFAULT_TRUCK_SHARE
+) -> Vehicle:
 	var vehicle: Vehicle = _create_vehicle.call(rng, truck_share)
 	vehicle.moving_traffic = moving_vehicles
 	(parent if parent else traffic).add_child(vehicle)
@@ -677,13 +702,19 @@ func demand_factor() -> float:
 
 
 func demand_rate(isl: MapData.Town) -> float:
-	return TrafficDemand.vehicle_arrivals_per_minute(isl.population, hour(), avg_vehicle_fare_at(isl)) \
+	return (
+		TrafficDemand.vehicle_arrivals_per_minute(isl.population, hour(), avg_vehicle_fare_at(isl))
 		* town_growth.vehicle_demand_multiplier(isl)
+	)
 
 
 func passenger_demand_rate(isl: MapData.Town) -> float:
-	return TrafficDemand.passenger_arrivals_per_minute(isl.population, hour(), avg_passenger_fare_at(isl)) \
+	return (
+		TrafficDemand.passenger_arrivals_per_minute(
+			isl.population, hour(), avg_passenger_fare_at(isl)
+		)
 		* town_growth.passenger_demand_multiplier(isl)
+	)
 
 
 func demand_label(isl: MapData.Town) -> String:

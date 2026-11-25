@@ -16,7 +16,10 @@ func _initialize() -> void:
 	_check_midnight_costs()
 	var sim := Simulation.new(Vehicle.new.unbind(2))
 	var ledger := sim.ledger
-	check(is_equal_approx(ledger.vehicle_fare, 18.0) and is_equal_approx(ledger.passenger_fare, 6.0), "Default ticket prices")
+	check(
+		is_equal_approx(ledger.vehicle_fare, 18.0) and is_equal_approx(ledger.passenger_fare, 6.0),
+		"Default ticket prices"
+	)
 	var car := Vehicle.new()
 	car.setup(Node3D.new(), false, "sedan_modern", Models.VEHICLE_SCALE)
 	check(car.slots == 1 and car.fare_multiplier() == 1, "Sedan takes 1 slot and pays 1x")
@@ -31,7 +34,10 @@ func _initialize() -> void:
 
 	var small_truck := Vehicle.new()
 	small_truck.setup(Node3D.new(), true, "truck_step", Models.VEHICLE_SCALE)
-	check(small_truck.slots == 2 and small_truck.fare_multiplier() == 2, "Small truck takes 2 slots and pays 2x")
+	check(
+		small_truck.slots == 2 and small_truck.fare_multiplier() == 2,
+		"Small truck takes 2 slots and pays 2x"
+	)
 	sim.collect_fare(small_truck)
 	check(is_equal_approx(sim.revenue_today, 90.0), "Small truck pays double vehicle fare")
 
@@ -44,7 +50,10 @@ func _initialize() -> void:
 
 	sim.collect_passenger_fare()
 	sim.collect_passenger_fare()
-	check(sim.passengers_today == 2 and is_equal_approx(sim.revenue_today, 156.0), "Walk-on passenger fares")
+	check(
+		sim.passengers_today == 2 and is_equal_approx(sim.revenue_today, 156.0),
+		"Walk-on passenger fares"
+	)
 
 	# Custom per-route and default ticket prices take effect immediately and shift demand.
 	ledger.set_vehicle_fare(25.0)
@@ -54,24 +63,63 @@ func _initialize() -> void:
 	check(is_equal_approx(sim.revenue_today, 216.0), "Custom vehicle (2x) and walk-on fares")
 	ledger.set_route_vehicle_fare(7, 30.0)
 	ledger.set_route_passenger_fare(7, 8.0)
-	check(is_equal_approx(ledger.vehicle_fare_for(7), 30.0) and is_equal_approx(ledger.passenger_fare_for(7), 8.0), "Per-route fare overrides")
-	check(is_equal_approx(ledger.vehicle_fare_for(2), 25.0), "Unset route falls back to default vehicle fare")
+	check(
+		(
+			is_equal_approx(ledger.vehicle_fare_for(7), 30.0)
+			and is_equal_approx(ledger.passenger_fare_for(7), 8.0)
+		),
+		"Per-route fare overrides"
+	)
+	check(
+		is_equal_approx(ledger.vehicle_fare_for(2), 25.0),
+		"Unset route falls back to default vehicle fare"
+	)
 	check(TrafficDemand.price_multiplier(10.0, 18.0) > 1.0, "Lower fare increases demand")
 	check(TrafficDemand.price_multiplier(30.0, 18.0) < 1.0, "Higher fare reduces demand")
 	var expected_pax_caps := {1: 20, 2: 100, 3: 300, 4: 500, 5: 1000}
 	for sz in expected_pax_caps:
-		check(FerryClass.of(sz).passenger_capacity == expected_pax_caps[sz], "Class %d passenger capacity" % sz)
+		check(
+			FerryClass.of(sz).passenger_capacity == expected_pax_caps[sz],
+			"Class %d passenger capacity" % sz
+		)
 
-	check(sim.cars_today == 5 and sim.passengers_today == 3 and is_equal_approx(sim.revenue_today, 216.0), "Daily receipts")
+	check(
+		(
+			sim.cars_today == 5
+			and sim.passengers_today == 3
+			and is_equal_approx(sim.revenue_today, 216.0)
+		),
+		"Daily receipts"
+	)
 	sim.minutes = 1439.0
 	sim._process(2.0)
-	check(sim.cars_today == 0 and sim.passengers_today == 0 and sim.revenue_today == 0.0 and is_equal_approx(sim.revenue_total, 216.0), "Midnight preserves lifetime receipts")
-	check(ledger.cars_yesterday == 5 and ledger.passengers_yesterday == 3, "Yesterday's counts kept at midnight")
+	check(
+		(
+			sim.cars_today == 0
+			and sim.passengers_today == 0
+			and sim.revenue_today == 0.0
+			and is_equal_approx(sim.revenue_total, 216.0)
+		),
+		"Midnight preserves lifetime receipts"
+	)
+	check(
+		ledger.cars_yesterday == 5 and ledger.passengers_yesterday == 3,
+		"Yesterday's counts kept at midnight"
+	)
 	check(is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 216.0), "Fares go into cash")
-	check(is_equal_approx(CompanyLedger.net(ledger.yesterday), 216.0), "Yesterday's lines kept at midnight")
+	check(
+		is_equal_approx(CompanyLedger.net(ledger.yesterday), 216.0),
+		"Yesterday's lines kept at midnight"
+	)
 	ledger.spend("fuel", 30.0)
 	ledger.spend("crew", 20.0)
-	check(is_equal_approx(CompanyLedger.net(ledger.today), -50.0) and is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 166.0), "Running costs leave cash")
+	check(
+		(
+			is_equal_approx(CompanyLedger.net(ledger.today), -50.0)
+			and is_equal_approx(ledger.cash, CompanyLedger.STARTING_CASH + 166.0)
+		),
+		"Running costs leave cash"
+	)
 	van.free()
 	small_truck.free()
 	rig.free()
@@ -122,7 +170,10 @@ func _initialize() -> void:
 func _check_fare_settings() -> void:
 	for invalid: Variant in [null, "24", true, -1, INF, NAN]:
 		var schedule := FareSchedule.new({"car": invalid, "passenger": 9})
-		check(schedule.vehicle_fare == 18.0 and schedule.passenger_fare == 9.0, "Invalid rate falls back independently")
+		check(
+			schedule.vehicle_fare == 18.0 and schedule.passenger_fare == 9.0,
+			"Invalid rate falls back independently"
+		)
 	check(FareSchedule.new([]).vehicle_fare == 18.0, "Malformed fare block uses defaults")
 	check(FareSchedule.new({"car": 0}).vehicle_fare == 0.0, "Zero fare is valid")
 	var previous: Variant = ProjectSettings.get_setting(FareSchedule.SETTING, null)
@@ -133,8 +184,14 @@ func _check_fare_settings() -> void:
 	var receipt := ledger.credit_passenger(7)
 	ledger.set_route_passenger_fare(7, 17.0)
 	ledger.refund_fare(receipt)
-	check(receipt == 9.0 and ledger.revenue_today == 72.0, "Refund returns original fare after a price change")
-	check(ledger.cash == CompanyLedger.STARTING_CASH + 72.0, "Cash reconciles with collected and refunded fares")
+	check(
+		receipt == 9.0 and ledger.revenue_today == 72.0,
+		"Refund returns original fare after a price change"
+	)
+	check(
+		ledger.cash == CompanyLedger.STARTING_CASH + 72.0,
+		"Cash reconciles with collected and refunded fares"
+	)
 
 
 func _check_operating_rates() -> void:

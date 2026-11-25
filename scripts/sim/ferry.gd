@@ -8,8 +8,12 @@ extends Vessel
 
 signal net_state_changed
 
-const State = FerryVoyage.State
 
+## Phased boarding: walk-ons board together first with no vehicle traffic,
+## then cut off and clear the ramp before vehicles drive on.
+enum LoadPhase { WALK_ONS, WALK_ON_CLEAR, VEHICLES }
+
+const State = FerryVoyage.State
 const YIELD_DECEL := FerryVoyage.YIELD_DECEL
 # A ferry about to leave holds in at the dock while a stretch of water it shares
 # with another route, no further out than this, is taken, or while a ferry
@@ -17,6 +21,78 @@ const YIELD_DECEL := FerryVoyage.YIELD_DECEL
 const ARRIVAL_PRIORITY := 660.0
 # Coming in, the slip's span starts down to the deck this far out (SlipRamp).
 const RAMP_LOWER_AT := 40.0
+const PAX_DISPATCH_GAP := 0.16
+## Walk-on boarding closes this many game minutes before BOARD_CLOSE, and walkers
+## still on the ramp get this long to step aboard before she stops waiting for them.
+const PAX_CUTOFF_MINUTES := 4.5
+## Most walk-ons shown boarding at one call (the rest board unseen, in batches).
+const MAX_VISIBLE_WALKERS := 16
+## Real seconds (at 1x) for every walk-on aboard to step off; a big load files off
+## several abreast to fit.
+const PAX_UNLOAD_SECONDS := 12.0
+## Her resale value is this share of her price new, times her condition.
+const RESALE_SHARE := 0.8
+# Alongside at her slip she pushes ahead on her seaward prop at HOLD_THROTTLE to keep
+# her landing end hard in against the apron, kicking up a little wash astern; it
+# stops as soon as she casts off.
+const HOLD_THROTTLE := 0.1
+# Landing and lying alongside (SlipGuides). Coming in, a captain who lands less surely
+# (Captain.landing) may come in a little askew, her landing end off the centre of the
+# slip, and ride a wing wall in, pressing its face back, before she straightens against
+# the apron. Alongside, the tide sets her over to one side and she swings about her
+# landing end until she lies against that side's dolphins, pressing their fenders in.
+# Her pose is _base_xf (where the route puts her) turned _askew about her middle, then
+# swung _lie about her landing end (radians about +Y).
+const LAND_RUN := 40.0  # metres out she starts coming in askew
+const GUIDE_CONTACT_RUN := 150.0  # contact range from the apron (metres)
+const WALL_GIVE := 0.20  # riding this far into a wing wall presses its face right in
+const STRAIGHTEN := 0.6  # per second, straightening against the apron once alongside
+# She lies over as far as it takes to reach the dolphins (a narrow hull in a wide
+# slip, further); this only keeps a freak fit from spinning her round.
+const MAX_LIE := deg_to_rad(15.0)
+const SHORT_LIE := deg_to_rad(1.2)  # a hull too short to reach the dolphins lies over this far
+const LIE_PRESS := 0.32  # how far into the fenders she leans
+const FENDER_GIVE := 0.35  # leaning this far in presses a fender right in
+const LIE_EASE := 0.6  # per second
+const YAW_PAD := 120.0
+# Lanes: two boats on one route pass each other mid-crossing, each keeping to her
+# own starboard lane off the line joining the docks (see lane_offset_on).
+const LANE_GAP := 50.0  # m, kept between two of the biggest hulls on opposite lanes
+const LANE_OUT := 60.0  # m out of the slip on the centreline before she eases over
+const LANE_EASE := 320.0  # m over which she eases onto her lane
+const LANE_SHIFT := 1.0 / 30.0  # fraction per game minute as a route becomes shared or clears
+## Speed moving between slips at one terminal, as a share of her cruise.
+const SHIFT_PACE := 0.6
+## Her top speed going astern between slips, as a share of her cruise.
+const SHIFT_ASTERN := 0.45
+## How fast she gathers and loses way between slips (share of cruise per second).
+const SHIFT_ACCEL := 0.07
+## Another ferry sailing this close to the terminal keeps her from moving slips.
+const SHIFT_CLEAR := 450.0
+## Ferries this close to one moving between slips hold off until she's done.
+const SHIFT_NEAR := 500.0
+
+# `--rough-landings`: every landing rides a wing wall in, to see the walls give.
+static var rough_landings := "--rough-landings" in OS.get_cmdline_user_args()
+static var _lane_w := -1.0
+
+## Walk-on passengers currently aboard: {dest: int, variant: int}.
+var passengers_aboard: Array[Dictionary] = []
+var holding: bool:
+	get:
+		return _orders.holding
+var manual: bool:
+	get:
+		return _orders.manual
+var stranded_cars: int:
+	get:
+		return _orders.stranded_cars
+var stranded_walk_ons: int:
+	get:
+		return _orders.stranded_walk_ons
+var stranded_refunds: float:
+	get:
+		return _orders.stranded_refunds
 
 var sim: Simulation
 var _operating_costs: FerryOperatingCosts
@@ -95,20 +171,6 @@ var previous_crossing_captain: Captain:
 	get: return _command.previous_crossing_captain
 var _forecasts := {}              # captain id -> unhindered crossing minutes on this route
 var aboard: Array[Vehicle] = []
-## Walk-on passengers currently aboard: {dest: int, variant: int}.
-var passengers_aboard: Array[Dictionary] = []
-## Phased boarding: walk-ons board together first with no vehicle traffic,
-## then cut off and clear the ramp before vehicles drive on.
-enum LoadPhase { WALK_ONS, WALK_ON_CLEAR, VEHICLES }
-const PAX_DISPATCH_GAP := 0.16
-## Walk-on boarding closes this many game minutes before BOARD_CLOSE, and walkers
-## still on the ramp get this long to step aboard before she stops waiting for them.
-const PAX_CUTOFF_MINUTES := 4.5
-## Most walk-ons shown boarding at one call (the rest board unseen, in batches).
-const MAX_VISIBLE_WALKERS := 16
-## Real seconds (at 1x) for every walk-on aboard to step off; a big load files off
-## several abreast to fit.
-const PAX_UNLOAD_SECONDS := 12.0
 ## In service at her working slip, or laid up: moving to, lying at, or coming
 ## back from a tie-up slip at the terminal she is at (`here()`).
 ## DELIVERING: bought in play and under tow to where she will lie (DeliveryTow).
@@ -117,8 +179,6 @@ var _lay_up := FerryLayUp.new()
 var berth: FerryLayUp.Berth:
 	get: return _lay_up.berth
 	set(value): _lay_up.berth = value
-## Her resale value is this share of her price new, times her condition.
-const RESALE_SHARE := 0.8
 ## 1 as good as new. Wear and tear will bring it down and maintenance back up;
 ## for now it is a stub that stays at 1, so every sale returns RESALE_SHARE.
 var condition := 1.0
@@ -133,6 +193,13 @@ var return_requested: bool:
 	get: return _lay_up.return_requested
 var tie_up: int:
 	get: return _lay_up.tie_up
+var _orders := FerryManualOrders.new(self)
+var _turn_t: float:
+	get:
+		return _orders._turn_t
+var _manual_landed: bool:
+	get:
+		return _orders._manual_landed
 var _positioning := false  # Sail empty to the first of the new stops.
 var _shift: SlipShiftPath
 var _shift_s := 0.0
@@ -147,7 +214,7 @@ var deck: FerryDeck
 var _boarding := 0
 var _boarding_spaces := 0  # deck slots taken by cars still driving on
 var _pax_walkers: Array[Passenger] = []  # walk-ons still on their way aboard
-var _walk_ons_since := -1.0      # when walk-ons started boarding at this call
+var _walk_ons_since := -1.0  # when walk-ons started boarding at this call
 var _walk_on_clear_since := 0.0
 var _pax_unload_per_tick := 1
 var _load_phase := LoadPhase.WALK_ONS
@@ -162,10 +229,6 @@ var _state_time: float:
 	set(value): voyage.state_time = value
 var _bob_time := 0.0
 var _thrust := 0.0   # forward prop reverse thrust while braking, 0..1
-# Alongside at her slip she pushes ahead on her seaward prop at HOLD_THROTTLE to keep
-# her landing end hard in against the apron, kicking up a little wash astern; it
-# stops as soon as she casts off.
-const HOLD_THROTTLE := 0.1
 var _push := 0.0     # her seaward prop's throttle holding her in, 0..HOLD_THROTTLE
 var _last_pos := Vector3.ZERO
 var _tracking := false
@@ -173,31 +236,11 @@ var _waiting_for: Ferry = null   # holding off a corridor this ferry has reserve
 var _giving_way := false         # (holding in at the dock for _waiting_for to come in)
 var _casting_off := false        # loaded, waiting for the apron to come up
 var _ramp_synced := false
-# Landing and lying alongside (SlipGuides). Coming in, a captain who lands less surely
-# (Captain.landing) may come in a little askew, her landing end off the centre of the
-# slip, and ride a wing wall in, pressing its face back, before she straightens against
-# the apron. Alongside, the tide sets her over to one side and she swings about her
-# landing end until she lies against that side's dolphins, pressing their fenders in.
-# Her pose is _base_xf (where the route puts her) turned _askew about her middle, then
-# swung _lie about her landing end (radians about +Y).
-const LAND_RUN := 40.0               # metres out she starts coming in askew
-const GUIDE_CONTACT_RUN := 150.0     # metres out from the apron she can touch the dolphins or wing walls
-const WALL_GIVE := 0.20              # riding this far into a wing wall presses its face right in
-const STRAIGHTEN := 0.6              # per second, straightening against the apron once alongside
-# She lies over as far as it takes to reach the dolphins (a narrow hull in a wide
-# slip, further); this only keeps a freak fit from spinning her round.
-const MAX_LIE := deg_to_rad(15.0)
-const SHORT_LIE := deg_to_rad(1.2)   # a hull too short to reach the dolphins lies over this far
-const LIE_PRESS := 0.32              # how far into the fenders she leans
-const FENDER_GIVE := 0.35            # leaning this far in presses a fender right in
-const LIE_EASE := 0.6                # per second
 var _lie := 0.0
 var _askew := 0.0
 var _base_xf := Transform3D.IDENTITY
 var _landing_side := 0.0             # which way (her x) her landing end comes in off centre; 0 until chosen
 var _landing_askew := 0.0            # how far askew (radians)
-# `--rough-landings`: every landing rides a wing wall in, to see the walls give.
-static var rough_landings := "--rough-landings" in OS.get_cmdline_user_args()
 var _runs := {}                   # "route id|at_a" -> _corridor_runs() for that direction
 # Flexible slip ends (stage 5): each route has its own slip at either end, but a boat
 # coming in whose slip is taken takes another free working slip there that fits her,
@@ -214,14 +257,6 @@ var _inset := 0.0
 # smoothed so she swings into and out of each turn rather than taking the
 # curve's 6 m chords one kink at a time (see _build_yaws).
 var _yaws := PackedFloat32Array()
-const YAW_PAD := 120.0
-# Lanes: two boats on one route pass each other mid-crossing, each keeping to her
-# own starboard lane off the line joining the docks (see lane_offset_on).
-const LANE_GAP := 50.0      # m, kept between two of the biggest hulls on opposite lanes
-const LANE_OUT := 60.0      # m out of the slip on the centreline before she eases over
-const LANE_EASE := 320.0    # m over which she eases onto her lane
-const LANE_SHIFT := 1.0 / 30.0   # of her lane per game minute, moving over when her route becomes shared (or stops being)
-static var _lane_w := -1.0
 var _lane_k := 0.0          # how far out on her lane she keeps (1 on a route she shares, 0 alone)
 
 
@@ -283,12 +318,19 @@ func start_staggered(i: int) -> void:
 				car.dest = destination().town.id
 				car.fare_paid = sim.ledger.vehicle_fare_for(route.id) * car.fare_multiplier()
 				aboard.append(car)
-			for p in sim.rng.randi_range(maxi(2, fc.passenger_capacity / 10), maxi(4, fc.passenger_capacity / 4)):
-				passengers_aboard.append({
-					"dest": destination().town.id,
-					"variant": sim.rng.randi() % Passenger.VARIANT_COUNT,
-					"fare_paid": sim.ledger.passenger_fare_for(route.id),
-				})
+			for p in sim.rng.randi_range(
+				maxi(2, fc.passenger_capacity / 10), maxi(4, fc.passenger_capacity / 4)
+			):
+				(
+					passengers_aboard
+					. append(
+						{
+							"dest": destination().town.id,
+							"variant": sim.rng.randi() % Passenger.VARIANT_COUNT,
+							"fare_paid": sim.ledger.passenger_fare_for(route.id),
+						}
+					)
+				)
 			_place(_route_s(traveled))
 		2:
 			at_a = not at_a
@@ -339,7 +381,7 @@ func set_timetable(times: Array[int]) -> void:
 ## no longer reaches from here drive off here instead.
 func _take_next_stops() -> bool:
 	var term_id := here().town.id
-	if next_stops.is_empty() or manual:
+	if next_stops.is_empty() or _orders.manual:
 		return false
 	if term_id not in next_stops:
 		return _divert_to_next_stops()
@@ -357,7 +399,7 @@ func _take_next_stops() -> bool:
 	next_stops = []
 	_next_legs = []
 	_next_timetable = []
-	_set_down_short(term_id, _served_from(call))
+	_orders._set_down_short(term_id, _served_from(call))
 	sim.stops_changed(self)
 	return true
 
@@ -370,7 +412,7 @@ func _divert_to_next_stops() -> bool:
 	var target := sim.positioning_stop(self, next_stops)
 	if target < 0:
 		return false
-	_set_down_short(term_id)
+	_orders._set_down_short(term_id)
 	var leg := sim.route_between(term_id, target)
 	var fit: Array[MapData.Route] = [leg]
 	sim._fit_routes(self, fit)
@@ -388,7 +430,7 @@ func _divert_to_next_stops() -> bool:
 ## A schedule change takes effect now: alongside, she sets down at once anyone
 ## her new stops leave behind; under way, she does at the dock she's bound for.
 func apply_stops_now() -> void:
-	if berth != Berth.WORKING or manual or next_stops.is_empty():
+	if berth != Berth.WORKING or _orders.manual or next_stops.is_empty():
 		return
 	if state == State.LOADING:
 		_begin_unloading()
@@ -626,8 +668,8 @@ func _free_slot(car: Vehicle) -> int:
 
 func _process(delta: float) -> void:
 	_state_time += Units.game_minutes(delta)
-	if manual or not _manual_pending.is_empty():
-		_manual_tick()
+	if _orders.manual or not _orders._manual_pending.is_empty():
+		_orders._manual_tick()
 	if not _ramp_synced:
 		# (A ferry starting the game alongside already has the apron on her deck.)
 		_ramp_synced = true
@@ -666,7 +708,7 @@ func _process(delta: float) -> void:
 
 
 func _begin_unloading() -> void:
-	_manual_set_down()
+	_orders._manual_set_down()
 	_take_next_stops()
 	state = State.UNLOADING
 	if _ramp(here()):
@@ -718,7 +760,11 @@ func _tick_unloading(delta: float) -> void:
 			var car: Vehicle = _unload_queue.pop_front()
 			_dispatch_timer = _gap_after(car)
 			_drive_off(car)
-	elif _dispatch_timer < -dwell.unload_clearance and _pax_unload_queue.is_empty() and _last_vehicle_clear_of_lot():
+	elif (
+		_dispatch_timer < -dwell.unload_clearance
+		and _pax_unload_queue.is_empty()
+		and _last_vehicle_clear_of_lot()
+	):
 		if here().unloading_ferry == self:
 			here().unloading_ferry = null
 		if not _try_lay_up():
@@ -732,7 +778,13 @@ func _try_lay_up() -> bool:
 	if lay_up_requested:
 		slip = lay_up_slip(here())
 	else:
-		if timetable.is_empty() or call != 0 or not aboard.is_empty() or not passengers_aboard.is_empty() or not next_stops.is_empty():
+		if (
+			timetable.is_empty()
+			or call != 0
+			or not aboard.is_empty()
+			or not passengers_aboard.is_empty()
+			or not next_stops.is_empty()
+		):
 			return false
 		departure = due()
 		if not FerryLayUp.long_enough_gap(departure, sim.abs_minutes()):
@@ -867,7 +919,9 @@ func _on_walker_aboard(w: Passenger) -> void:
 
 ## Walk-ons still on their way aboard (any freed elsewhere no longer count).
 func _walkers_boarding() -> int:
-	_pax_walkers = _pax_walkers.filter(func(w: Passenger): return is_instance_valid(w) and not w.is_queued_for_deletion())
+	_pax_walkers = _pax_walkers.filter(
+		func(w: Passenger): return is_instance_valid(w) and not w.is_queued_for_deletion()
+	)
 	return _pax_walkers.size()
 
 
@@ -900,13 +954,13 @@ func _begin_loading() -> void:
 
 
 func _tick_loading(delta: float) -> void:
-	if manual and _manual_landed:
-		return   # (lying where she was sent until Return to service)
+	if _orders.manual and _orders._manual_landed:
+		return  # (lying where she was sent until Return to service)
 	_dispatch_timer -= delta
 	_pax_dispatch_timer -= delta
 	var term := here()
 	if not _casting_off and term.unloading_ferry != null and term.unloading_ferry != self:
-		_state_time -= Units.game_minutes(delta)  # Waiting for the shared crossing does not spend loading time.
+		_state_time -= Units.game_minutes(delta)  # Waiting does not spend loading time.
 		return
 	var serves := serves_from_here()
 	var fits := func(c: Vehicle): return _free_slot(c) >= 0
@@ -914,7 +968,9 @@ func _tick_loading(delta: float) -> void:
 	var now := sim.abs_minutes()
 	var timed := due_at >= 0.0
 	var late := timed and _loading_since > due_at - dwell.minimum_loading
-	var boarding_open := not _positioning and dwell.boarding_open(_state_time, now, due_at, _loading_since)
+	var boarding_open := (
+		not _positioning and dwell.boarding_open(_state_time, now, due_at, _loading_since)
+	)
 	if boarding_open and not _casting_off and _ramp_down():
 		match _load_phase:
 			LoadPhase.WALK_ONS:
@@ -922,7 +978,10 @@ func _tick_loading(delta: float) -> void:
 					_walk_ons_since = now
 				# Walk-ons get PAX_CUTOFF_MINUTES to board; later arrivals wait for the next boat.
 				var cut_off := now - _walk_ons_since >= PAX_CUTOFF_MINUTES
-				var has_pax := passengers_aboard.size() < fc.passenger_capacity and term.has_waiting_passengers(serves)
+				var has_pax := (
+					passengers_aboard.size() < fc.passenger_capacity
+					and term.has_waiting_passengers(serves)
+				)
 				if cut_off or not has_pax:
 					_end_walk_ons(now)
 				elif _pax_dispatch_timer <= 0.0:
@@ -936,7 +995,9 @@ func _tick_loading(delta: float) -> void:
 						if pax.is_empty():
 							break
 						var paid := sim.collect_passenger_fare(_fare_route_id(int(pax["dest"])))
-						passengers_aboard.append({"dest": pax["dest"], "variant": pax["variant"], "fare_paid": paid})
+						passengers_aboard.append(
+							{"dest": pax["dest"], "variant": pax["variant"], "fare_paid": paid}
+						)
 						_walk_on(pax, term)
 					_pax_dispatch_timer = PAX_DISPATCH_GAP
 			LoadPhase.VEHICLES:
@@ -950,18 +1011,28 @@ func _tick_loading(delta: float) -> void:
 	if _load_phase == LoadPhase.WALK_ON_CLEAR:
 		# Walkers still on the ramp get PAX_CUTOFF_MINUTES (and never past boarding
 		# close) to step aboard; after that she stops waiting and counts them aboard.
-		var give_up := now - _walk_on_clear_since >= PAX_CUTOFF_MINUTES \
+		var give_up := (
+			now - _walk_on_clear_since >= PAX_CUTOFF_MINUTES
 			or (timed and not late and now >= due_at - dwell.boarding_close)
+		)
 		if _walkers_boarding() == 0 or give_up:
 			_sweep_walkers()
 			_load_phase = LoadPhase.VEHICLES
 			if not timed:
 				_state_time = 0.0
-	# (full: nothing waiting would fit; only depart once walk-on phase finished and all walkers are aboard)
+	# Full means no waiting vehicle fits. Walk-ons finish before departure.
 	var full := _load_phase == LoadPhase.VEHICLES and not term.has_waiting(serves, fits)
-	var queue_empty := _load_phase == LoadPhase.VEHICLES and not term.has_waiting(serves, func(_c: Vehicle): return true)
-	var loaded := _load_phase == LoadPhase.VEHICLES and (
-			_positioning or dwell.ready_to_lift(_state_time, now, due_at, _loading_since, full or queue_empty))
+	var queue_empty := (
+		_load_phase == LoadPhase.VEHICLES
+		and not term.has_waiting(serves, func(_c: Vehicle): return true)
+	)
+	var loaded := (
+		_load_phase == LoadPhase.VEHICLES
+		and (
+			_positioning
+			or dwell.ready_to_lift(_state_time, now, due_at, _loading_since, full or queue_empty)
+		)
+	)
 	if _casting_off or (_boarding == 0 and loaded):
 		# Apron up before she goes.
 		_casting_off = true
@@ -1031,10 +1102,10 @@ func _on_boarded(car: Vehicle, park: Transform3D, term: Terminal) -> void:
 	_boarding -= 1
 	_boarding_spaces -= car.slots
 	if state == State.UNLOADING:
-		if manual and here().town.id == manual_target:
-			_manual_set_down()
-		elif not manual:
-			_set_down_short(here().town.id, _served_from(call))
+		if _orders.manual and here().town.id == _orders.manual_target:
+			_orders._manual_set_down()
+		elif not _orders.manual:
+			_orders._set_down_short(here().town.id, _served_from(call))
 		_queue_disembarking()
 
 
@@ -1045,7 +1116,7 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 
 func _tick_sailing(delta: float) -> void:
-	if _turn_t >= 0.0 and _tick_turn(delta):
+	if _orders._turn_t >= 0.0 and _orders._tick_turn(delta):
 		return
 	_command.advance(Units.game_minutes(delta))
 	var remaining := run_length() - traveled
@@ -1061,9 +1132,9 @@ func _tick_sailing(delta: float) -> void:
 		_choose_slip()
 	var wait := minf(minf(_corridor_wait(), _refit_wait()), minf(_slip_wait(), _occupied_wait()))
 	wait = minf(wait, _shift_wait())
-	if holding:
-		wait = minf(wait, maxf(_hold_at - traveled, 0.0))
-		_tick_hold(delta)
+	if _orders.holding:
+		wait = minf(wait, maxf(_orders._hold_at - traveled, 0.0))
+		_orders._tick_hold(delta)
 	hold = wait
 	speed = voyage.sailing_speed(delta, run_length(), speed, cruise, traffic_limit, wait, captain.harbour)
 	_thrust = move_toward(_thrust, 1.0 if rem < zone and rem > 1.5 else 0.0, delta * 0.8)
@@ -1229,8 +1300,12 @@ func _blocked_at_dock() -> bool:
 		var holder := _run_holder(run, traveled)
 		# The water round her destination slip, kept by the boat lying there, doesn't
 		# hold her in: she leaves and holds off outside it (freeing this slip).
-		var at_far_slip: bool = run[0] > 3.0 and run[1] >= run_length() - 3.0 \
-				and holder != null and holder.state != State.SAILING
+		var at_far_slip: bool = (
+			run[0] > 3.0
+			and run[1] >= run_length() - 3.0
+			and holder != null
+			and holder.state != State.SAILING
+		)
 		if holder != null and holder._waiting_for != self and not at_far_slip:
 			_waiting_for = holder
 			return true
@@ -1554,9 +1629,9 @@ func _update_lie(delta: float) -> void:
 		_lie = 0.0
 		if not leaving:
 			# Straight again and clear of the slip: let every fender and wall out.
-			for f in (g.fenders if g else []):
+			for f in g.fenders if g else []:
 				f.target = 0.0
-			for w in (g.walls if g else []):
+			for w in g.walls if g else []:
 				w.target = 0.0
 
 
@@ -1658,7 +1733,11 @@ func _choose_slip() -> void:
 	var e := 1 if at_a else 0
 	_end_slip[e] = -1
 	var own := term.town.slip_index(route.id)
-	var best := term.arrival_slip(_manual_arrival(term, own), fc.size, func(i: int): return term.slip_user(i, self) != null)
+	var best := term.arrival_slip(
+		_orders._manual_arrival(term, own),
+		fc.size,
+		func(i: int): return term.slip_user(i, self) != null
+	)
 	if best >= 0 and best != own:
 		_end_slip[e] = best
 		# Whatever water round her own slip she had taken is free for its other boats.
@@ -1883,10 +1962,13 @@ func kind_text() -> String:
 
 
 func status_text() -> String:
-	if holding:
-		return "Pulled aside, bound for %s · %d min · Return to service when ready" % [destination().town.name, int(_held_for)]
-	if manual:
-		return _manual_text()
+	if _orders.holding:
+		return (
+			"Pulled aside, bound for %s · %d min · Return to service when ready"
+			% [destination().town.name, int(_orders._held_for)]
+		)
+	if _orders.manual:
+		return _orders._manual_text()
 	match berth:
 		Berth.DELIVERING:
 			if tow and tow.outbound:
@@ -1898,9 +1980,14 @@ func status_text() -> String:
 			return "Moving to the tie-up slip at " + here().town.name
 		Berth.TIED_UP:
 			if return_requested:
-				var o := sim.occupant(here(), slip_at(here()), self) if tie_up != slip_at(here()) else null
+				var o := (
+					here().slip_user(slip_at(here()), self) if tie_up != slip_at(here()) else null
+				)
 				if o:
-					return "Tied up at %s · %s lies laid up in her slip" % [here().town.name, o.ferry_name]
+					return (
+						"Tied up at %s · waiting for %s to clear her slip"
+						% [here().town.name, o.ferry_name]
+					)
 				return "Tied up at %s · waiting for her slip" % here().town.name
 			if between_sailings():
 				return "Tied up at %s until her %s sailing" % [here().town.name, Timetable.text(int(round(fmod(_lay_up.gap_due, Timetable.DAY))))]
@@ -1925,15 +2012,17 @@ func _service_text() -> String:
 		if _giving_way:
 			return "Holding in for %s to come in" % _waiting_for.ferry_name
 		return "Waiting for %s to clear the channel" % _waiting_for.ferry_name
-	var holding := holding_text()
-	if holding != "":
-		return holding
+	var wait_reason := holding_text()
+	if wait_reason != "":
+		return wait_reason
 	var due_at := due()
 	match state:
 		State.UNLOADING:
 			return "Unloading at " + here().town.name
 		State.LOADING:
-			var phase := "Boarding walk-ons" if _load_phase != LoadPhase.VEHICLES else "Loading vehicles"
+			var phase := (
+				"Boarding walk-ons" if _load_phase != LoadPhase.VEHICLES else "Loading vehicles"
+			)
 			if due_at < 0.0:
 				return "%s at %s" % [phase, here().town.name]
 			if off_shift():
@@ -2146,8 +2235,12 @@ func off_shift() -> bool:
 	if d < 0.0 or int(round(fmod(d, Timetable.DAY))) != timetable[0]:
 		return false
 	var now := sim.abs_minutes()
-	if _timetable.last_departure >= 0.0 and now < _timetable.last_departure + shift_tail(_round_offsets()):
-		return false
+	if _timetable.last_departure >= 0.0:
+		var shift_end := _timetable.last_departure + shift_tail(_round_offsets())
+		if between_sailings():
+			shift_end += shift_minutes(_shift_length(tie_up))
+		if now < shift_end:
+			return false
 	return d - now > dwell.crew_call
 
 
@@ -2224,17 +2317,6 @@ func start_day() -> void:
 
 # --- Laying up ----------------------------------------------------------------------
 
-## Speed moving between slips at one terminal, as a share of her cruise.
-const SHIFT_PACE := 0.6
-## Her top speed going astern between slips, as a share of her cruise.
-const SHIFT_ASTERN := 0.45
-## How fast she gathers and loses way between slips (share of cruise per second).
-const SHIFT_ACCEL := 0.07
-## Another ferry sailing this close to the terminal keeps her from moving slips.
-const SHIFT_CLEAR := 450.0
-## Ferries this close to one moving between slips hold off until she's done.
-const SHIFT_NEAR := 500.0
-
 
 ## What she would fetch sold now: her price new × RESALE_SHARE × her condition.
 func resale_value() -> int:
@@ -2246,8 +2328,14 @@ func can_sell() -> bool:
 	if _lay_up.can_sell():
 		return true
 	# Out of service by hand and empty, wherever she lies (at a slip or held off).
-	return ((manual and _manual_landed) or holding) and aboard.is_empty() and passengers_aboard.is_empty() \
-			and state != State.UNLOADING and _boarding <= 0 and _manual_pending.is_empty()
+	return (
+		((_orders.manual and _orders._manual_landed) or _orders.holding)
+		and aboard.is_empty()
+		and passengers_aboard.is_empty()
+		and state != State.UNLOADING
+		and _boarding <= 0
+		and _orders._manual_pending.is_empty()
+	)
 
 
 ## She can always be laid up: in a free tie-up slip if one of her stops has one,
@@ -2272,8 +2360,14 @@ func lay_up_slip(term: Terminal) -> int:
 	# Not with a boat already coming in to it inside the hold line: she'd lie
 	# across its bow. She sails on and lays up at a later call instead.
 	for f in sim.ferries:
-		if f != self and f.berth == Berth.WORKING and f.state == State.SAILING \
-				and f.destination() == term and f.slip_at(term) == mine and f.path_left() < Terminal.REFIT_HOLD:
+		if (
+			f != self
+			and f.berth == Berth.WORKING
+			and f.state == State.SAILING
+			and f.destination() == term
+			and f.slip_at(term) == mine
+			and f.path_left() < Terminal.REFIT_HOLD
+		):
 			return -1
 	return mine
 
@@ -2317,14 +2411,18 @@ func request_lay_up(town_id := -1) -> void:
 	if berth == Berth.DELIVERING:
 		return
 	_lay_up.return_requested = false
-	_lay_up.gap_due = -1.0   # tied up between sailings: she stays there
+	_lay_up.gap_due = -1.0  # tied up between sailings: she stays there
 	if berth == Berth.TIED_UP and town_id < 0:
 		return
 	if town_id < 0:
-		town_id = next_dock().town.id if berth == Berth.WORKING else here().town.id
+		town_id = (
+			destination().town.id
+			if berth == Berth.WORKING and state == State.SAILING
+			else here().town.id
+		)
 	var slip := best_slip(town_id)
-	if slip < 0 or not order_move(town_id, slip):
-		_lay_up.lay_up_requested = berth == Berth.WORKING   # (the old way: at her next tie-up)
+	if slip < 0 or not _orders.order_move(town_id, slip):
+		_lay_up.lay_up_requested = berth == Berth.WORKING  # (the old way: at her next tie-up)
 
 
 ## The slip at `town_id` she'd best lie in: a free tie-up she fits, else the
@@ -2347,16 +2445,50 @@ func best_slip(town_id: int) -> int:
 	return -1
 
 
+func order_hold() -> bool:
+	return _orders.order_hold()
+
+
+func manual_reach() -> Array[int]:
+	return _orders.manual_reach()
+
+
+func manual_slips(town_id: int) -> Array:
+	return _orders.manual_slips(town_id)
+
+
+func manual_strands(town_id: int) -> Vector2i:
+	return _orders.manual_strands(town_id)
+
+
+func order_move(town_id: int, slip: int) -> bool:
+	return _orders.order_move(town_id, slip)
+
+
+func service_stops() -> Array[int]:
+	return _orders.service_stops()
+
+
+func service_times() -> Array[int]:
+	return _orders.service_times()
+
+
+func set_manual_service_plan(
+	ids: Array[int], leg_routes: Array[MapData.Route], times: Array[int]
+) -> void:
+	_orders.set_manual_service_plan(ids, leg_routes, times)
+
+
 ## Back into service: from the tie-up to her working slip once it is free.
 func request_return() -> void:
 	if berth == Berth.DELIVERING:
 		return
-	if holding:
-		holding = false
+	if _orders.holding:
+		_orders.holding = false
 		return
-	_manual_pending = []
-	if manual:
-		_manual_resume()
+	_orders._manual_pending = []
+	if _orders.manual:
+		_orders._manual_resume()
 		return
 	_lay_up.lay_up_requested = false
 	# Back on her timetable from the next round due.
@@ -2365,7 +2497,7 @@ func request_return() -> void:
 
 
 func in_service() -> bool:
-	return _lay_up.in_service() and not manual and not holding
+	return _lay_up.in_service() and not _orders.manual and not _orders.holding
 
 
 ## At or moving to or from a tie-up slip between timed sailings (FerryLayUp.GAP_TIE_UP),
@@ -2382,6 +2514,7 @@ func start_tied_up(term: Terminal) -> bool:
 	for car in aboard:
 		car.queue_free()
 	aboard.clear()
+	passengers_aboard.clear()
 	deck.clear()
 	at_a = term == term_a
 	_begin_loading()
@@ -2443,14 +2576,20 @@ func take_first_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route], ti
 ## New stops that don't include the terminal she lies tied up at: her crew take
 ## her across empty on `leg` to `target` (one of them), where she takes them up.
 ## Laid up, she waits for Return to service; between sailings she goes at once.
-func reposition(target: int, leg: MapData.Route, stop_ids: Array[int], leg_routes: Array[MapData.Route], times: Array[int]) -> void:
+func reposition(
+	target: int,
+	leg: MapData.Route,
+	stop_ids: Array[int],
+	leg_routes: Array[MapData.Route],
+	times: Array[int]
+) -> void:
 	var here_id := here().town.id
 	stops = [here_id, target]
 	legs = [leg, leg]
 	call = 0
 	plan_stops(stop_ids, leg_routes, times)
 	_positioning = true
-	set_timetable([])   # (she sails as soon as she's alongside; her times start at the new stops)
+	set_timetable([])  # (she sails as soon as she's alongside; her times start at the new stops)
 	_offsets.clear()
 	_take_leg()
 	# (_take_leg puts her at the working slip of the new leg; she still lies here)
@@ -2548,7 +2687,9 @@ func _tick_berth(delta: float) -> void:
 			return   # (the tow moves her)
 		Berth.TIED_UP:
 			if between_sailings():
-				_lay_up.check_return_time(sim.abs_minutes(), dwell.maximum_loading, shift_minutes(_shift_length(tie_up)))
+				_lay_up.check_return_time(
+					sim.abs_minutes(), dwell.maximum_loading, shift_minutes(_shift_length(tie_up))
+				)
 			if return_requested and (tie_up == slip_at(here()) or not _shift_blocked(true)):
 				_lay_up.leave_tie_up()
 				# Keeps whatever water round her slip a docked ferry would hold.
@@ -2699,447 +2840,3 @@ func _follow_shift(delta: float) -> bool:
 		xf.basis = Basis(Vector3.UP, _shift_yaw) * _shift_basis
 	global_transform = xf
 	return _shift_s >= length - 0.01
-
-
-# --- Pulled aside (TID-329) -------------------------------------------------------
-# The player pulls her aside mid-crossing: she eases to a stop on her track and
-# holds there, riders and all, until Return to service, when she carries on. She
-# idles her engines (a slow burn) and the longer she holds the unhappier the towns
-# her riders are bound for.
-
-const HOLD_FUEL_PER_MIN := 6.0     # $ a game minute idling
-const HOLD_GRACE_MIN := 15.0       # riders put up with this long before it tells
-const HOLD_GRUMBLE := 0.003        # turned-away weight per rider per minute after that
-var holding := false
-var _hold_at := 0.0                # where along her run she comes to a stop
-var _held_for := 0.0               # game minutes she's held
-
-
-## Pulls her aside where she is (only under way). False if she can't.
-func order_hold() -> bool:
-	if berth != Berth.WORKING or state != State.SAILING or manual:
-		return false
-	holding = true
-	_held_for = 0.0
-	_hold_at = minf(traveled + speed * speed / (2.0 * FerryVoyage.YIELD_DECEL) + 2.0, run_length() - FerryVoyage.DOCKING_ZONE)
-	_hold_at = maxf(_hold_at, traveled)
-	return true
-
-
-func _tick_hold(delta: float) -> void:
-	var dmin := Units.game_minutes(delta)
-	_held_for += dmin
-	_crossing_fuel += HOLD_FUEL_PER_MIN * dmin
-	if _held_for < HOLD_GRACE_MIN:
-		return
-	var riders := {}
-	for car in aboard:
-		riders[car.dest] = riders.get(car.dest, 0.0) + 1.0
-	for p in passengers_aboard:
-		riders[int(p["dest"])] = riders.get(int(p["dest"]), 0.0) + 0.5
-	for dest in riders:
-		if sim.terminals.has(dest):
-			sim.terminals[dest].turned_recent += riders[dest] * HOLD_GRUMBLE * dmin
-
-
-# --- Manual orders (TID-328) -----------------------------------------------------
-# The player's safety valve for a jam: send her by hand to any slip at a terminal
-# a route reaches from where she is (or is bound), under way or alongside. Her
-# timetable stops; at the slip she sets everyone down (anyone short of where they
-# were going is refunded and counts against the terminal they were bound for) and
-# lies there until Return to service, when she takes up her stops again from there.
-# She still keeps clear of other boats (a manual move waits for clear water).
-
-var manual := false            # under the player's own orders: her timetable is paused
-var manual_target := -1        # town id she's sent to
-var manual_slip := -1          # the slip there she's to lie in
-var _manual_landed := false    # she's at manual_target and has set everyone down
-var _manual_resume_due := false   # Return to service asked for before she's there
-var _manual_pending: Array = []   # [town id, slip] given mid-shift between slips
-var _manual_prev := {}         # the stops, legs and times she goes back to
-## Travellers set down short of their destination by manual orders, and the fares refunded.
-var stranded_cars := 0
-var stranded_walk_ons := 0
-var stranded_refunds := 0.0
-
-
-## The towns she can be sent to by hand: where she is and is bound, and any
-## terminal one direct route from either that her hull fits.
-func manual_reach() -> Array[int]:
-	var ends: Array[int] = [here().town.id]
-	if berth == Berth.WORKING and state == State.SAILING:
-		ends.append(destination().town.id)
-	var out: Array[int] = ends.duplicate()
-	for id: int in sim.terminals.keys():
-		if id in out:
-			continue
-		for e in ends:
-			if sim.route_between(e, id) != null and sim.leg_problem(self, e, id) == "":
-				out.append(id)
-				break
-	return out
-
-
-## The slips at `town_id` she fits, as [slip index, "Slip 1" / "Tie-up 1"].
-func manual_slips(town_id: int) -> Array:
-	var town := sim.map.towns[town_id]
-	var out := []
-	var working := 0
-	var tie := 0
-	for i in town.slips.size():
-		var slip := town.slips[i]
-		if slip.building:
-			continue
-		if slip.tie_up:
-			tie += 1
-		else:
-			working += 1
-		if slip.fits(fc.size):
-			out.append([i, ("Tie-up %d" % tie) if slip.tie_up else ("Slip %d" % working)])
-	return out
-
-
-## Cars and walk-ons aboard that sending her to `town_id` would set down short.
-func manual_strands(town_id: int) -> Vector2i:
-	var cars := 0
-	var pax := 0
-	for car in aboard:
-		if car.dest >= 0 and car.dest != town_id:
-			cars += 1
-	for p in passengers_aboard:
-		if p["dest"] >= 0 and p["dest"] != town_id:
-			pax += 1
-	return Vector2i(cars, pax)
-
-
-## Sends her by hand to slip `slip` at `town_id` (one of manual_reach()). False if
-## she can't go there from where she is.
-func order_move(town_id: int, slip: int) -> bool:
-	if berth == Berth.DELIVERING or not assigned or town_id not in manual_reach():
-		return false
-	if berth == Berth.TO_TIE_UP or berth == Berth.TO_WORKING:
-		_manual_pending = [town_id, slip]   # (once she's done moving between slips)
-		return true
-	_manual_pending = []
-	holding = false
-	if not manual:
-		if not next_stops.is_empty():
-			_manual_prev = {"stops": next_stops.duplicate(), "legs": _next_legs.duplicate(), "times": _next_timetable.duplicate()}
-		else:
-			_manual_prev = {"stops": stops.duplicate(), "legs": legs.duplicate(), "times": timetable.duplicate()}
-	manual = true
-	manual_target = town_id
-	manual_slip = slip
-	_manual_landed = false
-	_manual_resume_due = false
-	_lay_up.lay_up_requested = false
-	_lay_up.return_requested = false
-	_lay_up.gap_due = -1.0
-	next_stops = []
-	_next_legs = []
-	_next_timetable = []
-	set_timetable([])
-	_offsets.clear()
-	var here_id := here().town.id
-	if berth == Berth.TIED_UP:
-		if town_id == here_id:
-			_manual_landed = true
-			if slip != tie_up:
-				_lay_up.return_requested = true   # (to her working slip, then on to `slip`)
-		else:
-			var leg := sim.route_between(here_id, town_id)
-			stops = [here_id, town_id]
-			legs = [leg, leg]
-			call = 0
-			_positioning = true
-			_take_leg()
-			for run in _corridor_runs():
-				for e in run[2]:
-					if e[1].owner == self:
-						e[1].owner = null
-			global_position = _tie_up_point(tie_up)
-			_lay_up.return_requested = true
-	elif state == State.SAILING:
-		_redirect(town_id)
-	else:
-		# Alongside, loading or unloading.
-		if town_id == here_id:
-			_casting_off = false
-			_positioning = false
-			if state == State.LOADING:
-				_begin_unloading()   # (sets everyone down: _manual_set_down)
-			else:
-				_manual_set_down()
-				_queue_disembarking()
-		else:
-			var leg := sim.route_between(here_id, town_id)
-			stops = [here_id, town_id]
-			legs = [leg, leg]
-			call = 0
-			_positioning = true   # (boarding shut: she casts off as soon as she can)
-	sim.stops_changed(self)
-	return true
-
-
-## Under way: on for `town_id` from where she is. Her own destination or the
-## terminal she left (she's double-ended: she turns back where she is), or one a
-## route reaches from either, by whichever way is shorter.
-func _redirect(town_id: int) -> void:
-	var from_id := here().town.id
-	var dest_id := destination().town.id
-	var via := -1
-	if town_id == from_id:
-		_turn_back()
-	elif town_id != dest_id:
-		var on := sim.route_between(dest_id, town_id)
-		var back := sim.route_between(from_id, town_id)
-		var on_len := path_left() + on.length if on != null and sim.leg_problem(self, dest_id, town_id) == "" else INF
-		var back_len := traveled + back.length if back != null and sim.leg_problem(self, from_id, town_id) == "" else INF
-		if back_len < on_len:
-			_turn_back()
-		via = destination().town.id
-	var now_from := here().town.id
-	var now_dest := destination().town.id
-	if via < 0:
-		stops = [now_from, now_dest]
-		legs = [route, route]
-	else:
-		var onward := sim.route_between(via, town_id)
-		stops = [now_from, via, town_id]
-		legs = [route, onward, onward]
-		_positioning = true   # (she calls at `via` only to set down whoever is bound there)
-	call = 1
-	_slip_chosen = false
-	_command.cancel_crossing()
-
-
-## Seconds (at 1x) she takes to swing round when turned back mid-crossing.
-const TURN_BACK_SECONDS := 15.0
-var _turn_t := -1.0                 # 0..1 through swinging round (_tick_turn); -1 when not
-var _turn_from := Transform3D()     # her pose as she began to swing
-var _turn_sweep := 0.0              # how far she turns (about +-PI), and which way
-
-
-## Mid-crossing, back the way she came: she stops and swings round where she is
-## (over to the other lane if the route is shared), and the end that led still leads.
-func _turn_back() -> void:
-	for run in _corridor_runs():
-		for e in run[2]:
-			if e[1].owner == self:
-				e[1].owner = null
-	var from := _base_xf if _turn_t < 0.0 else _turn_pose()
-	var run_len := run_length()
-	at_a = not at_a
-	_rev = not _rev   # (so _minus, the end that leads, is the same end)
-	traveled = maxf(run_len - traveled, 0.0)
-	_slip_chosen = false
-	speed = 0.0
-	_turn_from = from
-	_turn_t = 0.0
-	# Where she'll be lying once round, and the way round that takes her towards it
-	# (to starboard, if she stays on the centreline).
-	_place(_route_s(traveled))
-	var to := _base_xf
-	var y0 := from.basis.get_euler().y
-	var y1 := to.basis.get_euler().y
-	var d := wrapf(y1 - y0, -PI, PI)
-	var across := to.origin - from.origin
-	across.y = 0.0
-	# She heads +Z when _minus (she left from her -Z end), and turning +yaw swings
-	# +Z towards +X: turn towards the side she's crossing to.
-	var heading := 1.0 if _minus else -1.0
-	var want := 1.0 if across.length() < 1.0 or across.dot(from.basis.x) * heading >= 0.0 else -1.0
-	if signf(d) != want and absf(d) > PI * 0.5:
-		d -= signf(d) * TAU
-	_turn_sweep = d
-	global_transform = from
-	_base_xf = from
-	wake.clear()
-
-
-## Her pose `_turn_t` through swinging round: turning about her middle as she
-## eases across from where she began to where she'll lie on her way back.
-func _turn_pose() -> Transform3D:
-	var k := smoothstep(0.0, 1.0, _turn_t)
-	var to := _base_xf
-	var y0 := _turn_from.basis.get_euler().y
-	var origin := _turn_from.origin.lerp(to.origin, smoothstep(0.15, 1.0, _turn_t))
-	return Transform3D(Basis(Vector3.UP, y0 + _turn_sweep * k), origin)
-
-
-## Swinging round (see _turn_back). True while she is still turning.
-func _tick_turn(delta: float) -> bool:
-	_turn_t = minf(_turn_t + delta / TURN_BACK_SECONDS, 1.0)
-	speed = 0.0
-	hold = INF
-	_place(_route_s(traveled))   # (where she'll lie once round, in _base_xf)
-	var xf := _turn_pose()
-	if _turn_t >= 1.0:
-		_turn_t = -1.0
-		return false
-	_base_xf = xf
-	global_transform = xf
-	# Her props churn as she swings.
-	_thrust = move_toward(_thrust, 0.6, delta * 0.8)
-	_bob_time += delta
-	position.y = sin(_bob_time * 1.3) * 0.21
-	return true
-
-
-## At manual_target: everyone aboard goes off here. Those bound elsewhere are
-## refunded and count against the terminal they were going to.
-func _manual_set_down() -> void:
-	if not manual or here().town.id != manual_target:
-		return
-	_manual_landed = true
-	_positioning = false
-	_set_down_short(manual_target)
-
-
-## Everyone aboard bound anywhere but `stop` gets off there: fares refunded, and
-## the town they were bound for counts it against the service.
-func _set_down_short(stop: int, keep_destinations: Array[int] = []) -> void:
-	for car in aboard:
-		if car.dest >= 0 and car.dest != stop and car.dest not in keep_destinations:
-			_strand(car.dest, 1.0, car.fare_paid)
-			stranded_cars += 1
-			car.dest = stop
-	for p in passengers_aboard:
-		if p["dest"] >= 0 and p["dest"] != stop and p["dest"] not in keep_destinations:
-			_strand(int(p["dest"]), 0.5, float(p.get("fare_paid", 0.0)))
-			stranded_walk_ons += 1
-			p["dest"] = stop
-
-
-func _strand(dest: int, weight: float, fare: float) -> void:
-	if sim.terminals.has(dest):
-		sim.terminals[dest].turned_recent += weight
-	sim.ledger.refund_fare(fare)
-	stranded_refunds += fare
-
-
-## Each frame under manual orders (or with one waiting for her to finish a move).
-func _manual_tick() -> void:
-	if not _manual_pending.is_empty():
-		if berth == Berth.WORKING or berth == Berth.TIED_UP:
-			var order: Array = _manual_pending
-			_manual_pending = []
-			order_move(order[0], order[1])
-		return
-	if not manual or not _manual_landed:
-		return
-	if berth == Berth.WORKING and state == State.LOADING:
-		if _boarding > 0:
-			return
-		if not aboard.is_empty() or not passengers_aboard.is_empty():
-			_begin_unloading()   # (any who came aboard as the order was given)
-			return
-		if _manual_resume_due:
-			_manual_resume()
-			return
-		var term := here()
-		if manual_slip >= 0 and manual_slip != slip_at(term) and not _held_close_in() \
-				and sim.occupant(term, manual_slip, self) == null and term.slip_user(manual_slip, self) == null:
-			# On to the slip she was sent to (_tick_berth moves her once the water's clear).
-			_lay_up.tie_up = manual_slip
-			berth = Berth.TO_TIE_UP
-			_shift = null
-			_state_time = 0.0
-			speed = 0.0
-	elif berth == Berth.TIED_UP and _manual_resume_due:
-		_manual_resume()
-
-
-## Return to service: back on the stops she ran before, from where she lies. If
-## that isn't one of them she crosses empty to the first she can reach.
-func _manual_resume() -> void:
-	if not _manual_landed or state == State.UNLOADING or (berth != Berth.WORKING and berth != Berth.TIED_UP):
-		_manual_resume_due = true   # (once she's there and has set everyone down)
-		return
-	var ids: Array[int] = []
-	ids.assign(_manual_prev.get("stops", stops))
-	var lr: Array[MapData.Route] = []
-	lr.assign(_manual_prev.get("legs", legs))
-	var times: Array[int] = []
-	times.assign(_manual_prev.get("times", []))
-	var here_id := here().town.id
-	var target := -1
-	if here_id not in ids:
-		target = sim.positioning_stop(self, ids)
-		if target < 0:
-			_manual_resume_due = false
-			return   # (no route on from here: she stays under manual orders)
-	manual = false
-	manual_target = -1
-	manual_slip = -1
-	_manual_landed = false
-	_manual_resume_due = false
-	_manual_prev = {}
-	_positioning = false
-	if target < 0:
-		stops = ids
-		legs = lr
-		call = ids.find(here_id)
-		set_timetable(times)
-		_offsets.clear()
-		_take_leg()
-		if berth == Berth.TIED_UP:
-			for run in _corridor_runs():
-				for e in run[2]:
-					if e[1].owner == self:
-						e[1].owner = null
-			global_position = _tie_up_point(tie_up)
-			_lay_up.return_requested = true
-		else:
-			_begin_loading()
-	elif berth == Berth.TIED_UP:
-		reposition(target, sim.route_between(here_id, target), ids, lr, times)
-		_lay_up.return_requested = true
-	else:
-		var leg := sim.route_between(here_id, target)
-		stops = [here_id, target]
-		legs = [leg, leg]
-		call = 0
-		plan_stops(ids, lr, times)
-		_positioning = true
-		set_timetable([])
-		_offsets.clear()
-		_take_leg()
-		_begin_loading()
-	sim.stops_changed(self)
-
-
-func _manual_text() -> String:
-	var where: String = sim.map.towns[manual_target].name
-	var slip_name := ""
-	for s in manual_slips(manual_target):
-		if s[0] == manual_slip:
-			slip_name = s[1].to_lower() + " at "
-	var back := " · back in service once she's there" if _manual_resume_due else ""
-	match berth:
-		Berth.TO_TIE_UP:
-			return "Manual · moving to %s%s%s" % [slip_name, where, back]
-		Berth.TO_WORKING:
-			return "Manual · leaving the tie-up for %s%s" % [where, back]
-		Berth.TIED_UP:
-			if _manual_landed and tie_up == manual_slip:
-				return "Manual · lying at %s%s · Return to service when ready" % [slip_name, where]
-			return "Manual · waiting for clear water to leave for %s" % where
-	if state == State.SAILING:
-		var via := "" if destination().town.id == manual_target else " via %s" % destination().town.name
-		return "Manual · under way to %s%s (%d min)%s" % [where, via, ceili(eta_minutes()), back]
-	if not _manual_landed:
-		return "Manual · casting off for %s" % where
-	if state == State.UNLOADING:
-		return "Manual · setting everyone down at %s" % where
-	if manual_slip != slip_at(here()):
-		return "Manual · alongside at %s · waiting for %sto clear" % [where, slip_name.trim_suffix("at ")]
-	return "Manual · alongside at %s · Return to service when ready" % where
-
-
-## The slip she makes for coming in to `term`: the one she was sent to, if it's a
-## working slip there, else `own` (her route's).
-func _manual_arrival(term: Terminal, own: int) -> int:
-	if manual and term.town.id == manual_target and manual_slip >= 0 and not term.town.slips[manual_slip].tie_up:
-		return manual_slip
-	return own

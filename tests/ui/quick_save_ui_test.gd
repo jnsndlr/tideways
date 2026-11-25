@@ -1,6 +1,7 @@
 extends "res://tests/support/ui_test_driver.gd"
 ## Verify the single quick-save slot through the menu, an F5 press, and reopening Play.
 
+
 func _initialize() -> void:
 	run.call_deferred()
 
@@ -30,35 +31,66 @@ func exercise_slot(path: String) -> bool:
 	var session: WorldSession = current_scene
 	session.hud.set_speed(0)
 	session.sim.day = 23
-	session.sim.minutes = 721.5
 	if not await press("MENU"):
 		return false
 	var menu := session.hud._game_menu
 	if not menu.visible or menu.is_item_disabled(menu.get_item_index(0)):
 		return fail("The authored map should offer Save game")
 	menu.hide()
+	await process_frame
 	var key := InputEventKey.new()
 	key.physical_keycode = KEY_F5
+	key.keycode = KEY_F5
 	key.pressed = true
+	session.sim.minutes = 721.5
 	root.push_input(key)
+	if not check_slot(session):
+		return false
+	return await try_failed_save(session, menu, path)
+
+
+func check_slot(session: WorldSession) -> bool:
 	var saved := SaveGame.read()
-	if saved.get("scenario") != Scenario.OPENING or saved.get("day") != 23 or saved.get("minutes") != 721.5:
-		return fail("F5 did not write the scenario and exact date")
+	if (
+		saved.get("scenario") != Scenario.OPENING
+		or saved.get("day") != 23
+		or saved.get("minutes") != 721.5
+	):
+		return fail(
+			(
+				"F5 did not write the scenario and exact date: %s, toast %s"
+				% [saved, session.hud._toast_title.text]
+			)
+		)
 	if saved.get("company") != "Island Ferries" or saved.get("unlimited") != true:
 		return fail("Quick save lost the company name or mission mode")
+	return true
+
+
+func try_failed_save(session: WorldSession, menu: PopupMenu, path: String) -> bool:
 	var bytes := FileAccess.get_file_as_bytes(path)
 	SaveGame._path = path.path_join("cannot-write")
 	menu.id_pressed.emit(0)
 	SaveGame._path = path
-	if session.hud._toast_title.text != "SAVE FAILED" or FileAccess.get_file_as_bytes(path) != bytes:
+	if (
+		session.hud._toast_title.text != "SAVE FAILED"
+		or FileAccess.get_file_as_bytes(path) != bytes
+	):
 		return fail("A failed save must report failure and preserve the previous slot")
 	menu.id_pressed.emit(2)
 	await scene_changed
+	return await reopen_slot()
+
+
+func reopen_slot() -> bool:
 	if not await enter_game("Load saved game", Scenes.MAIN_MAP):
 		return false
 	var loaded: WorldSession = current_scene
 	if loaded.sim.day != 23 or absf(loaded.sim.minutes - 721.5) > 2.0:
 		return fail("Loading the slot did not restore the saved clock")
-	if loaded.scenario.cash != CompanyLedger.UNLIMITED_CASH or RegionEntryState.company_name != "Island Ferries":
+	if (
+		loaded.scenario.cash != CompanyLedger.UNLIMITED_CASH
+		or RegionEntryState.company_name != "Island Ferries"
+	):
 		return fail("Loading the slot did not restore the mission mode and company")
 	return true

@@ -53,7 +53,9 @@ func check_purchase(sim: Simulation, terminal: Terminal, boat: Ferry, kind: Term
 	terminal.slip_built.connect(on_built)
 	terminal._process(0.0)
 	check(terminal.refit_stage == Terminal.RefitStage.ARRIVING, "The unoccupied slip is clear")
-	terminal._process((terminal.refit_remaining + (0.0 if existing else 30.0)) / Units.MINUTES_PER_SECOND)
+	terminal._process(
+		(terminal.refit_remaining + (0.0 if existing else 30.0)) / Units.MINUTES_PER_SECOND
+	)
 	terminal._process(1.0)
 	check(terminal.refit_stage == Terminal.RefitStage.NONE and not terminal.tie_up_closed(index), "The crane releases the slip")
 	check(is_equal_approx(cash - sim.available_cash, offer.price), "The completed purchase is charged once")

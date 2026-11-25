@@ -9,6 +9,28 @@ const MAIN_STORY := "res://maps/main_story.json"
 
 
 class IslandSpec:
+	const COMMUNITY_TYPES := ["rural", "residential", "industrial"]
+	const KEYS := [
+		"name",
+		"x",
+		"z",
+		"radius",
+		"height",
+		"hills",
+		"peak",
+		"lakes",
+		"shape_seed",
+		"stretch",
+		"angle",
+		"roughness",
+		"forest",
+		"fields",
+		"pinned",
+		"mainland",
+		"ferry",
+		"community_type"
+	]
+
 	var name := ""
 	var x := 0.0
 	var z := 0.0
@@ -32,28 +54,6 @@ class IslandSpec:
 	var ferry := true  # with no scenario (--full-network): build its first dock
 	var community_type := "residential"  # "rural", "residential", or "industrial"
 	var docks: Array[DockSpec] = []
-
-	const COMMUNITY_TYPES := ["rural", "residential", "industrial"]
-	const KEYS := [
-		"name",
-		"x",
-		"z",
-		"radius",
-		"height",
-		"hills",
-		"peak",
-		"lakes",
-		"shape_seed",
-		"stretch",
-		"angle",
-		"roughness",
-		"forest",
-		"fields",
-		"pinned",
-		"mainland",
-		"ferry",
-		"community_type"
-	]
 
 	## Where dock `d` meets the shore in the world, and the heading out to sea.
 	func dock_at(d: DockSpec) -> Vector2:

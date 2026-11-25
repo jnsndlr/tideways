@@ -19,7 +19,9 @@ var route_passenger_fares := {}
 
 func _init(settings: Variant = {}) -> void:
 	set_vehicle_fare(EconomyConfig.nonnegative_rate(settings, "car", DEFAULT_VEHICLE_FARE))
-	set_passenger_fare(EconomyConfig.nonnegative_rate(settings, "passenger", DEFAULT_PASSENGER_FARE))
+	set_passenger_fare(
+		EconomyConfig.nonnegative_rate(settings, "passenger", DEFAULT_PASSENGER_FARE)
+	)
 
 
 func set_vehicle_fare(price: float) -> void:

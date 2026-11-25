@@ -43,8 +43,22 @@ func can_quick_save() -> bool:
 
 func quick_save() -> void:
 	var path := _played_scenario
-	if SaveGame.save(path, RegionEntryState.unlimited_cash, sim.day, sim.minutes, RegionEntryState.company_name):
-		hud.show_toast("GAME SAVED", "%s · %s · day %d, %s" % [RegionEntryState.company_name, path.get_file().get_basename(), sim.day, sim.clock_text(sim.minutes)], 3.0)
+	if SaveGame.save(
+		path, RegionEntryState.unlimited_cash, sim.day, sim.minutes, RegionEntryState.company_name
+	):
+		hud.show_toast(
+			"GAME SAVED",
+			(
+				"%s · %s · day %d, %s"
+				% [
+					RegionEntryState.company_name,
+					path.get_file().get_basename(),
+					sim.day,
+					sim.clock_text(sim.minutes)
+				]
+			),
+			3.0
+		)
 	else:
 		hud.show_toast("SAVE FAILED", "Couldn't write the save file.", 3.0)
 
@@ -74,6 +88,8 @@ func _ready() -> void:
 	var route_cache_path := ""
 	if not unsaved:
 		route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+	starting_date = RegionEntryState.saved_date.duplicate()
+	RegionEntryState.saved_date.clear()
 	await start_authored(layout, opening, route_cache_path)
 	if not built:
 		return
@@ -99,11 +115,6 @@ func _ready() -> void:
 				rig.snap()
 				break
 	RegionEntryState.editor_restore.clear()
-	if not RegionEntryState.saved_date.is_empty():
-		sim.day = int(RegionEntryState.saved_date.day)
-		sim.minutes = float(RegionEntryState.saved_date.minutes)
-		RegionEntryState.saved_date.clear()
-		day_cycle.apply(sim.hour())
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
 	if scenario and scenario.mission:

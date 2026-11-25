@@ -3,6 +3,10 @@ class_name WorldSession
 extends Node3D
 ## Owns construction, live presentation and cancellation of one region.
 
+signal world_ready
+
+## Date to apply before actors start when continuing a saved company.
+var starting_date: Dictionary = {}
 var map: MapData
 var terrain: Terrain
 var _building_backdrop: Backdrop
@@ -53,7 +57,6 @@ var build_from := 0.0
 var build_to := 0.0
 ## The world is fully built.
 var built := false
-signal world_ready
 
 
 @abstract func intro(islands: int) -> Array[String]
@@ -150,7 +153,12 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 
 
 func _setup_simulation(charts: MarineCharts) -> void:
-	sim = Simulation.new(VehicleFactory.create, Models.mid_slip, Models.mid_slip_guides, PassengerView.create_view)
+	sim = Simulation.new(
+		VehicleFactory.create, Models.mid_slip, Models.mid_slip_guides, PassengerView.create_view
+	)
+	if not starting_date.is_empty():
+		sim.day = int(starting_date.day)
+		sim.minutes = float(starting_date.minutes)
 	sim.name = "Simulation"
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
@@ -232,11 +240,24 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	hud = Hud.new()
 	add_child(hud)
 	_setup_hud()
-	sim.town_growth.milestone_unlocked.connect(func(_town: MapData.Town, _id: String, title: String, detail: String):
-		hud.show_toast("TOWN MILESTONE · %s" % title.to_upper(), detail, 5.5))
-	sim.town_growth.island_radio_tower_unlocked.connect(func(isl: MapData.Island):
-		hud.show_toast("ISLAND MILESTONE · RADIO TOWER",
-			"%s reached %d residents and is constructing an island radio tower (+15%% base growth)." % [isl.name, TownGrowth.RADIO_TOWER_ISLAND_POP], 5.5))
+	sim.town_growth.milestone_unlocked.connect(
+		func(_town: MapData.Town, _id: String, title: String, detail: String):
+			hud.show_toast("TOWN MILESTONE · %s" % title.to_upper(), detail, 5.5)
+	)
+	sim.town_growth.island_radio_tower_unlocked.connect(
+		func(isl: MapData.Island):
+			(
+				hud
+				. show_toast(
+					"ISLAND MILESTONE · RADIO TOWER",
+					(
+						"%s reached %d residents and is constructing an island radio tower (+15%% base growth)."
+						% [isl.name, TownGrowth.RADIO_TOWER_ISLAND_POP]
+					),
+					5.5
+				)
+			)
+	)
 
 
 func can_quick_save() -> bool:

@@ -37,8 +37,8 @@ const RANK_SAIL := 1000
 const RANK_POWER := 1200
 const RANK_FISH := 1500
 const RANK_CARGO := 2000
-const CONVOY_GAP := Vector2(150.0, 360.0)   # game minutes between navy convoys
-const NAUTILUS_ODDS := 20                   # about one convoy in this many is the Nautilus's
+const CONVOY_GAP := Vector2(150.0, 360.0)  # game minutes between navy convoys
+const NAUTILUS_ODDS := 20  # about one convoy in this many is the Nautilus's
 const RANK_FERRY := 3000
 # Kept between hulls (their capsules already stand a little proud of the hulls).
 const MARGIN := 1.2
@@ -54,6 +54,7 @@ var rng := RandomNumberGenerator.new()
 var vessels: Array[Vessel] = []
 var sailboats: Array[Sailboat] = []
 var motor_yachts: Array[MotorYacht] = []
+var convoy: Array[NavalVessel] = []
 var cargo_ships: Array[CargoShip] = []
 var fishing_boats: Array[FishingBoat] = []
 var grounds: Array[FishingGround] = []
@@ -70,7 +71,6 @@ var _next := 0
 var _cargo_named := 0
 var _convoy_timer := 0.0
 var _convoys := 0
-var convoy: Array[NavalVessel] = []
 
 
 ## Synchronous entry point for tools that prepare charts ahead of setup.
@@ -225,7 +225,11 @@ func _find_corridors() -> void:
 		var boats := boats_on(r)
 		if boats.size() < 2:
 			continue
-		var reach := minf(Ferry.LANE_OUT + Ferry.lane_ease(r.length) + 20.0, r.length * 0.5)
+		# Keep the opposite ferry clear until the departing hull's stern is on its lane.
+		var reach := minf(
+			Ferry.LANE_OUT + Ferry.lane_ease(r.length) + FerryHullDimensions.MAX_HALF_LENGTH,
+			r.length * 0.5
+		)
 		for end_a in [true, false]:
 			var c := Corridor.new()
 			c.key = "%d%s" % [r.id, "a" if end_a else "b"]
@@ -618,18 +622,35 @@ func spawn_convoy(force_nautilus := false) -> bool:
 		var nautilus := force_nautilus or rng.randi_range(1, NAUTILUS_ODDS) == 1
 		var sub := NavalVessel.new()
 		sim.add_child(sub)
-		sub.setup(self, "Nautilus" if nautilus else "Submarine %d" % (700 + _convoys), "nautilus" if nautilus else "sub",
-				path, 0.0)
+		sub.setup(
+			self,
+			"Nautilus" if nautilus else "Submarine %d" % (700 + _convoys),
+			"nautilus" if nautilus else "sub",
+			path,
+			0.0
+		)
 		convoy.append(sub)
 		_register(sub, RANK_CARGO)
 		for side: float in [-1.0, 1.0]:
 			var tug := NavalVessel.new()
 			sim.add_child(tug)
-			tug.setup(self, "Navy tug %d" % (40 + 2 * _convoys + int(side > 0.0)), "tug", path, 0.0, sub,
-					Vector2(side * SPREAD, 20.0))
+			tug.setup(
+				self,
+				"Navy tug %d" % (40 + 2 * _convoys + int(side > 0.0)),
+				"tug",
+				path,
+				0.0,
+				sub,
+				Vector2(side * SPREAD, 20.0)
+			)
 			convoy.append(tug)
 			_register(tug, RANK_CARGO)
-		print("Navy convoy %d through the channel%s" % [_convoys, " — the Nautilus!" if nautilus else ""])
+		print(
+			(
+				"Navy convoy %d through the channel%s"
+				% [_convoys, " — the Nautilus!" if nautilus else ""]
+			)
+		)
 		return true
 	return false
 

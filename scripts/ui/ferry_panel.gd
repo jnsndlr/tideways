@@ -36,7 +36,7 @@ var _scroll: ScrollContainer
 var _name_label: Label
 var _class_label: Label
 var _status_label: Label
-var _stats := {}           # key -> Label
+var _stats := {}  # key -> Label
 
 # Overview tab
 var _leg_route: Label
@@ -56,7 +56,7 @@ var _crew_summary: Label
 # Schedule tab
 var _route_pricing_box := VBoxContainer.new()
 var _priced_route_ids: Array[int] = []
-var _priced_rows := {}     # route_id -> {v_price, v_tiers, v_effect, p_price, p_effect}
+var _priced_rows := {}  # route_id -> {v_price, v_tiers, v_effect, p_price, p_effect}
 var _schedule_editor: ScheduleEditor
 var _schedule_ferry: Ferry
 
@@ -69,7 +69,7 @@ var _move_pick: OptionButton
 var _move_note: Label
 var _move_button: Button
 var _move_key := ""
-var _move_targets: Array = []   # [town id, slip] per item of _move_pick
+var _move_targets: Array = []  # [town id, slip] per item of _move_pick
 
 var _style_tab_idle: StyleBoxFlat
 var _style_tab_active: StyleBoxFlat
@@ -155,7 +155,9 @@ func _build_header() -> Control:
 	_name_label = _make_label.call("M/V FERRY", 22, CREAM_TEXT, true)
 	_class_label = _make_label.call("Class", 12, SEAFOAM_MUTED, false)
 	var status_pill := PanelContainer.new()
-	status_pill.add_theme_stylebox_override("panel", _box(Color(0.11, 0.30, 0.28, 0.95), Color(0.45, 0.78, 0.58, 0.65), 12, 1, 10, 4))
+	status_pill.add_theme_stylebox_override(
+		"panel", _box(Color(0.11, 0.30, 0.28, 0.95), Color(0.45, 0.78, 0.58, 0.65), 12, 1, 10, 4)
+	)
 	_status_label = _make_label.call("● In service", 11, CREAM_TEXT, true)
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_pill.add_child(_status_label)
@@ -207,12 +209,21 @@ func _build_tabs() -> Control:
 	return row
 
 
+func open_schedule() -> ScheduleEditor:
+	_select_tab(Tab.SCHEDULE)
+	return _schedule_editor
+
+
 func _select_tab(t: int) -> void:
 	_tab = t as Tab
 	for i in _pages.size():
 		_pages[i].visible = (i == _tab)
-		_tab_buttons[i].add_theme_stylebox_override("normal", _style_tab_active if i == _tab else _style_tab_idle)
-		_tab_buttons[i].add_theme_stylebox_override("hover", _style_emerald_hover if i == _tab else _style_pill_btn)
+		_tab_buttons[i].add_theme_stylebox_override(
+			"normal", _style_tab_active if i == _tab else _style_tab_idle
+		)
+		_tab_buttons[i].add_theme_stylebox_override(
+			"hover", _style_emerald_hover if i == _tab else _style_pill_btn
+		)
 	if _tab == Tab.SCHEDULE and ferry != null and _schedule_ferry != ferry:
 		_schedule_ferry = ferry
 		_schedule_editor.open(ferry)
@@ -336,10 +347,16 @@ func _build_schedule_tab() -> Control:
 	price_card.add_child(_route_pricing_box)
 
 	var sched_card := _card(col)
-	sched_card.add_child(_make_label.call("SCHEDULE & STOPS (DRAG ≡ TO REORDER)", 11, SEAFOAM_MUTED, true))
+	sched_card.add_child(
+		_make_label.call("SCHEDULE & STOPS (DRAG ≡ TO REORDER)", 11, SEAFOAM_MUTED, true)
+	)
 	_schedule_editor = ScheduleEditor.new()
 	_schedule_editor.setup(sim, _make_label, true)
-	_schedule_editor.applied.connect(func(): if ferry: refresh(ferry, false))
+	_schedule_editor.applied.connect(
+		func():
+			if ferry:
+				refresh(ferry, false)
+	)
 	sched_card.add_child(_schedule_editor)
 	return col
 
@@ -362,7 +379,11 @@ func _build_operations_tab() -> Control:
 	_move_pick.focus_mode = Control.FOCUS_NONE
 	_move_pick.custom_minimum_size.y = 40
 	_move_pick.fit_to_longest_item = false
-	_move_pick.item_selected.connect(func(_i): if ferry: _refresh_move_note(ferry))
+	_move_pick.item_selected.connect(
+		func(_i):
+			if ferry:
+				_refresh_move_note(ferry)
+	)
 	move_card.add_child(_move_pick)
 	_move_note = _make_label.call("", 12, SEAFOAM_MUTED, false)
 	_move_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -372,10 +393,12 @@ func _build_operations_tab() -> Control:
 	_move_button.custom_minimum_size.y = 40
 	_move_button.text = "Lay her up there"
 	_move_button.add_theme_stylebox_override("normal", _style_pill_btn)
-	_move_button.pressed.connect(func():
-		var i := _move_pick.selected
-		if i >= 0 and i < _move_targets.size():
-			move_requested.emit(_move_targets[i][0], _move_targets[i][1]))
+	_move_button.pressed.connect(
+		func():
+			var i := _move_pick.selected
+			if i >= 0 and i < _move_targets.size():
+				move_requested.emit(_move_targets[i][0], _move_targets[i][1])
+	)
 	move_card.add_child(_move_button)
 
 	_service_button = Button.new()
@@ -412,7 +435,9 @@ func _adjust_route_vehicle(route_id: int, delta_dir: float) -> void:
 
 
 func _adjust_route_passenger(route_id: int, delta_dir: float) -> void:
-	sim.ledger.set_route_passenger_fare(route_id, sim.ledger.passenger_fare_for(route_id) + delta_dir)
+	sim.ledger.set_route_passenger_fare(
+		route_id, sim.ledger.passenger_fare_for(route_id) + delta_dir
+	)
 	if ferry:
 		_refresh_route_pricing(ferry)
 
@@ -461,7 +486,9 @@ func _rebuild_route_pricing(routes: Array[MapData.Route]) -> void:
 		row.add_child(pe)
 		box.add_child(row)
 		_route_pricing_box.add_child(box)
-		_priced_rows[r.id] = {"v_price": vp, "v_tiers": tiers, "v_effect": ve, "p_price": pp, "p_effect": pe}
+		_priced_rows[r.id] = {
+			"v_price": vp, "v_tiers": tiers, "v_effect": ve, "p_price": pp, "p_effect": pe
+		}
 
 
 func _refresh_route_pricing(f: Ferry) -> void:
@@ -477,12 +504,18 @@ func _refresh_route_pricing(f: Ferry) -> void:
 		var pf := sim.ledger.passenger_fare_for(rid)
 		(row["v_price"] as Label).text = "$%d" % roundi(vf)
 		(row["v_tiers"] as Label).text = "2× $%d · 3× $%d" % [roundi(vf * 2.0), roundi(vf * 3.0)]
-		(row["v_effect"] as Label).text = FinancePanel._short_effect(vf, CompanyLedger.DEFAULT_VEHICLE_FARE)
+		(row["v_effect"] as Label).text = FinancePanel._short_effect(
+			vf, CompanyLedger.DEFAULT_VEHICLE_FARE
+		)
 		(row["p_price"] as Label).text = "$%d" % roundi(pf)
-		(row["p_effect"] as Label).text = FinancePanel._short_effect(pf, CompanyLedger.DEFAULT_PASSENGER_FARE)
+		(row["p_effect"] as Label).text = FinancePanel._short_effect(
+			pf, CompanyLedger.DEFAULT_PASSENGER_FARE
+		)
 
 
-func refresh(f: Ferry, is_following: bool, timetable_text := "", clash_text := "", hours_fmt := Callable()) -> void:
+func refresh(
+	f: Ferry, is_following: bool, timetable_text := "", clash_text := "", hours_fmt := Callable()
+) -> void:
 	var changed := ferry != f
 	ferry = f
 	if changed and _tab == Tab.SCHEDULE:
@@ -510,11 +543,17 @@ func refresh(f: Ferry, is_following: bool, timetable_text := "", clash_text := "
 	_ov_captain_name.text = f.captain.name
 	_ov_captain_strength.text = f.captain.strength
 	for i in _pace_buttons.size():
-		var active := (i == f.pace)
-		_pace_buttons[i].add_theme_stylebox_override("normal", _style_emerald_btn if active else _style_pill_btn)
-		_pace_buttons[i].add_theme_stylebox_override("hover", _style_emerald_hover if active else _style_pill_btn)
-	_pace_meta.text = "%.1f kn  ·  ~%d min crossing  ·  ~%s fuel" % [
-		Units.knots(f.cruise_speed()), mins, Hud.fmt_money(f.crossing_fuel_estimate())]
+		var active := i == f.pace
+		_pace_buttons[i].add_theme_stylebox_override(
+			"normal", _style_emerald_btn if active else _style_pill_btn
+		)
+		_pace_buttons[i].add_theme_stylebox_override(
+			"hover", _style_emerald_hover if active else _style_pill_btn
+		)
+	_pace_meta.text = (
+		"%.1f kn  ·  ~%d min crossing  ·  ~%s fuel"
+		% [Units.knots(f.cruise_speed()), mins, Hud.fmt_money(f.crossing_fuel_estimate())]
+	)
 	_follow_button.text = "Stop Following" if is_following else "Follow Vessel"
 
 	# Crew
@@ -527,20 +566,39 @@ func refresh(f: Ferry, is_following: bool, timetable_text := "", clash_text := "
 	if saved < 1:
 		_crew_why.text = "A %s crossing: either captain makes it in about the same time." % km
 	elif best.sea > 1.0:
-		_crew_why.text = "A %s crossing is mostly open water. %s saves about %d min a sailing." % [km, best.surname(), saved]
+		_crew_why.text = (
+			"A %s crossing is mostly open water. %s saves about %d min a sailing."
+			% [km, best.surname(), saved]
+		)
 	else:
-		_crew_why.text = "A %s crossing is mostly harbour work. %s saves about %d min a sailing." % [km, best.surname(), saved]
+		_crew_why.text = (
+			"A %s crossing is mostly harbour work. %s saves about %d min a sailing."
+			% [km, best.surname(), saved]
+		)
 	for i in roster.size():
 		var c := roster[i]
 		var b := _captain_buttons[i]
-		b.text = "%s%s  ·  ~%d min\n%s" % ["★ " if c == best and saved >= 1 else "", c.name, roundi(f.forecast_minutes(c)), c.strength]
+		b.text = (
+			"%s%s  ·  ~%d min\n%s"
+			% [
+				"★ " if c == best and saved >= 1 else "",
+				c.name,
+				roundi(f.forecast_minutes(c)),
+				c.strength
+			]
+		)
 		b.set_pressed_no_signal(c == f.next_captain)
 	if f.next_captain != f.captain:
-		_crew_note.text = "%s finishes this crossing. %s takes the helm next sailing." % [f.captain.surname(), f.next_captain.surname()]
+		_crew_note.text = (
+			"%s finishes this crossing. %s takes the helm next sailing."
+			% [f.captain.surname(), f.next_captain.surname()]
+		)
 	else:
 		_crew_note.text = "Tap a captain to put them in command from the next sailing."
-	_crew_summary.text = "%d crew  ·  %s / hr  ·  %s paid today" % [
-		f.fc.crew, Hud.fmt_money(f.crew_per_hour()), Hud.fmt_money(f.crew_today)]
+	_crew_summary.text = (
+		"%d crew  ·  %s / hr  ·  %s paid today"
+		% [f.fc.crew, Hud.fmt_money(f.crew_per_hour()), Hud.fmt_money(f.crew_today)]
+	)
 
 	# Schedule tab route pricing
 	_refresh_route_pricing(f)
@@ -548,14 +606,33 @@ func refresh(f: Ferry, is_following: bool, timetable_text := "", clash_text := "
 	# Operations
 	var rows := [
 		["Timetable", timetable_text if timetable_text != "" else "As loading allows"],
-		["Last crossing", "%d min · %s" % [roundi(f.last_crossing), f.last_crossing_captain.surname()] if f.last_crossing >= 0.0 else "—"],
-		["Resale value", "$%s (%d%% of $%s)" % [Hud.fmt_int(f.resale_value()), roundi(Ferry.RESALE_SHARE * f.condition * 100.0), Hud.fmt_int(f.fc.price())]],
+		[
+			"Last crossing",
+			(
+				"%d min · %s" % [roundi(f.last_crossing), f.last_crossing_captain.surname()]
+				if f.last_crossing >= 0.0
+				else "—"
+			)
+		],
+		[
+			"Resale value",
+			(
+				"$%s (%d%% of $%s)"
+				% [
+					Hud.fmt_int(f.resale_value()),
+					roundi(Ferry.RESALE_SHARE * f.condition * 100.0),
+					Hud.fmt_int(f.fc.price())
+				]
+			)
+		],
 	]
 	if clash_text != "":
 		rows.insert(1, ["Slip clash", clash_text])
 	_set_ops_rows(rows)
 	if f.berth == Ferry.Berth.DELIVERING:
-		var left_txt: String = hours_fmt.call(f.tow.minutes_left()) if (f.tow and hours_fmt.is_valid()) else ""
+		var left_txt: String = (
+			hours_fmt.call(f.tow.minutes_left()) if (f.tow and hours_fmt.is_valid()) else ""
+		)
 		_service_button.text = "Under tow · %s to go" % left_txt if left_txt != "" else "Under tow"
 		_service_button.disabled = true
 	elif not f.assigned:
@@ -570,7 +647,11 @@ func refresh(f: Ferry, is_following: bool, timetable_text := "", clash_text := "
 	else:
 		_service_button.text = "Return to service"
 		_service_button.disabled = f.return_requested and not f.manual
-	_sell_button.text = "Sell for $%s" % Hud.fmt_int(f.resale_value()) if f.can_sell() else "Sell · lay her up and empty her first"
+	_sell_button.text = (
+		"Sell for $%s" % Hud.fmt_int(f.resale_value())
+		if f.can_sell()
+		else "Sell · lay her up and empty her first"
+	)
 	_refresh_move(f)
 	_sell_button.disabled = not f.can_sell()
 
@@ -618,10 +699,23 @@ func _refresh_move(f: Ferry) -> void:
 		var slip := f.best_slip(id)
 		if slip >= 0:
 			targets.append([id, slip])
-			names.append(sim.map.towns[id].name + (" · here" if id == f.here().town.id and f.state != Ferry.State.SAILING else ""))
+			names.append(
+				(
+					sim.map.towns[id].name
+					+ (
+						" · here"
+						if id == f.here().town.id and f.state != Ferry.State.SAILING
+						else ""
+					)
+				)
+			)
 	var key := "%d|%s" % [f.get_instance_id(), str(targets)]
 	if key != _move_key:
-		var keep: Array = _move_targets[_move_pick.selected] if _move_pick.selected >= 0 and _move_pick.selected < _move_targets.size() else []
+		var keep: Array = (
+			_move_targets[_move_pick.selected]
+			if _move_pick.selected >= 0 and _move_pick.selected < _move_targets.size()
+			else []
+		)
 		_move_key = key
 		_move_targets = targets
 		_move_pick.clear()
@@ -639,6 +733,12 @@ func _refresh_move_note(f: Ferry) -> void:
 		return
 	var short := f.manual_strands(_move_targets[i][0])
 	if short == Vector2i.ZERO:
-		_move_note.text = "Everyone aboard is bound there. Right-click a dock to send her, open water to pull her aside."
+		_move_note.text = (
+			"Everyone aboard is bound there. Right-click a dock to send her, "
+			+ "open water to pull her aside."
+		)
 	else:
-		_move_note.text = "%d vehicles and %d walk-ons get off short: fares refunded, their towns unhappy." % [short.x, short.y]
+		_move_note.text = (
+			"%d vehicles and %d walk-ons get off short: fares refunded, their towns unhappy."
+			% [short.x, short.y]
+		)

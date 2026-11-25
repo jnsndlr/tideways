@@ -17,13 +17,14 @@ extends PanelContainer
 signal applied
 
 const TAP := 52.0 ## least height of anything to tap (about 44 pt on an iPad in landscape)
-const EMBEDDED_TAP := 36.0
 const HOLD_DELAY := 0.4 ## seconds a stepper is held before it repeats
 const REPEAT := 0.09 ## seconds between repeats while held
 const DRAG_SLOP := 10.0 ## a press that moves this far is a drag, not a tap
 const LIST_MAX := 330.0 ## tallest the sailings list grows before it scrolls
 
-class _StopRow extends HBoxContainer:
+
+class _StopRow:
+	extends HBoxContainer
 	var index := 0
 	var label_text := ""
 	var on_reorder: Callable
@@ -40,6 +41,7 @@ class _StopRow extends HBoxContainer:
 	func _drop_data(_at_position: Vector2, data: Variant) -> void:
 		if on_reorder.is_valid():
 			on_reorder.call(int(data["stop_index"]), index)
+
 
 var sim: Simulation
 var ferry: Ferry
@@ -167,7 +169,13 @@ func setup(s: Simulation, make_label: Callable, is_embedded := false) -> void:
 	row.add_theme_constant_override("separation", 6)
 	column.add_child(row)
 	var cancel := _button("Reset" if embedded else "Cancel")
-	cancel.pressed.connect(func(): if embedded: open(ferry) else: hide())
+	cancel.pressed.connect(
+		func():
+			if embedded:
+				open(ferry)
+			else:
+				hide()
+	)
 	row.add_child(cancel)
 	_apply = _button("Apply")
 	_apply.pressed.connect(_on_apply)
@@ -201,7 +209,7 @@ func _button(text: String, width := 0.0) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(width, EMBEDDED_TAP if embedded else TAP)
+	b.custom_minimum_size = Vector2(maxf(width, TAP), TAP)
 	b.add_theme_stylebox_override("normal", _fill)
 	b.add_theme_stylebox_override("hover", _fill_hover)
 	if width == 0.0:
@@ -234,7 +242,9 @@ func _rebuild() -> void:
 		var grip: Label = _make_label.call("≡", 15, Hud.MUTED, true)
 		grip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(grip)
-		var label: Label = _make_label.call("%d.  %s" % [i + 1, _name(_draft[i])], 14 if embedded else 16, Hud.TEXT, true)
+		var label: Label = _make_label.call(
+			"%d.  %s" % [i + 1, _name(_draft[i])], 14 if embedded else 16, Hud.TEXT, true
+		)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(label)
@@ -270,7 +280,19 @@ func _rebuild() -> void:
 	_apply.disabled = problem != "" or unchanged
 	_apply.text = "Apply"
 	if problem == "" and not unchanged:
-		_apply.text = "Apply · she starts from %s" % _name(ferry.here().town.id) if not ferry.assigned else "Apply · now" if _draft == ferry.stops else ("Apply · she crosses empty to start them" if ferry.here().town.id not in _draft and ferry.berth == Ferry.Berth.TIED_UP else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id))
+		_apply.text = (
+			"Apply · she starts from %s" % _name(ferry.here().town.id)
+			if not ferry.assigned
+			else (
+				"Apply · now"
+				if _draft == ferry.stops
+				else (
+					"Apply · she crosses empty to start them"
+					if ferry.here().town.id not in _draft and ferry.berth == Ferry.Berth.TIED_UP
+					else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
+				)
+			)
+		)
 	_fit.call_deferred()
 
 
@@ -482,7 +504,13 @@ func _on_add(id: int) -> void:
 
 
 func _on_reorder(from_idx: int, to_idx: int) -> void:
-	if from_idx < 0 or from_idx >= _draft.size() or to_idx < 0 or to_idx >= _draft.size() or from_idx == to_idx:
+	if (
+		from_idx < 0
+		or from_idx >= _draft.size()
+		or to_idx < 0
+		or to_idx >= _draft.size()
+		or from_idx == to_idx
+	):
 		return
 	var moved := _draft[from_idx]
 	_draft.remove_at(from_idx)
@@ -509,7 +537,9 @@ func _on_apply() -> void:
 func _fit() -> void:
 	if embedded:
 		var shown_e := _sailings_scroll.visible
-		_sailings_scroll.custom_minimum_size.y = minf(_sailings.get_combined_minimum_size().y, 180.0) if shown_e else 0.0
+		_sailings_scroll.custom_minimum_size.y = (
+			minf(_sailings.get_combined_minimum_size().y, 180.0) if shown_e else 0.0
+		)
 		return
 	var view := get_viewport_rect().size
 	var room := view.y - offset_top - 12.0

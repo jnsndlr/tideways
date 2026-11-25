@@ -59,6 +59,16 @@ hud_regenerate_map={
 "events": [Object(InputEventKey,"physical_keycode":71)]
 }
 
+hud_quick_save={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194336)]
+}
+
+hud_speed_max={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":52)]
+}
+
 hud_return_to_menu={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":77)]

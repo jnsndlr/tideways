@@ -61,7 +61,7 @@ func _on_construction_started(job: TownGrowth.BuildJob) -> void:
 		half_w = 13.0
 		half_d = 12.0
 	if builder != null:
-		builder.level_lot_runtime(lot.pos, lot.yaw, half_w, half_d, lot.lot_y)
+		_level_lot_runtime(lot.pos, lot.yaw, half_w, half_d, lot.lot_y)
 
 	var scene: PackedScene = _house_site_scene if is_house else _commercial_site_scene
 	if scene == null:
@@ -331,7 +331,7 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			var kit_name := builder.house_kit_names[idx]
 			var lamp := Models.kit_marker(kit_name, "PorchLight")
 			var entry := Models.kit_marker(kit_name, "Entry")
-			builder.add_runtime_building_light(
+			_add_runtime_building_light(
 				xf,
 				lamp + Vector3(0, 0, 0.08),
 				GlowBuilder.WARM,
@@ -352,7 +352,7 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			var front_z: float = WorldBuilder.SHOP_SHELLS[shop_name].y * 0.5
 			if shop_name == "glass_hall":
 				front_z += 0.46
-			builder.add_runtime_building_light(
+			_add_runtime_building_light(
 				xf,
 				Vector3(0.83, 2.59, front_z + 0.38),
 				GlowBuilder.WARM,
@@ -365,7 +365,7 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			var model_name := (
 				job.landmark_model if not job.landmark_model.is_empty() else "city_hall"
 			)
-			var mesh := builder.build_landmark_mesh(model_name)
+			var mesh := builder.landmarks.mesh_for(model_name)
 			if mesh != null:
 				var mi := MeshInstance3D.new()
 				mi.name = "Landmark_%s_%d" % [model_name, job.id]
@@ -374,27 +374,27 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 				add_child(mi)
 			if model_name == "airplane_hangar_low":
 				_spawn_windsock(xf)
-				builder.add_runtime_building_light(
+				_add_runtime_building_light(
 					xf, Vector3(0.0, 9.2, 7.8), GlowBuilder.WARM, 0.35, lot.waterfront
 				)
 			elif model_name == "observatory":
-				builder.add_runtime_building_light(
+				_add_runtime_building_light(
 					xf, Vector3(0.0, 3.0, 4.6), GlowBuilder.WARM, 0.28, lot.waterfront
 				)
 			else:
-				builder.add_runtime_building_light(
+				_add_runtime_building_light(
 					xf, Vector3(0.0, 3.0, 4.2), GlowBuilder.WARM, 0.26, lot.waterfront
 				)
 
 		MapData.TownLot.Kind.RADIO_TOWER:
-			var mesh := builder.build_landmark_mesh("radio_tower")
+			var mesh := builder.landmarks.mesh_for("radio_tower")
 			if mesh != null:
 				var mi := MeshInstance3D.new()
 				mi.name = "RadioTower_%d" % job.island_id
 				mi.mesh = mesh
 				mi.transform = xf
 				add_child(mi)
-			builder.add_runtime_building_light(
+			_add_runtime_building_light(
 				xf, Vector3(0.0, 55.2, 0.0), Color(1.0, 0.22, 0.16), 0.75, false
 			)
 
@@ -421,3 +421,65 @@ func _spawn_windsock(hangar_xf: Transform3D) -> void:
 				a.loop_mode = Animation.LOOP_LINEAR
 			anim.play(list[0])
 	_windsocks.append(ws)
+
+
+## Levels a single building lot in play and updates the affected builder.terrain tile(s).
+func _level_lot_runtime(
+	pos: Vector3, yaw: float, half_w: float, half_d: float, target_y: float
+) -> void:
+	if builder.terrain == null:
+		return
+	var dir := Vector3(sin(yaw), 0.0, cos(yaw))
+	builder.terrain.level_now(
+		Vector3(pos.x, 0.0, pos.z),
+		dir,
+		-half_d - WorldBuilder.KIT_LOT_MARGIN,
+		half_d + WorldBuilder.KIT_LOT_MARGIN,
+		-half_w - WorldBuilder.KIT_LOT_MARGIN,
+		half_w + WorldBuilder.KIT_LOT_MARGIN,
+		target_y,
+		WorldBuilder.KIT_LOT_BLEND
+	)
+	var reach := (
+		maxf(half_w, half_d) + WorldBuilder.KIT_LOT_MARGIN + WorldBuilder.KIT_LOT_BLEND + 2.0
+	)
+	var i0 := clampi(
+		floori((pos.x - reach + builder.terrain.half_size) / Terrain.CELL), 0, builder.terrain.n
+	)
+	var i1 := clampi(
+		ceili((pos.x + reach + builder.terrain.half_size) / Terrain.CELL), 0, builder.terrain.n
+	)
+	var j0 := clampi(
+		floori((pos.z - reach + builder.terrain.half_size) / Terrain.CELL), 0, builder.terrain.n
+	)
+	var j1 := clampi(
+		ceili((pos.z + reach + builder.terrain.half_size) / Terrain.CELL), 0, builder.terrain.n
+	)
+	builder.rebuild_terrain(Rect2i(i0, j0, maxi(1, i1 - i0), maxi(1, j1 - j0)))
+
+
+## Adds a night glow (entry lamp or tower beacon) for a building constructed at runtime.
+func _add_runtime_building_light(
+	xf: Transform3D,
+	local_pos: Vector3,
+	color: Color,
+	radius: float,
+	waterfront := false,
+	pool_pos := Vector3.INF
+) -> void:
+	if builder.night_lights == null:
+		return
+	var g := GlowBuilder.new()
+	g.xform = xf
+	g.glow(
+		local_pos, color, radius, radius * 16.0, waterfront, 0.0, Vector3.ZERO, Models.LAMP_ON_AT
+	)
+	if pool_pos != Vector3.INF:
+		g.pool(pool_pos, color, 4.5, 0.3)
+	var mesh := g.commit()
+	if mesh == null:
+		return
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	builder.night_lights.add_child(mi)

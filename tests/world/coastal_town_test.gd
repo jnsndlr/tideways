@@ -40,7 +40,9 @@ func _initialize() -> void:
 			houses[town] += 1
 	var total_comm := [shops[0] + halls[0], shops[1] + halls[1], shops[2] + halls[2]]
 	if halls != [1, 0, 0] or total_comm != [9, 4, 0] or houses != [30, 15, 2]:
-		push_error("Unexpected town buildings: halls %s, comm %s, houses %s" % [halls, total_comm, houses])
+		push_error(
+			"Unexpected town buildings: halls %s, comm %s, houses %s" % [halls, total_comm, houses]
+		)
 		quit(1)
 		return
 	print("TEST PASSED")

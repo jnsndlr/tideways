@@ -30,7 +30,9 @@ func stand_at(pos: Vector3, yaw: float) -> void:
 	_set_walking(false)
 
 
-func walk(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0.0, end_yaw := NAN) -> void:
+func walk(
+	points: PackedVector3Array, on_arrive := Callable(), start_delay := 0.0, end_yaw := NAN
+) -> void:
 	path = points.duplicate()
 	_on_arrive = on_arrive
 	delay = start_delay
@@ -93,4 +95,6 @@ func _process(delta: float) -> void:
 			step = 0.0
 			var flat := dir.x * dir.x + dir.z * dir.z
 			if flat > 0.0001:
-				rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), minf(1.0, delta * TURN_RATE))
+				rotation.y = lerp_angle(
+					rotation.y, atan2(dir.x, dir.z), minf(1.0, delta * TURN_RATE)
+				)

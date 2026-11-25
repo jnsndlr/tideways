@@ -71,14 +71,16 @@ The core feedback loop is: community growth, travel demand, revenue, fleet and t
 
 ### Time
 
-- 1 real second is 1 game minute at 1x.
-- A game day is 24 minutes at 1x, 8 at 3x and 3 at 8x.
+- 2 real seconds are 1 game minute at 1x.
+- A game day takes 48 real minutes at 1×, 6 at 8×, 3 at 16× and 1½ at 32×.
 - A season lasts about 7 days, so a game year is 28 days.
-- 3x is normal play, 1x is for watching, and 8x is for skipping ahead. Test builds should also run at about 20x.
+- The HUD offers pause, 1×, 8×, 16× and 32×.
 
-At 3x, a year takes about 3.7 hours, so a full region spans about 6–8 game years.
+At 8×, a 28-day game year takes 2 hours and 48 minutes.
 
 ### Pacing Targets
+
+These design targets use the original 3× clock as their baseline.
 
 | Reward | Target at 3x | In game time | Over 25 hours |
 |---|---|---|---|

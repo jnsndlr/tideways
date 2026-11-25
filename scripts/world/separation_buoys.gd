@@ -1,7 +1,8 @@
 class_name SeparationBuoys
 extends Node3D
 ## Traffic separation buoys about every SPACING metres along every route two or
-## more boats share, on the centreline between their lanes (at least one, mid-route). Comes and goes as boats are put on and
+## more boats share, on the centreline between their lanes (at least one, mid-route). Comes and
+## goes as boats are put on and
 ## taken off routes; flashes amber at night.
 
 const GLB := "res://assets/models/buoys/buoy_traffic_separation.glb"
@@ -12,6 +13,7 @@ const AMBER := Color(1.0, 0.65, 0.15)
 var sim: Simulation
 var night_lights: Node3D
 var _buoys := {}  # route id -> [model, glow]
+var _codes := {}  # text -> ViewportTexture
 var _check := 0.0
 var _first_code := {}  # route id -> index of its first buoy's code
 
@@ -123,9 +125,6 @@ func _letter(aid: Node3D, text: String) -> void:
 			Basis(Vector3.UP, yaw), Basis(Vector3.UP, yaw) * Vector3(0, 4.28, 0.69)
 		)
 		aid.add_child(mi)
-
-
-var _codes := {}  # text -> ViewportTexture
 
 
 func _code_texture(text: String) -> Texture2D:

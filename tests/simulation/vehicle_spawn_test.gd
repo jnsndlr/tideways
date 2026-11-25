@@ -50,7 +50,10 @@ func check_injected_spawner() -> void:
 	expect(road_vehicle.get_parent() == sim.traffic and deck_vehicle.get_parent() == deck, "Simulation should attach injected vehicles to the requested parent")
 	expect(is_same(road_vehicle.moving_traffic, sim.moving_vehicles) and is_same(deck_vehicle.moving_traffic, sim.moving_vehicles), "Both vehicles should share their simulation's traffic registry")
 	sim.collect_fare(deck_vehicle)
-	expect(is_equal_approx(sim.revenue_today, 18.0), "A vehicle without a mesh should earn the same car fare")
+	expect(
+		is_equal_approx(sim.revenue_today, 18.0),
+		"A vehicle without a mesh should earn the same car fare"
+	)
 	sim.free()
 
 
@@ -82,8 +85,14 @@ func check_spawned_traffic(authored: bool) -> void:
 				expect(trailer_body != null and trailer_body.mesh != null, "Spawned trailer has no visible body")
 				expect(car.is_truck and car.trailer.get_parent() == car and car.slots > 1, "Rig must tow its trailer and occupy multiple deck slots")
 		else:
-			expect(car.model.is_empty() and car.trailer == null, "Classic traffic unexpectedly used authored assets")
-			expect(car.slots == (2 if car.is_truck else 1) and car.speed == 24.0, "Classic vehicle behavior changed")
+			expect(
+				car.model.is_empty() and car.trailer == null,
+				"Classic traffic unexpectedly used authored assets"
+			)
+			expect(
+				car.slots == (2 if car.is_truck else 1) and car.speed == 24.0,
+				"Classic vehicle behavior changed"
+			)
 		car.free()
 	expect(saw_car and saw_truck, "Seed 123 should exercise both car and truck construction")
 	if authored:

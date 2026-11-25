@@ -39,11 +39,17 @@ func exercise_layout() -> bool:
 		return false
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
+	if not await sandbox_save_disabled(hud):
+		return false
 	if not exercise_shortcuts(hud):
 		return false
 	if not await press("FLEET") or not await press(boat.ferry_name, true):
 		return false
-	if not hud._ferry_panel.visible or hud._ferry_panel._name_label.text != "M/V " + boat.ferry_name.to_upper() or hud.rig.follow != boat:
+	if (
+		not hud._ferry_panel.visible
+		or hud._ferry_panel._name_label.text != "M/V " + boat.ferry_name.to_upper()
+		or hud.rig.follow != boat
+	):
 		return fail("Wrong ferry inspector or follow target")
 	if not await press("Stop Following"):
 		return false
@@ -72,6 +78,16 @@ func exercise_layout() -> bool:
 	if current_scene == null or current_scene.scene_file_path != Scenes.MENU or Engine.time_scale != 1.0:
 		return fail("Return to menu or speed reset failed")
 	return true
+
+
+func sandbox_save_disabled(hud: Hud) -> bool:
+	if not await press("MENU"):
+		return false
+	var menu := hud._game_menu
+	var disabled := menu.is_item_disabled(menu.get_item_index(0))
+	menu.hide()
+	await process_frame
+	return disabled or fail("Save game should be disabled on a procedural map")
 
 
 ## Physical shortcuts survive layout changes. A held key and its release apply the command only once.
