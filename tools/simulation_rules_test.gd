@@ -15,6 +15,7 @@ func _initialize() -> void:
 	check_demand()
 	check_departures()
 	check_lane_capacity()
+	check_queue_query()
 	check_navigation()
 	check_pilot_transfer()
 	check_harbour_access()
@@ -80,6 +81,41 @@ func check_lane_capacity() -> void:
 	expect(first.take_front() == 41 and first.queued_slots() == 1, "The head leaves with all its slots")
 	expect(TerminalLane.for_boarding(lanes, Callable()) == first, "Equal waiting counts keep lane order")
 	expect(TerminalLane.for_arrival(lanes, [first], 4, 1) == null, "Closed lanes cannot take new traffic")
+
+
+func check_queue_query() -> void:
+	var sim := Simulation.new(Vehicle.new.unbind(1))
+	var term := Terminal.new()
+	sim.add_child(term)
+	term.sim = sim
+	var guest := Vehicle.new()
+	guest.dest = 2
+	var shared := TerminalLane.new(-2)
+	shared.enqueue(guest.get_instance_id(), 3)
+	shared.enroute = 2
+	var idle := TerminalLane.new(2)
+	var parked := Vehicle.new()
+	idle.enqueue(parked.get_instance_id(), 1)
+	term.lanes = {1: [shared], 2: [], MapData.NO_ROUTE: [idle]}
+	term.extra_lane = shared
+	var summary := term.queue_summary()
+	expect(summary.waiting == 2 and summary.newest_waiting == 1 and summary.newest_inbound == 2, "Count waiting vehicles separately from inbound spaces")
+	expect(summary.destinations.size() == 2, "Unassigned lanes do not appear as destinations")
+	var row := summary.destinations[0]
+	expect(row.town_id == 1 and row.lanes == 1 and row.sharing == 1, "A guest contributes to sharing in its host lane")
+	expect(summary.destinations[1].town_id == 2 and summary.destinations[1].lanes == 0, "Keep empty destinations in lane order")
+	expect(summary == term.queue_summary(), "Unchanged queue queries reuse their snapshot")
+	var changes: Array[int] = []
+	term.queue_changed.connect(func() -> void: changes.append(term.queue_summary().waiting))
+	term.take_car(1)
+	var after := term.queue_summary()
+	expect(changes == [1] and after.destinations[0].sharing == 0 and after.newest_waiting == 0, "Boarding publishes the updated queue once")
+	expect(summary.waiting == 2 and after == term.queue_summary(), "Snapshots remain stable until the next change")
+	term.take_car(1)
+	expect(changes == [1], "An empty dispatch does not notify observers")
+	sim.free()
+	guest.free()
+	parked.free()
 
 
 func check_departures() -> void:
