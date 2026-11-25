@@ -65,6 +65,8 @@ var terrain_material: ShaderMaterial
 var _forest_noise := FastNoiseLite.new()
 var _pasture_noise := FastNoiseLite.new()
 var root: Node3D
+## Where the bell buoys float (world, at the waterline), for Ambience to ring them.
+var bell_buoys: Array[Vector3] = []
 var route_overlay: MeshInstance3D
 var water_material: ShaderMaterial
 var night_lights: MeshInstance3D
@@ -886,6 +888,14 @@ func _nav_aid(path: String, xf: Transform3D, base: Vector3, yaw: float, node_nam
 	return base + b * (lamp + Vector3(0, 0.35, 0))
 
 
+## Camera (or any point) to the nearest bell buoy, in metres; INF if there are none.
+func nearest_bell_distance(from: Vector3) -> float:
+	var best := INF
+	for b in bell_buoys:
+		best = minf(best, from.distance_to(b))
+	return best
+
+
 ## Open-water marks: a hazard spar off the shoal edge of most islands, a bell
 ## buoy out in deep water off each inhabited one, and a pair of channel markers
 ## further out on each terminal's approach. All flash at night.
@@ -916,6 +926,8 @@ func _build_nav_aids() -> void:
 				var col := AMBER if kind == "spar" else GlowBuilder.LED
 				var at := _nav_aid(path, Transform3D.IDENTITY, p, rng.randf() * TAU, "Nav %s %d" % [kind, n])
 				if at != Vector3.INF:
+					if kind == "bell":
+						bell_buoys.append(p)
 					var phase := Models.blink_phase_at(p)
 					glows.glow(at, col, 0.6, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
 					_block(p, 12.0)

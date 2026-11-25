@@ -13,6 +13,12 @@ const SEA := "res://assets/audio/ambient/sea_gentle.mp3"
 const GULLS_NEAR := "res://assets/audio/ambient/gulls_near_loop.mp3"
 const GULL_CALLS := "res://assets/audio/ambient/gull_calls_distant.mp3"
 const FOREST := "res://assets/audio/ambient/forest_near_loop.wav"
+const BELL := "res://assets/audio/ambient/buoy_bell.wav"
+# Bell buoys ring now and then, heard from the camera: full within BELL_FULL
+# metres, falling off linearly to nothing at BELL_GONE.
+const BELL_FULL := 100.0
+const BELL_GONE := 300.0
+const BELL_GAP := Vector2(20.0, 60.0)
 
 # Camera height above the water at which the sea is full, and where it has faded
 # out. Between, it falls off as an inverse curve (falloff / (falloff + rise)), so
@@ -44,6 +50,9 @@ var _sea: AudioStreamPlayer
 var _near: AudioStreamPlayer
 var _calls: AudioStreamPlayer
 var _forest: AudioStreamPlayer
+var _bell: AudioStreamPlayer
+var _bell_dist := INF
+var _next_bell := 0.0
 var _forest_gain := 0.0
 var _tree_dist := INF
 var _sea_gain := 0.0
@@ -74,6 +83,8 @@ func _ready() -> void:
 	_calls = _player(GULL_CALLS, false)
 	_calls.volume_db = CALL_DB
 	_forest = _player(FOREST, true)
+	_bell = _player(BELL, false)
+	_next_bell = _rng.randf_range(2.0, BELL_GAP.y)
 	# Start the loops at different points so they don't line up.
 	_sea.play(_rng.randf() * 10.0)
 	_near.play(_rng.randf() * 6.0)
@@ -114,6 +125,7 @@ func _process(delta: float) -> void:
 			_gull_dist = gulls.nearest_distance(rig.camera.global_position)
 		if builder:
 			_tree_dist = builder.nearest_tree_distance(rig.camera.global_position, GULLS_GONE)
+			_bell_dist = builder.nearest_bell_distance(rig.camera.global_position)
 	var near_want := _ramp(_gull_dist, GULLS_GONE, GULLS_FULL, GULLS_CURVE) * gull_level
 	_sea_gain = move_toward(_sea_gain, sea_want, EASE * dt)
 	_near_gain = move_toward(_near_gain, near_want, EASE * dt)
@@ -124,6 +136,14 @@ func _process(delta: float) -> void:
 	_forest.volume_db = maxf(linear_to_db(_forest_gain), SILENT_DB)
 	# Follows the sea as it plays, so zooming out mid-call fades it with the water.
 	_calls.volume_db = maxf(CALL_DB + linear_to_db(_sea_gain * gull_level), SILENT_DB)
+	# The bell follows the camera as it rings; only rings when it can be heard.
+	var bell_gain := _ramp(_bell_dist, BELL_GONE, BELL_FULL, 1.0)
+	_bell.volume_db = maxf(linear_to_db(bell_gain), SILENT_DB)
+	_next_bell -= dt
+	if _next_bell <= 0.0:
+		_next_bell = _rng.randf_range(BELL_GAP.x, BELL_GAP.y)
+		if bell_gain > 0.0 and not _bell.playing:
+			_bell.play()
 	_next_call -= dt
 	if _next_call <= 0.0:
 		_next_call = _rng.randf_range(CALL_GAP.x, CALL_GAP.y) * lerpf(1.0, NIGHT_CALL_GAP, night)
