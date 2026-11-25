@@ -110,6 +110,7 @@ func setup(m: Node) -> void:
 	_ferry_panel.captain_chosen.connect(_on_captain_chosen)
 	_ferry_panel.service_toggled.connect(_toggle_service)
 	_ferry_panel.sell_requested.connect(_sell_selected)
+	_ferry_panel.move_requested.connect(_move_selected)
 	_build_terminal_bar()
 	_build_fleet_panel()
 	_build_finance_panel()
@@ -645,6 +646,12 @@ func _build_info_panel() -> void:
 	_dock_button.pressed.connect(_buy_dock)
 	v.add_child(_dock_button)
 	_info_panel.visible = false
+
+
+## Send the selected ferry by hand to `slip` at `town_id` (TID-328).
+func _move_selected(town_id: int, slip: int) -> void:
+	if selected_ferry and selected_ferry.order_move(town_id, slip):
+		_refresh_panels()
 
 
 ## Lay the selected ferry up at a tie-up slip, or bring her back into service.

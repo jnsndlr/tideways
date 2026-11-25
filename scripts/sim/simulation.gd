@@ -390,7 +390,7 @@ func _build_lanes() -> void:
 func _lane_destinations(term: Terminal) -> Array[int]:
 	var served: Array[int] = []
 	for f in ferries:
-		if not f.assigned:
+		if not f.assigned or f.manual:
 			continue
 		for i in f.stops.size():
 			if f.stops[i] == term.town.id:

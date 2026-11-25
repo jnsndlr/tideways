@@ -9,6 +9,7 @@ signal pace_changed(pace: int)
 signal captain_chosen(captain: Captain)
 signal service_toggled
 signal sell_requested
+signal move_requested(town_id: int, slip: int)
 
 enum Tab { OVERVIEW, CREW, SCHEDULE, OPERATIONS }
 
@@ -63,6 +64,12 @@ var _schedule_ferry: Ferry
 var _ops_grid: GridContainer
 var _service_button: Button
 var _sell_button: Button
+# Manual orders (TID-328): any slip a route reaches, picked from a list.
+var _move_pick: OptionButton
+var _move_note: Label
+var _move_button: Button
+var _move_key := ""
+var _move_targets: Array = []   # [town id, slip] per item of _move_pick
 
 var _style_tab_idle: StyleBoxFlat
 var _style_tab_active: StyleBoxFlat
@@ -349,6 +356,28 @@ func _build_operations_tab() -> Control:
 	_ops_grid.add_theme_constant_override("v_separation", 4)
 	info_card.add_child(_ops_grid)
 
+	var move_card := _card(col)
+	move_card.add_child(_make_label.call("MOVE BY HAND", 11, SEAFOAM_MUTED, true))
+	_move_pick = OptionButton.new()
+	_move_pick.focus_mode = Control.FOCUS_NONE
+	_move_pick.custom_minimum_size.y = 40
+	_move_pick.fit_to_longest_item = false
+	_move_pick.item_selected.connect(func(_i): if ferry: _refresh_move_note(ferry))
+	move_card.add_child(_move_pick)
+	_move_note = _make_label.call("", 12, SEAFOAM_MUTED, false)
+	_move_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	move_card.add_child(_move_note)
+	_move_button = Button.new()
+	_move_button.focus_mode = Control.FOCUS_NONE
+	_move_button.custom_minimum_size.y = 40
+	_move_button.text = "Send her there"
+	_move_button.add_theme_stylebox_override("normal", _style_pill_btn)
+	_move_button.pressed.connect(func():
+		var i := _move_pick.selected
+		if i >= 0 and i < _move_targets.size():
+			move_requested.emit(_move_targets[i][0], _move_targets[i][1]))
+	move_card.add_child(_move_button)
+
 	_service_button = Button.new()
 	_service_button.focus_mode = Control.FOCUS_NONE
 	_service_button.custom_minimum_size.y = 40
@@ -537,8 +566,9 @@ func refresh(f: Ferry, is_following: bool, timetable_text := "", clash_text := "
 		_service_button.disabled = not f.can_lay_up()
 	else:
 		_service_button.text = "Return to service"
-		_service_button.disabled = f.return_requested
+		_service_button.disabled = f.return_requested and not f.manual
 	_sell_button.text = "Sell for $%s" % Hud.fmt_int(f.resale_value()) if f.can_sell() else "Sell · lay her up first"
+	_refresh_move(f)
 	_sell_button.disabled = not f.can_sell()
 
 
@@ -569,3 +599,43 @@ func fit_height(max_height: float) -> void:
 		return
 	var want := inner.get_combined_minimum_size().y
 	_scroll.custom_minimum_size.y = minf(want, maxf(240.0, max_height))
+
+
+## The slips she can be sent to by hand, kept as picked while they stay the same.
+func _refresh_move(f: Ferry) -> void:
+	var usable := f.assigned and f.berth != Ferry.Berth.DELIVERING
+	_move_pick.disabled = not usable
+	_move_button.disabled = not usable
+	if not usable:
+		_move_note.text = "Give her stops first."
+		return
+	var targets := []
+	var names := []
+	for id in f.manual_reach():
+		for s in f.manual_slips(id):
+			targets.append([id, s[0]])
+			names.append("%s · %s" % [sim.map.towns[id].name, s[1]])
+	var key := "%d|%s" % [f.get_instance_id(), str(targets)]
+	if key != _move_key:
+		var keep: Array = _move_targets[_move_pick.selected] if _move_pick.selected >= 0 and _move_pick.selected < _move_targets.size() else []
+		_move_key = key
+		_move_targets = targets
+		_move_pick.clear()
+		for n in names:
+			_move_pick.add_item(n)
+		var at := targets.find(keep)
+		_move_pick.select(at if at >= 0 else (0 if not targets.is_empty() else -1))
+	_refresh_move_note(f)
+
+
+func _refresh_move_note(f: Ferry) -> void:
+	var i := _move_pick.selected
+	if i < 0 or i >= _move_targets.size():
+		_move_note.text = ""
+		return
+	var short := f.manual_strands(_move_targets[i][0])
+	var lead := "Her timetable stops until you return her to service. "
+	if short == Vector2i.ZERO:
+		_move_note.text = lead + "Everyone aboard is bound there."
+	else:
+		_move_note.text = lead + "Sets down %d vehicles and %d walk-ons short of where they're going: fares refunded, and their towns won't be pleased." % [short.x, short.y]

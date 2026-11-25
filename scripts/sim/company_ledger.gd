@@ -114,6 +114,13 @@ func _credit_fare(fare: float) -> void:
 	cash += fare
 
 
+## Hands back a fare already taken (a traveller set down short by manual orders).
+func refund_fare(fare: float) -> void:
+	today["fares"] -= fare
+	revenue_total -= fare
+	cash -= fare
+
+
 ## Takes in `amount` that isn't a fare (a boat sold) under one of INCOME.
 func receive(category: String, amount: float) -> void:
 	today[category] += amount
