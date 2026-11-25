@@ -37,7 +37,7 @@ static func windows(f: Ferry, ids: Array[int], times: Array[int], p: int) -> Arr
 				# is free from when she has moved off it until she is back.
 				var move := f.shift_minutes(SlipShiftPath.estimated_length(absf(isl.slip_offset(tie) - isl.slip_offset(slip))))
 				out.append({"island": ids[i], "slip": slip, "start": start, "end": start + f.planned_unload() + move * 0.5, "sailing": k})
-				start = t - Ferry.MAX_DWELL - FerryLayUp.GAP_MARGIN - move * 0.5
+				start = t - f.dwell.maximum_loading - FerryLayUp.GAP_MARGIN - move * 0.5
 			out.append({"island": ids[i], "slip": slip, "start": start, "end": t + o[i], "sailing": k})
 	return out
 

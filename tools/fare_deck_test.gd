@@ -12,6 +12,7 @@ func _initialize() -> void:
 	_check_fare_settings()
 	_check_pace()
 	_check_operating_rates()
+	_check_early_crew_call()
 	_check_midnight_costs()
 	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var car := Vehicle.new()
@@ -142,6 +143,30 @@ func _check_operating_rates() -> void:
 	check(is_equal_approx(sim.ledger.today["fuel"], fuel), "Metered fuel matches configured cruise quote")
 	check(is_equal_approx(sim.ledger.today["crew"], crew), "Posted wages match hourly quote")
 	check(is_equal_approx(sim.available_cash, CompanyLedger.STARTING_CASH - fuel - crew), "Fuel and crew charges reconcile with cash")
+	boat.free()
+	sim.free()
+
+
+func _check_early_crew_call() -> void:
+	var sim := Simulation.new(Vehicle.new.unbind(1))
+	sim.map = MapData.new()
+	var route := MapData.Route.new()
+	route.b = 1
+	route.length = 1852.0
+	sim.map.routes.append(route)
+	var dwell := FerryDwell.new({"maximum_loading": 32})
+	var boat := Ferry.new(sim.operating_costs, dwell)
+	boat.sim = sim
+	boat.fc = FerryClass.of(2)
+	boat._timetable.replace([400])
+	var ids: Array[int] = [0, 1]
+	var planned := boat.daily_cost(ids, [400])
+	var paid_minutes := 32.0 + boat.shift_tail(boat.plan_offsets(ids))
+	check(is_equal_approx(planned.crew, paid_minutes / 60.0 * boat.crew_per_hour()), "Forecast pays from the opening of a long boarding window")
+	sim.minutes = 367.9
+	check(boat.off_shift(), "Crew stand down before a long boarding window")
+	sim.minutes = 368.0
+	check(not boat.off_shift(), "Crew are on duty when boarding starts 32 minutes before departure")
 	boat.free()
 	sim.free()
 

@@ -11,9 +11,6 @@ signal net_state_changed
 const State = FerryVoyage.State
 
 const YIELD_DECEL := FerryVoyage.YIELD_DECEL
-const MIN_DWELL := 10.0
-const MAX_DWELL := 24.0
-const DISPATCH_GAP := 0.5
 # A ferry about to leave holds in at the dock while a stretch of water it shares
 # with another route, no further out than this, is taken, or while a ferry
 # coming in to the same terminal, this close to it, has it still to pass.
@@ -23,6 +20,7 @@ const RAMP_LOWER_AT := 40.0
 
 var sim: Simulation
 var _operating_costs: FerryOperatingCosts
+var dwell: FerryDwell
 var fc: FerryClass
 var route: MapData.Route
 var fleet_key := ""                 # follows the hull through renames and route changes
@@ -45,14 +43,6 @@ var _timetable := Timetable.new()
 var _offsets: Array[float] = []  # plan_offsets(stops), cached
 var late_by := 0.0           # minutes late she left her last stop
 var _loading_since := 0.0    # game minute (Simulation.abs_minutes) she began loading
-## Crew come on this long before her first sailing of the day.
-const CREW_CALL := 30.0
-## Planned loading and unloading, per car of a full deck (game minutes).
-const PLAN_CAR_GAP := 0.8
-## On a timetable, the last car is let on this long before she is due (it has
-## the lane and the apron to drive), and the apron starts up APRON_LIFT before.
-const BOARD_CLOSE := 8.0
-const APRON_LIFT := 2.0
 ## Her +Z end faces the current route's B → A rather than A → B (she came onto
 ## this leg from one running the other way; a double-ended ferry never turns).
 var _rev := false
@@ -210,7 +200,8 @@ static var _lane_w := -1.0
 var _lane_k := 0.0          # how far out on her lane she keeps (1 on a route she shares, 0 alone)
 
 
-func _init(operating_costs := FerryOperatingCosts.new()) -> void:
+func _init(operating_costs := FerryOperatingCosts.new(), dwell_timing := FerryDwell.new()) -> void:
+	dwell = dwell_timing
 	_operating_costs = operating_costs
 
 
@@ -309,7 +300,7 @@ func set_timetable(times: Array[int]) -> void:
 		# A ferry already away from her working slip must return for the new
 		# sailing, or at once if she now sails as loading allows.
 		var now := sim.abs_minutes()
-		_lay_up.reschedule_gap(now if timetable.is_empty() else _timetable.first_stop_due(now, MAX_DWELL))
+		_lay_up.reschedule_gap(now if timetable.is_empty() else _timetable.first_stop_due(now, dwell.maximum_loading))
 
 
 ## Takes the planned stops if she is at one of them. Cars aboard for a stop she
@@ -635,7 +626,7 @@ func _tick_unloading(delta: float) -> void:
 			var car: Vehicle = _unload_queue.pop_front()
 			_dispatch_timer = _gap_after(car)
 			_drive_off(car)
-	elif _dispatch_timer < -2.0 and _last_vehicle_clear_of_lot():
+	elif _dispatch_timer < -dwell.unload_clearance and _last_vehicle_clear_of_lot():
 		if here().unloading_ferry == self:
 			here().unloading_ferry = null
 		if not _try_lay_up():
@@ -675,7 +666,7 @@ func _last_vehicle_clear_of_lot() -> bool:
 ## Seconds before the next car may follow `car`: long enough for it to pull its own
 ## length (and a gap) clear. Each car then follows the one before it.
 func _gap_after(car: Vehicle) -> float:
-	return maxf(DISPATCH_GAP, (car.length + Vehicle.FOLLOW_GAP) / car.speed)
+	return maxf(dwell.minimum_dispatch_gap, (car.length + Vehicle.FOLLOW_GAP) / car.speed)
 
 
 func _send(car: Vehicle, path: PackedVector3Array, on_arrive: Callable) -> void:
@@ -736,16 +727,10 @@ func _tick_loading(delta: float) -> void:
 		return
 	var serves := serves_from_here()
 	var fits := func(c: Vehicle): return _free_slot(c) >= 0
-	# On a timetable she boards from MAX_DWELL until BOARD_CLOSE before she is due,
-	# and sails on time. Late (in too late for MIN_DWELL before then), she sails
-	# as soon as she has loaded.
 	var due_at := due()
 	var now := sim.abs_minutes()
 	var timed := due_at >= 0.0
-	var late := timed and _loading_since > due_at - MIN_DWELL
-	var boarding_open := _state_time < MAX_DWELL
-	if timed and not late:
-		boarding_open = now >= due_at - MAX_DWELL and now < due_at - BOARD_CLOSE
+	var boarding_open := dwell.boarding_open(_state_time, now, due_at, _loading_since)
 	if _dispatch_timer <= 0.0 and boarding_open and not _casting_off and _ramp_down():
 		var car := term.board_next(serves, fits)
 		if car != null:
@@ -754,9 +739,7 @@ func _tick_loading(delta: float) -> void:
 	# (full: nothing waiting would fit)
 	var full := not term.has_waiting(serves, fits)
 	var queue_empty := not term.has_waiting(serves, func(_c: Vehicle): return true)
-	var loaded := _state_time >= MIN_DWELL and (full or queue_empty or _state_time >= MAX_DWELL)
-	if timed:
-		loaded = now >= due_at - APRON_LIFT and (not late or loaded)
+	var loaded := dwell.ready_to_lift(_state_time, now, due_at, _loading_since, full or queue_empty)
 	if _casting_off or _boarding == 0 and loaded:
 		# Apron up before she goes.
 		_casting_off = true
@@ -1694,7 +1677,7 @@ func _service_text() -> String:
 				return "Boarding at " + here().town.name
 			if off_shift():
 				return "Alongside at %s, crew off · first sailing %s" % [here().town.name, Timetable.text(due_at)]
-			if sim.abs_minutes() < due_at - MAX_DWELL:
+			if sim.abs_minutes() < due_at - dwell.maximum_loading:
 				return "Alongside at %s · sails %s" % [here().town.name, Timetable.text(due_at)]
 			return "Boarding at %s · sails %s" % [here().town.name, Timetable.text(due_at)]
 	var text := "En route to %s (%d min)" % [destination().town.name, ceili(eta_minutes())]
@@ -1734,7 +1717,7 @@ func best_captain() -> Captain:
 
 func minutes_until_departure_from(term: Terminal) -> float:
 	var crossing := crossing_minutes()
-	var turnaround := 16.0
+	var turnaround := dwell.estimated_turnaround
 	if between_sailings() and not lay_up_requested:
 		var m := maxf(_lay_up.gap_due - sim.abs_minutes(), 0.0)
 		return m if here() == term else m + crossing + turnaround
@@ -1742,7 +1725,7 @@ func minutes_until_departure_from(term: Terminal) -> float:
 		return INF
 	match state:
 		State.LOADING:
-			var m := maxf(MIN_DWELL + 2.0 - _state_time, 0.0)
+			var m := maxf(dwell.minimum_loading + dwell.apron_lift - _state_time, 0.0)
 			if due() >= 0.0:
 				m = maxf(m, due() - sim.abs_minutes())
 			return m if here() == term else m + crossing + turnaround
@@ -1763,13 +1746,12 @@ func crossing_minutes() -> float:
 ## Planned time alongside at each call, as if every sailing were full: a whole
 ## deck off, a whole deck on, and the last car aboard and the apron up.
 func planned_dwell() -> float:
-	var deck_minutes := fc.capacity * PLAN_CAR_GAP
-	return planned_unload() + clampf(deck_minutes, MIN_DWELL, MAX_DWELL) + BOARD_CLOSE
+	return dwell.planned_dwell(fc.capacity)
 
 
 ## Of planned_dwell, the part she spends unloading a whole deck.
 func planned_unload() -> float:
-	return fc.capacity * PLAN_CAR_GAP + 2.0
+	return dwell.planned_unload(fc.capacity)
 
 
 ## Unhindered minutes for a leg on route `r`, at pace `p` under her next captain.
@@ -1815,20 +1797,20 @@ func round_fuel(ids: Array[int], p := pace) -> float:
 
 ## What a day on `times` (Timetable) round `ids` at pace `p` should cost her, on
 ## the planning numbers the timetable is built from: each sailing makes every
-## leg once, unhindered, and her crew are on from CREW_CALL before the first
+## leg once, unhindered, and her crew are on from the crew call before the first
 ## sailing until she is due back and unloaded after the last (off_shift).
 ## {fuel, crew, hours (crew), sailings}; empty with no times or a leg with no route.
 func daily_cost(ids: Array[int], times: Array[int], p := pace) -> Dictionary:
 	var o := plan_offsets(ids, p)
 	if o.is_empty() or times.is_empty():
 		return {}
-	var span := float(times.max() - times.min()) + CREW_CALL + shift_tail(o)
+	var span := float(times.max() - times.min()) + dwell.crew_call + shift_tail(o)
 	# Overnight at a tie-up (FerryLayUp.GAP_TIE_UP): her crew move her over after the last
 	# sailing, and come on early enough to bring her back before the first.
 	var distance := _overnight_distance(ids, times, o)
 	var night := shift_minutes(distance, p)
 	var move_fuel := _shift_fuel(distance, p)
-	var morning := maxf(0.0, MAX_DWELL + FerryLayUp.GAP_MARGIN + night - CREW_CALL) if night > 0.0 else 0.0
+	var morning := maxf(0.0, dwell.maximum_loading + FerryLayUp.GAP_MARGIN + night - dwell.crew_call) if night > 0.0 else 0.0
 	span += night + morning
 	var hours := minf(span, Timetable.DAY) / 60.0
 	return {"fuel": round_fuel(ids, p) * times.size() + 2.0 * move_fuel, "morning_fuel": move_fuel, "crew": hours * crew_per_hour(), "hours": hours, "sailings": times.size(),
@@ -1880,7 +1862,7 @@ func due() -> float:
 	if timetable.is_empty() or berth != Berth.WORKING or lay_up_requested:
 		return -1.0
 	if call == 0:
-		return _timetable.first_stop_due(sim.abs_minutes(), MAX_DWELL)
+		return _timetable.first_stop_due(sim.abs_minutes(), dwell.maximum_loading)
 	return _timetable.call_due(call, _round_offsets())
 
 
@@ -1903,7 +1885,7 @@ func off_shift() -> bool:
 	var now := sim.abs_minutes()
 	if _timetable.last_departure >= 0.0 and now < _timetable.last_departure + shift_tail(_round_offsets()):
 		return false
-	return d - now > CREW_CALL
+	return d - now > dwell.crew_call
 
 
 # --- Running costs ------------------------------------------------------------------
@@ -2189,7 +2171,7 @@ func _shift_blocked(into_working: bool) -> bool:
 				and f.slip_at(term) == mine:
 			var f_due := f.due()
 			if f.state == State.SAILING or f_due < 0.0 \
-					or f_due - sim.abs_minutes() < MAX_DWELL + shift_minutes(_shift_length(tie_up)):
+					or f_due - sim.abs_minutes() < f.dwell.maximum_loading + shift_minutes(_shift_length(tie_up)):
 				return true
 		if f.state == State.SAILING:
 			if f._waiting_for == self and f.speed < 0.5:
@@ -2229,7 +2211,7 @@ func _tick_berth(delta: float) -> void:
 			return   # (the tow moves her)
 		Berth.TIED_UP:
 			if between_sailings():
-				_lay_up.check_return_time(sim.abs_minutes(), MAX_DWELL, shift_minutes(_shift_length(tie_up)))
+				_lay_up.check_return_time(sim.abs_minutes(), dwell.maximum_loading, shift_minutes(_shift_length(tie_up)))
 			if return_requested and (tie_up == slip_at(here()) or not _shift_blocked(true)):
 				_lay_up.leave_tie_up()
 				# Keeps whatever water round her slip a docked ferry would hold.

@@ -56,6 +56,7 @@ signal ferry_delivered(ferry: Ferry)
 signal ferry_removed(ferry: Ferry)
 
 var ledger := CompanyLedger.new()
+var dwell := FerryDwell.new(ProjectSettings.get_setting(FerryDwell.SETTING, {}))
 var operating_costs := FerryOperatingCosts.new(ProjectSettings.get_setting(FerryOperatingCosts.SETTING, {}))
 var available_cash: float:
 	get: return ledger.cash
@@ -412,7 +413,7 @@ func sell_ferry(f: Ferry) -> bool:
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
-	var ferry := Ferry.new(operating_costs)
+	var ferry := Ferry.new(operating_costs, dwell)
 	ferry.fleet_key = key
 	add_child(ferry)
 	ferry.setup(self, route, display_name, size)
