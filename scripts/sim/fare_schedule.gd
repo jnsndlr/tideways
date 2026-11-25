@@ -12,18 +12,10 @@ var _extra_fraction_per_metre := 0.3
 
 
 func _init(settings: Variant = {}) -> void:
-	if settings is Dictionary:
-		_car = _read_rate(settings, "car", _car)
-		_truck = _read_rate(settings, "truck", _truck)
-		_included_metres = _read_rate(settings, "included_metres", _included_metres)
-		_extra_fraction_per_metre = _read_rate(settings, "extra_fraction_per_metre", _extra_fraction_per_metre)
-
-
-static func _read_rate(settings: Dictionary, key: String, fallback: float) -> float:
-	var value: Variant = settings.get(key)
-	if (value is float or value is int) and is_finite(value) and value >= 0:
-		return float(value)
-	return fallback
+	_car = EconomyConfig.nonnegative_rate(settings, "car", _car)
+	_truck = EconomyConfig.nonnegative_rate(settings, "truck", _truck)
+	_included_metres = EconomyConfig.nonnegative_rate(settings, "included_metres", _included_metres)
+	_extra_fraction_per_metre = EconomyConfig.nonnegative_rate(settings, "extra_fraction_per_metre", _extra_fraction_per_metre)
 
 
 func measured(metres: float) -> float:

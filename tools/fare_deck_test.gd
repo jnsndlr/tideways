@@ -11,6 +11,7 @@ func check(condition: bool, message: String) -> void:
 func _initialize() -> void:
 	_check_fare_settings()
 	_check_pace()
+	_check_operating_rates()
 	_check_midnight_costs()
 	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var car := Vehicle.new()
@@ -108,6 +109,43 @@ func _check_fare_settings() -> void:
 	sim.free()
 
 
+func _check_operating_rates() -> void:
+	var hull := FerryClass.of(2)
+	for invalid: Variant in [null, false, "5", -1, INF, NAN]:
+		var costs := FerryOperatingCosts.new({"fuel_per_gallon": invalid, "wage_per_crew_hour": 9})
+		check(is_equal_approx(costs.fuel_cost(hull, 1852.0, hull.cruise), 3.6 * hull.burn), "Invalid fuel price uses default")
+		check(costs.crew_per_hour(hull) == 9 * hull.crew, "Valid wage survives invalid fuel price")
+	var free_fuel := FerryOperatingCosts.new({"fuel_per_gallon": 0, "wage_per_crew_hour": -1})
+	check(free_fuel.forecast_fuel(hull, 2000.0) == 0.0, "Zero fuel price is valid")
+	check(free_fuel.crew_per_hour(hull) == 12.0 * hull.crew, "Invalid wage uses default")
+
+	var previous: Variant = ProjectSettings.get_setting(FerryOperatingCosts.SETTING, null)
+	ProjectSettings.set_setting(FerryOperatingCosts.SETTING, {"fuel_per_gallon": 7, "wage_per_crew_hour": 15})
+	var sim := Simulation.new(Vehicle.new.unbind(1))
+	ProjectSettings.set_setting(FerryOperatingCosts.SETTING, previous)
+	var boat := Ferry.new(sim.operating_costs)
+	boat.sim = sim
+	boat.fc = hull
+	boat.route = MapData.Route.new()
+	boat.route.length = 1852.0
+	boat.speed = boat.cruise_speed()
+	var fuel := 7.0 * hull.burn * pow(boat.speed / hull.cruise, 2)
+	var crew := 15.0 * hull.crew
+	check(is_equal_approx(boat.crossing_fuel_estimate(), fuel), "Configured cruise quote")
+	var burn := boat.next_captain.crossing_burn(1852.0, boat.paced_cruise())
+	check(is_equal_approx(boat.leg_fuel(boat.route), 7.0 * hull.burn * burn / (1852.0 * hull.cruise * hull.cruise)), "Configured timetable fuel")
+	var quote := FleetPanel.class_text(hull.size, sim.operating_costs)
+	check(quote.contains("%s / hr · fuel ~%s / nm" % [Hud.fmt_money(crew), Hud.fmt_money(7.0 * hull.burn)]), "Fleet quotes use company rates")
+	boat._burn(1852.0)
+	boat.pay_crew(60.0)
+	boat.post_costs(true)
+	check(is_equal_approx(sim.ledger.today["fuel"], fuel), "Metered fuel matches configured cruise quote")
+	check(is_equal_approx(sim.ledger.today["crew"], crew), "Posted wages match hourly quote")
+	check(is_equal_approx(sim.available_cash, CompanyLedger.STARTING_CASH - fuel - crew), "Fuel and crew charges reconcile with cash")
+	boat.free()
+	sim.free()
+
+
 func _check_midnight_costs() -> void:
 	var sim := Simulation.new(Vehicle.new.unbind(1))
 	var boat := Ferry.new()
@@ -118,7 +156,7 @@ func _check_midnight_costs() -> void:
 	sim.minutes = 1439.5
 	sim.ledger.cash = 0.0
 	boat._burn(FerryOperatingCosts.METRES_PER_NM)
-	var fuel := FerryOperatingCosts.FUEL_PRICE * boat.fc.burn
+	var fuel := 3.6 * boat.fc.burn
 	var half_minute_pay := boat.crew_per_hour() / 120.0
 	sim._process(1.0)
 	check(is_equal_approx(sim.ledger.yesterday["fuel"], fuel), "Midnight posts fuel once")

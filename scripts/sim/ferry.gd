@@ -22,6 +22,7 @@ const ARRIVAL_PRIORITY := 660.0
 const RAMP_LOWER_AT := 40.0
 
 var sim: Simulation
+var _operating_costs: FerryOperatingCosts
 var fc: FerryClass
 var route: MapData.Route
 var fleet_key := ""                 # follows the hull through renames and route changes
@@ -207,6 +208,10 @@ const LANE_EASE := 320.0    # m over which she eases onto her lane
 const LANE_SHIFT := 1.0 / 30.0   # of her lane per game minute, moving over when her route becomes shared (or stops being)
 static var _lane_w := -1.0
 var _lane_k := 0.0          # how far out on her lane she keeps (1 on a route she shares, 0 alone)
+
+
+func _init(operating_costs := FerryOperatingCosts.new()) -> void:
+	_operating_costs = operating_costs
 
 
 func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
@@ -1776,7 +1781,7 @@ func leg_minutes(r: MapData.Route, p := pace) -> float:
 ## burnt as she sails it (_burn), easing off into the slip included.
 func leg_fuel(r: MapData.Route, p := pace) -> float:
 	var burn := next_captain.crossing_burn(r.length + 2.0 * _inset, paced_cruise(p))
-	return FerryOperatingCosts.forecast_fuel(fc, burn)
+	return _operating_costs.forecast_fuel(fc, burn)
 
 
 ## For a round of `ids` (island ids in turn): offsets[i] is how many minutes after
@@ -1934,16 +1939,16 @@ func burn_at(v: float) -> float:
 func _burn(metres: float) -> void:
 	if metres <= 0.0:
 		return
-	_crossing_fuel += FerryOperatingCosts.fuel_cost(fc, metres, speed)
+	_crossing_fuel += _operating_costs.fuel_cost(fc, metres, speed)
 
 
 ## What a crossing's fuel comes to at her pace (cruising the whole way).
 func crossing_fuel_estimate() -> float:
-	return FerryOperatingCosts.fuel_cost(fc, run_length(), cruise_speed())
+	return _operating_costs.fuel_cost(fc, run_length(), cruise_speed())
 
 
 func crew_per_hour() -> float:
-	return FerryOperatingCosts.crew_per_hour(fc)
+	return _operating_costs.crew_per_hour(fc)
 
 
 ## Crew are on the clock all day while she is in service, stood down while she
@@ -2306,7 +2311,7 @@ func _shift_fuel(length: float, p: int) -> float:
 	for fraction: float in [SHIFT_ASTERN, SHIFT_PACE]:
 		var top := minf(cruise_at_pace * fraction, sqrt(acceleration * leg))
 		var ramps := top * top / acceleration
-		cost += FerryOperatingCosts.fuel_cost(fc, leg - 0.5 * ramps, top)
+		cost += _operating_costs.fuel_cost(fc, leg - 0.5 * ramps, top)
 	return cost
 
 
