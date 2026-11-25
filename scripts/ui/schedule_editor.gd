@@ -47,7 +47,7 @@ var embedded := false
 var _draft: Array[int] = []
 var _times: Array[int] = []
 var _timed := false
-var _pace := Ferry.SERVICE_PACE
+var _pace := FerryPace.SERVICE
 var _pace_buttons: Array[Button] = []
 var _cost: Label
 var _cost_change: Label
@@ -121,8 +121,8 @@ func setup(s: Simulation, make_label: Callable, is_embedded := false) -> void:
 	column.add_child(modes)
 	var paces := HBoxContainer.new()
 	paces.add_theme_constant_override("separation", 6)
-	for i in Ferry.PACES.size():
-		var b := _button(Ferry.PACES[i][1])
+	for i in FerryPace.SETTINGS.size():
+		var b := _button(FerryPace.label(i))
 		b.toggle_mode = true
 		b.pressed.connect(_set_pace.bind(i))
 		paces.add_child(b)
@@ -177,9 +177,14 @@ func setup(s: Simulation, make_label: Callable, is_embedded := false) -> void:
 
 
 func _ready() -> void:
-	get_viewport().size_changed.connect(func(): if visible: _fit())
+	get_viewport().size_changed.connect(_fit_if_visible)
 	# Grows from its top centre, wherever its width settles.
 	resized.connect(func(): pivot_offset = Vector2(size.x * 0.5, 0.0))
+
+
+func _fit_if_visible() -> void:
+	if visible:
+		_fit()
 
 
 func open(f: Ferry) -> void:
@@ -545,7 +550,7 @@ static func _money(v: float) -> String:
 func _rebuild_cost(offsets: Array[float]) -> void:
 	for i in _pace_buttons.size():
 		_pace_buttons[i].set_pressed_no_signal(i == _pace)
-		_pace_buttons[i].text = "%s%s" % [Ferry.PACES[i][1], " (now)" if i == ferry.pace and _pace != ferry.pace else ""]
+		_pace_buttons[i].text = "%s%s" % [FerryPace.label(i), " (now)" if i == ferry.pace and _pace != ferry.pace else ""]
 	_cost_change.text = ""
 	_cost_change.add_theme_color_override("font_color", Hud.MUTED)
 	if offsets.is_empty():
@@ -554,7 +559,7 @@ func _rebuild_cost(offsets: Array[float]) -> void:
 	var all_day := 24.0 * ferry.crew_per_hour()
 	if not _timed or _times.is_empty():
 		_cost.text = "Crew on all day: %s a day in wages, plus about %s fuel a round at %s." % [
-			_money(all_day), _money(ferry.round_fuel(_draft, _pace)), Ferry.PACES[_pace][1].to_lower()]
+			_money(all_day), _money(ferry.round_fuel(_draft, _pace)), FerryPace.label(_pace).to_lower()]
 		return
 	var draft := ferry.daily_cost(_draft, _times, _pace)
 	var total: float = draft.fuel + draft.crew

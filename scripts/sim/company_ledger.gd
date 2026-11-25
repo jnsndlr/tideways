@@ -11,19 +11,19 @@ const UNLIMITED_CASH := 999999999.0
 const INCOME := ["fares", "sales"]
 const EXPENSES := ["fuel", "crew", "purchases"]
 
-const DEFAULT_VEHICLE_FARE := 18.0
-const DEFAULT_PASSENGER_FARE := 6.0
-const MIN_VEHICLE_FARE := 0.0
-const MAX_VEHICLE_FARE := 60.0
-const MIN_PASSENGER_FARE := 0.0
-const MAX_PASSENGER_FARE := 30.0
+const DEFAULT_VEHICLE_FARE := FareSchedule.DEFAULT_VEHICLE_FARE
+const DEFAULT_PASSENGER_FARE := FareSchedule.DEFAULT_PASSENGER_FARE
+const MIN_VEHICLE_FARE := FareSchedule.MIN_VEHICLE_FARE
+const MAX_VEHICLE_FARE := FareSchedule.MAX_VEHICLE_FARE
+const MIN_PASSENGER_FARE := FareSchedule.MIN_PASSENGER_FARE
+const MAX_PASSENGER_FARE := FareSchedule.MAX_PASSENGER_FARE
 
 var cash := STARTING_CASH
-var vehicle_fare := DEFAULT_VEHICLE_FARE
-var passenger_fare := DEFAULT_PASSENGER_FARE
-## Per-route ticket prices: route id -> price (falls back to company default).
-var route_vehicle_fares := {}
-var route_passenger_fares := {}
+var _fares := FareSchedule.new(ProjectSettings.get_setting(FareSchedule.SETTING, {}))
+var vehicle_fare: float:
+	get: return _fares.vehicle_fare
+var passenger_fare: float:
+	get: return _fares.passenger_fare
 var today := _blank_day()
 var yesterday := _blank_day()
 var revenue_total := 0.0
@@ -57,37 +57,27 @@ static func net(day: Dictionary) -> float:
 
 
 func set_vehicle_fare(price: float) -> void:
-	vehicle_fare = clampf(price, MIN_VEHICLE_FARE, MAX_VEHICLE_FARE)
+	_fares.set_vehicle_fare(price)
 
 
 func set_passenger_fare(price: float) -> void:
-	passenger_fare = clampf(price, MIN_PASSENGER_FARE, MAX_PASSENGER_FARE)
+	_fares.set_passenger_fare(price)
 
 
 func vehicle_fare_for(route_id: int) -> float:
-	if route_id >= 0 and route_vehicle_fares.has(route_id):
-		return float(route_vehicle_fares[route_id])
-	return vehicle_fare
+	return _fares.vehicle_fare_for(route_id)
 
 
 func passenger_fare_for(route_id: int) -> float:
-	if route_id >= 0 and route_passenger_fares.has(route_id):
-		return float(route_passenger_fares[route_id])
-	return passenger_fare
+	return _fares.passenger_fare_for(route_id)
 
 
 func set_route_vehicle_fare(route_id: int, price: float) -> void:
-	if route_id < 0:
-		set_vehicle_fare(price)
-		return
-	route_vehicle_fares[route_id] = clampf(price, MIN_VEHICLE_FARE, MAX_VEHICLE_FARE)
+	_fares.set_route_vehicle_fare(route_id, price)
 
 
 func set_route_passenger_fare(route_id: int, price: float) -> void:
-	if route_id < 0:
-		set_passenger_fare(price)
-		return
-	route_passenger_fares[route_id] = clampf(price, MIN_PASSENGER_FARE, MAX_PASSENGER_FARE)
+	_fares.set_route_passenger_fare(route_id, price)
 
 
 func credit_vehicle(multiplier: int, route_id := -1) -> float:

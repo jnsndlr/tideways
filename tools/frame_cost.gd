@@ -1,7 +1,7 @@
 extends SceneTree
 ## Shows what each system costs per frame, headless, on a Sandbox seed: switches
 ## one group of nodes off and on in alternating blocks and compares frame time.
-## Use it when tools/frame_budget_test.gd fails, or before and after a change
+## Use it when tests/world/frame_budget_test.gd fails, or before and after a change
 ## that adds per-frame work. Nothing is drawn, so this is script and scene
 ## update cost only; rendering cost needs a device (tools/perf_probe.gd).
 ##

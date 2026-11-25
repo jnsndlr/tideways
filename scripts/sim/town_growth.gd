@@ -5,6 +5,7 @@ extends RefCounted
 ## (residents, industry, tourism with wildlife photography), economic activity,
 ## organic + ferry-driven + milestone growth, and building construction jobs.
 
+signal metrics_refreshed
 signal population_changed(town: MapData.Town, new_pop: int)
 signal construction_started(job: BuildJob)
 signal construction_completed(job: BuildJob)
@@ -440,6 +441,7 @@ func refresh_metrics() -> void:
 		else:
 			st.ferry_daily = 0.0
 		st.total_daily = st.organic_daily + st.ferry_daily
+	metrics_refreshed.emit()
 
 
 func _measure_service(town_id: int) -> Dictionary:
@@ -570,7 +572,7 @@ func vehicle_demand_multiplier(town: MapData.Town) -> float:
 func commercial_truck_share(town: MapData.Town) -> float:
 	var st := state_for_town(town)
 	if st == null:
-		return VehicleFactory.TRUCK_SHARE
+		return TrafficDemand.DEFAULT_TRUCK_SHARE
 	var drive := clampf((st.economic_activity * 0.65 + st.attractiveness_industry * 0.35) / 100.0, 0.0, 1.0)
 	return lerpf(0.08, 0.34, drive)
 

@@ -29,6 +29,7 @@ var _left_at := -1
 var _poses := false
 var _ramp: SlipRamp
 var _pose_jobs: Array = []
+var _pose := ""
 
 
 func _initialize() -> void:
@@ -72,8 +73,9 @@ func _setup_poses() -> void:
 	towers.mesh = Models.slip_mesh("towers")
 	root.add_child(towers)
 	_ramp = SlipRamp.new(0.0)
-	_ramp.set_process(false)
 	root.add_child(_ramp)
+	_ramp.set_process(false)
+	_ramp.add_child(SlipRampView.new(_ramp))
 	var water := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(80, 80)
@@ -83,13 +85,13 @@ func _setup_poses() -> void:
 	var cam := Camera3D.new()
 	cam.fov = 50.0
 	root.add_child(cam)
-	# [name, span_t, apron_t, camera, look at]
-	for p in [["raised", 1.0, 1.0], ["mid", 0.5, 1.0], ["down", 0.0, 0.0]]:
-		_pose_jobs.append([p[0] + "_quarter", p[1], p[2], Vector3(26, 14, 44), Vector3(0, 6, 22)])
-		_pose_jobs.append([p[0] + "_side", p[1], p[2], Vector3(34, 6, 18), Vector3(0, 5, 22)])
-		_pose_jobs.append([p[0] + "_tower", p[1], p[2], Vector3(18, 12, 33), Vector3(10, 9, 27)])
-		_pose_jobs.append([p[0] + "_head", p[1], p[2], Vector3(4, 9, 31), Vector3(9.6, 11, 27)])
-		_pose_jobs.append([p[0] + "_apron", p[1], p[2], Vector3(9, 7, 36), Vector3(0, 3.5, 27)])
+	# [name, pose, camera, look at]
+	for pose: String in ["raised", "mid", "down"]:
+		_pose_jobs.append([pose + "_quarter", pose, Vector3(26, 14, 44), Vector3(0, 6, 22)])
+		_pose_jobs.append([pose + "_side", pose, Vector3(34, 6, 18), Vector3(0, 5, 22)])
+		_pose_jobs.append([pose + "_tower", pose, Vector3(18, 12, 33), Vector3(10, 9, 27)])
+		_pose_jobs.append([pose + "_head", pose, Vector3(4, 9, 31), Vector3(9.6, 11, 27)])
+		_pose_jobs.append([pose + "_apron", pose, Vector3(9, 7, 36), Vector3(0, 3.5, 27)])
 	frames = 0
 
 
@@ -104,12 +106,17 @@ func _pose_shots() -> bool:
 	if k + 1 >= _pose_jobs.size():
 		return true
 	var j: Array = _pose_jobs[k + 1]
-	_ramp._span_t = j[1]
-	_ramp._apron_t = j[2]
-	_ramp._pose()
+	if _pose != j[1]:
+		_pose = j[1]
+		match _pose:
+			"mid":
+				_ramp.lower()
+				_ramp._process(SlipRamp.SPAN_TIME * 0.5)
+			"down":
+				_ramp.snap_down()
 	var cam: Camera3D = root.get_viewport().get_camera_3d()
-	cam.position = j[3]
-	cam.look_at(j[4])
+	cam.position = j[2]
+	cam.look_at(j[3])
 	return false
 
 
@@ -147,7 +154,7 @@ func _process(_delta: float) -> bool:
 	root.get_viewport().get_texture().get_image().save_png(path)
 	var ramp: SlipRamp = _term.ramps.get(_f.route.id)
 	print("shot ", path, " ", Ferry.State.keys()[_f.state], " ", _f.status_text(),
-		" span ", ramp._span_t if ramp else -1.0, " apron ", ramp._apron_t if ramp else -1.0)
+		" span ", ramp.span_fraction if ramp else -1.0, " apron ", ramp.apron_fraction if ramp else -1.0)
 	# How far she lies over, and the fenders she presses in (side, u: squish).
 	var guides := _term.guides_for(_f.route.id)
 	if guides:

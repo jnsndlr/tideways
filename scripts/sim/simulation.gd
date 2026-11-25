@@ -16,7 +16,9 @@ var terrain: Terrain
 var rng := RandomNumberGenerator.new()
 var minutes := 6.0 * 60.0
 var day := 12
-var slip_guide_parts := SlipGuides.MeshParts.new()
+## Whether working slips use an operated transfer span or a fixed landing.
+var uses_transfer_spans: bool
+var uses_slip_guides: bool
 var terminals := {}             # town id -> Terminal
 ## A dock site's terminal takes this long to build once bought (TID-319: at least 12 h).
 const DOCK_BUILD_MINUTES := 12.0 * 60.0
@@ -28,12 +30,19 @@ var tows: Array[DeliveryTow] = []
 var fleet_market := FleetMarket.new(self)
 ## How the company started; its schedules are the only links between terminals.
 var scenario: Scenario
+## Builds one vehicle using this simulation's RNG. The session chooses its presentation.
+var _create_vehicle: Callable
+var _create_passenger: Callable
 var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var passengers: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
 var town_growth := TownGrowth.new()
+## A terminal changed its holding queue or lane allocation.
+signal queues_changed
+## A ferry changes berth during a lay-up, return or delivery.
+signal berths_changed
 ## A dock site was bought and its terminal is being built (buy_dock).
 signal slip_sites_changed
 signal dock_bought(town: MapData.Town)
@@ -51,6 +60,8 @@ signal ferry_delivered(ferry: Ferry)
 signal ferry_removed(ferry: Ferry)
 
 var ledger := CompanyLedger.new()
+var dwell := FerryDwell.new(ProjectSettings.get_setting(FerryDwell.SETTING, {}))
+var operating_costs := FerryOperatingCosts.new(ProjectSettings.get_setting(FerryOperatingCosts.SETTING, {}))
 var available_cash: float:
 	get: return ledger.cash
 var revenue_today: float:
@@ -65,6 +76,13 @@ var weather := Weather.new()
 var wind_dir := "SW"
 var wind_speed := 12
 var _tide_phase := 0.0
+
+
+func _init(create_vehicle: Callable, transfer_spans := true, slip_guides := true, create_passenger := Passenger.create) -> void:
+	uses_transfer_spans = transfer_spans
+	uses_slip_guides = slip_guides
+	_create_vehicle = create_vehicle
+	_create_passenger = create_passenger
 
 
 ## Starts from `sc`, or with no scenario puts a boat on every route of the map.
@@ -139,6 +157,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 func _add_terminal(town: MapData.Town) -> Terminal:
 	var term := Terminal.new()
 	add_child(term)
+	term.queue_changed.connect(queues_changed.emit)
 	term.setup(self, town)
 	terminals[town.id] = term
 	return term
@@ -465,7 +484,7 @@ func sell_ferry(f: Ferry) -> bool:
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
-	var ferry := Ferry.new()
+	var ferry := Ferry.new(operating_costs, dwell)
 	ferry.fleet_key = key
 	add_child(ferry)
 	ferry.setup(self, route, display_name, size)
@@ -501,6 +520,7 @@ func _process(delta: float) -> void:
 		var to_midnight := DAY_MINUTES - minutes
 		for ferry in ferries:
 			ferry.pay_crew(to_midnight)
+		_advance_docks(to_midnight)
 		town_growth.step(to_midnight)
 		dmin -= to_midnight
 		minutes = 0.0
@@ -569,15 +589,15 @@ func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> v
 	running_costs_posted.emit(ferry, fuel, crew, trip)
 
 
-func make_vehicle(parent: Node3D = null, truck_share := VehicleFactory.TRUCK_SHARE) -> Vehicle:
-	var vehicle := VehicleFactory.create(rng, truck_share)
+func make_vehicle(parent: Node3D = null, truck_share := TrafficDemand.DEFAULT_TRUCK_SHARE) -> Vehicle:
+	var vehicle: Vehicle = _create_vehicle.call(rng, truck_share)
 	vehicle.moving_traffic = moving_vehicles
 	(parent if parent else traffic).add_child(vehicle)
 	return vehicle
 
 
 func make_passenger(variant: int, parent: Node3D = null) -> Passenger:
-	var pax := Passenger.create(variant)
+	var pax: Passenger = _create_passenger.call(variant)
 	(parent if parent else passengers).add_child(pax)
 	return pax
 

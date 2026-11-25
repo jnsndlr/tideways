@@ -70,12 +70,12 @@ func _pick(size: int) -> void:
 
 
 ## Text for class `size`: what she is, what she costs and what she costs to run.
-static func class_text(size: int) -> String:
+static func class_text(size: int, costs: FerryOperatingCosts) -> String:
 	var fc := FerryClass.of(size)
 	var slip := "small" if fc.size <= MapData.Slip.LARGEST_BOAT[1] else "medium" if fc.size <= MapData.Slip.LARGEST_BOAT[2] else "large"
 	return "Size %d · %s · %d cars · %s\ncrew %d · %s / hr · fuel ~%s / nm · needs a %s slip" % [
 		size, fc.label, fc.capacity, "$" + Hud.fmt_int(fc.price()),
-		fc.crew, Hud.fmt_money(fc.crew * Ferry.CREW_WAGE), Hud.fmt_money(Ferry.FUEL_PRICE * fc.burn), slip]
+		fc.crew, Hud.fmt_money(costs.crew_per_hour(fc)), Hud.fmt_money(costs.fuel_cost(fc, FerryOperatingCosts.METRES_PER_NM, fc.cruise)), slip]
 
 
 func _refresh_buy() -> void:
@@ -83,7 +83,7 @@ func _refresh_buy() -> void:
 		return
 	for i in _classes.get_child_count():
 		var b := _classes.get_child(i) as Button
-		b.text = class_text(i + 1)
+		b.text = class_text(i + 1, sim.operating_costs)
 		b.set_pressed_no_signal(i + 1 == _size)
 	_confirm.visible = _size != 0
 	if _size == 0:

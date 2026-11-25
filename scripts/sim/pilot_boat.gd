@@ -8,32 +8,22 @@ extends ShipTender
 ## down it); then it sheers off. On duty it shows the pilot vessel's lights,
 ## white over red.
 
+signal transfer_started(cargo: CargoShip, offset: float)
+signal transfer_ended
+
 enum Job { BOARD, LAND }
 
 const TRANSFER := Vector2(25.0, 40.0)    # game minutes on the ladder
 
 var job := Job.BOARD
 var _timer := 0.0
-var _duty_lights: MeshInstance3D
-var _ladder: MeshInstance3D
 
 
 func setup(t: MarineTraffic, nm: String, sp: VesselSpec, st: MapData.PilotStation, b: int, variant: int) -> void:
 	traffic = t
 	vessel_name = nm
 	name = nm
-	_hull = apply_spec(sp, variant)
-	_nav_lights = MeshInstance3D.new()
-	_nav_lights.mesh = Models.pilot_boat_nav_lights()
-	_duty_lights = MeshInstance3D.new()
-	_duty_lights.mesh = Models.pilot_boat_duty_lights()
-	for l: MeshInstance3D in [_nav_lights, _duty_lights]:
-		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		l.layers = NightLights.LAYER
-		lights.add_child(l)
-	_ladder = MeshInstance3D.new()
-	_ladder.visible = false
-	_hull.add_child(_ladder)
+	apply_spec(sp, variant)
 	wharf = st
 	berth = b
 	# (Handier alongside than a trawler: thrusters, or twin screws.)
@@ -67,19 +57,14 @@ func _closing_gap() -> float:
 
 func _start_work() -> void:
 	_timer = traffic.rng.randf_range(TRANSFER.x, TRANSFER.y)
-	# The ship's ladder, over its side by the boat (which side of the boat that is).
-	var out := (hull_radius + _working_gap()) * side
-	var ship_deck := 3.2 * ship.spec.scale
-	# (In the hull's frame, which is drawn spec.scale times its built size.)
-	_ladder.mesh = Models.pilot_ladder(absf(out) / spec.scale, ship_deck / spec.scale)
-	_ladder.rotation = Vector3(0, 0 if side > 0.0 else PI, 0)
-	_ladder.visible = true
+	transfer_started.emit(ship, (hull_radius + _working_gap()) * side)
 
 
 func _work_done(delta: float) -> bool:
-	_timer -= Units.game_minutes(delta)
-	if _timer <= 0.0:
-		_ladder.visible = false
+	if _timer > 0.0:
+		_timer -= Units.game_minutes(delta)
+		if _timer <= 0.0:
+			transfer_ended.emit()
 	return _timer <= 0.0
 
 
@@ -97,15 +82,12 @@ func _finished() -> void:
 
 
 func _release_ship() -> void:
-	_ladder.visible = false
+	if _timer > 0.0:
+		_timer = 0.0
+		transfer_ended.emit()
 	if ship != null and is_instance_valid(ship) and ship.pilot_boat == self:
 		ship.pilot_boat = null
 	super()
-
-
-func _show_lights() -> void:
-	super()
-	_duty_lights.visible = state != State.ALONGSIDE
 
 
 ## Running fast and light, she sits up by the bow.

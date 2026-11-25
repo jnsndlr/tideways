@@ -25,7 +25,8 @@ var half_seg := 3.0
 var hull_radius := 3.0
 var claim_step := 6.0     # spacing of the points MarineTraffic samples ahead
 var hold := INF           # how far it means to go for now (short of a channel or berth it is waiting for)
-var lights: MeshInstance3D
+var model_variant := 0
+var room_seed := 0.0            # stable pattern of lit rooms as the vessel moves
 var wake: WakeTrail       # its trail on the water, if it leaves one
 var free_nav := false     # steering its own way (a Helm), not along a fixed path
 var consort: Vessel = null   # the ship it is working alongside, if any (their hulls don't count against each other)
@@ -154,20 +155,11 @@ func wake_shape() -> Vector4:
 
 ## Its outline where the water meets the hull, as the water shader draws the foam
 ## hugging it: how far back from the bow end of its wake trail (half its length ahead
-## of it) the waterline starts, its length at the waterline, then WakeField.STATIONS
+## of it) the waterline starts, its length at the waterline, then HullWaterline.STATIONS
 ## half-widths evenly spaced from stem to stern (metres). By default, the outline
 ## wake_hull and wake_shape describe.
 func wake_waterline() -> PackedFloat32Array:
-	var hull := wake_hull()
-	var shape := wake_shape()
-	var out := PackedFloat32Array([0.0, hull.y])
-	var n := WakeField.STATIONS
-	for i in n:
-		var fb := i / float(n - 1) * hull.y
-		var bu := clampf(1.0 - fb / shape.x, 0.0, 1.0)
-		var su := clampf(1.0 - (hull.y - fb) / maxf(shape.z, 0.1), 0.0, 1.0)
-		out.append(hull.x * lerpf(1.0, shape.y, pow(bu, 2.5)) * lerpf(1.0, shape.w, su * su))
-	return out
+	return HullWaterline.from_shape(wake_hull(), wake_shape())
 
 
 ## Reverse thrust thrown out ahead of the bow, 0..1.
@@ -217,36 +209,17 @@ func type_text() -> String:
 	return spec.type_name if spec else kind_text()
 
 
-## Takes on `s`: its hull, handling, wake and look. `variant` picks among the
-## type's model variants.
-func apply_spec(s: VesselSpec, variant := 0) -> MeshInstance3D:
+## Applies the handling and wake and remembers the selected model variant.
+func apply_spec(s: VesselSpec, variant := 0) -> void:
 	spec = s
+	model_variant = variant
 	cruise = s.cruise
 	yield_decel = s.decel
 	half_seg = s.half_seg()
 	hull_radius = s.radius()
 	claim_step = clampf(s.half_length, 6.0, 15.0)
 	wake = s.make_wake()
-	var hull := MeshInstance3D.new()
-	hull.mesh = s.model.call(variant)
-	hull.scale = Vector3.ONE * s.scale
-	# Fixes which of its rooms are lit (lit_vc.gdshader); the origin would change every frame.
-	hull.material_override = Models.hull_material()
-	hull.set_instance_shader_parameter("room_seed", randf_range(1.0, 1000.0))
-	add_child(hull)
-	var plate: ArrayMesh = s.name_plate.call(vessel_name) if s.name_plate.is_valid() and vessel_name != "" else null
-	if plate:
-		var mi := MeshInstance3D.new()
-		mi.mesh = plate
-		hull.add_child(mi)
-	lights = MeshInstance3D.new()
-	lights.mesh = s.lights.call(variant)
-	lights.scale = Vector3.ONE * s.scale
-	lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	lights.layers = NightLights.LAYER
-	lights.visible = false
-	add_child(lights)
-	return hull
+	room_seed = randf_range(1.0, 1000.0)
 
 
 func status_text() -> String:

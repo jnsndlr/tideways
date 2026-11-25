@@ -16,11 +16,11 @@ class Island:
 	var is_mainland := false
 	var mainland_port := false      # set against the mainland's shore (the layout's `mainland`)
 	var population := 0
-	var growth := 0.0               # base % per year
-	var wildlife_appeal := 1.0      # how strongly it pulls marine wildlife visits
-	var community_type := "residential"   # "rural", "residential", or "industrial"
-	var radio_tower_built := false        # Madrona starts with one; others unlock at 6k island pop
-	var radio_tower_lot: TownLot          # high-ground pad reserved for this island's radio tower
+	var growth := 0.0  # base % per year
+	var wildlife_appeal := 1.0  # how strongly it pulls marine wildlife visits
+	var community_type := "residential"  # "rural", "residential", or "industrial"
+	var radio_tower_built := false  # Madrona starts with one; others unlock at 6k island pop
+	var radio_tower_lot: TownLot  # high-ground pad reserved for this island's radio tower
 
 	# Shape (see Terrain.Stamp): 0 shape_seed samples the noise where the island stands.
 	var shape_seed := 0
@@ -55,7 +55,7 @@ class Town:
 	var island := 0                 # island id
 	var name := ""
 	var population := 0
-	var community_type := "residential"   # "rural", "residential", or "industrial"
+	var community_type := "residential"  # "rural", "residential", or "industrial"
 	## Pre-planned lots built or reserved for town growth (WorldBuilder populates).
 	var growth_lots: Array[TownLot] = []
 	var initial_houses := 0
@@ -98,7 +98,7 @@ class Town:
 
 	## How far inland of where it used to stand the lot is set back, for the trestle.
 	func lot_shift() -> float:
-		return Layout.TRESTLE_BAY * approach_bays - (SlipRamp.HINGE_U - Layout.LOT_FRONT)
+		return Layout.TRESTLE_BAY * approach_bays - (Layout.RAMP_HINGE_U - Layout.LOT_FRONT)
 
 	## The lot's frame within the terminal's: everything Layout puts on the lot (lanes,
 	## queue slots, the building, the toll plaza) at LOT_Y and LOT_* in this frame comes
@@ -111,11 +111,11 @@ class Town:
 
 	## The lot's seaward edge, along the terminal frame's u (where the trestle starts).
 	func lot_front_u() -> float:
-		return SlipRamp.HINGE_U - Layout.TRESTLE_BAY * approach_bays
+		return Layout.RAMP_HINGE_U - Layout.TRESTLE_BAY * approach_bays
 
 	## The road's height at `u` (terminal frame) from the lot's edge out to the span's hinge.
 	func road_y(u: float) -> float:
-		return Layout.approach_y(u, lot_front_u(), lot_y, SlipRamp.HINGE_U, Layout.LOT_Y)
+		return Layout.approach_y(u, lot_front_u(), lot_y, Layout.RAMP_HINGE_U, Layout.LOT_Y)
 
 	## Lateral offset of slip `i`. The working slips sit centred on the lot; tie-up
 	## slips come after them in `slips` and carry on along the shore to the right.
@@ -185,9 +185,9 @@ class Town:
 ## A place a ferry terminal can be built: where the pier meets the shore, the
 ## way it points out to sea, and what it costs to build (MapLayout.DOCK_TIERS).
 class DockSite:
-	var key := ""                   # "<island key>/<index>", as scenarios name it
-	var town := ""                  # its town's name, as Jon wrote it ("": the island's)
-	var community_type := ""        # optional per-town override
+	var key := ""  # "<island key>/<index>", as scenarios name it
+	var town := ""  # its town's name, as Jon wrote it ("": the island's)
+	var community_type := ""  # optional per-town override
 	var shore := Vector3.ZERO
 	var dir := Vector3.FORWARD
 	var tier := "standard"
@@ -381,6 +381,9 @@ class Slip:
 
 
 class Route:
+	## Width in metres of each heading filter. Reserve this distance before the first turn.
+	const YAW_EASE_METRES := 16
+
 	var key := ""                   # independent of the runtime array position
 	var id := 0
 	var a := 0      # town id

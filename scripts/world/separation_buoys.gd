@@ -11,15 +11,15 @@ const AMBER := Color(1.0, 0.65, 0.15)
 
 var sim: Simulation
 var night_lights: Node3D
-var _buoys := {}   # route id -> [model, glow]
+var _buoys := {}  # route id -> [model, glow]
 var _check := 0.0
-var _first_code := {}   # route id -> index of its first buoy's code
+var _first_code := {}  # route id -> index of its first buoy's code
 
 
 ## Puget Sound style codes: S, SA..SG, T, TA..TG, U, ... (letters run on after G).
 static func code(i: int) -> String:
 	var per := 8
-	var head := char(83 + i / per)   # "S" onward
+	var head := char(83 + i / per)  # "S" onward
 	var tail := i % per
 	return head if tail == 0 else head + char(64 + tail)
 
@@ -29,7 +29,7 @@ func setup(s: Simulation, lights: Node3D) -> void:
 	night_lights = lights
 	# Every route's buoys get their codes up front, so a buoy keeps its name
 	# whatever other routes come and go.
-	var next := 1   # (start at SA)
+	var next := 1  # (start at SA)
 	for r in sim.map.routes:
 		_first_code[r.id] = next
 		next += _count(r)
@@ -85,8 +85,16 @@ func _place_at(r: MapData.Route, s: float, k: int) -> Array:
 		var lamp := beacon.position if beacon else Vector3(0, 3.0, 0)
 		var glows := GlowBuilder.new()
 		var phase := Models.blink_phase_at(p)
-		glows.glow(p + b * (lamp + Vector3(0, 0.35, 0)), AMBER, 0.6, 7.0, true, Models.blink_of(phase),
-			Vector3.ZERO, Models.LAMP_ON_AT)
+		glows.glow(
+			p + b * (lamp + Vector3(0, 0.35, 0)),
+			AMBER,
+			0.6,
+			7.0,
+			true,
+			Models.blink_of(phase),
+			Vector3.ZERO,
+			Models.LAMP_ON_AT
+		)
 		var mi := MeshInstance3D.new()
 		mi.name = aid.name + " Light"
 		mi.mesh = glows.commit()
@@ -111,11 +119,13 @@ func _letter(aid: Node3D, text: String) -> void:
 		mi.material_override = mat
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var yaw := i * PI * 0.5
-		mi.transform = Transform3D(Basis(Vector3.UP, yaw), Basis(Vector3.UP, yaw) * Vector3(0, 4.28, 0.69))
+		mi.transform = Transform3D(
+			Basis(Vector3.UP, yaw), Basis(Vector3.UP, yaw) * Vector3(0, 4.28, 0.69)
+		)
 		aid.add_child(mi)
 
 
-var _codes := {}   # text -> ViewportTexture
+var _codes := {}  # text -> ViewportTexture
 
 
 func _code_texture(text: String) -> Texture2D:

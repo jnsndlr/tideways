@@ -12,14 +12,17 @@ const ACCENT := Color(0.47, 0.86, 0.6)
 
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _load_error: Label
+var _name_dialog: ColorRect
 
 
 func _ready() -> void:
-	var args := OS.get_cmdline_user_args()
-	if not args.is_empty():
-		Scenes.go.call_deferred(get_tree(), Scenes.MAIN_MAP if "--main" in args else Scenes.SANDBOX)
-		return
-	_build()
+	match Scenes.launch_options.entry:
+		SessionLaunchOptions.Entry.MAIN_MAP:
+			Scenes.go.call_deferred(get_tree(), Scenes.MAIN_MAP)
+		SessionLaunchOptions.Entry.SANDBOX:
+			Scenes.go.call_deferred(get_tree(), Scenes.SANDBOX)
+		SessionLaunchOptions.Entry.MENU:
+			_build()
 
 
 func _build() -> void:
@@ -77,7 +80,10 @@ func _build() -> void:
 
 ## Asks for the company name, then calls `on_done` with it.
 func _ask_name(on_done: Callable) -> void:
+	if is_instance_valid(_name_dialog) or get_tree().root.has_node(LoadingScreen.LAYER_NAME):
+		return
 	var dim := ColorRect.new()
+	_name_dialog = dim
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)

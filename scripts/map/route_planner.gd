@@ -41,7 +41,7 @@ func _init(t: Terrain, half_size: float, should_stop := Callable()) -> void:
 			for o: Vector2 in [Vector2(-10, -10), Vector2(10, -10), Vector2(-10, 10), Vector2(10, 10)]:
 				h = maxf(h, terrain.height_at(c.x + o.x, c.y + o.y))
 			land[j * n + i] = 1 if h > LAND_DEPTH else 0
-	dist = NavGrid.distance_field(land, n, CELL, should_stop)
+	dist = LandDistanceField.compute(land, n, CELL, should_stop)
 	if dist.is_empty():
 		return
 	_grid.region = Rect2i(0, 0, n, n)

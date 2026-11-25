@@ -15,7 +15,7 @@ static var _scenes_loaded := false
 
 var sim: Simulation
 var builder: WorldBuilder
-var _active := {}          # job.id -> ActiveSite
+var _active := {}  # job.id -> ActiveSite
 var _windsocks: Array[Node3D] = []
 var _anim_time := 0.0
 
@@ -24,7 +24,7 @@ class ActiveSite:
 	var job: TownGrowth.BuildJob
 	var root: Node3D
 	var is_house := true
-	var parts := {}        # String -> Node3D
+	var parts := {}  # String -> Node3D
 
 
 static func _ensure_scenes() -> void:
@@ -78,23 +78,54 @@ func _on_construction_started(job: TownGrowth.BuildJob) -> void:
 	site.root = inst
 	site.is_house = is_house
 	if is_house:
-		_cache_parts(site, [
-			"Stage1_Foundation", "Stage2_FloorDeck",
-			"Wall_Back", "Wall_Front", "Wall_Left", "Wall_Right", "Wall_InteriorAndPorch",
-			"Stage4_UpperFrameAndGables",
-			"Stage5a_TrussesLeft", "Stage5b_TrussesRight", "Stage5c_PorchRoof",
-			"Mixer_Drum", "Mixer_Tilt", "Scaffold",
-			"Worker_1_ArmL", "Worker_1_ArmR", "Worker_2_ArmL", "Worker_2_ArmR",
-			"Pile_ConcreteBags", "Pile_LumberStack", "Pile_PlywoodSheets", "Pile_RoofLumber",
-		])
+		_cache_parts(
+			site,
+			[
+				"Stage1_Foundation",
+				"Stage2_FloorDeck",
+				"Wall_Back",
+				"Wall_Front",
+				"Wall_Left",
+				"Wall_Right",
+				"Wall_InteriorAndPorch",
+				"Stage4_UpperFrameAndGables",
+				"Stage5a_TrussesLeft",
+				"Stage5b_TrussesRight",
+				"Stage5c_PorchRoof",
+				"Mixer_Drum",
+				"Mixer_Tilt",
+				"Scaffold",
+				"Worker_1_ArmL",
+				"Worker_1_ArmR",
+				"Worker_2_ArmL",
+				"Worker_2_ArmR",
+				"Pile_ConcreteBags",
+				"Pile_LumberStack",
+				"Pile_PlywoodSheets",
+				"Pile_RoofLumber",
+			]
+		)
 	else:
-		_cache_parts(site, [
-			"Stage1_Foundation", "Stage2_FloorDeck", "Stage3_FirstFloorWalls",
-			"Stage4_UpperFrameAndGables", "Stage5_RoofTrusses",
-			"Crane_Jib", "Crane_Trolley", "Crane_Cable", "Crane_Hook", "Crane_Payload_Frame",
-			"Pile_ConcreteBlocks", "Pile_LumberStack_1", "Pile_LumberStack_2",
-			"Pile_PlywoodSheets", "Pile_PrefabFrames",
-		])
+		_cache_parts(
+			site,
+			[
+				"Stage1_Foundation",
+				"Stage2_FloorDeck",
+				"Stage3_FirstFloorWalls",
+				"Stage4_UpperFrameAndGables",
+				"Stage5_RoofTrusses",
+				"Crane_Jib",
+				"Crane_Trolley",
+				"Crane_Cable",
+				"Crane_Hook",
+				"Crane_Payload_Frame",
+				"Pile_ConcreteBlocks",
+				"Pile_LumberStack_1",
+				"Pile_LumberStack_2",
+				"Pile_PlywoodSheets",
+				"Pile_PrefabFrames",
+			]
+		)
 	_active[job.id] = site
 	_apply_site_animation(site, 0.0, 0.0)
 
@@ -300,8 +331,14 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			var kit_name := builder.house_kit_names[idx]
 			var lamp := Models.kit_marker(kit_name, "PorchLight")
 			var entry := Models.kit_marker(kit_name, "Entry")
-			builder.add_runtime_building_light(xf, lamp + Vector3(0, 0, 0.08), GlowBuilder.WARM, 0.22,
-				lot.waterfront, Vector3(lamp.x, entry.y + 0.05, entry.z - 0.6))
+			builder.add_runtime_building_light(
+				xf,
+				lamp + Vector3(0, 0, 0.08),
+				GlowBuilder.WARM,
+				0.22,
+				lot.waterfront,
+				Vector3(lamp.x, entry.y + 0.05, entry.z - 0.6)
+			)
 
 		MapData.TownLot.Kind.COMMERCIAL:
 			if builder.shop_meshes.is_empty():
@@ -315,11 +352,19 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			var front_z: float = WorldBuilder.SHOP_SHELLS[shop_name].y * 0.5
 			if shop_name == "glass_hall":
 				front_z += 0.46
-			builder.add_runtime_building_light(xf, Vector3(0.83, 2.59, front_z + 0.38), GlowBuilder.WARM, 0.22,
-				lot.waterfront, Vector3(0.83, 0.39, front_z + 0.04))
+			builder.add_runtime_building_light(
+				xf,
+				Vector3(0.83, 2.59, front_z + 0.38),
+				GlowBuilder.WARM,
+				0.22,
+				lot.waterfront,
+				Vector3(0.83, 0.39, front_z + 0.04)
+			)
 
 		MapData.TownLot.Kind.LANDMARK:
-			var model_name := job.landmark_model if not job.landmark_model.is_empty() else "city_hall"
+			var model_name := (
+				job.landmark_model if not job.landmark_model.is_empty() else "city_hall"
+			)
 			var mesh := builder.build_landmark_mesh(model_name)
 			if mesh != null:
 				var mi := MeshInstance3D.new()
@@ -329,11 +374,17 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 				add_child(mi)
 			if model_name == "airplane_hangar_low":
 				_spawn_windsock(xf)
-				builder.add_runtime_building_light(xf, Vector3(0.0, 9.2, 7.8), GlowBuilder.WARM, 0.35, lot.waterfront)
+				builder.add_runtime_building_light(
+					xf, Vector3(0.0, 9.2, 7.8), GlowBuilder.WARM, 0.35, lot.waterfront
+				)
 			elif model_name == "observatory":
-				builder.add_runtime_building_light(xf, Vector3(0.0, 3.0, 4.6), GlowBuilder.WARM, 0.28, lot.waterfront)
+				builder.add_runtime_building_light(
+					xf, Vector3(0.0, 3.0, 4.6), GlowBuilder.WARM, 0.28, lot.waterfront
+				)
 			else:
-				builder.add_runtime_building_light(xf, Vector3(0.0, 3.0, 4.2), GlowBuilder.WARM, 0.26, lot.waterfront)
+				builder.add_runtime_building_light(
+					xf, Vector3(0.0, 3.0, 4.2), GlowBuilder.WARM, 0.26, lot.waterfront
+				)
 
 		MapData.TownLot.Kind.RADIO_TOWER:
 			var mesh := builder.build_landmark_mesh("radio_tower")
@@ -343,7 +394,9 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 				mi.mesh = mesh
 				mi.transform = xf
 				add_child(mi)
-			builder.add_runtime_building_light(xf, Vector3(0.0, 55.2, 0.0), Color(1.0, 0.22, 0.16), 0.75, false)
+			builder.add_runtime_building_light(
+				xf, Vector3(0.0, 55.2, 0.0), Color(1.0, 0.22, 0.16), 0.75, false
+			)
 
 
 func _spawn_windsock(hangar_xf: Transform3D) -> void:

@@ -8,22 +8,12 @@ extends ShipTender
 const ASTERN := 72.0           # its station: this far astern of the tanker's stern, along its track,
 const OFF := 12.0               # and this far out to one side of its wake
 
-var _mast_light: MeshInstance3D
-
 
 func setup(t: MarineTraffic, nm: String, sp: VesselSpec, st: MapData.PilotStation, b: int, variant: int) -> void:
 	traffic = t
 	vessel_name = nm
 	name = nm
-	_hull = apply_spec(sp, variant)
-	_nav_lights = MeshInstance3D.new()
-	_nav_lights.mesh = Models.tug_nav_lights()
-	_mast_light = MeshInstance3D.new()
-	_mast_light.mesh = Models.tug_mast_light()
-	for l: MeshInstance3D in [_nav_lights, _mast_light]:
-		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		l.layers = NightLights.LAYER
-		lights.add_child(l)
+	apply_spec(sp, variant)
 	wharf = st
 	berth = b
 	# (Handier alongside than a trawler: thrusters, or twin screws.)
@@ -98,11 +88,6 @@ func _release_ship() -> void:
 	if ship != null and is_instance_valid(ship) and ship.escort == self:
 		ship.escort = null
 	super()
-
-
-func _show_lights() -> void:
-	super()
-	_mast_light.visible = state != State.ALONGSIDE
 
 
 func _pose(_delta: float) -> void:

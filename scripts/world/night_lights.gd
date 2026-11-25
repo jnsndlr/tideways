@@ -5,6 +5,8 @@ extends Node3D
 ## and every car on the road is an instance of a multimesh (one per model's lamp
 ## layout) refilled each frame from the traffic. The camera's focus distance goes to the glow shader for bokeh.
 
+signal switched(on: bool)
+
 # Kept off the minimap, like the clouds.
 const LAYER := 1 << (CloudLayer.VISUAL_LAYER - 1)
 # The ferries' car deck lights (FerryClass.deck_lights): warm, like her ceiling lights.
@@ -109,7 +111,7 @@ func _set_on(on: bool) -> void:
 		mi.visible = on
 	for l in _deck_lights:
 		l.visible = on
-	_vessel_lights(on)
+	switched.emit(on)
 	if not on:
 		for mm: MultiMesh in _cars.values():
 			mm.visible_instance_count = 0
@@ -124,22 +126,24 @@ func _process(_delta: float) -> void:
 	var deck := DECK_LIGHT_ENERGY * smoothstep(Models.LAMP_ON_AT, Models.LAMP_ON_AT + 0.08, day_cycle.night)
 	for l in _deck_lights:
 		l.light_energy = deck
-	# Cargo ships come and go through the night.
-	_vessel_lights(true)
 	for f in sim.ferries:
 		# Sidelights: only the bow end's pair is lit, +Z heading A → B, -Z on the way back.
 		var flip := 1.0 if f.at_a else -1.0
 		if _ferry_lights.has(f):
 			_ferry_lights[f].set_instance_shader_parameter("nav_flip", flip)
-		f.hull.set_instance_shader_parameter("nav_flip", flip)
+		var view := f.get_node_or_null(^"FerryView") as FerryView
+		if view:
+			view.hull.set_instance_shader_parameter("nav_flip", flip)
 	_update_cars()
 
 
-## Sailboats' and cargo ships' own lights.
-func _vessel_lights(on: bool) -> void:
-	for v in sim.marine.vessels:
-		if v.lights:
-			v.lights.visible = on
+## Fit a vessel when it enters the world, including a cargo ship arriving after dusk.
+func fit_vessel(vessel: Vessel) -> VesselNightLights:
+	var lamps := VesselNightLights.new(vessel)
+	vessel.add_child(lamps)
+	lamps.visible = _on
+	switched.connect(lamps.set_visible)
+	return lamps
 
 
 ## Cars still on the road (not parked on a ferry deck): one instance each, with the

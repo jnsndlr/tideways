@@ -10,6 +10,7 @@ const PATH := "user://settings.cfg"
 const VOLUMES := {"Master": 0.8, "Music": 0.7, "Radio": 0.8, "Effects": 0.7, "Ambience": 0.7}
 
 static var _cfg: ConfigFile
+static var _path := PATH
 
 
 ## Loads the saved settings and applies them, once.
@@ -17,7 +18,7 @@ static func ensure() -> void:
 	if _cfg:
 		return
 	_cfg = ConfigFile.new()
-	_cfg.load(PATH)  # A missing file just leaves the defaults.
+	_cfg.load(_path)  # A missing file just leaves the defaults.
 	for bus: String in VOLUMES:
 		if AudioServer.get_bus_index(bus) == -1:
 			AudioServer.add_bus()
@@ -36,11 +37,11 @@ static func volume(bus: String) -> float:
 	return VOLUMES[bus]
 
 
-static func set_volume(bus: String, v: float) -> void:
-	ensure()
-	_cfg.set_value("audio", bus.to_lower(), clampf(v, 0.0, 1.0))
-	_apply(bus)
-	_cfg.save(PATH)
+static func set_volume(bus: String, v: float) -> Error:
+	var err := _save("audio", bus.to_lower(), clampf(v, 0.0, 1.0))
+	if err == OK:
+		_apply(bus)
+	return err
 
 
 ## On/off options under [display].
@@ -54,10 +55,18 @@ static func flag(key: String) -> bool:
 	return stored if stored is bool else FLAGS[key]
 
 
-static func set_flag(key: String, on: bool) -> void:
+static func set_flag(key: String, on: bool) -> Error:
+	return _save("display", key, on)
+
+
+static func _save(section: String, key: String, value: Variant) -> Error:
 	ensure()
-	_cfg.set_value("display", key, on)
-	_cfg.save(PATH)
+	var old: Variant = _cfg.get_value(section, key) if _cfg.has_section_key(section, key) else null
+	_cfg.set_value(section, key, value)
+	var err := SavedText.replace(_path, _cfg.encode_to_text())
+	if err != OK:
+		_cfg.set_value(section, key, old)
+	return err
 
 
 static func _apply(bus: String) -> void:

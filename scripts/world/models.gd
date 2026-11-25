@@ -819,7 +819,7 @@ static func car(color_index: int) -> ArrayMesh:
 const VEHICLES_GLB := "res://assets/models/vehicles.glb"
 static var mid_cars := not "--classic-cars" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(VEHICLES_GLB)
-const VEHICLE_SCALE := FerryClass.MID_SCALE
+const VEHICLE_SCALE := Units.VEHICLE_MODEL_SCALE
 # The cars (VehicleData keys) and how common each is on the road: sedans and SUVs
 # (100 each), pickups (45, full-size first), minivans (25) and vans (20), work vans first.
 const VEHICLES := {
@@ -1002,9 +1002,6 @@ static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
 const SLIP_DOLPHIN_OUTER_GLB := "res://assets/models/ferry_dolphin_lod.glb"
 const SLIP_DOLPHIN_INNER_GLB := "res://assets/models/ferry_dolphin_small_lod.glb"
 const SLIP_WING_WALL_GLB := "res://assets/models/wing_wall_lod.glb"
-# How far each dolphin's fender face stands in front of its origin, and its deck top.
-const SLIP_DOLPHIN_FACE := 3.5
-const SLIP_DOLPHIN_DECK := 4.17
 static var mid_slip_guides := not "--classic-slip" in OS.get_cmdline_user_args() \
 	and ResourceLoader.exists(SLIP_DOLPHIN_OUTER_GLB) and ResourceLoader.exists(SLIP_DOLPHIN_INNER_GLB) \
 	and ResourceLoader.exists(SLIP_WING_WALL_GLB)
@@ -1411,51 +1408,9 @@ static func _rail(mb: MeshBuilder, a: Vector3, b: Vector3, col: Color) -> void:
 		mb.box(Vector3(p.x, a.y + 1.35, p.z), Vector3(0.15, 2.7, 0.15), col)
 
 
-## A gull, about 1.4 m across (+Z forward, wings out along X, upper sides facing
-## up). Wing vertices carry alpha 0.5, which seagull.gdshader flaps and folds about
-## the shoulder (|x| = 0.06); it also lightens their undersides, so they are single panels.
-## Gulls use the mid-poly gull modelled in Blender (MID_SEAGULL_GLB, built by
-## art/seagull_mid.py), whose wing vertices also carry their folded position in UV and
-## UV2.x for seagull.gdshader. The one below is the fallback: with `--classic-gull`, or
-## if the model is missing (its wings fold by formula instead).
-const MID_SEAGULL_GLB := "res://assets/models/seagull_mid.glb"
-static var mid_seagull := not "--classic-gull" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(MID_SEAGULL_GLB)
-
-
 static func seagull() -> ArrayMesh:
-	if mid_seagull:
-		return _cached("seagull_mid", func(): return ModelParts.shader_mesh(MID_SEAGULL_GLB, "seagull", vc_material()))
-	return _cached("seagull", func():
-		var mb := MeshBuilder.new()
-		var white := Color(0.95, 0.95, 0.93)
-		var mantle := Color(0.66, 0.7, 0.74, 0.5)
-		var tip := Color(0.12, 0.12, 0.13, 0.5)
-		# Body: an octahedron stretched along the spine, and a smaller one for the head.
-		_octa(mb, Vector3(0, 0.01, 0.03), Vector3(0.065, 0.065, 0.0), 0.24, -0.23, white)
-		_octa(mb, Vector3(0, 0.075, 0.22), Vector3(0.045, 0.045, 0.0), 0.06, -0.05, white)
-		var beak := Color(0.95, 0.74, 0.2)
-		var bp := Vector3(0, 0.06, 0.36)
-		var b0 := Vector3(0.016, 0.075, 0.275)
-		var b1 := Vector3(-0.016, 0.075, 0.275)
-		var b2 := Vector3(0, 0.05, 0.275)
-		mb.tri(b0, b1, bp, beak, Vector3.UP)
-		mb.tri(b1, b2, bp, beak, Vector3(-1, -1, 0))
-		mb.tri(b2, b0, bp, beak, Vector3(1, -1, 0))
-		mb.quad(Vector3(-0.05, 0.03, -0.16), Vector3(0.05, 0.03, -0.16), Vector3(0.075, 0.02, -0.32),
-			Vector3(-0.075, 0.02, -0.32), white, Vector3.UP)
-		for side: float in [-1.0, 1.0]:
-			var sh_f := Vector3(0.06 * side, 0.04, 0.1)
-			var sh_b := Vector3(0.06 * side, 0.04, -0.07)
-			var el_f := Vector3(0.4 * side, 0.04, 0.08)
-			var el_b := Vector3(0.4 * side, 0.04, -0.09)
-			var mid_f := Vector3(0.58 * side, 0.04, 0.03)
-			var mid_b := Vector3(0.58 * side, 0.04, -0.1)
-			var end := Vector3(0.72 * side, 0.04, -0.12)
-			mb.quad(sh_f, el_f, el_b, sh_b, mantle, Vector3.UP)
-			mb.quad(el_f, mid_f, mid_b, el_b, mantle, Vector3.UP)
-			mb.tri(mid_f, end, mid_b, tip, Vector3.UP)
-		return mb.commit())
+	var key := "seagull_mid" if SeagullModel.baked_fold else "seagull"
+	return _cached(key, func(): return SeagullModel.build(vc_material()))
 
 
 ## A bald eagle at life size, 2.1 m across (+Z forward, wings out along X), modelled
@@ -1471,98 +1426,9 @@ static func eagle() -> ArrayMesh:
 	return _cached("eagle_mid", func(): return ModelParts.shader_mesh(EAGLE_GLB, "eagle", vc_material()))
 
 
-## Orcas use the mid-poly orca modelled in Blender (MID_ORCA_GLB, built by
-## art/orca_mid.py into art/orca_mid.blend) to the same rules as the one below: one
-## unit long, fin base at cetacean.gdshader's FIN_BASE, fin vertex alpha = 1 - t/2 for
-## height fraction t. Its body is plain black with UV = (distance from the nose,
-## angle round from the back / pi), and cetacean.gdshader draws each animal's own
-## markings from that (orca_markings). The one below is the fallback: with `--classic-orca`, or if the
-## model is missing.
-const MID_ORCA_GLB := "res://assets/models/orca_mid.glb"
-static var mid_orca := not "--classic-orca" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(MID_ORCA_GLB)
-
-
-## An orca one unit long (+Z forward, nose at z = 0.5), drawn per animal by Cetaceans'
-## multimesh and scaled to its length. The dorsal fin's vertices carry alpha < 1:
-## cetacean.gdshader raises them to each animal's fin height and sweeps them back (a
-## bull's fin stands tall and straight, a cow's is shorter and curved). It also beats
-## the tail. Belly, chin, eye patch and flank are white, the saddle grey.
 static func orca() -> ArrayMesh:
-	if mid_orca:
-		return _cached("orca_mid", func(): return ModelParts.shader_mesh(MID_ORCA_GLB, "orca", vc_material()))
-	return _cached("orca", func():
-		var mb := MeshBuilder.new()
-		var black := Color(0.05, 0.055, 0.065)
-		var white := Color(0.92, 0.93, 0.92)
-		var saddle := Color(0.5, 0.52, 0.55)
-		# Cross-sections nose to tail: z, half-width, half-height, centre height.
-		var st := [[0.5, 0.0, 0.0, -0.01], [0.44, 0.045, 0.04, -0.005], [0.34, 0.075, 0.07, 0.0],
-			[0.18, 0.095, 0.09, 0.0], [0.0, 0.095, 0.092, 0.0], [-0.16, 0.075, 0.075, 0.0],
-			[-0.3, 0.045, 0.05, 0.005], [-0.4, 0.018, 0.035, 0.01], [-0.44, 0.0, 0.0, 0.01]]
-		var rings: Array[PackedVector3Array] = []
-		for s: Array in st:
-			var ring := PackedVector3Array()
-			for k in 8:
-				var a := TAU * k / 8.0
-				ring.append(Vector3(s[1] * sin(a), s[3] + s[2] * cos(a), s[0]))
-			rings.append(ring)
-		for i in st.size() - 1:
-			var axis := Vector3(0, (st[i][3] + st[i + 1][3]) * 0.5, (st[i][0] + st[i + 1][0]) * 0.5)
-			for k in 8:
-				# Facet k runs from k * 45° (0 = the back) round to (k + 1) * 45°.
-				var band := mini(k, 7 - k)   # 0 top, 1 upper side, 2 lower side, 3 belly
-				var col := black
-				if band == 3 and i <= 4:
-					col = white
-				elif band == 2 and (i <= 1 or i == 4 or i == 5):
-					col = white
-				elif band == 1 and i == 2:
-					col = white
-				elif band == 0 and i == 4:
-					col = saddle
-				var a := rings[i][k]
-				var b := rings[i][(k + 1) % 8]
-				var c := rings[i + 1][(k + 1) % 8]
-				var d := rings[i + 1][k]
-				mb.quad(a, b, c, d, col, (a + b + c + d) * 0.25 - axis)
-		# Dorsal fin: base on the back, a waist and a tip; height and sweep come from the shader.
-		var base_y := 0.085
-		var bf := Vector3(0, base_y, 0.07)
-		var bb := Vector3(0, base_y, -0.1)
-		var mf := Vector3(0, base_y, 0.03)
-		var mback := Vector3(0, base_y, -0.06)
-		var tip := Vector3(0, base_y, -0.03)
-		var fin_base := Color(black, 1.0)
-		var fin_mid := Color(black, 0.75)
-		var fin_tip := Color(black, 0.5)
-		for side: float in [-1.0, 1.0]:
-			var w := Vector3(0.014 * side, 0, 0)
-			var wm := Vector3(0.007 * side, 0, 0)
-			var out := Vector3(side, 0, 0)
-			mb.tri3(bf + w, bb + w, mback + wm, fin_base, fin_base, fin_mid, out)
-			mb.tri3(bf + w, mback + wm, mf + wm, fin_base, fin_mid, fin_mid, out)
-			mb.tri3(mf + wm, mback + wm, tip, fin_mid, fin_mid, fin_tip, out)
-			# Leading and trailing edges.
-			mb.tri3(bf, bf + w, mf + wm, fin_base, fin_base, fin_mid, Vector3(side, 0, 1))
-			mb.tri3(bf, mf + wm, mf, fin_base, fin_mid, fin_mid, Vector3(side, 0, 1))
-			mb.tri3(mf, mf + wm, tip, fin_mid, fin_mid, fin_tip, Vector3(side, 0, 1))
-			mb.tri3(bb, bb + w, mback + wm, fin_base, fin_base, fin_mid, Vector3(side, 0, -1))
-			mb.tri3(bb, mback + wm, mback, fin_base, fin_mid, fin_mid, Vector3(side, 0, -1))
-			mb.tri3(mback, mback + wm, tip, fin_mid, fin_mid, fin_tip, Vector3(side, 0, -1))
-			# Paddle-shaped flippers, angled down and back.
-			mb.tri(Vector3(0.07 * side, -0.065, 0.24), Vector3(0.21 * side, -0.12, 0.09),
-				Vector3(0.07 * side, -0.07, 0.13), black, Vector3(0, -1, 0))
-			# Flukes: swept-back wings off the tail stock with a notch in the middle.
-			var root_f := Vector3(0, 0.01, -0.38)
-			var notch := Vector3(0, 0.01, -0.46)
-			var fluke_tip := Vector3(0.15 * side, 0.005, -0.52)
-			mb.tri(root_f, fluke_tip, Vector3(0.05 * side, 0.01, -0.48), black, Vector3.UP)
-			mb.tri(root_f, Vector3(0.05 * side, 0.01, -0.48), notch, black, Vector3.UP)
-		var mesh := mb.commit()
-		# The shader moves the fin and tail, which a baked shadow mesh can't follow.
-		mesh.shadow_mesh = null
-		return mesh)
+	var key := "orca_mid" if OrcaModel.uv_markings else "orca"
+	return _cached(key, func(): return OrcaModel.build(vc_material()))
 
 
 ## A whale or porpoise one unit long (+Z forward, nose at z = 0.5), built like
@@ -1898,19 +1764,6 @@ static func spout() -> ArrayMesh:
 		return mb.commit(unshaded_material()))
 
 
-## An octahedron at `c`, `r` wide (x) and tall (y), reaching `front` ahead and `back` behind.
-static func _octa(mb: MeshBuilder, c: Vector3, r: Vector3, front: float, back: float, col: Color) -> void:
-	var f := c + Vector3(0, 0, front)
-	var b := c + Vector3(0, 0, back)
-	var ring := [c + Vector3(r.x, 0, 0), c + Vector3(0, r.y, 0), c + Vector3(-r.x, 0, 0), c + Vector3(0, -r.y, 0)]
-	for i in 4:
-		var p0: Vector3 = ring[i]
-		var p1: Vector3 = ring[(i + 1) % 4]
-		var out := (p0 + p1) * 0.5 - c
-		mb.tri(p0, p1, f, col, out)
-		mb.tri(p1, p0, b, col, out)
-
-
 ## Head and tail lights for every car and truck (+Z is the front), plus the cone
 ## they throw down the road. Drawn per vehicle by NightLights' multimesh.
 static func car_lights() -> ArrayMesh:
@@ -2024,69 +1877,6 @@ static func jib_tack() -> Vector3:
 
 static func jib_head() -> Vector3:
 	return MID_JIB_HEAD if mid_sailboat else SAIL_JIB_HEAD
-
-
-## The hull's outline where it meets the water, as seen from above: the glTF part
-## `part` (waterline at y = 0, z along its length) from its waterline up to `top`,
-## taking in any flare or guard overhanging the water. Its half length, then `n`
-## half-widths at stations evenly spaced from tip to tip (all model metres). Both
-## ends are taken as the wider of the two, for double-enders.
-static var _waterlines := {}
-
-
-static func waterline(path: String, part: String, n: int, top: float) -> PackedFloat32Array:
-	var key := "%s:%s:%d:%f" % [path, part, n, top]
-	if _waterlines.has(key):
-		return _waterlines[key]
-	var mb := ModelParts.merge_named(path, [part])
-	# Fine bins over |z|, each holding the widest |x| the hull reaches there. A
-	# triangle's widest point within the slab lies on its edges clipped to it, or
-	# where the slab's faces cut it.
-	const BIN := 0.05
-	var bins := PackedFloat32Array()
-	var v := mb.verts
-	for t in range(0, v.size() - 2, 3):
-		var segs: Array[Vector3] = []
-		for y: float in [0.0, top]:
-			var cut: Array[Vector3] = []
-			for e in 3:
-				var a := v[t + e]
-				var b := v[t + (e + 1) % 3]
-				if (a.y < y) != (b.y < y):
-					cut.append(a.lerp(b, (a.y - y) / (a.y - b.y)))
-			if cut.size() == 2:
-				segs.append_array(cut)
-		for e in 3:
-			var a := v[t + e]
-			var b := v[t + (e + 1) % 3]
-			if minf(a.y, b.y) > top or maxf(a.y, b.y) < 0.0:
-				continue
-			var dy := b.y - a.y
-			var u0 := 0.0
-			var u1 := 1.0
-			if absf(dy) > 1e-6:
-				u0 = clampf(minf(-a.y / dy, (top - a.y) / dy), 0.0, 1.0)
-				u1 = clampf(maxf(-a.y / dy, (top - a.y) / dy), 0.0, 1.0)
-			segs.append_array([a.lerp(b, u0), a.lerp(b, u1)])
-		for k in range(0, segs.size(), 2):
-			var steps := maxi(1, ceili(segs[k].distance_to(segs[k + 1]) / (BIN * 0.5)))
-			for s in steps + 1:
-				var p := segs[k].lerp(segs[k + 1], float(s) / steps)
-				var i := roundi(absf(p.z) / BIN)
-				if i >= bins.size():
-					bins.resize(i + 1)
-				bins[i] = maxf(bins[i], absf(p.x))
-	var half := (bins.size() - 1) * BIN
-	var out := PackedFloat32Array([half])
-	for k in n:
-		var i := roundi(absf(k / float(n - 1) * 2.0 - 1.0) * half / BIN)
-		# The widest within a bin either side, so no station falls in a gap.
-		var w := 0.0
-		for j in range(maxi(i - 1, 0), mini(i + 2, bins.size())):
-			w = maxf(w, bins[j])
-		out.append(w)
-	_waterlines[key] = out
-	return out
 
 
 static func sailboat() -> ArrayMesh:
@@ -3395,6 +3185,14 @@ static func add_cage_lantern(mb: MeshBuilder, base: Vector3, col: Color, s := 1.
 	mb.cylinder(Vector3(0, 0.34, 0), 0.11, 0.0, 0.08, 8, BRASS, none, r)
 	mb.box(Vector3(0, 0.44, 0), Vector3(0.03, 0.06, 0.03), BRASS)
 	mb.xform = saved
+
+
+## Size and marking shared by fitted and classic guide dolphins.
+const DOLPHIN_LANTERN := 3.9
+
+
+static func slip_mark(port: bool) -> Color:
+	return GlowBuilder.GREEN if port else GlowBuilder.RED
 
 
 static func cage_lantern_glow_at(base: Vector3, s := 1.0) -> Vector3:

@@ -4,6 +4,7 @@ extends RefCounted
 ## MapGenerator builds everything else (mainland, islets, routes, towns) from it.
 ## The editor on the main map rolls and dials these, then saves or copies them.
 
+const VERSION := 1
 const MAIN_STORY := "res://maps/main_story.json"
 
 
@@ -28,13 +29,31 @@ class IslandSpec:
 	# an authored map (an island with none never gets one). Saved relative to the
 	# island, so moving or turning it carries them along. A generated map's
 	# islands have none, and the generator picks a spot facing the neighbours.
-	var ferry := true       # with no scenario (--full-network): build its first dock
-	var community_type := "residential"   # "rural", "residential", or "industrial"
+	var ferry := true  # with no scenario (--full-network): build its first dock
+	var community_type := "residential"  # "rural", "residential", or "industrial"
 	var docks: Array[DockSpec] = []
 
 	const COMMUNITY_TYPES := ["rural", "residential", "industrial"]
-	const KEYS := ["name", "x", "z", "radius", "height", "hills", "peak", "lakes", "shape_seed", "stretch",
-		"angle", "roughness", "forest", "fields", "pinned", "mainland", "ferry", "community_type"]
+	const KEYS := [
+		"name",
+		"x",
+		"z",
+		"radius",
+		"height",
+		"hills",
+		"peak",
+		"lakes",
+		"shape_seed",
+		"stretch",
+		"angle",
+		"roughness",
+		"forest",
+		"fields",
+		"pinned",
+		"mainland",
+		"ferry",
+		"community_type"
+	]
 
 	## Where dock `d` meets the shore in the world, and the heading out to sea.
 	func dock_at(d: DockSpec) -> Vector2:
@@ -66,21 +85,25 @@ class IslandSpec:
 		var s := IslandSpec.new()
 		for k in KEYS:
 			if d.has(k):
-				var v = d[k]
-				match typeof(s.get(k)):
-					TYPE_INT:
-						v = int(v)
-					TYPE_BOOL:
-						v = bool(v)
-					TYPE_FLOAT:
-						v = float(v)
-					TYPE_STRING:
-						v = str(v)
-				s.set(k, v)
+				if not MapLayout._matches(d[k], s.get(k)):
+					return null
+				s.set(k, d[k])
 		if not (s.community_type in COMMUNITY_TYPES):
 			s.community_type = "residential"
+		if not d.get("docks", []) is Array:
+			return null
 		for e in d.get("docks", []):
-			s.docks.append(DockSpec.from_dict(e))
+			if not e is Dictionary:
+				return null
+			var site := DockSpec.from_dict(e)
+			if site == null:
+				return null
+			s.docks.append(site)
+		for key in ["dock_x", "dock_z", "dock_angle"]:
+			if not MapLayout._matches(d.get(key, 0.0), 0.0):
+				return null
+		if not d.get("dock", false) is bool:
+			return null
 		# The old single hand-placed dock, in world coordinates.
 		if bool(d.get("dock", false)) and s.docks.is_empty():
 			s.docks.append(s.dock_from_world(Vector2(float(d.get("dock_x", 0.0)), float(d.get("dock_z", 0.0))), float(d.get("dock_angle", 0.0))))
@@ -112,12 +135,11 @@ class DockSpec:
 
 	static func from_dict(d: Dictionary) -> DockSpec:
 		var s := DockSpec.new()
-		s.u = float(d.get("u", 0.0))
-		s.v = float(d.get("v", 0.0))
-		s.facing = float(d.get("facing", 0.0))
-		s.tier = str(d.get("tier", "standard"))
-		s.town = str(d.get("town", ""))
-		s.community_type = str(d.get("community_type", ""))
+		for key in ["u", "v", "facing", "tier", "town", "community_type"]:
+			if d.has(key):
+				if not MapLayout._matches(d[key], s.get(key)):
+					return null
+				s.set(key, d[key])
 		if not s.community_type.is_empty() and not (s.community_type in IslandSpec.COMMUNITY_TYPES):
 			s.community_type = ""
 		if not DOCK_TIERS.has(s.tier):
@@ -147,7 +169,7 @@ func to_dict() -> Dictionary:
 	var list := []
 	for s in islands:
 		list.append(s.to_dict())
-	return {"version": 1, "world_seed": world_seed, "islands": list}
+	return {"version": VERSION, "world_seed": world_seed, "islands": list}
 
 
 ## True when docks are placed by hand: a terminal can then only go in one.
@@ -162,20 +184,40 @@ func to_json() -> String:
 	return JSON.stringify(to_dict(), "\t", false)
 
 
+## JSON represents integers as floats. Reject fractional seeds and non-finite coordinates.
+static func _matches(value: Variant, default_value: Variant) -> bool:
+	if default_value is float or default_value is int:
+		if not (value is float or value is int) or not is_finite(value):
+			return false
+		return default_value is float or value == int(value)
+	return typeof(value) == typeof(default_value)
+
+
 static func from_dict(d: Dictionary) -> MapLayout:
+	# Versionless layouts use the original island format, including the single world-space dock.
+	var version: Variant = d.get("version", VERSION)
+	if not _matches(version, VERSION) or version != VERSION or not d.get("islands") is Array:
+		return null
+	if not _matches(d.get("world_seed", 1), 1):
+		return null
 	var lay := MapLayout.new()
 	lay.world_seed = int(d.get("world_seed", 1))
-	for e in d.get("islands", []):
-		lay.islands.append(IslandSpec.from_dict(e))
+	for e in d.islands:
+		if not e is Dictionary:
+			return null
+		var spec := IslandSpec.from_dict(e)
+		if spec == null:
+			return null
+		lay.islands.append(spec)
 	return lay
 
 
-## null when the text isn't a layout.
+## null when the text isn't a supported layout.
 static func from_json(text: String) -> MapLayout:
-	var d = JSON.parse_string(text)
-	if not (d is Dictionary and d.has("islands")):
+	var json := JSON.new()
+	if json.parse(text) != OK or not json.data is Dictionary:
 		return null
-	return from_dict(d)
+	return from_dict(json.data)
 
 
 static func load_file(path: String) -> MapLayout:
@@ -185,11 +227,12 @@ static func load_file(path: String) -> MapLayout:
 
 
 func save_file(path: String) -> Error:
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f == null:
-		return FileAccess.get_open_error()
-	f.store_string(to_json() + "\n")
-	return OK
+	if FileAccess.file_exists(path) and load_file(path) == null:
+		return ERR_FILE_UNRECOGNIZED
+	var data := to_dict()
+	if from_dict(data) == null:
+		return ERR_INVALID_DATA
+	return SavedText.replace(path, JSON.stringify(data, "\t", false) + "\n")
 
 
 func duplicate() -> MapLayout:

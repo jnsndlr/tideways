@@ -27,6 +27,7 @@ extends RefCounted
 
 const LANE_SPACING := 4.5
 const ROW_SPACING := 7.5
+const TURN_CLEARANCE := 3.0  # metres beyond the outer row for cars to turn
 # Side-house ferries' house and stack top heights.
 const OPEN_DECK_Y := 3.0
 const BULWARK_TOP := 5.7
@@ -35,12 +36,11 @@ const MAST_TOP := 27.6
 const SIDELIGHT_Y := 20.94
 
 # The mid-poly Evergreen State (size 3): modelled in real metres, shown at MID_SCALE
-# so she matches the game's cars and trucks (drawn at Models.LEGACY_SCALE, a third
-# again over real; 1.0 once they're true size), dropped MID_DROP so her car deck
+# so she matches the game's cars and trucks, dropped MID_DROP so her car deck
 # (2.85 m up in the model) lies at Layout.DECK_Y. `--classic-ferry` or a missing model keeps
 # the code-built size 3.
 const MID_GLB := "res://assets/models/ferry_mid.glb"
-const MID_SCALE := 1.26
+const MID_SCALE := FerryHullDimensions.MID_SCALE
 const MID_CAR_DECK := 2.85  # her car deck above the waterline (art/ferry_mid.py CAR_DECK)
 const MID_DROP := MID_CAR_DECK * MID_SCALE - Layout.DECK_Y
 const MID_APRON_Z := 42.45  # where her car deck's asphalt gives way to the bare steel apron
@@ -82,7 +82,7 @@ static var issaquah_model := not "--classic-ferry" in OS.get_cmdline_user_args()
 # takes four lanes of the game's oversized cars (art/jumbo_mk_ii.py STRETCH);
 # _jumbo() takes points on the real boat's plans into the hull's frame.
 const JUMBO_GLB := "res://assets/models/jumbo_mk_ii.glb"
-const JUMBO_STRETCH := 1.128
+const JUMBO_STRETCH := FerryHullDimensions.JUMBO_STRETCH
 const MAX_SIZE := 5
 static var jumbo_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(JUMBO_GLB)
 
@@ -101,7 +101,7 @@ const TABLE := {
 	2: [3, 6, 31.5, 11.7, 22.5, "Small ferry"],
 	3: [4, 9, 45.0, 12.6, 27.0, "Ferry"],
 	4: [4, 12, 57.0, 12.9, 28.5, "Large ferry"],
-	5: [5, 20, 70.13 * JUMBO_STRETCH * MID_SCALE, 13.716 * JUMBO_STRETCH * MID_SCALE, 30.0, "Jumbo Mk II class"],
+	5: [5, 20, FerryHullDimensions.MAX_HALF_LENGTH, FerryHullDimensions.MAX_HALF_BEAM, 30.0, "Jumbo Mk II class"],
 }
 
 # size: [crew, gallons burnt per nautical mile at service speed]. The map's
@@ -422,15 +422,9 @@ func is_upper(y: float) -> bool:
 ## code-built ones' sides closing in over the chamfer.
 func waterline() -> PackedFloat32Array:
 	if _waterline.is_empty():
-		var n := WakeField.STATIONS
-		var glb := MID_GLB if evergreen else SMALL_GLB if guemes else HIYU_GLB if hiyu else ISQ_GLB if issaquah else JUMBO_GLB if jumbo else ""
-		if glb != "":
-			var k := MID_SCALE
-			var deck := MID_CAR_DECK if evergreen else SMALL_CAR_DECK if guemes else HIYU_CAR_DECK if hiyu else ISQ_CAR_DECK
-			var wl := Models.waterline(glb, "fixed", n, deck)
-			_waterline = PackedFloat32Array([half_length - wl[0] * k, 2.0 * wl[0] * k])
-			for i in n:
-				_waterline.append(wl[i + 1] * k)
+		var n := HullWaterline.STATIONS
+		if guemes or hiyu or evergreen or issaquah or jumbo:
+			_waterline = FerryWaterlineProfiles.profile(size, half_length)
 		else:
 			_waterline = PackedFloat32Array([0.0, 2.0 * half_length])
 			for i in n:
@@ -532,7 +526,7 @@ func _lay_out_evergreen() -> void:
 	cols = PackedFloat32Array([-8.45 * MID_SCALE, -1.9 * MID_SCALE, 1.9 * MID_SCALE, 8.45 * MID_SCALE])
 	tall = PackedInt32Array([1, 2])
 	throat_x = 3.8 * MID_SCALE
-	turn_z = row_z[0] + 1.0 * Models.LEGACY_SCALE
+	turn_z = row_z[0] + TURN_CLEARANCE
 	var k := MID_SCALE
 	for e: float in [-1.0, 1.0]:
 		# Masthead lanterns on the masts over the pilothouse roofs, sidelights on the
@@ -630,7 +624,7 @@ func _lay_out_issaquah() -> void:
 			for c in low:
 				blocked.append(r * lanes + c)
 	throat_x = 3.65 * k
-	turn_z = row_z[0] + 1.0 * Models.LEGACY_SCALE
+	turn_z = row_z[0] + TURN_CLEARANCE
 	net_z = ISQ_APRON_Z * k
 	net_half_w = (_isq_beam(ISQ_APRON_Z) - 0.36) * k
 	var cab := 11.35  # the cabin's half width (issaquah_mid.py cabin_dims)

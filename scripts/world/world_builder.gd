@@ -32,9 +32,8 @@ const DOUBLE_LINE_POP := 4000
 const TERRAIN_TILE := 50
 # Scale of the caged lamps on the ramp lift towers.
 const LIFT_LAMP := 4.8
-# Scale of the 360° lanterns on top of the lift and on the dolphins.
+# Scale of the 360° lanterns on top of the lift.
 const LIFT_LANTERN := 3.9
-const DOLPHIN_LANTERN := 3.9
 # The modelled channel buoys (art/buoys.py) are life-size; the world is drawn a bit larger.
 const BUOY_PORT_GLB := "res://assets/models/buoys/buoy_port_can.glb"
 const BUOY_STARBOARD_GLB := "res://assets/models/buoys/buoy_starboard_nun.glb"
@@ -121,9 +120,23 @@ func build(frame: Signal = Signal()) -> Node3D:
 	root = Node3D.new()
 	root.name = "World"
 	# Towns grade their lots before terrain tiles read the heights.
-	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_quays,
-			_build_roads, _build_towns, _build_radio_towers, _build_terrain, _build_lighthouses, _build_nav_aids, _build_haul_outs,
-			_build_vegetation, _build_shore_rocks, _build_route_overlay, _clear_grass_where_blocked]:
+	for part: Callable in [
+		_build_water,
+		_build_terminals,
+		_build_marinas,
+		_build_quays,
+		_build_roads,
+		_build_towns,
+		_build_radio_towers,
+		_build_terrain,
+		_build_lighthouses,
+		_build_nav_aids,
+		_build_haul_outs,
+		_build_vegetation,
+		_build_shore_rocks,
+		_build_route_overlay,
+		_clear_grass_where_blocked
+	]:
 		if not await _frames.can_continue():
 			break
 		await part.call()
@@ -213,9 +226,9 @@ func _rebuild_tie_up_pier(town: MapData.Town, mb: MeshBuilder) -> void:
 		var lookout := TieUpPier.SMALL_CAP + Vector3.RIGHT * v
 		eagle_perches.append(Eagles.Perch.new(mb.xform * lookout, Eagles.Kind.DOLPHIN))
 		var cap := TieUpPier.LARGE_CAP + Vector3.RIGHT * v
-		var mark := GlowBuilder.GREEN if v in pier.port_rows else GlowBuilder.RED
-		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
-		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var mark := Models.slip_mark(v in pier.port_rows)
+		Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
+		_add_dolphin_glow(glows, cap, mark)
 
 
 ## Paving along the front of the lot out to a slip at `v` beyond its edge (`hw`),
@@ -365,6 +378,50 @@ func _block(p: Vector3, radius: float) -> void:
 	for dz in range(-r, r + 1):
 		for dx in range(-r, r + 1):
 			_blocked[Vector2i(cx + dx, cz + dz)] = true
+
+
+## Mount slip glows on the fitted caps and move them when the slip is refitted.
+func add_slip_guide_lights(guide: SlipGuides) -> void:
+	guide.fitted.connect(_build_slip_guide_lights.bind(guide))
+	if not guide.outer_caps.is_empty():
+		_build_slip_guide_lights(guide)
+
+
+func _build_slip_guide_lights(guide: SlipGuides) -> void:
+	var glows := GlowBuilder.new()
+	glows.xform = guide.slip_to_world
+	for i in guide.outer_caps.size():
+		_add_dolphin_glow(glows, guide.outer_caps[i], Models.slip_mark(i == 0))
+	var lights := guide.get_node_or_null(^"Lights") as MeshInstance3D
+	if not lights:
+		lights = MeshInstance3D.new()
+		lights.name = "Lights"
+		lights.material_override = GlowBuilder.material()
+		lights.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		lights.top_level = true  # GlowBuilder already positioned the vertices in world space.
+		lights.layers = NightLights.LAYER
+		guide.add_child(lights)
+	lights.mesh = glows.commit()
+
+
+func _add_dolphin_glow(glows: GlowBuilder, cap: Vector3, mark: Color) -> void:
+	glows.glow(Models.cage_lantern_glow_at(cap, Models.DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+
+
+## Fitted slip guides have room for three gulls across each deck. Only the inner
+## dolphins have space for an eagle. The outer ones carry the slip lanterns.
+func add_slip_perches(guide: SlipGuides) -> void:
+	for cap in guide.inner_caps:
+		_add_slip_gull_perches(guide.slip_to_world, cap)
+		eagle_perches.append(Eagles.Perch.new(guide.slip_to_world * cap, Eagles.Kind.DOLPHIN))
+	for cap in guide.outer_caps:
+		_add_slip_gull_perches(guide.slip_to_world, cap)
+
+
+func _add_slip_gull_perches(slip_to_world: Transform3D, cap: Vector3) -> void:
+	for k in 3:
+		var seat := slip_to_world * (cap + Vector3(0, 0, (k - 1) * 1.6))
+		gull_perches.append(Seagulls.Perch.new(seat, seat, 0.0, Seagulls.Kind.DOLPHIN))
 
 
 ## A perch along a → b, `spread` either side of it (see Seagulls.Perch).
@@ -797,9 +854,9 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	var ly := Layout.LOT_Y
 	var pe := Layout.PIER_END
 	# With the mid-poly slip a trestle runs out from the lot to the transfer span's hinge
-	# (the span, apron and counterweights are SlipRamp's, the towers are scenery here).
+	# (the span, apron and counterweights are SlipRampView's, the towers are scenery here).
 	var mid := Models.mid_slip
-	var deck_end := SlipRamp.HINGE_U if mid else pe
+	var deck_end := Layout.RAMP_HINGE_U if mid else pe
 	if Models.mid_trestle:
 		_build_trestle(mb, isl, v)
 	else:
@@ -814,7 +871,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 			for side: float in [-6.0, -2.0, 2.0, 6.0]:
 				mb.box(Vector3(v + side, -4.5, deck_end), Vector3(1.0, 9.0, 1.0), CONCRETE.darkened(0.2))
 		Models._append_part(mb, Models.slip_part("towers"), mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, 0, 0)))
-		tower_x = SlipRamp.TOWER_X
+		tower_x = SlipRampView.TOWER_X
 		beam_x = 8.0
 	else:
 		mb.box(Vector3(v, ly - 0.36, pe - 4.5), Vector3(15.6, 1.08, 9.0), Color(0.4, 0.42, 0.45))
@@ -832,9 +889,9 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 		# An eagle on top of each tower.
 		eagle_perches.append(Eagles.Perch.new(mb.xform * Vector3(v + side * tower_x, 16.95, pe - 3.0), Eagles.Kind.LIFT))
 	for side: float in [-1.0, 1.0]:
-		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
+		var mark := Models.slip_mark(side < 0)
 		# The modelled wing walls and dolphins are the slip's own live part (SlipGuides).
-		if not SlipGuides.available():
+		if not Models.mid_slip_guides:
 			var ww: Array = Layout.WING_WALL
 			for k in ww.size() - 1:
 				var w0: Vector2 = ww[k]
@@ -847,16 +904,22 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 			# The outer dolphins carry the slip's lanterns.
 			var outer := Layout.DOLPHIN_OUTER
 			var cap := _dolphin(mb, Vector3(v + side * outer.y, 0, outer.x), outer.z, 8)
-			Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
-			glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
+			_add_dolphin_glow(glows, cap, mark)
 		# Channel buoy, flashing.
 		var buoy := Vector3(v + side * 25.5, 0.0, Layout.CHANNEL_BUOY_U)
 		var phase := Models.blink_phase_at(mb.xform * buoy)
-		var glow_at := _buoy_model(mb.xform, buoy, side < 0, "%s Buoy %d %s" % [isl.name, int(v), "G" if side < 0 else "R"])
+		var glow_at := _buoy_model(
+			mb.xform, buoy, side < 0, "%s Buoy %d %s" % [isl.name, int(v), "G" if side < 0 else "R"]
+		)
 		if glow_at == Vector3.INF:
-			Models.add_buoy(mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase)
+			Models.add_buoy(
+				mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase
+			)
 			glow_at = Models.buoy_glow_at(buoy)
-		glows.glow(glow_at, mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+		glows.glow(
+			glow_at, mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT
+		)
 		# A caged lamp on the inside of each lift tower, lighting the ramp.
 		var lamp := Vector3(v + side * 7.95, 13.8, pe - 3.0)
 		var out := Vector3(-side, 0, 0)
@@ -875,7 +938,9 @@ func _buoy_model(xf: Transform3D, base: Vector3, port: bool, node_name: String) 
 
 ## Instances the nav-aid model at `path` at `base` (turned by `yaw`) in the frame
 ## `xf`; returns its lantern's glow point in that frame, or Vector3.INF if missing.
-func _nav_aid(path: String, xf: Transform3D, base: Vector3, yaw: float, node_name: String) -> Vector3:
+func _nav_aid(
+	path: String, xf: Transform3D, base: Vector3, yaw: float, node_name: String
+) -> Vector3:
 	if root == null or not ResourceLoader.exists(path):
 		return Vector3.INF
 	var aid := (load(path) as PackedScene).instantiate() as Node3D
@@ -924,12 +989,23 @@ func _build_nav_aids() -> void:
 					continue
 				var path := SPAR_GLB if kind == "spar" else BELL_GLB
 				var col := AMBER if kind == "spar" else GlowBuilder.LED
-				var at := _nav_aid(path, Transform3D.IDENTITY, p, rng.randf() * TAU, "Nav %s %d" % [kind, n])
+				var at := _nav_aid(
+					path, Transform3D.IDENTITY, p, rng.randf() * TAU, "Nav %s %d" % [kind, n]
+				)
 				if at != Vector3.INF:
 					if kind == "bell":
 						bell_buoys.append(p)
 					var phase := Models.blink_phase_at(p)
-					glows.glow(at, col, 0.6, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+					glows.glow(
+						at,
+						col,
+						0.6,
+						7.0,
+						true,
+						Models.blink_of(phase),
+						Vector3.ZERO,
+						Models.LAMP_ON_AT
+					)
 					_block(p, 12.0)
 					n += 1
 				break
@@ -944,11 +1020,21 @@ func _build_nav_aids() -> void:
 			if terrain.height_v(w) > -1.5 or _is_blocked(w.x, w.z):
 				continue
 			var path := MARKER_PORT_GLB if side < 0 else MARKER_STARBOARD_GLB
-			var at := _nav_aid(path, xf, base, 0.0, "%s Channel Marker %s" % [town.name, "G" if side < 0 else "R"])
+			var at := _nav_aid(
+				path, xf, base, 0.0, "%s Channel Marker %s" % [town.name, "G" if side < 0 else "R"]
+			)
 			if at != Vector3.INF:
 				var phase := Models.blink_phase_at(w)
-				glows.glow(xf * at, GlowBuilder.GREEN if side < 0 else GlowBuilder.RED, 0.6, 7.0, true,
-					Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+				glows.glow(
+					xf * at,
+					GlowBuilder.GREEN if side < 0 else GlowBuilder.RED,
+					0.6,
+					7.0,
+					true,
+					Models.blink_of(phase),
+					Vector3.ZERO,
+					Models.LAMP_ON_AT
+				)
 				_block(w, 10.0)
 
 
@@ -1077,9 +1163,9 @@ func _build_tie_up(mb: MeshBuilder, isl: MapData.Town, i: int) -> void:
 		var inner_cap := _dolphin(mb, Vector3(dv, 0, pe + 22.0), 2.4, 6)
 		eagle_perches.append(Eagles.Perch.new(mb.xform * inner_cap, Eagles.Kind.DOLPHIN))
 		var cap := _dolphin(mb, Vector3(dv, 0, pe + 62.0), 3.15, 8)
-		var mark := GlowBuilder.GREEN if side < 0 else GlowBuilder.RED
-		Models.add_cage_lantern(mb, cap, mark, DOLPHIN_LANTERN)
-		glows.glow(Models.cage_lantern_glow_at(cap, DOLPHIN_LANTERN), mark, 0.42, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var mark := Models.slip_mark(side < 0)
+		Models.add_cage_lantern(mb, cap, mark, Models.DOLPHIN_LANTERN)
+		_add_dolphin_glow(glows, cap, mark)
 
 
 ## A wing wall from `a` to `b` (u, v in the terminal frame), its fendered face on
@@ -1325,7 +1411,9 @@ func _build_towns() -> void:
 			if coats == 1:
 				mesh = Models.kit_house(kit_name)
 			else:
-				mesh = Models.kit_house(kit_name, WALLS[n % WALLS.size()], ROOFS[(n * 3 + 1) % ROOFS.size()])
+				mesh = Models.kit_house(
+					kit_name, WALLS[n % WALLS.size()], ROOFS[(n * 3 + 1) % ROOFS.size()]
+				)
 			variants.append(mesh)
 			house_meshes.append(mesh)
 			kit_names.append(kit_name)
@@ -1400,15 +1488,23 @@ func _build_towns() -> void:
 					front = -inland
 				var yaw := atan2(front.x, front.z) + town_rng.randf_range(-0.05, 0.05)
 				var r := Vector2(a, b).length() * spacing
-				candidates.append({
-					"p": p,
-					"yaw": yaw,
-					"r": r,
-					"sort_r": r + town_rng.randf_range(-9.0, 9.0),
-					"drop": hmax - hmin,
-					"h": h,
-				})
-		candidates.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["sort_r"]) < float(y["sort_r"]))
+				(
+					candidates
+					. append(
+						{
+							"p": p,
+							"yaw": yaw,
+							"r": r,
+							"sort_r": r + town_rng.randf_range(-9.0, 9.0),
+							"drop": hmax - hmin,
+							"h": h,
+						}
+					)
+				)
+		candidates.sort_custom(
+			func(x: Dictionary, y: Dictionary) -> bool:
+				return float(x["sort_r"]) < float(y["sort_r"])
+		)
 
 		var want_houses := TownGrowth.target_houses_for(isl.population)
 		var want_commercial := TownGrowth.target_commercial_for(isl.population)
@@ -1465,7 +1561,12 @@ func _build_towns() -> void:
 			var yaw: float = float(c["yaw"])
 			var sc := town_rng.randf_range(0.92, 1.08)
 			var shop_idx := town_rng.randi_range(0, regular_shop_count - 1)
-			if placed_comm < want_commercial and not has_city_hall and isl.population >= 2500 and isl.community_type == "residential":
+			if (
+				placed_comm < want_commercial
+				and not has_city_hall
+				and isl.population >= 2500
+				and isl.community_type == "residential"
+			):
 				shop_idx = city_hall_variant - houses
 			var vi := houses + shop_idx
 			var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
@@ -1486,7 +1587,12 @@ func _build_towns() -> void:
 				var front_z: float = SHOP_SHELLS[shop_name].y / 2
 				if shop_name == "glass_hall":
 					front_z += 0.46
-				_entry_light(xf, Vector3(.83, 2.59, front_z + .30), Vector3(0, .34, front_z + .64), float(c["h"]) < 15.0)
+				_entry_light(
+					xf,
+					Vector3(.83, 2.59, front_z + .30),
+					Vector3(0, .34, front_z + .64),
+					float(c["h"]) < 15.0
+				)
 				_block(p, 7.8)
 				placed_comm += 1
 			else:
@@ -1520,11 +1626,24 @@ func _build_towns() -> void:
 			used_idx[idx] = true
 			if placed_houses < want_houses:
 				var pad := Rect2(plan.position, plan.size).grow(KIT_LOT_MARGIN)
-				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
-					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
+				terrain.level_now(
+					Vector3(p.x, 0, p.z),
+					basis.z.normalized(),
+					pad.position.y,
+					pad.end.y,
+					pad.position.x,
+					pad.end.x,
+					lot.z,
+					KIT_LOT_BLEND
+				)
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				(per_variant[vi] as Array[Transform3D]).append(xf)
-				_entry_light(xf, Models.kit_marker(kit_names[vi], "PorchLight"), Models.kit_marker(kit_names[vi], "Entry"), float(c["h"]) < 15.0)
+				_entry_light(
+					xf,
+					Models.kit_marker(kit_names[vi], "PorchLight"),
+					Models.kit_marker(kit_names[vi], "Entry"),
+					float(c["h"]) < 15.0
+				)
 				_block(p, 7.8)
 				placed_houses += 1
 			else:
@@ -1573,7 +1692,9 @@ func _build_radio_towers() -> void:
 					if h > best_h and h >= 10.0:
 						var hmin := h
 						var hmax := h
-						for o: Vector2 in [Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5)]:
+						for o: Vector2 in [
+							Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5)
+						]:
 							var hh := terrain.height_at(px + o.x, pz + o.y)
 							hmin = minf(hmin, hh)
 							hmax = maxf(hmax, hh)
@@ -1593,14 +1714,31 @@ func _build_radio_towers() -> void:
 		_block(best_pos, 8.0)
 		if isl.radio_tower_built:
 			rlot.occupied = true
-			terrain.level_now(Vector3(best_pos.x, 0.0, best_pos.z), Vector3.FORWARD,
-				-6.5, 6.5, -6.5, 6.5, best_pos.y, KIT_LOT_BLEND)
+			terrain.level_now(
+				Vector3(best_pos.x, 0.0, best_pos.z),
+				Vector3.FORWARD,
+				-6.5,
+				6.5,
+				-6.5,
+				6.5,
+				best_pos.y,
+				KIT_LOT_BLEND
+			)
 			var mesh := build_landmark_mesh("radio_tower")
 			if mesh != null:
 				var mi := _add_mesh(mesh, "RadioTower_%s" % isl.name)
 				mi.position = best_pos
 			glows.xform = Transform3D(Basis.IDENTITY, best_pos)
-			glows.glow(Vector3(0.0, 55.2, 0.0), Color(1.0, 0.22, 0.16), 0.75, 18.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			glows.glow(
+				Vector3(0.0, 55.2, 0.0),
+				Color(1.0, 0.22, 0.16),
+				0.75,
+				18.0,
+				false,
+				0.0,
+				Vector3.ZERO,
+				Models.LAMP_ON_AT
+			)
 
 
 ## Cached baked mesh + foundation plinth for milestone landmark GLBs.
@@ -1622,21 +1760,33 @@ func build_landmark_mesh(model_name: String) -> ArrayMesh:
 	var pad_d := clampf(aabb.size.z * 0.92, 3.0, 26.0)
 	var cx := aabb.position.x + aabb.size.x * 0.5
 	var cz := aabb.position.z + aabb.size.z * 0.5
-	mb.box(Vector3(cx, -KIT_MAX_DROP * 0.5 + 0.05, cz), Vector3(pad_w, KIT_MAX_DROP, pad_d), Models.KIT_FOUNDATION)
+	mb.box(
+		Vector3(cx, -KIT_MAX_DROP * 0.5 + 0.05, cz),
+		Vector3(pad_w, KIT_MAX_DROP, pad_d),
+		Models.KIT_FOUNDATION
+	)
 	var mesh := mb.commit()
 	_landmark_meshes[model_name] = mesh
 	return mesh
 
 
 ## Levels a single building lot in play and updates the affected terrain tile(s).
-func level_lot_runtime(pos: Vector3, yaw: float, half_w: float, half_d: float, target_y: float) -> void:
+func level_lot_runtime(
+	pos: Vector3, yaw: float, half_w: float, half_d: float, target_y: float
+) -> void:
 	if terrain == null:
 		return
 	var dir := Vector3(sin(yaw), 0.0, cos(yaw))
-	terrain.level_now(Vector3(pos.x, 0.0, pos.z), dir,
-		-half_d - KIT_LOT_MARGIN, half_d + KIT_LOT_MARGIN,
-		-half_w - KIT_LOT_MARGIN, half_w + KIT_LOT_MARGIN,
-		target_y, KIT_LOT_BLEND)
+	terrain.level_now(
+		Vector3(pos.x, 0.0, pos.z),
+		dir,
+		-half_d - KIT_LOT_MARGIN,
+		half_d + KIT_LOT_MARGIN,
+		-half_w - KIT_LOT_MARGIN,
+		half_w + KIT_LOT_MARGIN,
+		target_y,
+		KIT_LOT_BLEND
+	)
 	var reach := maxf(half_w, half_d) + KIT_LOT_MARGIN + KIT_LOT_BLEND + 2.0
 	var i0 := clampi(floori((pos.x - reach + terrain.half_size) / Terrain.CELL), 0, terrain.n)
 	var i1 := clampi(ceili((pos.x + reach + terrain.half_size) / Terrain.CELL), 0, terrain.n)
@@ -1646,13 +1796,21 @@ func level_lot_runtime(pos: Vector3, yaw: float, half_w: float, half_d: float, t
 
 
 ## Adds a night glow (entry lamp or tower beacon) for a building constructed at runtime.
-func add_runtime_building_light(xf: Transform3D, local_pos: Vector3, color: Color, radius: float,
-		waterfront := false, pool_pos := Vector3.INF) -> void:
+func add_runtime_building_light(
+	xf: Transform3D,
+	local_pos: Vector3,
+	color: Color,
+	radius: float,
+	waterfront := false,
+	pool_pos := Vector3.INF
+) -> void:
 	if night_lights == null:
 		return
 	var g := GlowBuilder.new()
 	g.xform = xf
-	g.glow(local_pos, color, radius, radius * 16.0, waterfront, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+	g.glow(
+		local_pos, color, radius, radius * 16.0, waterfront, 0.0, Vector3.ZERO, Models.LAMP_ON_AT
+	)
 	if pool_pos != Vector3.INF:
 		g.pool(pool_pos, color, 4.5, 0.3)
 	var mesh := g.commit()

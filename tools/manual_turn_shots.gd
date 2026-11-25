@@ -31,8 +31,12 @@ func _process(_d: float) -> bool:
 	if frames == 5:
 		Engine.time_scale = 6.0
 	if not _ordered:
-		if rhodo.berth == Ferry.Berth.WORKING and rhodo.state == Ferry.State.SAILING \
-				and rhodo.traveled > 300.0 and rhodo.path_left() > 300.0:
+		if (
+			rhodo.berth == Ferry.Berth.WORKING
+			and rhodo.state == Ferry.State.SAILING
+			and rhodo.traveled > 300.0
+			and rhodo.path_left() > 300.0
+		):
 			Engine.time_scale = 1.0
 			_centre = rhodo.global_position
 			rhodo.order_move(rhodo.here().town.id, rhodo.slip_at(rhodo.here()))

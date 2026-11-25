@@ -19,7 +19,6 @@ var dest_berth := 0
 var path: NavPath              # the leg it is motoring along (backing out, or in to its berth)
 var s := 0.0
 var trips := 0
-var _hull: MeshInstance3D
 var _leaving: MapData.Marina = null    # holds this marina's lock while getting out
 var _arriving := false                 # holds the destination's lock
 

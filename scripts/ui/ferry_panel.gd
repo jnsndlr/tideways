@@ -266,9 +266,9 @@ func _build_overview_tab() -> Control:
 	var pace_row := HBoxContainer.new()
 	pace_row.add_theme_constant_override("separation", 6)
 	pace_row.add_child(_make_label.call("Pace", 13, CREAM_TEXT, true))
-	for i in Ferry.PACES.size():
+	for i in FerryPace.SETTINGS.size():
 		var b := Button.new()
-		b.text = Ferry.PACES[i][1]
+		b.text = FerryPace.label(i)
 		b.focus_mode = Control.FOCUS_NONE
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size.y = 34

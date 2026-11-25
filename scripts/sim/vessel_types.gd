@@ -55,12 +55,10 @@ static func pick(types: Array[VesselSpec], rng: RandomNumberGenerator) -> Vessel
 
 # --- Base types -----------------------------------------------------------------------
 
-# Hulls not yet remade at real size are drawn this many times their built size.
-const MODEL_SCALE := Models.LEGACY_SCALE
-
 static func _sloop() -> VesselSpec:
 	var s := VesselSpec.new()
 	s.id = "sloop"
+	s.hull = VesselSpec.Hull.SLOOP
 	s.kind = "Sailboat"
 	s.type_name = "Sloop"
 	s.half_length = 5.4
@@ -80,16 +78,13 @@ static func _sloop() -> VesselSpec:
 	s.kelvin = 0.28
 	# Pointed forward, a broad transom aft.
 	s.shape = Vector4(4.2, 0.0, 0.9, 0.9)
-	s.scale = MODEL_SCALE
-	s.model = func(_v: int) -> ArrayMesh: return Models.sailboat()
-	s.model_alt = func(_v: int) -> ArrayMesh: return Models.sailboat_furled()
-	s.lights = func(_v: int) -> ArrayMesh: return Models.sailboat_lights()
 	return s
 
 
 static func _container_ship() -> VesselSpec:
 	var s := VesselSpec.new()
 	s.id = "container"
+	s.hull = VesselSpec.Hull.CONTAINER
 	s.kind = "Cargo ship"
 	s.type_name = "Container ship"
 	s.half_length = 96.0
@@ -107,10 +102,6 @@ static func _container_ship() -> VesselSpec:
 	s.kelvin = 1.6
 	# A fine bow drawn to a point over its last 36 m, and a near-square transom.
 	s.shape = Vector4(36.0, 0.0, 6.0, 0.86)
-	s.scale = MODEL_SCALE
-	s.model = func(v: int) -> ArrayMesh: return Models.cargo_ship(v)
-	s.lights = func(_v: int) -> ArrayMesh: return Models.cargo_ship_lights()
-	s.name_plate = func(nm: String) -> ArrayMesh: return Models.cargo_name_plate(nm)
 	s.variants = 3
 	return s
 
@@ -119,13 +110,10 @@ static func _container_ship() -> VesselSpec:
 ## makes less way and pushes up a heavier wash.
 static func _tanker(container: VesselSpec) -> VesselSpec:
 	var s := container.scaled(1.15, "tanker", "Tanker")
+	s.hull = VesselSpec.Hull.TANKER
 	s.cruise = 13.2
 	s.accel = 0.3
 	s.wash = 1.5
-	s.model = func(v: int) -> ArrayMesh: return Models.tanker(v)
-	if not Models.mid_tanker:
-		s.name_plate = Callable()
-	s.lights = func(_v: int) -> ArrayMesh: return Models.cargo_ship_lights(Models.mid_tanker)
 	s.weight = 0.7
 	return s
 
@@ -133,13 +121,10 @@ static func _tanker(container: VesselSpec) -> VesselSpec:
 ## A geared bulk carrier, also on the container ship's hull.
 static func _bulk_carrier(container: VesselSpec) -> VesselSpec:
 	var s := container.scaled(1.1, "bulk_carrier", "Bulk carrier")
+	s.hull = VesselSpec.Hull.BULK_CARRIER
 	s.cruise = 13.8
 	s.accel = 0.3
 	s.wash = 1.4
-	s.model = func(v: int) -> ArrayMesh: return Models.bulk_carrier(v)
-	if not Models.mid_bulker:
-		s.name_plate = Callable()
-	s.lights = func(_v: int) -> ArrayMesh: return Models.cargo_ship_lights(Models.mid_bulker)
 	s.weight = 0.7
 	return s
 
@@ -147,6 +132,7 @@ static func _bulk_carrier(container: VesselSpec) -> VesselSpec:
 static func _trawler() -> VesselSpec:
 	var s := VesselSpec.new()
 	s.id = "trawler"
+	s.hull = VesselSpec.Hull.TRAWLER
 	s.kind = "Fishing boat"
 	s.type_name = "Trawler"
 	s.half_length = 30.0
@@ -168,9 +154,6 @@ static func _trawler() -> VesselSpec:
 	s.kelvin = 0.55
 	# A bluff bow narrowing over its last 15 m, and a broad transom.
 	s.shape = Vector4(16.5, 0.15, 4.5, 0.85)
-	s.scale = MODEL_SCALE
-	s.model = func(v: int) -> ArrayMesh: return Models.trawler(v)
-	s.lights = func(_v: int) -> ArrayMesh: return Models.trawler_lights()
 	s.variants = 3
 	return s
 
@@ -180,6 +163,7 @@ static func _trawler() -> VesselSpec:
 static func _motor_yacht() -> VesselSpec:
 	var s := VesselSpec.new()
 	s.id = "flybridge"
+	s.hull = VesselSpec.Hull.MOTOR_YACHT
 	s.kind = "Motor yacht"
 	s.type_name = "Flybridge cruiser"
 	s.half_length = 8.25
@@ -200,9 +184,6 @@ static func _motor_yacht() -> VesselSpec:
 	s.kelvin = 0.5
 	# A fine entry over its forward 4.8 m, and a broad transom.
 	s.shape = Vector4(4.8, 0.0, 0.9, 0.92)
-	s.scale = MODEL_SCALE
-	s.model = func(v: int) -> ArrayMesh: return Models.motor_yacht(v)
-	s.lights = func(_v: int) -> ArrayMesh: return Models.motor_yacht_lights()
 	s.variants = 3
 	return s
 
@@ -211,6 +192,7 @@ static func _motor_yacht() -> VesselSpec:
 static func _pilot_boat() -> VesselSpec:
 	var s := VesselSpec.new()
 	s.id = "pilot"
+	s.hull = VesselSpec.Hull.PILOT_BOAT
 	s.kind = "Pilot boat"
 	s.type_name = "Pilot launch"
 	s.half_length = 13.5
@@ -229,9 +211,6 @@ static func _pilot_boat() -> VesselSpec:
 	s.wash = 1.0
 	s.kelvin = 0.7
 	s.shape = Vector4(7.5, 0.0, 2.4, 0.9)
-	s.scale = MODEL_SCALE
-	s.model = func(v: int) -> ArrayMesh: return Models.pilot_boat(v)
-	s.lights = func(_v: int) -> ArrayMesh: return Models.pilot_boat_lights()
 	s.variants = 3
 	return s
 
@@ -240,6 +219,7 @@ static func _pilot_boat() -> VesselSpec:
 static func _tug() -> VesselSpec:
 	var s := VesselSpec.new()
 	s.id = "tug"
+	s.hull = VesselSpec.Hull.TUG
 	s.kind = "Tug"
 	s.type_name = "Escort tug"
 	s.half_length = 21.0
@@ -259,8 +239,5 @@ static func _tug() -> VesselSpec:
 	s.wash = 1.1
 	s.kelvin = 0.75
 	s.shape = Vector4(9.0, 0.1, 3.6, 0.85)
-	s.scale = MODEL_SCALE
-	s.model = func(v: int) -> ArrayMesh: return Models.tug(v)
-	s.lights = func(_v: int) -> ArrayMesh: return Models.tug_lights()
 	s.variants = 3
 	return s

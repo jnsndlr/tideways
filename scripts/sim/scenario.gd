@@ -129,11 +129,15 @@ func town_key(key: String) -> String:
 	return key + "/0"
 
 
-## The slip sizes for the terminal at `key`: one small slip unless listed.
-func slip_sizes(key: String) -> Array[int]:
-	var sizes: Array[int] = [1]
-	sizes.assign(slips.get(key, sizes))
-	return sizes
+## Capture the generator inputs before handing them to the region worker.
+func region_plan() -> RegionPlan:
+	var plan := RegionPlan.new()
+	plan.terminals = terminals.duplicate()
+	plan.slips = slips.duplicate(true)
+	plan.tie_ups = tie_ups.duplicate(true)
+	plan.lanes = lanes.duplicate()
+	plan.links = links()
+	return plan
 
 
 ## The pairs of island keys the schedules sail between, each once.

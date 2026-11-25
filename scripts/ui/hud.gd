@@ -14,13 +14,17 @@ const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0]
 const SPEED_LABELS := ["", "1x", "8x", "16x", "32x"]
 const WILD := Color(0.98, 0.78, 0.42)
 
-var main: Node
+## Emitted for the authored map to show the selected site or clear its pins.
+signal dock_site_selected(town: MapData.Town)
+
+var _session: WorldSession
+var _offers_dock_sites := false
 var sim: Simulation
 var wildlife: Wildlife
 var rig: CameraRig
 var map: MapData
 var route_overlay: Node3D
-## Water zones drawn on the map, if this region has any (the sandbox has none).
+## Optional map layer supplied by a region that draws water zones.
 var area_overlay: Node3D
 var map_controls: MapControls
 ## The town selected (its terminal, or its dock site for sale).
@@ -37,6 +41,8 @@ var font: SystemFont
 var bold: SystemFont
 var _labels := {}
 var _stat := {}
+var _queue_total_dirty := true
+var _terminal_rows: TerminalInspectorRows
 var _speed_buttons: Array[Button] = []
 var _speed_index := 1
 var _last_running_speed := 1
@@ -86,14 +92,15 @@ var _refresh := 0.0
 var _last_hour := -1.0
 
 
-func setup(m: Node) -> void:
-	main = m
-	sim = m.sim
-	wildlife = m.sim.wildlife
-	rig = m.rig
-	map = m.map
-	route_overlay = m.route_overlay
-	area_overlay = m.get("area_overlay")
+func setup(session: WorldSession, offers_dock_sites := false) -> void:
+	_session = session
+	_offers_dock_sites = offers_dock_sites
+	sim = session.sim
+	wildlife = sim.wildlife
+	rig = session.rig
+	map = session.map
+	route_overlay = session.route_overlay
+	area_overlay = session.area_overlay
 	root = Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -124,7 +131,7 @@ func setup(m: Node) -> void:
 	root.add_child(_schedule_editor)
 	_schedule_editor.setup(sim, _label)
 	_build_wildlife_panel()
-	_build_minimap(m.env)
+	_build_minimap(session.env)
 	_build_help()
 	_build_toast()
 	_build_map_controls()
@@ -133,11 +140,12 @@ func setup(m: Node) -> void:
 	wildlife.visit_started.connect(_on_visit_started)
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
+	sim.queues_changed.connect(func() -> void: _queue_total_dirty = true)
 	sim.running_costs_posted.connect(_on_running_costs)
 	sim.ferry_delivered.connect(_on_ferry_delivered)
 	sim.ferry_removed.connect(_on_ferry_removed)
 	set_speed(1)
-	var intro: Array = main.intro(_labels.size())
+	var intro := session.intro(_labels.size())
 	show_toast(intro[0], intro[1])
 
 
@@ -322,7 +330,7 @@ func _build_sidebar() -> void:
 func _on_game_menu(id: int) -> void:
 	match id:
 		0:
-			main.quick_save()
+			_session.quick_save()
 		1:
 			SettingsPanel.open(get_tree())
 		2:
@@ -370,7 +378,7 @@ func _on_sidebar(id: String) -> void:
 		"map":
 			rig.focus_on(Vector3.ZERO, 1680.0)
 		"menu":
-			_game_menu.set_item_disabled(0, not main.has_method("quick_save"))
+			_game_menu.set_item_disabled(0, not _session.can_quick_save())
 			var r := _menu_button.get_global_rect()
 			_game_menu.popup(Rect2i(Vector2i(r.end.x + 6, r.position.y), Vector2i.ZERO))
 		_:
@@ -464,7 +472,7 @@ func _update_labels() -> void:
 func _on_ground_clicked(screen_pos: Vector2) -> void:
 	map_controls.dismiss()
 	var cam := rig.camera
-	var visit: Wildlife.Visit = main.pick_wildlife(screen_pos, cam)
+	var visit: Wildlife.Visit = _session.pick_wildlife(screen_pos, cam)
 	if visit:
 		if not wildlife.photograph(visit):
 			show_toast(visit.species.plural.to_upper(), "Already photographed this %s." % _group_word(visit), 3.0)
@@ -532,7 +540,7 @@ func select_island(isl: MapData.Island, focus: bool) -> void:
 func select_town(town: MapData.Town, focus: bool) -> void:
 	_reset_selection()
 	selected_town = town
-	if focus and town.has_dock and not town.built and main.has_method("buy_dock"):
+	if focus and town.has_dock and not town.built and _offers_dock_sites:
 		_focus_site()
 	elif focus:
 		rig.focus_on(town.town_center, 390.0)
@@ -569,6 +577,7 @@ func clear_selection() -> void:
 
 
 func _reset_selection() -> void:
+	_terminal_rows = null
 	selected_town = null
 	selected_ferry = null
 	selected_vessel = null
@@ -576,46 +585,50 @@ func _reset_selection() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey and event.pressed and not event.echo):
+	if not event.is_pressed() or event.is_echo():
 		return
-	match (event as InputEventKey).physical_keycode:
-		KEY_SPACE:
-			set_speed(0 if _speed_index > 0 else _last_running_speed)
-		KEY_1:
-			set_speed(1)
-		KEY_2:
-			set_speed(2)
-		KEY_3:
-			set_speed(3)
-		KEY_4:
-			set_speed(4)
-		KEY_ESCAPE:
-			clear_selection()
-		KEY_TAB:
-			if not sim.ferries.is_empty():
-				var i := sim.ferries.find(selected_ferry)
-				select_ferry(sim.ferries[(i + 1) % sim.ferries.size()])
-		KEY_G:
-			main.regenerate()
-		KEY_M:
-			Scenes.go(get_tree(), Scenes.MENU)
-		KEY_F5:
-			if main.has_method("quick_save"):
-				main.quick_save()
-		KEY_BRACKETLEFT, KEY_BRACKETRIGHT:
-			var step := -1.0 if (event as InputEventKey).physical_keycode == KEY_BRACKETLEFT else 1.0
-			main.day_cycle.set_hour(roundf(main.day_cycle.hour()) + step)
-			show_toast("TIME OF DAY", "Lighting pinned to %s. Press T to follow the clock." % sim.clock_text(main.day_cycle.hour() * 60.0), 3.0)
-		KEY_T:
-			main.day_cycle.follow_clock()
-			show_toast("TIME OF DAY", "Lighting follows the game clock.", 3.0)
-		KEY_V:
-			if (event as InputEventKey).shift_pressed:
-				sim.weather.resume()
-				show_toast("WEATHER", "Weather changes on its own again.", 3.0)
-			else:
-				sim.weather.set_kind(sim.weather.next_kind(), 10.0)
-				show_toast("WEATHER", "Pinned to %s. Shift+V lets it change on its own." % sim.weather.kind, 3.0)
+	if event.is_action(&"hud_toggle_pause"):
+		set_speed(0 if _speed_index > 0 else _last_running_speed)
+	elif event.is_action(&"hud_speed_normal"):
+		set_speed(1)
+	elif event.is_action(&"hud_speed_fast"):
+		set_speed(2)
+	elif event.is_action(&"hud_speed_fastest"):
+		set_speed(3)
+	elif event.is_action(&"hud_speed_max"):
+		set_speed(4)
+	elif event.is_action(&"hud_clear_selection"):
+		clear_selection()
+	elif event.is_action(&"hud_next_ferry"):
+		if not sim.ferries.is_empty():
+			var i := sim.ferries.find(selected_ferry)
+			select_ferry(sim.ferries[(i + 1) % sim.ferries.size()])
+	elif event.is_action(&"hud_regenerate_map"):
+		_session.regenerate()
+	elif event.is_action(&"hud_quick_save"):
+		if _session.can_quick_save():
+			_session.quick_save()
+	elif event.is_action(&"hud_return_to_menu"):
+		Scenes.go(get_tree(), Scenes.MENU)
+	elif event.is_action(&"hud_light_previous_hour"):
+		_step_light_hour(-1.0)
+	elif event.is_action(&"hud_light_next_hour"):
+		_step_light_hour(1.0)
+	elif event.is_action(&"hud_light_follow_clock"):
+		_session.day_cycle.follow_clock()
+		show_toast("TIME OF DAY", "Lighting follows the game clock.", 3.0)
+	# The modified shortcut takes precedence because V also accepts extra modifiers.
+	elif event.is_action(&"hud_weather_resume"):
+		sim.weather.resume()
+		show_toast("WEATHER", "Weather changes on its own again.", 3.0)
+	elif event.is_action(&"hud_weather_cycle"):
+		sim.weather.set_kind(sim.weather.next_kind(), 10.0)
+		show_toast("WEATHER", "Pinned to %s. Shift+V lets it change on its own." % sim.weather.kind, 3.0)
+
+
+func _step_light_hour(step: float) -> void:
+	_session.day_cycle.set_hour(roundf(_session.day_cycle.hour()) + step)
+	show_toast("TIME OF DAY", "Lighting pinned to %s. Press T to follow the clock." % sim.clock_text(_session.day_cycle.hour() * 60.0), 3.0)
 
 
 # --- Info panel (top right) ---------------------------------------------------------
@@ -654,9 +667,9 @@ func _build_info_panel() -> void:
 	_info_button.pressed.connect(_on_info_button)
 	v.add_child(_info_button)
 	_pace_row.add_theme_constant_override("separation", 4)
-	for i in Ferry.PACES.size():
+	for i in FerryPace.SETTINGS.size():
 		var b := Button.new()
-		b.text = Ferry.PACES[i][1]
+		b.text = FerryPace.label(i)
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(0, 40)
@@ -673,7 +686,7 @@ func _build_info_panel() -> void:
 	_stops_button.text = "Edit stops"
 	_stops_button.focus_mode = Control.FOCUS_NONE
 	_stops_button.custom_minimum_size.y = ScheduleEditor.TAP
-	_stops_button.pressed.connect(func(): if selected_ferry: _schedule_editor.open(selected_ferry))
+	_stops_button.pressed.connect(_edit_selected_stops)
 	v.add_child(_stops_button)
 	_sell_button.focus_mode = Control.FOCUS_NONE
 	_sell_button.custom_minimum_size.y = 44
@@ -740,6 +753,11 @@ func _toggle_service() -> void:
 		selected_ferry.request_lay_up()
 	else:
 		selected_ferry.request_return()
+
+
+func _edit_selected_stops() -> void:
+	if selected_ferry:
+		_schedule_editor.open(selected_ferry)
 
 
 func _set_pace(i: int) -> void:
@@ -859,9 +877,10 @@ func _buy_upgrade(terminal: Terminal, u: TerminalUpgrade) -> void:
 
 ## Starts building a terminal at the selected town's dock site (Simulation.buy_dock).
 func _buy_dock() -> void:
-	if selected_town == null or not main.has_method("buy_dock"):
+	if selected_town == null or not _offers_dock_sites:
 		return
-	main.buy_dock(selected_town)
+	if sim.buy_dock(selected_town):
+		show_toast("NEW TERMINAL", "Building %s's terminal. It opens in %d hours." % [selected_town.name, int(Simulation.DOCK_BUILD_MINUTES / 60.0)], 4.0)
 	_refresh_panels()
 
 
@@ -897,8 +916,16 @@ func _set_rows(rows: Array) -> void:
 		_info_grid.add_child(name_l)
 		_info_grid.add_child(val)
 	for i in rows.size():
-		(_info_grid.get_child(i * 2) as Label).text = rows[i][0]
-		(_info_grid.get_child(i * 2 + 1) as Label).text = rows[i][1]
+		var caption := _info_grid.get_child(i * 2) as Label
+		if caption.text != rows[i][0]:
+			caption.text = rows[i][0]
+		var value := _info_grid.get_child(i * 2 + 1) as Label
+		if value.text != rows[i][1]:
+			value.text = rows[i][1]
+
+
+func _set_row_value(index: int, text: String) -> void:
+	(_info_grid.get_child(index * 2 + 1) as Label).text = text
 
 
 func _refresh_panels() -> void:
@@ -914,7 +941,7 @@ func _refresh_panels() -> void:
 	_captain_box.visible = false
 	if selected_ferry:
 		var f := selected_ferry
-		_ferry_panel.refresh(f, rig.follow == f, _timetable_text(f), _slip_clash_text(f), _hours_text)
+		_ferry_panel.refresh(f, rig.follow == f, _timetable_text(f), _slip_clash_text(f), hours_text)
 		if f.trips != _crossings_seen:
 			if _crossings_seen >= 0 and f.last_crossing >= 0.0 and f.last_crossing_captain == f.captain:
 				var body := "%d min under Captain %s." % [roundi(f.last_crossing), f.captain.surname()]
@@ -959,9 +986,7 @@ func _refresh_panels() -> void:
 		_info_button.text = "Stop following" if rig.follow == v else "Follow"
 	elif selected_town:
 		var isl := selected_town
-		var island := map.island_of(isl)
 		var term: Terminal = sim.terminals.get(isl.id)
-		var sat := term.satisfaction() if term else 70.0
 		var building := sim.dock_building(isl)
 		_info_title.text = isl.name.to_upper()
 		var served := isl.route_ids().filter(func(rid): return sim.map.routes[rid].in_service).size()
@@ -969,104 +994,17 @@ func _refresh_panels() -> void:
 			"No ferry service yet" if not term else
 			"Ferry terminal · idle slip" if served == 0 else
 			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
-		var tg: TownGrowth.TownState = sim.town_growth.state_for_town(isl)
-		var rows := []
-		if isl.name != island.name:
-			rows.append(["Island", island.name])
-		rows.append(["Community", TownGrowth.community_label(isl.community_type)])
-		if tg != null:
-			rows.append(["Population", "%s (+%d / day)" % [fmt_int(isl.population), roundi(tg.total_daily)]])
-			rows.append(["Growth", "Organic +%d · Ferry +%d" % [roundi(tg.organic_daily), roundi(tg.ferry_daily)]])
-			if tg.has_service:
-				rows.append(["Accessibility", "%d%% · %d/%d links" % [roundi(tg.accessibility * 100.0), tg.active_connections, tg.expected_connections]])
-				rows.append(["Service", "Freq %d%% · Fair %d%% · Rel %d%% (%dd)" % [
-					roundi(tg.frequency_score * 100.0), roundi(tg.affordability_score * 100.0),
-					roundi(tg.reliability_score * 100.0), int(tg.stable_days)]])
-			else:
-				rows.append(["Accessibility", "0%% · 0/%d links expected" % tg.expected_connections])
-			rows.append(["Attractiveness", "Res %d · Ind %d · Tour %d" % [
-				roundi(tg.attractiveness_residents), roundi(tg.attractiveness_industry), roundi(tg.attractiveness_tourism)]])
-			rows.append(["Economy", "%d · %d%% commercial" % [
-				roundi(tg.economic_activity), roundi(sim.town_growth.commercial_truck_share(isl) * 100.0)]])
-			var bldg := "%d houses · %d shops" % [tg.built_houses, tg.built_commercial]
-			if not tg.active_builds.is_empty():
-				bldg += " · %d building" % tg.active_builds.size()
-			rows.append(["Town buildings", bldg])
-			var next_ms := sim.town_growth.next_milestone_for(isl)
-			if not next_ms.is_empty():
-				rows.append(["Next milestone", "%s (%s pop)" % [str(next_ms["title"]), fmt_int(int(next_ms["pop"]))]])
-			rows.append_array([
-				["Satisfaction", "%d%%" % roundi(sat)],
-				["Demand", sim.demand_label(isl) if term else "-"],
-			])
-		else:
-			rows.append_array([
-				["Population", fmt_int(isl.population)],
-				["Satisfaction", "%d%%" % roundi(sat)],
-				["Growth", "%+.1f%% / yr" % (island.growth + (sat - 70.0) * 0.05)],
-				["Demand", sim.demand_label(isl) if term else "-"],
-			])
-		rows.append(["Wildlife draw", _draw_text(island)])
-		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(island))])
-		if not term and main.has_method("buy_dock"):
-			if not isl.has_dock:
-				rows.append(["Dock site", "None: no terminal can be built here"])
-			elif building >= 0.0:
-				rows.append(["Opens in", _hours_text(building)])
-			elif sim.dock_price(isl) <= 0:
-				rows.append(["Dock site", "No navigable ferry route reaches this site"])
-			else:
-				var price := sim.dock_price(isl)
-				var tier: Dictionary = MapLayout.DOCK_TIERS[island.dock_sites[isl.site].tier]
-				rows.append(["Dock site", "%s · %s" % [tier["name"], fmt_money(price)]])
-				rows.append(["Build time", _hours_text(Simulation.DOCK_BUILD_MINUTES)])
-				rows.append(["Available cash", fmt_money(sim.available_cash)])
+		if _terminal_rows == null or _terminal_rows.term != term:
+			_terminal_rows = TerminalInspectorRows.new(isl, term, sim, wildlife, _offers_dock_sites)
+			_terminal_rows.layout_changed.connect(_set_rows)
+			_terminal_rows.value_changed.connect(_set_row_value)
+		_terminal_rows.refresh()
+		if not term and _offers_dock_sites and isl.has_dock and building < 0.0:
+			var price := sim.dock_price(isl)
+			if price > 0:
 				_dock_button.text = "Build terminal · %s" % fmt_money(price)
 				_dock_button.disabled = sim.available_cash < price
 				offer_dock = true
-		if term:
-			rows.append(["Vehicles waiting", str(term.total_queued())])
-			rows.append(["Walk-ons waiting", str(term.passengers_queued())])
-			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
-			rows.append(["Slips", _slips_text(isl)])
-			if term.refit_stage != Terminal.RefitStage.NONE:
-				var stage: String = {
-					Terminal.RefitStage.CLEARING: "Slip closed · waiting for it to clear",
-					Terminal.RefitStage.ARRIVING: "Crane scow coming in",
-					Terminal.RefitStage.WORKING: "Driving piles for the new slip" if term.refit_new else "Driving new dolphins and wing walls",
-					Terminal.RefitStage.LEAVING: "Crane scow leaving",
-				}[term.refit_stage]
-				rows.append(["New slip" if term.refit_new else "Slip refit", stage])
-				if term.refit_stage != Terminal.RefitStage.CLEARING:
-					rows.append(["Slip opens in" if term.refit_new else "Slip reopens in", _hours_text(term.refit_remaining - Terminal.REFIT_DEPARTURE) if term.refit_new else "%d game min" % ceili(term.refit_remaining)])
-			rows.append(["Lanes", _lanes_text(term)])
-			if isl.lane_extension_price > 0 and term.has_service():
-				var destination := sim.map.towns[term.lane_keys()[0]].name
-				rows.append(["Extra lane to", destination])
-				var lane_work := term.build_remaining > 0.0 or term.work_stage == Terminal.WorkStage.DRAINING
-				if term.extra_lane != null and not lane_work:
-					rows.append(["In newest lane", "%d waiting · %d spaces inbound" % [term.extra_lane.queue.size(), term.extra_lane.enroute]])
-				if lane_work:
-					var count := term.staging_lanes.size()
-					var phase: String = {
-						Terminal.WorkStage.DRAINING: "Clearing the lanes",
-						Terminal.WorkStage.ARRIVING: "Crew arriving",
-						Terminal.WorkStage.PAVING: "Paving the lane",
-						Terminal.WorkStage.LEAVING: "Crew leaving",
-					}[term.work_stage]
-					rows.append(["Construction", phase])
-					if count > 0:
-						rows.append(["Staging closure", _staging_loss(count, term.slots_per_lane)])
-					if term.work_stage != Terminal.WorkStage.DRAINING:
-						rows.append(["Lane opens in", "%d game min" % ceili(term.build_remaining)])
-				elif not term.site_lanes.is_empty():
-					rows.append(["Unpaved lot", "room for %d more lane%s" % [term.site_lanes.size(), "" if term.site_lanes.size() == 1 else "s"]])
-				elif term.extra_lane == null and term.can_stage_construction():
-					rows.append(["While building", _staging_loss(isl.construction_staging_lanes, term.slots_per_lane) + " closed"])
-			if term.has_service():
-				rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
-			rows.append(["Carried today", "%s cars · %s walk-ons" % [fmt_int(term.served_today), fmt_int(term.passengers_served_today)]])
-		_set_rows(rows)
 		_info_button.text = "Center view"
 		if term:
 			_update_terminal_bar(term)
@@ -1074,8 +1012,8 @@ func _refresh_panels() -> void:
 			offer_upgrades = true
 	_upgrades_box.visible = offer_upgrades
 	_dock_button.visible = offer_dock
-	if main.has_method("show_dock_sites"):
-		main.show_dock_sites(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
+	if _offers_dock_sites:
+		dock_site_selected.emit(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
 	_pace_row.visible = selected_ferry != null
 	_service_button.visible = selected_ferry != null
 	# (A boat bought in play gets her first stops laid up, or still under tow.)
@@ -1083,10 +1021,6 @@ func _refresh_panels() -> void:
 	_sell_button.visible = selected_ferry != null
 	if _schedule_editor.visible and selected_ferry != _schedule_editor.ferry:
 		_schedule_editor.hide()
-
-
-func _staging_loss(count: int, slots: int) -> String:
-	return "%d lane%s · %d spaces" % [count, "" if count == 1 else "s", count * slots]
 
 
 # --- Terminal bar (bottom) ----------------------------------------------------------
@@ -1133,7 +1067,7 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 func _update_terminal_bar(term: Terminal) -> void:
 	_tb_set("terminal", term.town.name.to_upper() + " TERMINAL",
-		"Queue: %d cars · %d walk-ons" % [term.total_queued(), term.passengers_queued()],
+		"Queue: %d cars · %d walk-ons" % [term.queue_summary().waiting, term.passengers_queued()],
 		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
 	var f: Ferry = nd[1]
@@ -1177,7 +1111,7 @@ func _buy_ferry(size: int) -> void:
 	var term := f.here()
 	select_ferry(f)
 	show_toast("%s BOUGHT" % f.ferry_name.to_upper(), "%s for %s. A tug is towing her in to %s, about %s." % [
-		f.fc.label, "$" + fmt_int(f.fc.price()), term.town.name, _hours_text(f.tow.minutes_left())], 8.0)
+		f.fc.label, "$" + fmt_int(f.fc.price()), term.town.name, hours_text(f.tow.minutes_left())], 8.0)
 
 
 func _on_ferry_delivered(f: Ferry) -> void:
@@ -1298,7 +1232,7 @@ func _rebuild_wildlife() -> void:
 			ranked.append(isl)
 	ranked.sort_custom(func(a, b): return wildlife.reputation(a) > wildlife.reputation(b))
 	for isl: MapData.Island in ranked.slice(0, 5):
-		lines.append("%s   %s" % [isl.name, _draw_text(isl)])
+		lines.append("%s   %s" % [isl.name, wildlife_draw_text(wildlife, isl)])
 	_wild_islands.text = "\n".join(lines) if not lines.is_empty() else "No island has had a sighting this season."
 
 
@@ -1332,19 +1266,11 @@ func _group_word(v: Wildlife.Visit) -> String:
 	return "pod"
 
 
-func _draw_text(isl: MapData.Island) -> String:
+static func wildlife_draw_text(wildlife: Wildlife, isl: MapData.Island) -> String:
 	var r := wildlife.standing(isl)
 	if r == null or r.value < 0.05:
 		return "-"
 	return "+%.1f · %s" % [r.value, r.last_species]
-
-
-func _appeal_text(a: float) -> String:
-	if a >= 2.0:
-		return "Hotspot"
-	if a >= 0.7:
-		return "Fair"
-	return "Rare"
 
 
 ## Only the rarer visitors (Species.callout) are announced; the rest just show up in
@@ -1434,13 +1360,15 @@ func _build_map_controls() -> void:
 	map_controls = MapControls.new()
 	map_controls.add_theme_stylebox_override("panel", _panel_style(PANEL_BG, 10, 4, 4))
 	root.add_child(map_controls)
-	map_controls.setup(sim, main.day_cycle, font)
+	map_controls.setup(sim, _session.day_cycle, font)
 	map_controls.weather_toggled.connect(_on_weather_toggled)
+	map_controls.pin_save_failed.connect(func(err: Error) -> void:
+		show_toast("WEATHER PIN", "Couldn’t save the pin (%s). Try again." % error_string(err)))
 
 
 ## Hides the cloud deck and its shadows. The weather itself carries on.
 func _on_weather_toggled(shown: bool) -> void:
-	main.clouds.set_shown(shown)
+	_session.clouds.set_shown(shown)
 	show_toast("WEATHER", "Map weather shown." if shown else "Map weather hidden. Conditions keep changing.", 2.5)
 
 
@@ -1631,7 +1559,9 @@ func _process(delta: float) -> void:
 	_stat["vessels"].text = str(sim.ferries.size())
 	_stat["routes"].text = str(map.routes.filter(func(r): return r.in_service).size())
 	_stat["sat"].text = "%d%%" % roundi(sim.satisfaction())
-	_stat["queue"].text = fmt_int(sim.total_queued())
+	if _queue_total_dirty:
+		_stat["queue"].text = fmt_int(sim.total_queued())
+		_queue_total_dirty = false
 	_stat["date"].text = sim.date_text()
 	_stat["time"].text = sim.clock_text()
 	_refresh_panels()
@@ -1644,50 +1574,8 @@ func _process(delta: float) -> void:
 
 
 ## "12 h" or "3 h 20 min" of game time.
-func _hours_text(minutes: float) -> String:
+static func hours_text(minutes: float) -> String:
 	var m := ceili(minutes)
 	if m < 60:
 		return "%d min" % m
 	return "%d h" % (m / 60) if m % 60 == 0 else "%d h %d min" % [m / 60, m % 60]
-
-
-## "2 small · 1 idle" style summary of a terminal's slips.
-func _slips_text(isl: MapData.Town) -> String:
-	var parts: PackedStringArray = []
-	for i in isl.slips.size():
-		var slip := isl.slips[i]
-		if slip.building:
-			parts.append("%s: being built" % ("Tie-up" if slip.tie_up else "New slip"))
-			continue
-		if slip.tie_up:
-			var boat := "free"
-			for f: Ferry in sim.ferries:
-				if f.berth != Ferry.Berth.WORKING and f.here().town == isl and f.tie_up == i:
-					boat = f.ferry_name
-			parts.append("Tie-up (%s): %s" % [slip.size_name(), boat])
-			continue
-		var names: PackedStringArray = []
-		for rid in slip.routes:
-			var r: MapData.Route = sim.map.routes[rid]
-			if not r.in_service:
-				continue
-			names.append(sim.map.towns[r.b if r.a == isl.id else r.a].name.trim_suffix(" Island"))
-		parts.append("%s: %s" % [slip.size_name().capitalize(), ", ".join(names) if not names.is_empty() else "idle"])
-	return " · ".join(parts)
-
-
-## "Port Rosario 2 (1 sharing) · Gullrock 1" style summary of a terminal's lanes.
-func _lanes_text(term: Terminal) -> String:
-	var parts: PackedStringArray = []
-	for key in term.lanes.keys():
-		if not MapData.is_route(key):
-			continue
-		var guests := 0
-		for lane: Terminal.Lane in term.lanes[key]:
-			for waiting in lane.queue:
-				var car := instance_from_id(waiting.vehicle_id) as Vehicle
-				if car.dest != key:
-					guests += 1
-		var name: String = sim.map.towns[key].name.trim_suffix(" Island")
-		parts.append("%s %d%s" % [name, term.lanes[key].size(), " (%d sharing)" % guests if guests > 0 else ""])
-	return " · ".join(parts) if not parts.is_empty() else "-"

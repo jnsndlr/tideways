@@ -19,7 +19,6 @@ var _legs: Array = []          # [[NavPath, crab], ...] the legs still to follow
 var _crab := false             # moving sideways along `path`, not ahead
 var _coming_in := false        # (rather than leaving)
 var crab_speed := CRAB_SPEED
-var _hull: MeshInstance3D
 
 
 # --- Hooks ----------------------------------------------------------------------------
