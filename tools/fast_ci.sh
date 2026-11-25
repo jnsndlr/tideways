@@ -22,84 +22,84 @@ fi
 
 check import smoke --editor --import
 if [[ $suite == traffic ]]; then
-  check captain-crossings test --fixed-fps 30 --script tools/captain_crossing_test.gd -- --seed=123 --ferry=1 --rounds=1
-  check road-traffic test --fixed-fps 30 --script tools/vehicle_overlap_test.gd -- --verify --seed=123 --frames=6000
-  check shared-slip test --fixed-fps 30 --script tools/shared_slip_test.gd -- --scenario=shared_slip
-  check same-route-pass test --fixed-fps 30 --script tools/same_route_pass_test.gd -- --scenario=shared_slip
-  check tie-up test --fixed-fps 30 --script tools/tie_up_test.gd -- --scenario=shared_slip
-  check gap-tie-up test --fixed-fps 30 --script tools/gap_tie_up_test.gd -- --scenario=shared_slip
-  check lot-lanes test --fixed-fps 30 --script tools/lot_lanes_test.gd
-  check lane-sharing test --fixed-fps 30 --script tools/lane_sharing_test.gd -- --scenario=lane_sharing
-  check schedule-edit test --fixed-fps 30 --script tools/schedule_edit_test.gd
-  check timetable test --fixed-fps 30 --script tools/timetable_test.gd
-  check daily-cost test --fixed-fps 30 --script tools/daily_cost_test.gd
-  check dock-sites test --fixed-fps 30 --script tools/dock_site_test.gd
-  check fleet-purchase test --fixed-fps 30 --script tools/fleet_purchase_test.gd
-  check slip-conflict test --fixed-fps 30 --script tools/slip_conflict_test.gd -- --scenario=two_boats
-  check tie-up-refit test --fixed-fps 30 --script tools/tie_up_refit_test.gd -- --scenario=shared_slip
-  check slip-refit test --fixed-fps 30 --script tools/slip_refit_test.gd -- --scenario=opening
-  check slip-purchase test --fixed-fps 30 --script tools/slip_purchase_test.gd -- --scenario=shared_slip
-  check flex-slip test --fixed-fps 30 --script tools/flex_slip_test.gd -- --scenario=shared_slip
-  check dredge-slip test --fixed-fps 30 --script tools/dredge_slip_test.gd -- --scenario=opening
-  check marine-traffic test --fixed-fps 30 --script tools/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
+  check captain-crossings test --fixed-fps 30 --script tests/traffic/captain_crossing_test.gd -- --seed=123 --ferry=1 --rounds=1
+  check road-traffic test --fixed-fps 30 --script tests/traffic/vehicle_overlap_test.gd -- --verify --seed=123 --frames=6000
+  check shared-slip test --fixed-fps 30 --script tests/traffic/shared_slip_test.gd -- --scenario=shared_slip
+  check same-route-pass test --fixed-fps 30 --script tests/traffic/same_route_pass_test.gd -- --scenario=shared_slip
+  check tie-up test --fixed-fps 30 --script tests/traffic/tie_up_test.gd -- --scenario=shared_slip
+  check gap-tie-up test --fixed-fps 30 --script tests/traffic/gap_tie_up_test.gd -- --scenario=shared_slip
+  check lot-lanes test --fixed-fps 30 --script tests/traffic/lot_lanes_test.gd
+  check lane-sharing test --fixed-fps 30 --script tests/traffic/lane_sharing_test.gd -- --scenario=lane_sharing
+  check schedule-edit test --fixed-fps 30 --script tests/traffic/schedule_edit_test.gd
+  check timetable test --fixed-fps 30 --script tests/traffic/timetable_test.gd
+  check daily-cost test --fixed-fps 30 --script tests/traffic/daily_cost_test.gd
+  check dock-sites test --fixed-fps 30 --script tests/traffic/dock_site_test.gd
+  check fleet-purchase test --fixed-fps 30 --script tests/traffic/fleet_purchase_test.gd
+  check slip-conflict test --fixed-fps 30 --script tests/traffic/slip_conflict_test.gd -- --scenario=two_boats
+  check tie-up-refit test --fixed-fps 30 --script tests/traffic/tie_up_refit_test.gd -- --scenario=shared_slip
+  check slip-refit test --fixed-fps 30 --script tests/traffic/slip_refit_test.gd -- --scenario=opening
+  check slip-purchase test --fixed-fps 30 --script tests/traffic/slip_purchase_test.gd -- --scenario=shared_slip
+  check flex-slip test --fixed-fps 30 --script tests/traffic/flex_slip_test.gd -- --scenario=shared_slip
+  check dredge-slip test --fixed-fps 30 --script tests/traffic/dredge_slip_test.gd -- --scenario=opening
+  check marine-traffic test --fixed-fps 30 --script tests/traffic/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
   exit 0
 fi
-check session-launch-options test --script tools/session_launch_options_test.gd
-check persistence test --script tools/persistence_test.gd
-check ferry-assignment test --script tools/fast_ferry_test.gd
-check region-voyage test --script tools/art_free_region_test.gd
+check session-launch-options test --script tests/session/session_launch_options_test.gd
+check persistence test --script tests/session/persistence_test.gd
+check ferry-assignment test --script tests/simulation/fast_ferry_test.gd
+check region-voyage test --script tests/world/art_free_region_test.gd
 check terminal-refit test --script tests/rules/terminal_refit_test.gd
-check slip-completion test --script tools/slip_completion_test.gd
+check slip-completion test --script tests/simulation/slip_completion_test.gd
 check ferry-lay-up test --script tests/rules/ferry_lay_up_test.gd
 check ferry-voyage test --script tests/rules/ferry_voyage_test.gd
-check ferry-waterline test --script tools/ferry_waterline_test.gd
-check ferry-view test --script tools/ferry_view_test.gd
-check fare-and-deck test --script tools/fare_deck_test.gd
-check vehicle-spawn test --script tools/vehicle_spawn_test.gd
-check simulation-rules test --script tools/simulation_rules_test.gd
-check motor-yacht-anchor test --script tools/motor_yacht_anchor_test.gd
-check vessel-hull test --script tools/vessel_hull_view_test.gd
-check vessel-night-lights test --script tools/vessel_night_lights_test.gd
-check trawler-gear test --script tools/trawler_gear_test.gd
-check sailboat-rig test --script tools/sailboat_rig_test.gd
+check ferry-waterline test --script tests/world/ferry_waterline_test.gd
+check ferry-view test --script tests/world/ferry_view_test.gd
+check fare-and-deck test --script tests/simulation/fare_deck_test.gd
+check vehicle-spawn test --script tests/simulation/vehicle_spawn_test.gd
+check simulation-rules test --script tests/simulation/simulation_rules_test.gd
+check motor-yacht-anchor test --script tests/world/motor_yacht_anchor_test.gd
+check vessel-hull test --script tests/world/vessel_hull_view_test.gd
+check vessel-night-lights test --script tests/world/vessel_night_lights_test.gd
+check trawler-gear test --script tests/world/trawler_gear_test.gd
+check sailboat-rig test --script tests/world/sailboat_rig_test.gd
 check timetable-round test --script tests/rules/timetable_round_test.gd
-check mission-goals test --script tools/mission_goals_test.gd
-check land-distance-field test --script tools/land_distance_field_test.gd
-check route-sample-grid test --script tools/route_sample_grid_test.gd
-check route-memo test --script tools/route_memo_test.gd
-check region-contract test --script tools/region_contract_test.gd
-check road-grade test --script tools/road_grade_test.gd
-check company-network test --script tools/company_network_test.gd
-check tiny-region test --fixed-fps 30 --script tools/tiny_region_test.gd
-check coastal-town test --script tools/coastal_town_test.gd
-check forest-proximity test --script tools/forest_proximity_test.gd
-check schedule-slip-size test --script tools/schedule_slip_size_test.gd
-check eagle-departure test --script tools/eagle_departure_test.gd
-check shared-forecourt test --script tools/shared_forecourt_test.gd
-check refit-crane test --script tools/refit_crane_test.gd
-check model-parts test --script tools/model_parts_test.gd
-check trailer-paint test --script tools/trailer_paint_test.gd
-check tie-up-pier test --script tools/tie_up_pier_test.gd
-check trestle-profile test --script tools/trestle_profile_test.gd
-check slip-guide-mesh test --script tools/slip_guide_mesh_test.gd
-check lane-redistribution test --script tools/lane_redistribution_test.gd -- --scenario=lane_sharing
-check terminal-inspector test --script tools/terminal_inspector_test.gd
-check opening-scenario test --script tools/opening_scenario_test.gd
-check full-network-opening test --script tools/opening_scenario_test.gd -- --full-network
-check region-load-recovery test --fixed-fps 30 --script tools/region_load_recovery_test.gd
-check fleet-purchase-ui test --fixed-fps 30 --script tools/fleet_purchase_ui_test.gd
-check opening-economy-ui test --fixed-fps 30 --script tools/opening_economy_ui_test.gd
+check mission-goals test --script tests/simulation/mission_goals_test.gd
+check land-distance-field test --script tests/world/land_distance_field_test.gd
+check route-sample-grid test --script tests/world/route_sample_grid_test.gd
+check route-memo test --script tests/world/route_memo_test.gd
+check region-contract test --script tests/world/region_contract_test.gd
+check road-grade test --script tests/world/road_grade_test.gd
+check company-network test --script tests/session/company_network_test.gd
+check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
+check coastal-town test --script tests/world/coastal_town_test.gd
+check forest-proximity test --script tests/world/forest_proximity_test.gd
+check schedule-slip-size test --script tests/simulation/schedule_slip_size_test.gd
+check eagle-departure test --script tests/world/eagle_departure_test.gd
+check shared-forecourt test --script tests/simulation/shared_forecourt_test.gd
+check refit-crane test --script tests/world/refit_crane_test.gd
+check model-parts test --script tests/world/model_parts_test.gd
+check trailer-paint test --script tests/world/trailer_paint_test.gd
+check tie-up-pier test --script tests/world/tie_up_pier_test.gd
+check trestle-profile test --script tests/world/trestle_profile_test.gd
+check slip-guide-mesh test --script tests/world/slip_guide_mesh_test.gd
+check lane-redistribution test --script tests/simulation/lane_redistribution_test.gd -- --scenario=lane_sharing
+check terminal-inspector test --script tests/ui/terminal_inspector_test.gd
+check opening-scenario test --script tests/session/opening_scenario_test.gd
+check full-network-opening test --script tests/session/opening_scenario_test.gd -- --full-network
+check region-load-recovery test --fixed-fps 30 --script tests/session/region_load_recovery_test.gd
+check fleet-purchase-ui test --fixed-fps 30 --script tests/ui/fleet_purchase_ui_test.gd
+check opening-economy-ui test --fixed-fps 30 --script tests/ui/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
-check hud test --fixed-fps 30 --script tools/ferry_ui_test.gd
-check touch-edit test --fixed-fps 30 --script tools/touch_edit_test.gd
+check hud test --fixed-fps 30 --script tests/ui/ferry_ui_test.gd
+check touch-edit test --fixed-fps 30 --script tests/ui/touch_edit_test.gd
 check sandbox smoke --fixed-fps 30 --quit-after 120 res://scenes/sandbox.tscn -- --seed=123
-check holding-lane test --fixed-fps 30 --script tools/holding_lane_test.gd -- --seed=123
-check wake-bounds test --script tools/wake_bounds_test.gd
-check frame-budget test --fixed-fps 30 --script tools/frame_budget_test.gd -- --seed=123
-check vehicle-journey test --fixed-fps 30 --script tools/vehicle_journey_test.gd -- --seed=123
-check simulation-shutdown test --fixed-fps 30 --script tools/simulation_shutdown_test.gd
-check marine-shutdown test --fixed-fps 30 --script tools/marine_shutdown_test.gd
-check backdrop-shutdown test --fixed-fps 30 --script tools/backdrop_shutdown_test.gd
-check world-build-shutdown test --fixed-fps 30 --script tools/world_build_shutdown_test.gd
-check generation-shutdown test --fixed-fps 30 --script tools/generation_shutdown_test.gd
-check leaving-sandbox test --fixed-fps 30 --script tools/scene_cycle_test.gd
+check holding-lane test --fixed-fps 30 --script tests/simulation/holding_lane_test.gd -- --seed=123
+check wake-bounds test --script tests/world/wake_bounds_test.gd
+check frame-budget test --fixed-fps 30 --script tests/world/frame_budget_test.gd -- --seed=123
+check vehicle-journey test --fixed-fps 30 --script tests/simulation/vehicle_journey_test.gd -- --seed=123
+check simulation-shutdown test --fixed-fps 30 --script tests/session/simulation_shutdown_test.gd
+check marine-shutdown test --fixed-fps 30 --script tests/session/marine_shutdown_test.gd
+check backdrop-shutdown test --fixed-fps 30 --script tests/session/backdrop_shutdown_test.gd
+check world-build-shutdown test --fixed-fps 30 --script tests/session/world_build_shutdown_test.gd
+check generation-shutdown test --fixed-fps 30 --script tests/session/generation_shutdown_test.gd
+check leaving-sandbox test --fixed-fps 30 --script tests/session/scene_cycle_test.gd
