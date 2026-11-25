@@ -51,9 +51,13 @@ func exercise() -> bool:
 		return fail("A stale region request replaced the menu")
 	if repaired.get_ref() != null:
 		return fail("Repaired scene was retained after returning to the menu")
+	return await reopen_company()
+
+
+func reopen_company() -> bool:
 	# Simulate a previous company's editor state.
 	RegionEntryState.editor_restore["editor_open"] = true
-	if not await press("Play"):
+	if not await press("Play") or not await press("Start"):
 		return false
 	if not RegionEntryState.editor_restore.is_empty():
 		return fail("Play inherited the previous editor state")
@@ -75,7 +79,7 @@ func exercise() -> bool:
 	await scene_changed
 	# Exit while the fresh resource request is still owned by the overlay.
 	# The CI runner checks engine diagnostics after quit.
-	return await press("Play")
+	return await press("Play") and await press("Start")
 
 
 func fails_in_menu(path: String) -> bool:

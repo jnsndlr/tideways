@@ -39,3 +39,8 @@ func arrive() -> void:
 		last_crossing = _elapsed
 		last_crossing_captain = current
 		_elapsed = -1.0
+
+
+## A manual diversion ends the timed route without crediting a complete crossing.
+func cancel_crossing() -> void:
+	_elapsed = -1.0

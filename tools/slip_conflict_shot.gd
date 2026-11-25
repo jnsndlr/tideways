@@ -39,7 +39,7 @@ func _process(_delta: float) -> bool:
 		return false
 	var sim: Simulation = main.sim
 	var hud: Hud = main.hud
-	var ed: ScheduleEditor = hud._schedule_editor
+	var ed: ScheduleEditor = hud._ferry_panel._schedule_editor
 	var hiyu: Ferry = sim.ferries[0]
 	var heron: Ferry = sim.ferries[1]
 	match frames:
@@ -54,7 +54,7 @@ func _process(_delta: float) -> bool:
 			if not sim.reschedule(hiyu, hiyu_ids, hiyu_times):
 				push_error("Couldn't time the Hiyu")
 			hud.select_ferry(heron)
-			ed.open(heron)
+			hud._ferry_panel.open_schedule()
 			ed._timed = true
 			ed._times.assign([heron_t, heron_t + 370, heron_t + 740])
 			ed._rebuild()

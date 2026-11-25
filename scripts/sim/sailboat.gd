@@ -60,7 +60,7 @@ func _process(delta: float) -> void:
 	_bob += delta
 	match state:
 		State.MOORED:
-			dwell -= delta
+			dwell -= Units.game_minutes(delta)
 			var h := traffic.sim.hour()
 			if dwell <= 0.0 and h >= LEAVE_HOURS.x and h < LEAVE_HOURS.y:
 				depart()

@@ -44,6 +44,19 @@ const MID_SCALE := FerryHullDimensions.MID_SCALE
 const MID_CAR_DECK := 2.85  # her car deck above the waterline (art/ferry_mid.py CAR_DECK)
 const MID_DROP := MID_CAR_DECK * MID_SCALE - Layout.DECK_Y
 const MID_APRON_Z := 42.45  # where her car deck's asphalt gives way to the bare steel apron
+# size: walk-on passenger capacity for each ferry class.
+const PASSENGER_CAPACITY := {
+	1: 20,
+	2: 100,
+	3: 300,
+	4: 500,
+	5: 1000,
+}
+
+## How far in from the Hiyu's side (metres) her wing lanes run where she tapers.
+const HIYU_WING_INSET := 1.6
+const HIYU_NET_Z := 22.6  # the apron line, where the bulwarks stop (hiyu_mid.py NET_Z)
+
 static var mid := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(MID_GLB)
 
 # The mid-poly M/V Guemes (size 1), shown and dropped like the Evergreen State; her
@@ -115,6 +128,7 @@ const RUNNING := {
 	5: [15, 160.0],
 }
 
+
 # size: what she costs new from the yard (Simulation.buy_ferry). Rebalance them here.
 const PRICES := {
 	1: 30000,
@@ -131,6 +145,7 @@ var label := ""
 var lanes := 4
 var rows := 9
 var capacity := 36
+var passenger_capacity := 120
 var half_length := 45.0
 var half_beam := 12.6
 var cruise := 27.0
@@ -268,6 +283,7 @@ func _init(s: int) -> void:
 	crew = RUNNING[s][0]
 	burn = RUNNING[s][1]
 	capacity = lanes * rows
+	passenger_capacity = PASSENGER_CAPACITY[s]
 	guemes = s == 1 and small
 	open_deck = s == 1 and not guemes
 	hiyu = s == 2 and hiyu_model
@@ -770,9 +786,6 @@ const HIYU_BEAM := [
 ]
 
 
-## How far in from the Hiyu's side (metres) her wing lanes run where she tapers.
-const HIYU_WING_INSET := 1.6
-const HIYU_NET_Z := 22.6   # the apron line, where the bulwarks stop (hiyu_mid.py NET_Z)
 
 
 ## The Hiyu model's half beam at the deck at |z| (metres).

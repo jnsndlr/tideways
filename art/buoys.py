@@ -19,6 +19,7 @@ Outputs:
     assets/models/buoys/buoy_hazard_spar.glb
     assets/models/buoys/marker_channel_port.glb
     assets/models/buoys/marker_channel_starboard.glb
+    assets/models/buoys/buoy_traffic_separation.glb
 
 Frame:
     Blender Z-up, metres (glTF export maps to Godot Y-up, Blender -Y -> Godot +Z).
@@ -276,6 +277,91 @@ def generate_textures():
     )
     paths["buoy_solar_orm"] = save_tex("buoy_solar_orm", s_orm, True)
 
+    # Dark oxide/maroon antifouling boot-top & waterline hull paint.
+    af_big = fbm(P, 5, 4, 701)
+    af_mid = fbm(P, 16, 4, 709)
+    af_fine = fbm(P, 44, 3, 719)
+    af_algae = smoothstep(af_big * 0.6 + af_mid * 0.4, 0.56, 0.74) * 0.42
+    af_salt = smoothstep(af_mid * 0.55 + af_fine * 0.45, 0.68, 0.80) * 0.30
+    af_base = np.array((0.23, 0.085, 0.065)) * (0.82 + 0.28 * af_fine[..., None])
+    af_col = af_base * (1.0 - af_algae[..., None]) + np.array((0.12, 0.14, 0.08)) * af_algae[..., None]
+    af_col = af_col * (1.0 - af_salt[..., None]) + np.array((0.52, 0.46, 0.38)) * af_salt[..., None]
+    paths["buoy_antifouling_albedo"] = save_tex("buoy_antifouling_albedo", af_col, False)
+    af_orm = np.stack(
+        [
+            0.80 + 0.20 * af_mid,
+            np.clip(0.76 + 0.16 * af_salt - 0.10 * af_algae, 0.45, 0.96),
+            np.full((P, P), 0.08),
+        ],
+        axis=-1,
+    )
+    paths["buoy_antifouling_orm"] = save_tex("buoy_antifouling_orm", af_orm, True)
+
+    # Weathered yellow upper daymark panel with crisp dark-charcoal "SC" lettering.
+    # Coordinate frame matches 0..1 UVs: x=0 left..1 right, y=0 bottom..1 top (row 0 = top).
+    gx_u = np.linspace(0.0, 1.0, P, dtype=np.float32)
+    gy_v = np.linspace(1.0, 0.0, P, dtype=np.float32)
+    uu_sc, vv_sc = np.meshgrid(gx_u, gy_v)
+
+    def _sd_arc(px, py, cx, cy, rx, ry, a0_deg, a1_deg):
+        # Distance to an elliptical arc approximated in normalized ellipse space.
+        dx = (px - cx) / rx
+        dy = (py - cy) / ry
+        a0 = math.radians(a0_deg)
+        a1 = math.radians(a1_deg)
+        amid = 0.5 * (a0 + a1)
+        ahalf = 0.5 * abs(a1 - a0)
+        ang = np.arctan2(dy, dx)
+        rel = (ang - amid + math.pi) % math.tau - math.pi
+        clamped = np.clip(rel, -ahalf, ahalf) + amid
+        qx = cx + rx * np.cos(clamped)
+        qy = cy + ry * np.sin(clamped)
+        return np.hypot(px - qx, py - qy)
+
+    def _sd_seg(px, py, x0, y0, x1, y1):
+        vx, vy = x1 - x0, y1 - y0
+        l2 = max(vx * vx + vy * vy, 1e-8)
+        t = np.clip(((px - x0) * vx + (py - y0) * vy) / l2, 0.0, 1.0)
+        return np.hypot(px - (x0 + t * vx), py - (y0 + t * vy))
+
+    # Bold USCG-style sans-serif "S" (left) and "C" (right) centered on panel.
+    stroke_r = 0.039
+    # "S" centered around x = 0.355, y = 0.52 (upright USCG Gothic proportions)
+    sx, sy = 0.355, 0.52
+    srx, sry = 0.108, 0.118
+    d_s_top = _sd_arc(uu_sc, vv_sc, sx, sy + sry, srx, sry, 24.0, 270.0)
+    d_s_bot = _sd_arc(uu_sc, vv_sc, sx, sy - sry, srx, sry, -156.0, 90.0)
+    d_s = np.minimum(d_s_top, d_s_bot)
+
+    # "C" centered around x = 0.665, y = 0.52 (matching height & stroke)
+    cx_c, cy_c = 0.665, 0.52
+    crx, cry = 0.112, 0.125
+    c_stem_half = 0.111
+    d_c_top = _sd_arc(uu_sc, vv_sc, cx_c, cy_c + c_stem_half, crx, cry, 26.0, 180.0)
+    d_c_bot = _sd_arc(uu_sc, vv_sc, cx_c, cy_c - c_stem_half, crx, cry, 180.0, 334.0)
+    d_c_left = _sd_seg(uu_sc, vv_sc, cx_c - crx, cy_c - c_stem_half, cx_c - crx, cy_c + c_stem_half)
+    d_c = np.minimum(np.minimum(d_c_top, d_c_bot), d_c_left)
+
+    d_letters = np.minimum(d_s, d_c)
+    letter_mask = 1.0 - smoothstep(d_letters, stroke_r - 0.005, stroke_r + 0.005)
+
+    # Build weathered yellow base matching buoy_yellow, plus subtle top grime/guano & paint fade on letters.
+    sc_base = np.array(paint_tints["buoy_yellow"]) * (0.90 + 0.14 * fine[..., None]) * (1.0 - 0.14 * grime[..., None])
+    letter_col = np.array((0.14, 0.15, 0.16)) * (0.92 + 0.12 * fine[..., None])
+    letter_wear = np.clip(letter_mask * (0.92 - 0.18 * smoothstep(mid, 0.55, 0.80)), 0.0, 1.0)[..., None]
+    sc_col = sc_base * (1.0 - letter_wear) + letter_col * letter_wear
+    # Apply the same rust streaks, salt haze, and chipped bare metal spots over both paint & lettering
+    s_mix = np.clip(runs * 0.55 + halo * 0.34, 0.0, 0.78)[..., None]
+    sc_col = sc_col * (1.0 - s_mix) + stain_col * s_mix
+    # Subtle coastal salt/guano streak along the very top edge of the panel
+    top_streak = smoothstep(vv_sc, 0.76, 0.98) * smoothstep(tile_noise2(P, 18, 4, 733), 0.42, 0.78) * 0.28
+    sc_col = sc_col * (1.0 - top_streak[..., None]) + np.array((0.82, 0.80, 0.74)) * top_streak[..., None]
+    d_mix = smoothstep(grime * 0.6 + big * 0.4, 0.54, 0.82)[..., None] * 0.18
+    sc_col = sc_col * (1.0 - d_mix) + salt_dust * d_mix
+    b_mix = bare[..., None] * 0.78
+    sc_col = sc_col * (1.0 - b_mix) + rust_col * b_mix
+    paths["buoy_yellow_sc_albedo"] = save_tex("buoy_yellow_sc_albedo", sc_col, False)
+
     return paths
 
 
@@ -380,6 +466,18 @@ def build_materials(tex_paths):
     )
     mats["buoy_solar"] = _make_pbr_mat(
         "buoy_solar", tex_paths["buoy_solar_albedo"], None, tex_paths["buoy_solar_orm"]
+    )
+    mats["buoy_antifouling"] = _make_pbr_mat(
+        "buoy_antifouling",
+        tex_paths["buoy_antifouling_albedo"],
+        tex_paths["buoy_rust_normal"],
+        tex_paths["buoy_antifouling_orm"],
+    )
+    mats["buoy_yellow_sc"] = _make_pbr_mat(
+        "buoy_yellow_sc",
+        tex_paths["buoy_yellow_sc_albedo"],
+        tex_paths["paint_normal"],
+        tex_paths["paint_orm"],
     )
     mats["buoy_rubber"] = _make_solid_mat("buoy_rubber", (0.07, 0.07, 0.08), metallic=0.0, roughness=0.88)
     mats["buoy_steel_bright"] = _make_solid_mat("buoy_steel_bright", (0.58, 0.60, 0.60), metallic=0.85, roughness=0.34)
@@ -645,7 +743,7 @@ class BuoyMesh:
         self._merge(bm, mat, xf, smooth_angle_deg=0)
 
     def solar_face(self, width, height, xform, mat="buoy_solar"):
-        """Single quad with exact 0..1 UVs for the gridded solar cell texture."""
+        """Single quad with exact 0..1 UVs (facing local -Y)."""
         bm = bmesh.new()
         hw, hh = width * 0.5, height * 0.5
         v0 = bm.verts.new((-hw, 0.0, -hh))
@@ -657,6 +755,40 @@ class BuoyMesh:
         for loop, t in zip(f.loops, ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))):
             loop[uv].uv = t
         self._merge(bm, mat, xform, custom_uv=True)
+
+    def arched_lug(self, center, yaw, base_w, arch_r, z_center, thick, hole_r, mat):
+        """Heavy arched welded deck lifting lug in local XZ with a true through-hole along Y."""
+        segs = 12 if HIGH_DETAIL else 8
+        bm = bmesh.new()
+        hy = thick * 0.5
+        hw = base_w * 0.5
+        f_in, f_out, b_in, b_out = [], [], [], []
+        for k in range(segs):
+            a = math.tau * k / segs
+            ca, sa = math.cos(a), math.sin(a)
+            ix, iz = hole_r * ca, z_center + hole_r * sa
+            if sa >= 0.0:
+                ox, oz = arch_r * ca, z_center + arch_r * sa
+            else:
+                tx = hw / max(abs(ca), 1e-6)
+                tz = z_center / max(-sa, 1e-6)
+                t = min(tx, tz)
+                ox, oz = t * ca, z_center + t * sa
+            f_in.append(bm.verts.new((ix, -hy, iz)))
+            f_out.append(bm.verts.new((ox, -hy, oz)))
+            b_in.append(bm.verts.new((ix, hy, iz)))
+            b_out.append(bm.verts.new((ox, hy, oz)))
+        for k in range(segs):
+            k1 = (k + 1) % segs
+            # Front (-Y) and back (+Y) annular faces
+            bm.faces.new((f_in[k], f_out[k], f_out[k1], f_in[k1]))
+            bm.faces.new((b_in[k], b_in[k1], b_out[k1], b_out[k]))
+            # Outer arch rim and inner hole bore
+            bm.faces.new((f_out[k], b_out[k], b_out[k1], f_out[k1]))
+            bm.faces.new((f_in[k], f_in[k1], b_in[k1], b_in[k]))
+        rot = Matrix.Rotation(yaw, 3, "Z")
+        xf = Matrix.Translation(Vector(center)) @ rot.to_4x4()
+        self._merge(bm, mat, xf, smooth_angle_deg=0)
 
     def finish(self, collection):
         me = bpy.data.meshes.get(self.name)
@@ -1419,6 +1551,205 @@ def build_marker_channel_starboard(coll, mats):
     return ob, {"BeaconLight": beacon_pt}
 
 
+def build_buoy_traffic_separation(coll, mats):
+    """USCG Traffic Separation Scheme Lighted Buoy ('SC'): all-yellow pontoon with dark antifouling waterline,
+    heavy arched deck lifting lugs, 4-leg yellow lattice around central battery riser, tall square 'SC' daymark box,
+    low domed roof cap, and amber Fresnel beacon."""
+    m = BuoyMesh("buoy_traffic_separation", mats)
+
+    # Submerged counterweight skirt, central ballast tube, 4 anti-roll fins, and anchor chain stub
+    sub_prof = [
+        (0.36, -1.35),
+        (0.42, -1.30),
+        (0.42, -0.60),
+        (0.80, -0.34),
+        (1.26, 0.02),
+    ]
+    m.lathe(sub_prof, (0, 0, 0), "buoy_antifouling", segs=24)
+    for i in range(4):
+        a = math.tau * i / 4.0 + math.pi * 0.25
+        rot = Matrix.Rotation(a, 3, "Z")
+        m.extrude_poly_y(
+            [(0.40, -1.24), (0.66, -1.10), (0.66, -0.58), (0.40, -0.50)],
+            0.032,
+            (0, 0, 0),
+            "buoy_rust",
+            rot=rot,
+        )
+    mooring_pt = add_mooring_chain(m, -1.35, links=5, link_len=0.22, link_w=0.13, wire_r=0.022)
+
+    # Wide cylindrical pontoon float: dark oxide/antifouling waterline boot-top + chunky safety-yellow drum
+    m.lathe([(1.28, 0.00), (1.29, 0.25)], (0, 0, 0), "buoy_antifouling", segs=28, cap_bottom=False, cap_top=False)
+    m.lathe(
+        [(1.29, 0.25), (1.29, 0.79), (1.23, 0.85), (0.01, 0.87)],
+        (0, 0, 0),
+        "buoy_yellow",
+        segs=28,
+        cap_bottom=False,
+        cap_top=True,
+    )
+    # Subtle welded chime rim around the pontoon deck perimeter
+    m.torus(1.23, 0.022, (0, 0, 0.855), "buoy_yellow", major_segs=28, minor_segs=6)
+
+    # 4 prominent heavy arched yellow steel lifting lugs around the pontoon deck rim (matching photo silhouette)
+    for i in range(4):
+        a = math.tau * i / 4.0
+        px, py = math.cos(a) * 1.07, math.sin(a) * 1.07
+        rot = Matrix.Rotation(a, 3, "Z")
+        # Welded doubling pad under each lug
+        m.box((0.28, 0.14, 0.028), (px, py, 0.865), "buoy_yellow", rot=rot, bevel=0.004)
+        # Tall arched lifting eye with circular shackle bore facing tangentially
+        m.arched_lug((px, py, 0.87), a, base_w=0.25, arch_r=0.115, z_center=0.165, thick=0.056, hole_r=0.054, mat="buoy_yellow")
+
+    # Small recessed deck inspection hatch beside the central riser
+    add_deck_hatch(m, (0.0, -0.94, 0.855), radius=0.14, mat="buoy_yellow")
+
+    # Open 4-legged yellow steel lattice tower (z = 0.86 .. 2.84)
+    z_levels = [0.86, 1.54, 2.20, 2.84]
+    half_spans = [0.74, 0.725, 0.71, 0.695]
+
+    def leg_pt(lv, corner_idx):
+        sx = -1.0 if corner_idx in (0, 3) else 1.0
+        sy = -1.0 if corner_idx in (0, 1) else 1.0
+        return Vector((sx * half_spans[lv], sy * half_spans[lv], z_levels[lv]))
+
+    # Corner foot plates + 4 stout vertical-ish yellow legs
+    for c in range(4):
+        base = leg_pt(0, c)
+        m.box((0.22, 0.22, 0.045), base + Vector((0, 0, 0.015)), "buoy_yellow", bevel=0.006)
+        add_bolt_ring(m, base + Vector((0, 0, 0.042)), 0.08, 4, bolt_r=0.014, bolt_h=0.018, mat="buoy_rust")
+        for lv in range(len(z_levels) - 1):
+            m.strut(leg_pt(lv, c), leg_pt(lv + 1, c), 0.048, "buoy_yellow", segs=8)
+
+    # Horizontal perimeter beams at each tower level
+    for lv in (1, 2, 3):
+        for c in range(4):
+            c1 = (c + 1) % 4
+            m.strut(leg_pt(lv, c), leg_pt(lv, c1), 0.032, "buoy_yellow", segs=6)
+
+    # Central yellow cylindrical battery pocket / counterweight column inside lower lattice (z = 0.86 .. 1.94)
+    m.cylinder(0.32, 0.32, 0.05, (0, 0, 0.885), "buoy_yellow", segs=20)
+    add_bolt_ring(m, (0, 0, 0.915), 0.28, 8, bolt_r=0.013, bolt_h=0.016, mat="buoy_rust")
+    m.lathe(
+        [(0.25, 0.90), (0.25, 1.84), (0.28, 1.86), (0.28, 1.90), (0.23, 1.94), (0.01, 1.95)],
+        (0, 0, 0),
+        "buoy_yellow",
+        segs=20,
+    )
+    add_bolt_ring(m, (0, 0, 1.91), 0.25, 8, bolt_r=0.011, bolt_h=0.015, mat="buoy_rust")
+
+    # Radial bracing & gusset arms tying the central battery column solidly to all 4 tower legs
+    for c in range(4):
+        p_leg_low = leg_pt(0, c).lerp(leg_pt(1, c), 0.60)
+        p_leg_mid = leg_pt(1, c)
+        p_leg_hi = leg_pt(2, c)
+        rad = Vector((p_leg_mid.x, p_leg_mid.y, 0.0)).normalized()
+        col_low = Vector((rad.x * 0.23, rad.y * 0.23, 1.24))
+        col_hi = Vector((rad.x * 0.23, rad.y * 0.23, 1.72))
+        m.strut(col_low, p_leg_mid, 0.026, "buoy_yellow", segs=6)
+        m.strut(col_hi, p_leg_low, 0.024, "buoy_yellow", segs=6)
+        m.strut(col_hi, p_leg_hi, 0.024, "buoy_yellow", segs=6)
+        # Side horizontal tie collar ring around central column
+        c1 = (c + 1) % 4
+        # Lower bay corner knee braces on outer perimeter
+        m.strut(leg_pt(0, c), leg_pt(1, c).lerp(leg_pt(1, c1), 0.45), 0.024, "buoy_yellow", segs=6)
+        m.strut(leg_pt(0, c1), leg_pt(1, c1).lerp(leg_pt(1, c), 0.45), 0.024, "buoy_yellow", segs=6)
+
+    # Crisp yellow X-bracing on middle bay (lv 1..2) and upper open bay (lv 2..3)
+    for lv in (1, 2):
+        for c in range(4):
+            c1 = (c + 1) % 4
+            a0, a1 = leg_pt(lv, c), leg_pt(lv, c1)
+            b0, b1 = leg_pt(lv + 1, c), leg_pt(lv + 1, c1)
+            m.strut(a0, b1, 0.022, "buoy_yellow", segs=6)
+            m.strut(a1, b0, 0.022, "buoy_yellow", segs=6)
+
+    # Vertical maintenance ladder on +X face of lattice tower
+    lx = 0.745
+    for sy in (-0.15, 0.15):
+        m.strut((lx, sy, 0.90), (0.715, sy, 2.84), 0.015, "buoy_yellow", segs=6)
+    for k in range(6):
+        t = (k + 0.5) / 6.0
+        z = 0.90 + t * (2.84 - 0.90)
+        x = lx + t * (0.715 - lx)
+        m.strut((x, -0.15, z), (x, 0.15, z), 0.012, "buoy_yellow", segs=6)
+
+    # Tall square yellow upper superstructure / daymark box (z = 2.84 .. 4.78, width 1.44 m)
+    box_z0, box_z1 = 2.84, 4.78
+    box_zmid = 0.5 * (box_z0 + box_z1)  # 3.81
+    box_h = box_z1 - box_z0  # 1.94
+    core_w = 1.34
+    frame_half = 0.695
+
+    # Recessed solid inner yellow box core
+    m.box((core_w, core_w, box_h - 0.02), (0, 0, box_zmid), "buoy_yellow")
+
+    # 4 vertical corner frame angle-posts standing proud of the recessed panels
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            m.box((0.088, 0.088, box_h + 0.02), (sx * frame_half, sy * frame_half, box_zmid), "buoy_yellow", bevel=0.006)
+
+    # 3 horizontal perimeter trim bands: bottom sill, prominent mid-height divider, top cornice rail
+    for rz, rh in ((box_z0 + 0.03, 0.072), (box_zmid, 0.074), (box_z1 - 0.025, 0.072)):
+        for sgn in (-1.0, 1.0):
+            m.box((1.46, 0.068, rh), (0, sgn * frame_half, rz), "buoy_yellow", bevel=0.005)
+            m.box((0.068, 1.46, rh), (sgn * frame_half, 0, rz), "buoy_yellow", bevel=0.005)
+
+    # All 4 outward faces: upper "SC" daymark panel (z = 3.85..4.73) & lower stiffener trim
+    panel_w = 1.28
+    panel_h = 0.86
+    upper_panel_z = 0.5 * (box_zmid + 0.037 + box_z1 - 0.061)  # ~4.28
+    lower_panel_z = 0.5 * (box_z0 + 0.066 + box_zmid - 0.037)  # ~3.34
+    panel_offset = core_w * 0.5 + 0.006  # 0.676 m, cleanly recessed inside 0.729 m frame face
+    for i in range(4):
+        yaw = math.tau * i / 4.0
+        rot = Matrix.Rotation(yaw, 3, "Z")
+        xf = Matrix.Translation(rot @ Vector((0.0, -panel_offset, upper_panel_z))) @ rot.to_4x4()
+        m.solar_face(panel_w, panel_h, xf, mat="buoy_yellow")  # blank: the game letters each one
+        # Subtle vertical center stiffening seam & corner bolts on lower panel
+        m.box((0.024, 0.016, panel_h - 0.04), rot @ Vector((0.0, -panel_offset, lower_panel_z)), "buoy_yellow", rot=rot)
+        for bx in (-0.54, 0.54):
+            for bz in (-0.34, 0.34):
+                m.cylinder(
+                    0.013,
+                    0.013,
+                    0.016,
+                    rot @ Vector((bx, -panel_offset - 0.006, lower_panel_z + bz)),
+                    "buoy_rust",
+                    segs=6,
+                    rot=rot @ Matrix.Rotation(math.pi * 0.5, 3, "X"),
+                    smooth=False,
+                )
+
+    # Gently domed yellow roof cap & cornice drip-lip (z = 4.78 .. 4.98)
+    m.box((1.50, 1.50, 0.042), (0, 0, 4.795), "buoy_yellow", bevel=0.008)
+    roof_prof = [
+        (0.73, 4.81),
+        (0.64, 4.89),
+        (0.44, 4.95),
+        (0.22, 4.98),
+    ]
+    m.lathe(roof_prof, (0, 0, 0), "buoy_yellow", segs=16, cap_bottom=True, cap_top=True)
+
+    # Compact low-profile solar panels mounted cleanly on short brackets above the sloped roof crown (+Y and -Y)
+    for sgn, yaw_d in ((-1.0, 0.0), (1.0, 180.0)):
+        for bx in (-0.16, 0.16):
+            m.strut((bx, sgn * 0.46, 4.88), (bx, sgn * 0.46, 5.01), 0.015, "buoy_charcoal", segs=6)
+        add_solar_panel(m, (0.0, sgn * 0.48, 5.03), width=0.46, height=0.22, tilt_deg=18.0, yaw_deg=yaw_d)
+
+    # Small corner radar/GPS sensor turret + stainless whip on -X/-Y roof edge
+    m.cylinder(0.055, 0.048, 0.16, (-0.56, -0.56, 4.88), "buoy_charcoal", segs=10)
+    m.sphere(0.052, (-0.56, -0.56, 4.97), "buoy_charcoal", u_segs=10, v_segs=6)
+    m.strut((-0.56, -0.56, 4.98), (-0.56, -0.56, 5.34), 0.007, "buoy_steel_bright", segs=6)
+
+    # Central compact marine amber beacon lantern (USCG Special Purpose Traffic Separation flashes yellow/amber)
+    m.cylinder(0.18, 0.16, 0.08, (0, 0, 5.01), "buoy_charcoal", segs=16)
+    beacon_pt = add_fresnel_lantern(m, (0, 0, 5.05), "beacon_amber", scale=0.84, cage=True)
+
+    ob = m.finish(coll)
+    return ob, {"BeaconLight": beacon_pt, "MooringEye": mooring_pt}
+
+
 ASSETS = [
     ("buoy_port_can", build_buoy_port_can, -7.2),
     ("buoy_starboard_nun", build_buoy_starboard_nun, -4.4),
@@ -1426,6 +1757,7 @@ ASSETS = [
     ("buoy_bell_tower", build_buoy_bell_tower, 1.4),
     ("marker_channel_port", build_marker_channel_port, 5.0),
     ("marker_channel_starboard", build_marker_channel_starboard, 8.2),
+    ("buoy_traffic_separation", build_buoy_traffic_separation, 11.8),
 ]
 
 
@@ -1474,46 +1806,46 @@ def export_asset(sc, name, root_ob, empties):
     return out_path
 
 
-def render_previews(sc, render_dir):
+def render_previews(sc, render_dir, only_asset=None):
     os.makedirs(render_dir, exist_ok=True)
 
-    # Create translucent brine waterline plane at Z=0 & desert riverbed below Z=-1.45
-    bpy.ops.mesh.primitive_plane_add(size=80.0, location=(0.5, 0.0, -1.45))
+    # Create translucent brine waterline plane at Z=0 & seabed below Z=-1.45
+    bpy.ops.mesh.primitive_plane_add(size=80.0, location=(2.5, 0.0, -1.45))
     bed = bpy.context.active_object
     bed.name = "_pv_bed"
     bed.data.materials.append(_make_solid_mat("_pv_bed_mat", (0.68, 0.48, 0.34), metallic=0.0, roughness=0.92))
 
-    # Subtle translucent brine/salt surface at Z = 0.0
-    bpy.ops.mesh.primitive_plane_add(size=80.0, location=(0.5, 0.0, 0.0))
+    # Subtle translucent water surface at Z = 0.0
+    bpy.ops.mesh.primitive_plane_add(size=80.0, location=(2.5, 0.0, 0.0))
     water = bpy.context.active_object
     water.name = "_pv_water"
     wm = bpy.data.materials.new("_pv_water_mat")
     _ensure_nodes(wm)
-    bsdf = wm.node_tree.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (*srgb_to_linear((0.28, 0.42, 0.44)), 1.0)
+    bsdf = next(n for n in wm.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    bsdf.inputs["Base Color"].default_value = (*srgb_to_linear((0.18, 0.28, 0.34)), 1.0)
     bsdf.inputs["Roughness"].default_value = 0.22
-    bsdf.inputs["Alpha"].default_value = 0.55
+    bsdf.inputs["Alpha"].default_value = 0.72
     water.data.materials.append(wm)
 
-    # Lighting: warm Martian afternoon sun + cool sky fill
+    # Lighting: warm Pacific afternoon sun + cool sky fill
     sun = bpy.data.objects.new("_pv_sun", bpy.data.lights.new("_pv_sun", "SUN"))
     sun.data.energy = 4.2
-    sun.data.color = (1.0, 0.92, 0.80)
+    sun.data.color = (1.0, 0.94, 0.84)
     sun.data.angle = math.radians(1.5)
     sun.rotation_euler = (math.radians(52), math.radians(10), math.radians(-38))
     sc.collection.objects.link(sun)
 
     fill = bpy.data.objects.new("_pv_fill", bpy.data.lights.new("_pv_fill", "SUN"))
-    fill.data.energy = 1.0
-    fill.data.color = (0.74, 0.84, 1.0)
+    fill.data.energy = 1.2
+    fill.data.color = (0.74, 0.86, 1.0)
     fill.rotation_euler = (math.radians(65), 0.0, math.radians(135))
     sc.collection.objects.link(fill)
 
     world = bpy.data.worlds.new("_pv_world")
     _ensure_nodes(world)
     bg = world.node_tree.nodes["Background"]
-    bg.inputs[0].default_value = (*srgb_to_linear((0.76, 0.68, 0.60)), 1.0)
-    bg.inputs[1].default_value = 0.65
+    bg.inputs[0].default_value = (*srgb_to_linear((0.68, 0.74, 0.80)), 1.0)
+    bg.inputs[1].default_value = 0.75
     sc.world = world
 
     cam_data = bpy.data.cameras.new("_pv_cam")
@@ -1525,19 +1857,30 @@ def render_previews(sc, render_dir):
 
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
-    sc.cycles.samples = 48
+    sc.cycles.samples = 36
     sc.cycles.use_denoising = True
-    sc.render.resolution_x = 1600
-    sc.render.resolution_y = 900
+    sc.render.resolution_x = 1280
+    sc.render.resolution_y = 720
 
-    shots = [
-        ("01_lineup.png", (0.5, -22.5, 4.8), (0.5, 0.0, 2.3), 38.0, True),
-        ("02_buoys_close.png", (-5.0, -8.2, 2.7), (-4.5, 0.0, 1.75), 44.0, True),
-        ("03_bell_tower_close.png", (4.8, -6.2, 3.6), (1.4, 0.0, 2.85), 44.0, True),
-        ("04_markers_close.png", (6.3, -8.2, 3.4), (6.6, 0.0, 2.85), 44.0, True),
-        ("05_submerged_keels.png", (-1.8, -11.5, 1.6), (-1.8, 0.0, 0.6), 44.0, False),
-        ("06_gameplay_50deg.png", (0.5, -14.5, 17.0), (0.5, 0.0, 1.5), 36.0, True),
-    ]
+    if only_asset == "buoy_traffic_separation":
+        cx = 11.8
+        shots = [
+            ("ts_01_ref_angle.png", (cx + 5.8, -11.5, 2.5), (cx, 0.0, 2.75), 42.0, True),
+            ("ts_02_front_34.png", (cx - 6.8, -10.8, 3.6), (cx, 0.0, 2.75), 42.0, True),
+            ("ts_03_back_34.png", (cx + 6.8, 10.8, 3.8), (cx, 0.0, 2.75), 42.0, True),
+            ("ts_04_upper_detail.png", (cx + 3.2, -5.2, 4.65), (cx, 0.0, 4.55), 44.0, True),
+            ("ts_05_submerged.png", (cx + 7.2, -11.2, 1.8), (cx, 0.0, 1.9), 38.0, False),
+        ]
+    else:
+        shots = [
+            ("01_lineup.png", (2.2, -25.0, 5.0), (2.2, 0.0, 2.3), 36.0, True),
+            ("02_buoys_close.png", (-5.0, -8.2, 2.7), (-4.5, 0.0, 1.75), 44.0, True),
+            ("03_bell_tower_close.png", (4.8, -6.2, 3.6), (1.4, 0.0, 2.85), 44.0, True),
+            ("04_markers_close.png", (6.3, -8.2, 3.4), (6.6, 0.0, 2.85), 44.0, True),
+            ("05_submerged_keels.png", (-1.8, -11.5, 1.6), (-1.8, 0.0, 0.6), 44.0, False),
+            ("06_gameplay_50deg.png", (2.2, -16.0, 18.0), (2.2, 0.0, 1.5), 36.0, True),
+            ("07_traffic_separation_close.png", (11.8 + 5.8, -11.5, 2.5), (11.8, 0.0, 2.75), 42.0, True),
+        ]
     rendered = []
     for fname, eye, aim, lens, show_water in shots:
         water.hide_render = not show_water
@@ -1555,7 +1898,7 @@ def render_previews(sc, render_dir):
     return rendered
 
 
-def build(render_dir=None):
+def build(render_dir=None, only_asset=None):
     sc = _reset_scene()
     tex_paths = generate_textures()
     mats = build_materials(tex_paths)
@@ -1576,18 +1919,19 @@ def build(render_dir=None):
             coll.objects.link(e)
             empties.append(e)
 
-        glb_path = export_asset(sc, name, root_ob, empties)
-        tris = sum(len(p.vertices) - 2 for p in root_ob.data.polygons)
-        results[name] = {
-            "tris": tris,
-            "mats": len(root_ob.data.materials),
-            "glb": glb_path,
-            "size_kb": round(os.path.getsize(glb_path) / 1024.0, 1),
-        }
+        if only_asset is None or name == only_asset:
+            glb_path = export_asset(sc, name, root_ob, empties)
+            tris = sum(len(p.vertices) - 2 for p in root_ob.data.polygons)
+            results[name] = {
+                "tris": tris,
+                "mats": len(root_ob.data.materials),
+                "glb": glb_path,
+                "size_kb": round(os.path.getsize(glb_path) / 1024.0, 1),
+            }
 
     rendered = []
     if render_dir:
-        rendered = render_previews(sc, render_dir)
+        rendered = render_previews(sc, render_dir, only_asset=only_asset)
 
     # Pack textures into the .blend so opening it anywhere displays materials intact
     try:
@@ -1604,7 +1948,8 @@ if __name__ == "__main__":
     if "--high" in argv:
         HIGH_DETAIL = True
     rdir = argv[argv.index("--render") + 1] if "--render" in argv else None
-    res, rendered = build(rdir)
+    only = argv[argv.index("--only") + 1] if "--only" in argv else None
+    res, rendered = build(rdir, only_asset=only)
     for k, v in res.items():
         print(f"ASSET {k}: {v['tris']} tris, {v['mats']} mats, {v['size_kb']} KB -> {v['glb']}")
     if rendered:

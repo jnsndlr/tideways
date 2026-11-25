@@ -26,6 +26,8 @@ if [[ $suite == traffic ]]; then
   check road-traffic test --fixed-fps 30 --script tests/traffic/vehicle_overlap_test.gd -- --verify --seed=123 --frames=6000
   check shared-slip test --fixed-fps 30 --script tests/traffic/shared_slip_test.gd -- --scenario=shared_slip
   check same-route-pass test --fixed-fps 30 --script tests/traffic/same_route_pass_test.gd -- --scenario=shared_slip
+  check manual-move test --fixed-fps 30 --script tests/traffic/manual_move_test.gd -- --scenario=tie_up_pier
+  check tie-up-reposition test --fixed-fps 30 --script tests/traffic/tie_up_reposition_test.gd -- --scenario=tie_up_pier
   check tie-up test --fixed-fps 30 --script tests/traffic/tie_up_test.gd -- --scenario=shared_slip
   check gap-tie-up test --fixed-fps 30 --script tests/traffic/gap_tie_up_test.gd -- --scenario=shared_slip
   check lot-lanes test --fixed-fps 30 --script tests/traffic/lot_lanes_test.gd
@@ -71,6 +73,7 @@ check region-contract test --script tests/world/region_contract_test.gd
 check road-grade test --script tests/world/road_grade_test.gd
 check company-network test --script tests/session/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
+check town-growth test --fixed-fps 30 --script tests/simulation/town_growth_test.gd
 check coastal-town test --script tests/world/coastal_town_test.gd
 check forest-proximity test --script tests/world/forest_proximity_test.gd
 check schedule-slip-size test --script tests/simulation/schedule_slip_size_test.gd
@@ -92,6 +95,7 @@ check opening-scenario test --script tests/session/opening_scenario_test.gd
 check full-network-opening test --script tests/session/opening_scenario_test.gd -- --full-network
 check region-load-recovery test --fixed-fps 30 --script tests/session/region_load_recovery_test.gd
 check fleet-purchase-ui test --fixed-fps 30 --script tests/ui/fleet_purchase_ui_test.gd
+check quick-save-ui test --fixed-fps 30 --script tests/ui/quick_save_ui_test.gd
 check opening-economy-ui test --fixed-fps 30 --script tests/ui/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
 check hud test --fixed-fps 30 --script tests/ui/ferry_ui_test.gd

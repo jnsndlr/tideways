@@ -81,7 +81,7 @@ func _step_crossing(run: float, class_cruise: float) -> Vector2:
 		gone += v * STEP
 		burn += v * v * ds
 		t += STEP
-	return Vector2(t, burn)
+	return Vector2(Units.game_minutes(t), burn)
 
 
 ## Whichever of the roster makes the quickest unhindered crossing of `run`.

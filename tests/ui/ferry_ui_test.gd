@@ -39,22 +39,28 @@ func exercise_layout() -> bool:
 		return false
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
+	if not await sandbox_save_disabled(hud):
+		return false
 	if not exercise_shortcuts(hud):
 		return false
 	if not await press("FLEET") or not await press(boat.ferry_name, true):
 		return false
-	if not hud._info_panel.visible or hud._info_title.text != boat.ferry_name.to_upper() or hud.rig.follow != boat:
+	if (
+		not hud._ferry_panel.visible
+		or hud._ferry_panel._name_label.text != "M/V " + boat.ferry_name.to_upper()
+		or hud.rig.follow != boat
+	):
 		return fail("Wrong ferry inspector or follow target")
-	if not await press("Stop following"):
+	if not await press("Stop Following"):
 		return false
 	if hud.rig.follow != null:
 		return fail("Stop following left the camera locked")
-	if not await press("Follow"):
+	if not await press("Follow Vessel"):
 		return false
 	if hud.rig.follow != boat:
 		return fail("Follow did not restore the camera target")
 	key(KEY_ESCAPE)
-	if hud.selected_ferry != null or hud.rig.follow != null or hud._info_panel.visible:
+	if hud.selected_ferry != null or hud.rig.follow != null or hud._ferry_panel.visible:
 		return fail("Escape left stale selection")
 	if not await exercise_map_controls(hud):
 		return false
@@ -62,7 +68,7 @@ func exercise_layout() -> bool:
 		return false
 	if not exercise_touch_camera(hud.rig):
 		return false
-	if not await press("Speed 3"):
+	if not await press("8x speed"):
 		return false
 	if Engine.time_scale <= 1.0:
 		return fail("Speed control did not accelerate")
@@ -72,6 +78,16 @@ func exercise_layout() -> bool:
 	if current_scene == null or current_scene.scene_file_path != Scenes.MENU or Engine.time_scale != 1.0:
 		return fail("Return to menu or speed reset failed")
 	return true
+
+
+func sandbox_save_disabled(hud: Hud) -> bool:
+	if not await press("MENU"):
+		return false
+	var menu := hud._game_menu
+	var disabled := menu.is_item_disabled(menu.get_item_index(0))
+	menu.hide()
+	await process_frame
+	return disabled or fail("Save game should be disabled on a procedural map")
 
 
 ## Physical shortcuts survive layout changes. A held key and its release apply the command only once.
@@ -104,7 +120,7 @@ func exercise_shortcuts(hud: Hud) -> bool:
 	root.push_input(action)
 	action.pressed = false
 	root.push_input(action)
-	if Engine.time_scale != 3.0:
+	if Engine.time_scale != 8.0:
 		return fail("A named speed action must work independently of its physical key")
 	key(KEY_1)
 	if Engine.time_scale != 1.0:
@@ -228,10 +244,10 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 
 	hud.select_ferry(boat)
 	await frames(3)
-	if controls.get_rect().intersects(hud._info_panel.get_rect()):
+	if controls.get_rect().intersects(hud._ferry_panel.get_rect()):
 		return fail("Map controls overlap the open inspector")
-	if hud._info_panel.get_rect().intersects(hud._minimap_panel.get_rect()):
-		return fail("The ferry inspector overlaps the minimap at %s" % hud._info_panel.get_rect())
+	if hud._ferry_panel.get_rect().intersects(hud._minimap_panel.get_rect()):
+		return fail("The ferry inspector overlaps the minimap at %s" % hud._ferry_panel.get_rect())
 	if not click_control(widget, art, "Weather widget beside the inspector"):
 		return false
 	if not controls.weather_shown or not clouds.shown:

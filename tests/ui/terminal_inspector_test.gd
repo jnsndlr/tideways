@@ -62,7 +62,7 @@ func run() -> void:
 	inspector.refresh()
 	check(titles.has("Lane opens in") and titles.has("Slip reopens in"), "Show both active construction clocks")
 	changes.clear()
-	term._process(1.0)
+	term._process(1.0 / Units.MINUTES_PER_SECOND)
 	inspector.refresh()
 	inspector.refresh()
 	check(changes.count("Lane opens in: 119 game min") == 1 and changes.count("Slip reopens in: 189 game min") == 1,

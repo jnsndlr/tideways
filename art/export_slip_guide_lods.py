@@ -10,6 +10,7 @@
 import os
 import math
 import bpy
+import bmesh
 from mathutils.bvhtree import BVHTree
 from mathutils.interpolate import poly_3d_calc
 
@@ -19,17 +20,31 @@ _models = os.path.normpath(os.path.join(_here, "..", "assets", "models"))
 SOURCES = ["ferry_dolphin", "ferry_dolphin_small", "wing_wall"]
 
 
+def weld(o):
+    """Merge split glTF vertices so decimation operates on closed manifold surfaces."""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.to_mesh(o.data)
+    bm.free()
+    o.data.update()
+
+
 def decimate(o):
+    weld(o)
     for name, kind in (("dissolve", "DISSOLVE"), ("collapse", "COLLAPSE")):
         m = o.modifiers.new(name, "DECIMATE")
         m.decimate_type = kind
         if kind == "DISSOLVE":
             m.angle_limit = math.radians(2.0)
+            m.delimit = {"MATERIAL"}
         else:
             m.ratio = RATIO
+            m.delimit = {"MATERIAL"}
     bpy.context.view_layer.objects.active = o
     for m in list(o.modifiers):
         bpy.ops.object.modifier_apply(modifier=m.name)
+    o.data.validate()
 
 
 def decimate_keyed(o):
@@ -43,7 +58,12 @@ def decimate_keyed(o):
     polys = [list(p.vertices) for p in me.polygons]
     bvh = BVHTree.FromPolygons(basis, polys)
     bpy.context.view_layer.objects.active = o
+    for kb in keys.key_blocks:
+        kb.value = 0.0
     o.shape_key_clear()
+    for v, co in zip(o.data.vertices, basis):
+        v.co = co
+    o.data.update()
     decimate(o)
     o.shape_key_add(name="Basis")
     for name, off in offsets.items():

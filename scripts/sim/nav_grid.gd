@@ -14,6 +14,16 @@ const LARGE_CLEAR := 90.0
 const LAND_DEPTH := -4.8
 const SMALL_LANE_COST := 3.0
 const LARGE_LANE_COST := 6.0
+# Keeping to mid-channel: cells within this of land cost up to 1 + *_SHORE_COST.
+const SMALL_SHORE_REACH := 160.0
+const LARGE_SHORE_REACH := 320.0
+const SMALL_SHORE_COST := 2.0
+const LARGE_SHORE_COST := 4.0
+# Keeping well off ferry docks: cells within this of a dock's mouth cost up to
+# 1 + DOCK_COST times more.
+const SMALL_DOCK_REACH := 260.0
+const LARGE_DOCK_REACH := 520.0
+const DOCK_COST := 8.0
 
 var ext := 0.0      # the grids cover [-ext, ext] on both axes
 var n := 0
@@ -54,6 +64,13 @@ func _init(map: MapData, t: Terrain, should_stop := Callable()) -> void:
 			var d := dist[j * n + i]
 			small.set_point_solid(Vector2i(i, j), d < SMALL_CLEAR)
 			large.set_point_solid(Vector2i(i, j), d < LARGE_CLEAR)
+			small.set_point_weight_scale(
+				Vector2i(i, j), _shore_cost(d, SMALL_SHORE_REACH, SMALL_SHORE_COST)
+			)
+			large.set_point_weight_scale(
+				Vector2i(i, j), _shore_cost(d, LARGE_SHORE_REACH, LARGE_SHORE_COST)
+			)
+	_mark_docks(map)
 	_mark_lanes(map)
 	_close_terminals(map)
 	_close_marinas(map)
@@ -80,15 +97,38 @@ func _cells_within(p: Vector2, radius: float) -> Array[Vector2i]:
 	return out
 
 
+static func _shore_cost(d: float, reach: float, cost: float) -> float:
+	var t := clampf((reach - d) / reach, 0.0, 1.0)
+	return 1.0 + cost * t * t
+
+
+## Water off every dock site costs more the closer in, so traffic gives docks a
+## wide berth wherever the channel allows.
+func _mark_docks(map: MapData) -> void:
+	for isl in map.dock_towns():
+		var m3 := isl.shore + isl.dock_dir * (Layout.PIER_END + 60.0)
+		var m := Vector2(m3.x, m3.z)
+		for pair in [[small, SMALL_DOCK_REACH], [large, LARGE_DOCK_REACH]]:
+			var g: AStarGrid2D = pair[0]
+			var reach: float = pair[1]
+			for c in _cells_within(m, reach):
+				var t := clampf(1.0 - center(c).distance_to(m) / reach, 0.0, 1.0)
+				g.set_point_weight_scale(c, g.get_point_weight_scale(c) * (1.0 + DOCK_COST * t * t))
+
+
 func _mark_lanes(map: MapData) -> void:
 	for r in map.routes:
 		var pts := r.curve.get_baked_points()
 		for k in range(0, pts.size(), 4):
 			var p := Vector2(pts[k].x, pts[k].z)
 			for c in _cells_within(p, 42.0):
-				small.set_point_weight_scale(c, SMALL_LANE_COST)
+				small.set_point_weight_scale(
+					c, maxf(small.get_point_weight_scale(c), SMALL_LANE_COST)
+				)
 			for c in _cells_within(p, 66.0):
-				large.set_point_weight_scale(c, LARGE_LANE_COST)
+				large.set_point_weight_scale(
+					c, maxf(large.get_point_weight_scale(c), LARGE_LANE_COST)
+				)
 
 
 ## The terminal, its slips, dolphins and channel buoys.
@@ -208,13 +248,25 @@ func open_at(p: Vector2, big: bool) -> bool:
 	return not (large if big else small).is_point_solid(cell(p))
 
 
-## Drops every point that can be skipped with a clear straight line.
+## Drops every point that can be skipped with a clear straight line, one that
+## passes through no costlier water than the path it skips (so a shortcut never
+## swings in nearer a shore or dock than the planned path went).
 func _pull(g: AStarGrid2D, raw: PackedVector2Array) -> PackedVector2Array:
 	var out := PackedVector2Array([raw[0]])
+	var w := PackedFloat32Array()
+	for k in raw.size():
+		var c := cell(raw[k])
+		w.append(1.0 if (k == 0 or k == raw.size() - 1) else g.get_point_weight_scale(c))
 	var i := 0
 	while i < raw.size() - 1:
+		var most := PackedFloat32Array()
+		most.resize(raw.size())
+		var top := w[i]
+		for k in range(i, raw.size()):
+			top = maxf(top, w[k])
+			most[k] = top
 		var j := raw.size() - 1
-		while j > i + 1 and not _sight(g, raw[i], raw[j]):
+		while j > i + 1 and not _sight(g, raw[i], raw[j], most[j] + 0.05):
 			j -= 1
 		out.append(raw[j])
 		i = j
@@ -223,13 +275,17 @@ func _pull(g: AStarGrid2D, raw: PackedVector2Array) -> PackedVector2Array:
 
 ## True if the straight line a → b stays in open cells (ignoring the end cells,
 ## which may be closed: a boat starting at its berth, say).
-func _sight(g: AStarGrid2D, a: Vector2, b: Vector2) -> bool:
+func _sight(g: AStarGrid2D, a: Vector2, b: Vector2, max_weight := INF) -> bool:
 	var ca := cell(a)
 	var cb := cell(b)
 	var steps := ceili(a.distance_to(b) / (CELL * 0.4))
 	for k in range(1, steps):
 		var c := cell(a.lerp(b, float(k) / steps))
-		if c != ca and c != cb and g.is_point_solid(c):
+		if (
+			c != ca
+			and c != cb
+			and (g.is_point_solid(c) or g.get_point_weight_scale(c) > max_weight)
+		):
 			return false
 	return true
 

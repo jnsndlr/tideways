@@ -8,6 +8,8 @@ extends Node3D
 ## Uses real time, so it keeps working while the simulation is paused.
 
 signal ground_clicked(screen_pos: Vector2)
+## A right-click that didn't turn into a drag (orders for the selected boat).
+signal ground_right_clicked(screen_pos: Vector2)
 
 const MIN_DIST := 42.0
 const MAX_DIST := 4400.0
@@ -31,6 +33,8 @@ var target_pos := Vector3.ZERO
 
 var _pan_drag := false
 var _rot_drag := false
+var _rot_moved := false
+var _rot_press := Vector2.ZERO
 var _press_pos := Vector2.ZERO
 var _moved := false
 var _last_ticks := 0
@@ -95,6 +99,12 @@ func _unhandled_input(event: InputEvent) -> void:
 						ground_clicked.emit(mb.position)
 					_pan_drag = false
 			MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE:
+				if mb.button_index == MOUSE_BUTTON_RIGHT:
+					if mb.pressed:
+						_rot_moved = false
+						_rot_press = mb.position
+					elif not _rot_moved:
+						ground_right_clicked.emit(mb.position)
 				_rot_drag = mb.pressed
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
@@ -104,6 +114,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				follow = null
 			if _moved:
 				_drag_pan(mm.position - mm.relative, mm.position)
+		if _rot_drag and not _rot_moved and mm.position.distance_to(_rot_press) > 4.0:
+			_rot_moved = true
 		if _rot_drag:
 			target_yaw -= mm.relative.x * 0.006
 			target_pitch = clampf(target_pitch + mm.relative.y * 0.004, MIN_PITCH, MAX_PITCH)

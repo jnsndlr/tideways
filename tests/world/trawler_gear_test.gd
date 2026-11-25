@@ -37,14 +37,14 @@ func check_haul_and_landing(sim: Simulation, with_view: bool) -> void:
 	boat._begin_shooting()
 	var fishing_lights := [Models.trawler_nav_lights(), Models.trawler_working_lights()]
 	check_gear(view, lamps, fishing_lights, true, "shooting the net")
-	boat._work(FishingBoat.SHOOT_TIME.y)
+	boat._work(FishingBoat.SHOOT_TIME.y / Units.MINUTES_PER_SECOND)
 	expect(boat.work == FishingBoat.Work.TOWING, "The trawler tows after shooting the net")
 	check_gear(view, lamps, fishing_lights, true, "towing")
 	boat.position = Vector3(boat.helm.goal.x, 0, boat.helm.goal.y)
 	boat._work(0.25)
 	expect(boat.work == FishingBoat.Work.HAULING, "The trawler hauls at the tow endpoint")
 	check_gear(view, lamps, fishing_lights, false, "hauling")
-	boat._work(FishingBoat.HAUL_TIME.y)
+	boat._work(FishingBoat.HAUL_TIME.y / Units.MINUTES_PER_SECOND)
 	expect(boat.hauls == 1 and boat.fish_hold > 0.0, "The completed haul adds catch once")
 	expect(boat.state == FishingBoat.State.HOMEWARD and boat.ground.worked_by == null,
 			"After the last haul the trawler releases its ground and steams home")

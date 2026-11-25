@@ -37,6 +37,8 @@ const RANK_SAIL := 1000
 const RANK_POWER := 1200
 const RANK_FISH := 1500
 const RANK_CARGO := 2000
+const CONVOY_GAP := Vector2(150.0, 360.0)  # game minutes between navy convoys
+const NAUTILUS_ODDS := 20  # about one convoy in this many is the Nautilus's
 const RANK_FERRY := 3000
 # Kept between hulls (their capsules already stand a little proud of the hulls).
 const MARGIN := 1.2
@@ -52,6 +54,7 @@ var rng := RandomNumberGenerator.new()
 var vessels: Array[Vessel] = []
 var sailboats: Array[Sailboat] = []
 var motor_yachts: Array[MotorYacht] = []
+var convoy: Array[NavalVessel] = []
 var cargo_ships: Array[CargoShip] = []
 var fishing_boats: Array[FishingBoat] = []
 var grounds: Array[FishingGround] = []
@@ -66,6 +69,8 @@ var _wait_spots := {}       # harbour -> where boats wait to go in (see wait_spo
 var _cargo_timer := 0.0
 var _next := 0
 var _cargo_named := 0
+var _convoy_timer := 0.0
+var _convoys := 0
 
 
 ## Synchronous entry point for tools that prepare charts ahead of setup.
@@ -107,6 +112,7 @@ func setup(s: Simulation, charts: MarineCharts = null) -> void:
 	pilotage = Pilotage.new(self)
 	_spawn_cargo(true)
 	_cargo_timer = rng.randf_range(CARGO_GAP.x, CARGO_GAP.y) * 0.5
+	_convoy_timer = rng.randf_range(CONVOY_GAP.x, CONVOY_GAP.y) * 0.3
 	print("Marine traffic: %d marinas, %d sailboats, %d motor yachts, %d fish quays, %d fishing grounds, %d fishing boats, %d pilot boats, %d tugs, %d cargo ships (%d ms)" % [
 		s.map.marinas.size(), sailboats.size(), motor_yachts.size(), s.map.quays.size(), grounds.size(), fishing_boats.size(),
 		pilotage.pilot_boats.size(), pilotage.tugs.size(), cargo_ships.size(), Time.get_ticks_msec() - t0])
@@ -132,6 +138,8 @@ func remove(v: Vessel) -> void:
 				if c.owner == v:
 					c.owner = null
 				c.boats.erase(v)
+	if v is NavalVessel:
+		convoy.erase(v)
 	if v is CargoShip:
 		cargo_ships.erase(v)
 	elif v is Sailboat:
@@ -217,7 +225,11 @@ func _find_corridors() -> void:
 		var boats := boats_on(r)
 		if boats.size() < 2:
 			continue
-		var reach := minf(Ferry.LANE_OUT + Ferry.lane_ease(r.length) + 20.0, r.length * 0.5)
+		# Keep the opposite ferry clear until the departing hull's stern is on its lane.
+		var reach := minf(
+			Ferry.LANE_OUT + Ferry.lane_ease(r.length) + FerryHullDimensions.MAX_HALF_LENGTH,
+			r.length * 0.5
+		)
 		for end_a in [true, false]:
 			var c := Corridor.new()
 			c.key = "%d%s" % [r.id, "a" if end_a else "b"]
@@ -579,6 +591,70 @@ func _spawn_cargo(midway := false) -> void:
 		return
 
 
+## A navy convoy through the western channel: a nuclear submarine with a navy
+## tug flanking her on each side; about one time in NAUTILUS_ODDS, the
+## Nautilus in her place. Returns false if no clear way through was found.
+func spawn_convoy(force_nautilus := false) -> bool:
+	var hs := sim.map.half_size
+	const SPREAD := 48.0
+	for attempt in 8:
+		var ends := [0, 1] if sim.terrain.mainland.axis == 0 else [2, 3]
+		var flip := rng.randi_range(0, 1)
+		var side_a: int = ends[flip]
+		var side_b: int = ends[1 - flip]
+		var a := _edge_point(side_a, hs + 240.0, true)
+		var b := _edge_point(side_b, hs + 240.0, true)
+		if not _open_water(a, _edge_normal(side_a)) or not _open_water(b, _edge_normal(side_b)):
+			continue
+		var pts := nav.find_path(a, b, true)
+		if pts.size() < 2:
+			continue
+		pts.insert(0, a + _edge_normal(side_a) * 480.0)
+		pts.append(b + _edge_normal(side_b) * 480.0)
+		pts = nav.finish(pts, 30.0, 42.0, 3, SPREAD + 12.0, 0.0)
+		# Room for the flankers either side all the way through.
+		if not nav.afloat(pts, SPREAD + 12.0):
+			continue
+		var path := NavPath.new(pts)
+		if not is_clear(path.sample(0.0), 270.0):
+			continue
+		_convoys += 1
+		var nautilus := force_nautilus or rng.randi_range(1, NAUTILUS_ODDS) == 1
+		var sub := NavalVessel.new()
+		sim.add_child(sub)
+		sub.setup(
+			self,
+			"Nautilus" if nautilus else "Submarine %d" % (700 + _convoys),
+			"nautilus" if nautilus else "sub",
+			path,
+			0.0
+		)
+		convoy.append(sub)
+		_register(sub, RANK_CARGO)
+		for side: float in [-1.0, 1.0]:
+			var tug := NavalVessel.new()
+			sim.add_child(tug)
+			tug.setup(
+				self,
+				"Navy tug %d" % (40 + 2 * _convoys + int(side > 0.0)),
+				"tug",
+				path,
+				0.0,
+				sub,
+				Vector2(side * SPREAD, 20.0)
+			)
+			convoy.append(tug)
+			_register(tug, RANK_CARGO)
+		print(
+			(
+				"Navy convoy %d through the channel%s"
+				% [_convoys, " — the Nautilus!" if nautilus else ""]
+			)
+		)
+		return true
+	return false
+
+
 ## True if `path` starts where another ship's ends (they'd meet bow to bow out
 ## beyond the edge, with nowhere to plan round each other).
 func _meets_head_on(path: NavPath) -> bool:
@@ -589,8 +665,8 @@ func _meets_head_on(path: NavPath) -> bool:
 	return false
 
 
-func _edge_point(side: int, e: float) -> Vector2:
-	var t := rng.randf_range(-0.7, 0.7) * sim.map.half_size
+func _edge_point(side: int, e: float, west := false) -> Vector2:
+	var t := rng.randf_range(-0.7, -0.15 if west else 0.7) * sim.map.half_size
 	match side:
 		0:
 			return Vector2(-e, t)
@@ -713,11 +789,16 @@ func _process(delta: float) -> void:
 	# Paused: nothing moves.
 	if delta <= 0.0:
 		return
-	_cargo_timer -= delta
+	_cargo_timer -= Units.game_minutes(delta)
 	if _cargo_timer <= 0.0:
 		_cargo_timer = rng.randf_range(CARGO_GAP.x, CARGO_GAP.y)
 		if cargo_ships.size() < MAX_CARGO:
 			_spawn_cargo()
+	_convoy_timer -= Units.game_minutes(delta)
+	if _convoy_timer <= 0.0:
+		_convoy_timer = rng.randf_range(CONVOY_GAP.x, CONVOY_GAP.y)
+		if convoy.is_empty():
+			spawn_convoy()
 	pilotage.update(delta)
 	_update_clearances()
 

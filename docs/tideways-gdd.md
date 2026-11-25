@@ -71,14 +71,16 @@ The core feedback loop is: community growth, travel demand, revenue, fleet and t
 
 ### Time
 
-- 1 real second is 1 game minute at 1x.
-- A game day is 24 minutes at 1x, 8 at 3x and 3 at 8x.
+- 2 real seconds are 1 game minute at 1x.
+- A game day takes 48 real minutes at 1×, 6 at 8×, 3 at 16× and 1½ at 32×.
 - A season lasts about 7 days, so a game year is 28 days.
-- 3x is normal play, 1x is for watching, and 8x is for skipping ahead. Test builds should also run at about 20x.
+- The HUD offers pause, 1×, 8×, 16× and 32×.
 
-At 3x, a year takes about 3.7 hours, so a full region spans about 6–8 game years.
+At 8×, a 28-day game year takes 2 hours and 48 minutes.
 
 ### Pacing Targets
+
+These design targets use the original 3× clock as their baseline.
 
 | Reward | Target at 3x | In game time | Over 25 hours |
 |---|---|---|---|
@@ -183,7 +185,11 @@ Deck space and fares follow vehicle length and height. Commercial traffic needs 
 
 ### Walk-on Passengers
 
-Walk-ons are not in Phase 1, but they will become an integral core system on every boat, even without passenger-only vessels.
+Walk-ons are a core system on every boat, even without passenger-only vessels.
+
+- **Boarding flow:** By default, walk-on passengers queue up and board together as a group with no vehicle traffic on the ramp. Once walk-on boarding cuts off and passengers clear the ramp, vehicles drive on before departure.
+- **Waiting areas (planned):** Terminals will feature dedicated waiting areas where walk-on passengers can mill and walk around while waiting for their boat.
+- **Upgradable passenger walkways (planned):** Terminals can upgrade to separated/overhead passenger walkways, allowing walk-on passengers and vehicles to load simultaneously to speed up turnaround times.
 
 ### Fares
 
@@ -465,7 +471,7 @@ Decided in stage 7 (2026-11-22, TID-319):
 
 - Every locked dock site is a town of its own (`MapData.Town`), named as Jon wrote it in the island editor, or after the island where he left it blank. An island with no site has one town and no dock. Terminals, routes, schedules and stops name towns by key: `island-2/1` is Madrona's second site. A scenario file can still name a terminal by island key, with `"dock": n` (0 if left out).
 - The whole map is built up front for every site, bought or not: the lot's ground, the town and its roads, a route to every other site water joins it to, and the terminal itself, hidden. A scenario's terminals open at the start. Buying a site charges its tier price and starts a 12-hour build (`Simulation.DOCK_BUILD_MINUTES`). The terminal opens when the build is done, whatever the hour, idle until the player edits a boat's stops to call there. Nothing is rebuilt or reloaded.
-- On locked docks the planner never judges whether a route makes sense. It skips the detour and turn limits and drops a pair only if no path round land keeps clear of the other slips. Of the main map's 105 site pairs, 88 have routes. Kestrel Island's first site has none, because no path out of it clears land, so its locked dock needs checking in the island editor. Five long pairs are blocked only by another site's slip.
+- On locked docks the planner never judges whether a route makes sense. It skips the detour and turn limits and drops a pair only if no path round land keeps clear of the other slips. Of the main map's 91 site pairs, 88 have routes. Five long pairs are blocked only by another site's slip.
 - People are split evenly across an island's towns for now. Service growth growing the town served, and drivers crossing their island to another dock, are still to do (TID-319 stage 5).
 
 Decided in stage 5 (2026-11-22, TID-43):

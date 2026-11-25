@@ -6,7 +6,7 @@ extends Node
 ##   --bench=seconds (print frame/GPU time and render stats, then quit)
 ##   --orcas (start an orca visit now and follow it)  --wildlife=ID (the same for any species:
 ##     humpback, gray, sea_lion, dalls_porpoise, harbor_porpoise, harbor_seal)
-##   --vessel=cargo|sail|yacht|pilot|tug (follow a cargo ship, a sailboat under way, a
+##   --vessel=cargo|sail|yacht|pilot|tug|navy|nautilus (follow a cargo ship, a sailboat under way, a
 ##     motor yacht, a pilot boat or a tug)
 ##   --aa=msaa|smaa|none (anti-aliasing, to compare)  --dof=0 (no depth-of-field blur)
 
@@ -87,9 +87,17 @@ func _apply(options: Dictionary[String, String]) -> void:
 			_session.rig.snap()
 	if options.has("vessel"):
 		var want := str(options["vessel"])
+		if want in ["navy", "nautilus"]:
+			_session.sim.marine.spawn_convoy(want == "nautilus")
 		for v in _session.sim.marine.vessels:
-			if (want == "cargo" and v is CargoShip) or (want == "sail" and v is Sailboat and v.wants_to_move()) \
-					or (want == "yacht" and v is MotorYacht) or (want == "pilot" and v is PilotBoat) or (want == "tug" and v is Tug):
+			if (
+				(want == "cargo" and v is CargoShip)
+				or (want == "sail" and v is Sailboat and v.wants_to_move())
+				or (want == "yacht" and v is MotorYacht)
+				or (want == "pilot" and v is PilotBoat)
+				or (want == "tug" and v is Tug)
+				or (want in ["navy", "nautilus"] and v is NavalVessel and v.lead == null)
+			):
 				_session.hud.select_vessel(v)
 				_session.rig.target_pos = v.global_position
 				_session.rig.snap()
