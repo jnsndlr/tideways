@@ -1337,6 +1337,16 @@ def render_anim_video(rig, obj, action, cycle_len, loops, out_path, zrot_left_de
         bpy.data.objects.remove(o, do_unlink=True)
 
 
+# Parts the game recolours per passenger (see art/person_recolor.py).
+RECOLOR_GROUPS = {
+    "skin": [SKIN, SKIN_SHADE],
+    "hair": [HAIR_DARK, HAIR_MID],
+    "top": [JACKET, JACKET_SHADE, JACKET_POCKET],
+    "bottom": [PANTS, PANTS_SHADE, CUFF, CUFF_SHADE],
+    "accent": [SCARF, SCARF_LIGHT, SCARF_DARK, SCARF_FRINGE],
+}
+
+
 def main():
     extra_args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     stills_only = "--stills-only" in extra_args
@@ -1350,6 +1360,9 @@ def main():
     me = bpy.data.meshes.new("PersonShopper")
     mb.bm.to_mesh(me)
     mb.bm.free()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import person_recolor
+    person_recolor.tag_parts(me, RECOLOR_GROUPS)
 
     mat = setup_material()
     me.materials.append(mat)
@@ -1379,6 +1392,7 @@ def main():
         use_selection=True,
         export_normals=True,
         export_vertex_color="ACTIVE",
+        export_texcoords=True,
         export_materials="EXPORT",
         export_yup=True,
         export_skins=True,

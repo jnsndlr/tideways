@@ -1,21 +1,62 @@
 class_name Passenger
 extends Node3D
-## A walk-on ferry passenger animated with one of the two stand-in character models
-## (person_beanie.glb and person_low.glb). Follows waypoints between the passenger
+## A walk-on ferry passenger animated with one of the low-poly character models
+## in MODELS, picked by variant. Follows waypoints between the passenger
 ## terminal, waiting area, trestle walkway and ferry deck, playing its Walk cycle
 ## while moving and a lightweight universal skeletal idle animation while waiting.
 
 const MODELS := [
 	"res://assets/models/person_beanie.glb",
 	"res://assets/models/person_low.glb",
+	"res://assets/models/person_business.glb",
+	"res://assets/models/person_elder.glb",
+	"res://assets/models/person_shopper.glb",
+	"res://assets/models/person_construction.glb",
+	"res://assets/models/person_hipster.glb",
+	"res://assets/models/person_jogger.glb",
+	"res://assets/models/person_kid.glb",
+	"res://assets/models/person_student.glb",
+	"res://assets/models/person_tourist.glb",
+	"res://assets/models/person_umbrella.glb",
 ]
+const RECOLOR_SHADER := preload("res://shaders/passenger.gdshader")
+## Models whose people are too young for grey hair.
+const YOUNG := ["kid", "student", "jogger", "hipster"]
+## Recolour palettes, picked in sRGB like the Blender palettes (see
+## art/person_recolor.py). Repeats weight the common picks.
+const SKIN_TONES := [
+	Color(0.98, 0.80, 0.66), Color(0.96, 0.74, 0.56), Color(0.92, 0.68, 0.50),
+	Color(0.84, 0.60, 0.42), Color(0.72, 0.50, 0.34), Color(0.58, 0.39, 0.26),
+	Color(0.45, 0.30, 0.20), Color(0.36, 0.23, 0.16),
+]
+const HAIR_COLORS := [
+	Color(0.12, 0.10, 0.09), Color(0.12, 0.10, 0.09), Color(0.24, 0.16, 0.11),
+	Color(0.24, 0.16, 0.11), Color(0.38, 0.26, 0.17), Color(0.55, 0.42, 0.28),
+	Color(0.56, 0.26, 0.14), Color(0.84, 0.69, 0.42), Color(0.92, 0.80, 0.55),
+]
+const GREY_HAIR := [Color(0.66, 0.65, 0.63), Color(0.86, 0.85, 0.82)]
+const TOP_COLORS := [
+	Color(0.20, 0.28, 0.45), Color(0.36, 0.50, 0.66), Color(0.20, 0.47, 0.50),
+	Color(0.27, 0.42, 0.30), Color(0.50, 0.52, 0.32), Color(0.84, 0.66, 0.26),
+	Color(0.70, 0.36, 0.22), Color(0.66, 0.24, 0.22), Color(0.46, 0.20, 0.26),
+	Color(0.90, 0.86, 0.76), Color(0.28, 0.29, 0.31), Color(0.88, 0.52, 0.44),
+	Color(0.42, 0.32, 0.50), Color(0.62, 0.74, 0.82),
+]
+const BOTTOM_COLORS := [
+	Color(0.30, 0.40, 0.56), Color(0.20, 0.25, 0.36), Color(0.26, 0.27, 0.29),
+	Color(0.15, 0.15, 0.16), Color(0.70, 0.62, 0.46), Color(0.40, 0.42, 0.30),
+	Color(0.40, 0.30, 0.22), Color(0.52, 0.54, 0.56),
+]
+## Chance a passenger keeps the model's own colour for a part.
+const KEEP_CHANCE := 0.25
+
 const WALK_ANIM := &"Walk"
 const WALK_SPEED := 10.5  # game units/s (~44% of car speed: brisk walk along pier & ramp)
 const TURN_RATE := 12.0
 
 static var _scenes: Array[PackedScene] = []
 static var _loaded := false
-static var _material: StandardMaterial3D
+static var _material: ShaderMaterial
 
 var variant := 0
 var speed := WALK_SPEED
@@ -50,10 +91,8 @@ static func _ensure_loaded() -> void:
 	if _loaded:
 		return
 	_loaded = true
-	_material = StandardMaterial3D.new()
-	_material.vertex_color_use_as_albedo = true
-	_material.roughness = 0.88
-	_material.metallic = 0.0
+	_material = ShaderMaterial.new()
+	_material.shader = RECOLOR_SHADER
 	for p: String in MODELS:
 		if ResourceLoader.exists(p):
 			_scenes.append(load(p) as PackedScene)
@@ -78,6 +117,7 @@ static func create(model_variant: int) -> Passenger:
 		var inst := scene.instantiate()
 		pax.add_child(inst)
 		_apply_vertex_color_material(inst)
+		_apply_random_colors(inst, MODELS[pax.variant])
 		pax._anim = _find_animation_player(inst)
 		pax._skeleton = _find_skeleton(inst)
 		if pax._anim != null:
@@ -89,10 +129,50 @@ static func create(model_variant: int) -> Passenger:
 
 
 static func _apply_vertex_color_material(node: Node) -> void:
-	if node is MeshInstance3D:
-		(node as MeshInstance3D).material_override = _material
+	# Surfaces with painted textures (the tourist's map and shirt) keep their own.
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var mi := node as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if m == null or m.albedo_texture == null:
+				mi.set_surface_override_material(i, _material)
 	for c in node.get_children():
 		_apply_vertex_color_material(c)
+
+
+## Gives this passenger its own skin, hair, clothes and accessory colours.
+static func _apply_random_colors(node: Node, model_path: String) -> void:
+	var young := false
+	for y: String in YOUNG:
+		if y in model_path.get_file():
+			young = true
+	var hair: Array = HAIR_COLORS if young else HAIR_COLORS + GREY_HAIR
+	var picks := {
+		&"skin_col": _pick(SKIN_TONES),
+		&"hair_col": _pick(hair),
+		&"top_col": _pick(TOP_COLORS),
+		&"bottom_col": _pick(BOTTOM_COLORS),
+		&"accent_col": _pick(TOP_COLORS),
+	}
+	_set_colors(node, picks)
+
+
+static func _pick(palette: Array) -> Color:
+	if randf() < KEEP_CHANCE:
+		return Color(0, 0, 0, 0)
+	var c: Color = palette[randi() % palette.size()]
+	# Linear, to match the vertex colours.
+	var lin := c.srgb_to_linear()
+	lin.a = 1.0
+	return lin
+
+
+static func _set_colors(node: Node, picks: Dictionary) -> void:
+	if node is GeometryInstance3D:
+		for k: StringName in picks:
+			(node as GeometryInstance3D).set_instance_shader_parameter(k, picks[k])
+	for c in node.get_children():
+		_set_colors(c, picks)
 
 
 static func _find_animation_player(node: Node) -> AnimationPlayer:

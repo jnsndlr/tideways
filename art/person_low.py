@@ -7,6 +7,7 @@
 
 import math
 import os
+import sys
 import bpy
 import bmesh
 from mathutils import Vector
@@ -844,6 +845,16 @@ def render_walk_preview(rig, obj, out_path):
         bpy.data.meshes.remove(sm)
 
 
+# Parts the game recolours per passenger (see art/person_recolor.py).
+RECOLOR_GROUPS = {
+    "skin": [SKIN],
+    "hair": [HAIR],
+    "top": [JACKET],
+    "bottom": [PANTS],
+    "accent": [PACK],
+}
+
+
 def main():
     bpy.ops.wm.read_homefile(use_empty=True)
 
@@ -854,6 +865,9 @@ def main():
     me = bpy.data.meshes.new("PersonLow")
     mb.bm.to_mesh(me)
     mb.bm.free()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import person_recolor
+    person_recolor.tag_parts(me, RECOLOR_GROUPS)
 
     mat = setup_material()
     me.materials.append(mat)
@@ -885,6 +899,7 @@ def main():
         use_selection=True,
         export_normals=True,
         export_vertex_color="ACTIVE",
+        export_texcoords=True,
         export_materials="EXPORT",
         export_yup=True,
         export_skins=True,

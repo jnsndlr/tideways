@@ -8,6 +8,7 @@
 
 import math
 import os
+import sys
 import bpy
 import bmesh
 from mathutils import Vector
@@ -1180,6 +1181,15 @@ def render_anim_strip(rig, obj, action, frames, out_path, zrot_deg=55):
         bpy.data.meshes.remove(sm)
 
 
+# Parts the game recolours per passenger (see art/person_recolor.py).
+RECOLOR_GROUPS = {
+    "skin": [SKIN, SKIN_SHADE],
+    "top": [VEST, VEST_SHADE, VEST_POCKET],
+    "bottom": [PANTS, PANTS_SHADE],
+    "accent": [CAP, CAP_DARK, CAP_BRIM],
+}
+
+
 def main():
     bpy.ops.wm.read_homefile(use_empty=True)
 
@@ -1190,6 +1200,9 @@ def main():
     me = bpy.data.meshes.new("PersonElder")
     mb.bm.to_mesh(me)
     mb.bm.free()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import person_recolor
+    person_recolor.tag_parts(me, RECOLOR_GROUPS)
 
     mat = setup_material()
     me.materials.append(mat)
@@ -1220,6 +1233,7 @@ def main():
         use_selection=True,
         export_normals=True,
         export_vertex_color="ACTIVE",
+        export_texcoords=True,
         export_materials="EXPORT",
         export_yup=True,
         export_skins=True,

@@ -8,6 +8,7 @@
 
 import math
 import os
+import sys
 import subprocess
 import tempfile
 import bpy
@@ -1281,6 +1282,16 @@ def render_anim_video(rig, obj, action, cycle_len, loops, out_path, zrot_left_de
         bpy.data.objects.remove(o, do_unlink=True)
 
 
+# Parts the game recolours per passenger (see art/person_recolor.py).
+RECOLOR_GROUPS = {
+    "skin": [SKIN, SKIN_SHADE],
+    "hair": [HAIR, HAIR_SHADE],
+    "top": [BLAZER, BLAZER_SHADE, BLAZER_LAPEL],
+    "bottom": [PANTS, PANTS_SHADE],
+    "accent": [PURSE, PURSE_DARK, PURSE_STRAP],
+}
+
+
 def main():
     bpy.ops.wm.read_homefile(use_empty=True)
 
@@ -1291,6 +1302,9 @@ def main():
     me = bpy.data.meshes.new("PersonBusiness")
     mb.bm.to_mesh(me)
     mb.bm.free()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import person_recolor
+    person_recolor.tag_parts(me, RECOLOR_GROUPS)
 
     mat = setup_material()
     me.materials.append(mat)
@@ -1321,6 +1335,7 @@ def main():
         use_selection=True,
         export_normals=True,
         export_vertex_color="ACTIVE",
+        export_texcoords=True,
         export_materials="EXPORT",
         export_yup=True,
         export_skins=True,
