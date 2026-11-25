@@ -782,7 +782,8 @@ func _pick_destination() -> int:
 	for dest in lanes.keys():
 		if not MapData.is_route(dest):
 			continue
-		weights[dest] = sim.map.towns[dest].population + 600.0
+		var dest_town := sim.map.towns[dest]
+		weights[dest] = (dest_town.population + 600.0) * sim.town_growth.destination_pull_multiplier(dest_town)
 		total += weights[dest]
 	var pick := sim.rng.randf() * total
 	for rid in weights.keys():
@@ -799,7 +800,7 @@ func _pick_lane(key: int, need := 1) -> Lane:
 func _spawn_car() -> void:
 	if not has_service():
 		return
-	var car := sim.make_vehicle()
+	var car := sim.make_vehicle(null, sim.town_growth.commercial_truck_share(town))
 	car.dest = _pick_destination()
 	var lane := _pick_lane(car.dest, car.slots)
 	if lane == null:

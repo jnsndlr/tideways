@@ -29,10 +29,12 @@ class IslandSpec:
 	# island, so moving or turning it carries them along. A generated map's
 	# islands have none, and the generator picks a spot facing the neighbours.
 	var ferry := true       # with no scenario (--full-network): build its first dock
+	var community_type := "residential"   # "rural", "residential", or "industrial"
 	var docks: Array[DockSpec] = []
 
+	const COMMUNITY_TYPES := ["rural", "residential", "industrial"]
 	const KEYS := ["name", "x", "z", "radius", "height", "hills", "peak", "lakes", "shape_seed", "stretch",
-		"angle", "roughness", "forest", "fields", "pinned", "mainland", "ferry"]
+		"angle", "roughness", "forest", "fields", "pinned", "mainland", "ferry", "community_type"]
 
 	## Where dock `d` meets the shore in the world, and the heading out to sea.
 	func dock_at(d: DockSpec) -> Vector2:
@@ -75,6 +77,8 @@ class IslandSpec:
 					TYPE_STRING:
 						v = str(v)
 				s.set(k, v)
+		if not (s.community_type in COMMUNITY_TYPES):
+			s.community_type = "residential"
 		for e in d.get("docks", []):
 			s.docks.append(DockSpec.from_dict(e))
 		# The old single hand-placed dock, in world coordinates.
@@ -96,11 +100,14 @@ class DockSpec:
 	var tier := "standard"
 	## The town this dock serves; its terminal takes the town's name (TID-319).
 	var town := ""
+	var community_type := ""
 
 	func to_dict() -> Dictionary:
 		var d := {"u": snappedf(u, 0.001), "v": snappedf(v, 0.001), "facing": snappedf(facing, 0.0001), "tier": tier}
 		if not town.is_empty():
 			d["town"] = town
+		if not community_type.is_empty():
+			d["community_type"] = community_type
 		return d
 
 	static func from_dict(d: Dictionary) -> DockSpec:
@@ -110,6 +117,9 @@ class DockSpec:
 		s.facing = float(d.get("facing", 0.0))
 		s.tier = str(d.get("tier", "standard"))
 		s.town = str(d.get("town", ""))
+		s.community_type = str(d.get("community_type", ""))
+		if not s.community_type.is_empty() and not (s.community_type in IslandSpec.COMMUNITY_TYPES):
+			s.community_type = ""
 		if not DOCK_TIERS.has(s.tier):
 			s.tier = "standard"
 		return s

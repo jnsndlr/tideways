@@ -6,9 +6,9 @@ extends RefCounted
 const TRUCK_SHARE := 0.12
 
 
-static func create(rng: RandomNumberGenerator) -> Vehicle:
+static func create(rng: RandomNumberGenerator, truck_share := TRUCK_SHARE) -> Vehicle:
 	var vehicle := Vehicle.new()
-	var truck := rng.randf() < TRUCK_SHARE
+	var truck := rng.randf() < clampf(truck_share, 0.0, 1.0)
 	if not Models.mid_cars:
 		var col := rng.randi_range(0, Models.CAR_COLORS.size() - 1)
 		vehicle.setup(Models.truck(col) if truck else Models.car(col), truck)

@@ -172,6 +172,8 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 	isl.fields = spec.fields
 	isl.mainland_port = spec.mainland
 	isl.ferry = spec.ferry
+	isl.community_type = spec.community_type if spec.community_type in MapLayout.IslandSpec.COMMUNITY_TYPES else "residential"
+	isl.radio_tower_built = isl.name == "Madrona Island"
 	isl.dock_sites.clear()
 	for d in spec.docks:
 		var site := MapData.DockSite.new()
@@ -182,6 +184,7 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 		site.dir = Vector3(dir.x, 0.0, dir.y)
 		site.tier = d.tier
 		site.town = d.town
+		site.community_type = d.community_type
 		isl.dock_sites.append(site)
 
 
@@ -250,9 +253,11 @@ static func roll_layout(world_seed: int, names: Array, count := -1) -> MapLayout
 		count = r.randi_range(8, 11)
 	elif count == -2:
 		count = pool.size()
+	const ROLLED_TYPES := ["industrial", "residential", "rural", "residential", "industrial", "residential", "rural"]
 	for k in count:
 		var spec := MapLayout.IslandSpec.new()
 		spec.name = str(pool[k % pool.size()]) if not pool.is_empty() else "Island %d" % (k + 1)
+		spec.community_type = ROLLED_TYPES[k % ROLLED_TYPES.size()]
 		roll_shape(spec, r)
 		# No room: try it a little smaller, and leave it out after that.
 		for shrink in 6:
@@ -368,6 +373,7 @@ func _make_towns() -> void:
 			t.key = "%s/%d" % [isl.key, i]
 			t.island = isl.id
 			t.name = isl.name
+			t.community_type = isl.community_type
 			t.center = isl.center
 			if i < n:
 				var site := isl.dock_sites[i]
@@ -380,6 +386,8 @@ func _make_towns() -> void:
 					t.name = site.town
 				elif n > 1 and i > 0:
 					t.name = "%s %d" % [isl.name, i + 1]
+				if not site.community_type.is_empty():
+					t.community_type = site.community_type
 			map.towns.append(t)
 			isl.towns.append(t.id)
 

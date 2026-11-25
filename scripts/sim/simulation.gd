@@ -33,6 +33,7 @@ var traffic: Node3D
 var passengers: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
+var town_growth := TownGrowth.new()
 ## A dock site was bought and its terminal is being built (buy_dock).
 signal slip_sites_changed
 signal dock_bought(town: MapData.Town)
@@ -126,6 +127,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 	wildlife.name = "Wildlife"
 	add_child(wildlife)
 	wildlife.setup(self)
+	town_growth.setup(self)
 	if not await frames.can_continue():
 		return
 	if marine == null:
@@ -154,6 +156,7 @@ func open_terminal(town: MapData.Town) -> Terminal:
 	var term := _add_terminal(town)
 	term.build_lanes(_lane_destinations(term))
 	term.prefill()
+	town_growth.refresh_metrics()
 	terminal_opened.emit(term)
 	return term
 
@@ -294,11 +297,16 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 			f.schedule.stops.assign(ids.map(func(id): return map.towns[id].key))
 			f.schedule.departures = new_times
 		stops_changed(f)
+		town_growth.refresh_metrics()
 		return true
-	if ids == f.stops:
+	var prev_stops: Array[int] = f.stops.duplicate()
+	var prev_times: Array[int] = f.timetable.duplicate()
+	var stops_edited := ids != prev_stops
+	var times_edited := new_times != prev_times
+	if not stops_edited:
 		f.next_stops = []
 		f._next_legs = []
-		if new_times != f.timetable:
+		if times_edited:
 			f.set_timetable(new_times)
 	else:
 		f.plan_stops(ids, leg_routes, new_times)
@@ -306,6 +314,11 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 		f.schedule.stops.assign(ids.map(func(id): return map.towns[id].key))
 		f.schedule.departures = new_times
 	_mark_routes_in_service()
+	if stops_edited or times_edited:
+		var affected: Array[int] = []
+		affected.append_array(prev_stops)
+		affected.append_array(ids)
+		town_growth.on_schedule_changed(affected, stops_edited)
 	return true
 
 
@@ -320,6 +333,7 @@ func stops_changed(_f: Ferry) -> void:
 	# A route newly in service may share a slip while another stands free.
 	for term: Terminal in terminals.values():
 		term.spread_routes()
+	town_growth.refresh_metrics()
 
 
 ## Routes a boat sails, or will once she takes her planned stops, are in service.
@@ -439,6 +453,7 @@ func _process(delta: float) -> void:
 		var to_midnight := DAY_MINUTES - minutes
 		for ferry in ferries:
 			ferry.pay_crew(to_midnight)
+		town_growth.step(to_midnight)
 		dmin -= to_midnight
 		minutes = 0.0
 		day += 1
@@ -450,10 +465,12 @@ func _process(delta: float) -> void:
 		for term: Terminal in terminals.values():
 			term.served_today = 0
 			term.passengers_served_today = 0
+		town_growth.start_day()
 	minutes += dmin
 	for ferry in ferries:
 		ferry.pay_crew(dmin)
 	_advance_docks(dmin)
+	town_growth.step(dmin)
 
 
 ## What building a terminal at `town`'s dock site costs (its tier), or 0 if it can't be bought.
@@ -504,8 +521,8 @@ func post_running_costs(ferry: Ferry, fuel: float, crew: float, trip: bool) -> v
 	running_costs_posted.emit(ferry, fuel, crew, trip)
 
 
-func make_vehicle(parent: Node3D = null) -> Vehicle:
-	var vehicle := VehicleFactory.create(rng)
+func make_vehicle(parent: Node3D = null, truck_share := VehicleFactory.TRUCK_SHARE) -> Vehicle:
+	var vehicle := VehicleFactory.create(rng, truck_share)
 	vehicle.moving_traffic = moving_vehicles
 	(parent if parent else traffic).add_child(vehicle)
 	return vehicle
@@ -592,11 +609,13 @@ func demand_factor() -> float:
 
 
 func demand_rate(isl: MapData.Town) -> float:
-	return TrafficDemand.vehicle_arrivals_per_minute(isl.population, hour(), avg_vehicle_fare_at(isl))
+	return TrafficDemand.vehicle_arrivals_per_minute(isl.population, hour(), avg_vehicle_fare_at(isl)) \
+		* town_growth.vehicle_demand_multiplier(isl)
 
 
 func passenger_demand_rate(isl: MapData.Town) -> float:
-	return TrafficDemand.passenger_arrivals_per_minute(isl.population, hour(), avg_passenger_fare_at(isl))
+	return TrafficDemand.passenger_arrivals_per_minute(isl.population, hour(), avg_passenger_fare_at(isl)) \
+		* town_growth.passenger_demand_multiplier(isl)
 
 
 func demand_label(isl: MapData.Town) -> String:

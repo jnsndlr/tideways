@@ -20,6 +20,7 @@
 			"pinned": true,
 			"mainland": true,
 			"ferry": true,
+			"community_type": "industrial",
 			"docks": [
 				{
 					"u": -275.823,
@@ -47,6 +48,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": true,
+			"community_type": "residential",
 			"docks": [
 				{
 					"u": 900.904,
@@ -89,6 +91,7 @@
 			"pinned": false,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "rural",
 			"docks": [
 				{
 					"u": 343.775,
@@ -117,6 +120,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "residential",
 			"docks": [
 				{
 					"u": -408.905,
@@ -145,6 +149,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "industrial",
 			"docks": [
 				{
 					"u": -765.522,
@@ -173,6 +178,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "residential",
 			"docks": [
 				{
 					"u": 108.963,
@@ -207,6 +213,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": true,
+			"community_type": "industrial",
 			"docks": [
 				{
 					"u": 283.083,
@@ -235,6 +242,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "residential",
 			"docks": [
 				{
 					"u": 624.033,
@@ -270,6 +278,7 @@
 			"pinned": false,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "rural",
 			"docks": [
 				{
 					"u": -432.257,
@@ -298,6 +307,7 @@
 			"pinned": true,
 			"mainland": false,
 			"ferry": false,
+			"community_type": "rural",
 			"docks": [
 				{
 					"u": -871.603,

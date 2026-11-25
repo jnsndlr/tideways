@@ -884,15 +884,43 @@ func _refresh_panels() -> void:
 			"No ferry service yet" if not term else
 			"Ferry terminal · idle slip" if served == 0 else
 			"Ferry terminal · %d route%s" % [served, "" if served == 1 else "s"])
+		var tg: TownGrowth.TownState = sim.town_growth.state_for_town(isl)
 		var rows := []
 		if isl.name != island.name:
 			rows.append(["Island", island.name])
-		rows.append_array([
-			["Population", fmt_int(isl.population)],
-			["Satisfaction", "%d%%" % roundi(sat)],
-			["Growth", "%+.1f%% / yr" % (island.growth + (sat - 70.0) * 0.05)],
-			["Demand", sim.demand_label(isl) if term else "-"],
-		])
+		rows.append(["Community", TownGrowth.community_label(isl.community_type)])
+		if tg != null:
+			rows.append(["Population", "%s (+%d / day)" % [fmt_int(isl.population), roundi(tg.total_daily)]])
+			rows.append(["Growth", "Organic +%d · Ferry +%d" % [roundi(tg.organic_daily), roundi(tg.ferry_daily)]])
+			if tg.has_service:
+				rows.append(["Accessibility", "%d%% · %d/%d links" % [roundi(tg.accessibility * 100.0), tg.active_connections, tg.expected_connections]])
+				rows.append(["Service", "Freq %d%% · Fair %d%% · Rel %d%% (%dd)" % [
+					roundi(tg.frequency_score * 100.0), roundi(tg.affordability_score * 100.0),
+					roundi(tg.reliability_score * 100.0), int(tg.stable_days)]])
+			else:
+				rows.append(["Accessibility", "0%% · 0/%d links expected" % tg.expected_connections])
+			rows.append(["Attractiveness", "Res %d · Ind %d · Tour %d" % [
+				roundi(tg.attractiveness_residents), roundi(tg.attractiveness_industry), roundi(tg.attractiveness_tourism)]])
+			rows.append(["Economy", "%d · %d%% commercial" % [
+				roundi(tg.economic_activity), roundi(sim.town_growth.commercial_truck_share(isl) * 100.0)]])
+			var bldg := "%d houses · %d shops" % [tg.built_houses, tg.built_commercial]
+			if not tg.active_builds.is_empty():
+				bldg += " · %d building" % tg.active_builds.size()
+			rows.append(["Town buildings", bldg])
+			var next_ms := sim.town_growth.next_milestone_for(isl)
+			if not next_ms.is_empty():
+				rows.append(["Next milestone", "%s (%s pop)" % [str(next_ms["title"]), fmt_int(int(next_ms["pop"]))]])
+			rows.append_array([
+				["Satisfaction", "%d%%" % roundi(sat)],
+				["Demand", sim.demand_label(isl) if term else "-"],
+			])
+		else:
+			rows.append_array([
+				["Population", fmt_int(isl.population)],
+				["Satisfaction", "%d%%" % roundi(sat)],
+				["Growth", "%+.1f%% / yr" % (island.growth + (sat - 70.0) * 0.05)],
+				["Demand", sim.demand_label(isl) if term else "-"],
+			])
 		rows.append(["Wildlife draw", _draw_text(island)])
 		rows.append(["Wildlife appeal", _appeal_text(wildlife.appeal(island))])
 		if not term and main.has_method("buy_dock"):

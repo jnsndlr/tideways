@@ -202,10 +202,19 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	pinnipeds = Pinnipeds.new()
 	add_child(pinnipeds)
 	pinnipeds.setup(sim.wildlife, terrain, water_mat)
+	var town_construction := TownConstruction.new()
+	town_construction.name = "TownConstruction"
+	add_child(town_construction)
+	town_construction.setup(sim, builder)
 	day_cycle.apply(sim.hour())
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
+	sim.town_growth.milestone_unlocked.connect(func(_town: MapData.Town, _id: String, title: String, detail: String):
+		hud.show_toast("TOWN MILESTONE · %s" % title.to_upper(), detail, 5.5))
+	sim.town_growth.island_radio_tower_unlocked.connect(func(isl: MapData.Island):
+		hud.show_toast("ISLAND MILESTONE · RADIO TOWER",
+			"%s reached %d residents and is constructing an island radio tower (+15%% base growth)." % [isl.name, TownGrowth.RADIO_TOWER_ISLAND_POP], 5.5))
 
 
 ## Run data preparation on the worker during Play, or inline for direct loads.

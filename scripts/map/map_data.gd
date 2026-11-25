@@ -18,6 +18,9 @@ class Island:
 	var population := 0
 	var growth := 0.0               # base % per year
 	var wildlife_appeal := 1.0      # how strongly it pulls marine wildlife visits
+	var community_type := "residential"   # "rural", "residential", or "industrial"
+	var radio_tower_built := false        # Madrona starts with one; others unlock at 6k island pop
+	var radio_tower_lot: TownLot          # high-ground pad reserved for this island's radio tower
 
 	# Shape (see Terrain.Stamp): 0 shape_seed samples the noise where the island stands.
 	var shape_seed := 0
@@ -52,6 +55,11 @@ class Town:
 	var island := 0                 # island id
 	var name := ""
 	var population := 0
+	var community_type := "residential"   # "rural", "residential", or "industrial"
+	## Pre-planned lots built or reserved for town growth (WorldBuilder populates).
+	var growth_lots: Array[TownLot] = []
+	var initial_houses := 0
+	var initial_commercial := 0
 
 	# Ferry terminal (when has_dock)
 	var has_dock := false
@@ -179,12 +187,28 @@ class Town:
 class DockSite:
 	var key := ""                   # "<island key>/<index>", as scenarios name it
 	var town := ""                  # its town's name, as Jon wrote it ("": the island's)
+	var community_type := ""        # optional per-town override
 	var shore := Vector3.ZERO
 	var dir := Vector3.FORWARD
 	var tier := "standard"
 
 	func price() -> int:
 		return MapLayout.dock_price(tier)
+
+
+## A buildable lot planned around a town (or on an island ridge for a radio tower).
+## WorldBuilder places initial buildings up to the starting ratios and reserves
+## the remaining lots clear of trees so growth can construct into them cleanly.
+class TownLot:
+	enum Kind { HOUSE, COMMERCIAL, LANDMARK, RADIO_TOWER }
+	var pos := Vector3.ZERO
+	var yaw := 0.0
+	var scale := 1.0
+	var lot_y := 0.0
+	var kind := Kind.HOUSE
+	var variant := 0
+	var occupied := false
+	var waterfront := false
 
 
 ## Somewhere boats tie up along a shore. Its frame is like a terminal's: origin
