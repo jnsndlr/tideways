@@ -234,8 +234,23 @@ func stops_problem(f: Ferry, ids: Array[int]) -> String:
 		if reason != "":
 			return reason
 	if f.next_dock().town.id not in ids:
+		# Lying out of service, her crew can take her across empty to the new stops.
+		if f.berth == Ferry.Berth.TIED_UP and f.assigned:
+			if positioning_stop(f, ids) < 0:
+				return "No route from %s to any of her new stops" % f.here().town.name
+			return ""
 		return "Keep %s, where she calls next" % f.next_dock().town.name
 	return ""
+
+
+## The first of `ids` that boat `f`, lying at a terminal that isn't one of them,
+## can sail to empty to start them (-1 if none she can reach directly).
+func positioning_stop(f: Ferry, ids: Array[int]) -> int:
+	var from := f.here().town.id
+	for id in ids:
+		if route_between(from, id) != null and leg_problem(f, from, id) == "":
+			return id
+	return -1
 
 
 ## A boat other than `except` lying out of service in slip `slip` at `term`, or
@@ -308,6 +323,10 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 		f._next_legs = []
 		if times_edited:
 			f.set_timetable(new_times)
+	elif f.berth == Ferry.Berth.TIED_UP and f.here().town.id not in ids:
+		var target := positioning_stop(f, ids)
+		f.reposition(target, route_between(f.here().town.id, target), ids, leg_routes, new_times)
+		stops_changed(f)
 	else:
 		f.plan_stops(ids, leg_routes, new_times)
 	if f.schedule:

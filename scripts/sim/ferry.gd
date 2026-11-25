@@ -138,6 +138,7 @@ var tow: DeliveryTow             # bringing her in (or, sold, away) while berth 
 var _lying_in_slip: Ferry        # the boat lying in the slip she is holding off
 var lay_up_requested := false     # tie up once she has unloaded at a terminal with a free tie-up slip
 var return_requested := false     # back into service once her working slip is free
+var _positioning := false         # sailing empty to the first of her new stops (reposition)
 var tie_up := -1                  # index into here().town.slips while laid up
 var _shift: SlipShiftPath
 var _shift_s := 0.0
@@ -358,6 +359,7 @@ func _take_next_stops() -> bool:
 	for i in next_stops.size():
 		if next_stops[i] == term_id and next_stops[(i - 1 + next_stops.size()) % next_stops.size()] == came_from:
 			k = i
+	_positioning = false
 	stops = next_stops
 	legs = _next_legs
 	call = k
@@ -854,6 +856,8 @@ func _tick_loading(delta: float) -> void:
 	var boarding_open := _state_time < MAX_DWELL
 	if timed and not late:
 		boarding_open = now >= due_at - MAX_DWELL and now < due_at - BOARD_CLOSE
+	if _positioning:
+		boarding_open = false   # (crossing empty to her new stops)
 	if boarding_open and not _casting_off and _ramp_down():
 		match _load_phase:
 			LoadPhase.WALK_ONS:
@@ -898,6 +902,8 @@ func _tick_loading(delta: float) -> void:
 	var loaded := _load_phase == LoadPhase.VEHICLES and _state_time >= MIN_DWELL and (full or queue_empty or _state_time >= MAX_DWELL)
 	if timed:
 		loaded = _load_phase == LoadPhase.VEHICLES and now >= due_at - APRON_LIFT and (not late or loaded)
+	if _positioning:
+		loaded = _load_phase == LoadPhase.VEHICLES
 	if _casting_off or (_boarding == 0 and _pax_boarding == 0 and loaded):
 		# Apron up before she goes.
 		_casting_off = true
@@ -1816,6 +1822,9 @@ func status_text() -> String:
 			return "Moving to the tie-up slip at " + here().town.name
 		Berth.TIED_UP:
 			if return_requested:
+				var o := sim.occupant(here(), slip_at(here()), self) if tie_up != slip_at(here()) else null
+				if o:
+					return "Tied up at %s · %s lies laid up in her slip" % [here().town.name, o.ferry_name]
 				return "Tied up at %s · waiting for her slip" % here().town.name
 			if between_sailings():
 				return "Tied up at %s until her %s sailing" % [here().town.name, Timetable.text(int(round(fmod(_gap_due, Timetable.DAY))))]
@@ -1830,6 +1839,8 @@ func status_text() -> String:
 
 
 func _service_text() -> String:
+	if _positioning and state != State.SAILING:
+		return "Casting off empty at %s for her new stops" % here().town.name
 	if state == State.SAILING and speed < 0.6 and _lying_in_slip:
 		return "Holding off %s · %s lies in her slip" % [destination().town.name, _lying_in_slip.ferry_name]
 	if state == State.SAILING and speed < 0.6 and _refit_wait() < 30.0:
@@ -1855,6 +1866,8 @@ func _service_text() -> String:
 				return "Alongside at %s · sails %s" % [here().town.name, Timetable.text(due_at)]
 			return "%s at %s · sails %s" % [phase, here().town.name, Timetable.text(due_at)]
 	var text := "En route to %s (%d min)" % [destination().town.name, ceili(eta_minutes())]
+	if _positioning:
+		text += " · empty, to start her new stops"
 	if late_by >= 2.0:
 		text += " · %d min late" % roundi(late_by)
 	return text
@@ -2177,7 +2190,15 @@ func lay_up_slip(term: Terminal) -> int:
 		if sim.terminals.has(id) and free_tie_up(sim.terminals[id]) >= 0:
 			return -1   # (one further on has a tie-up: she goes there)
 	var mine := slip_at(term)
-	return mine if sim.occupant(term, mine, self) == null else -1
+	if sim.occupant(term, mine, self) != null:
+		return -1
+	# Not with a boat already coming in to it inside the hold line: she'd lie
+	# across its bow. She sails on and lays up at a later call instead.
+	for f in sim.ferries:
+		if f != self and f.berth == Berth.WORKING and f.state == State.SAILING \
+				and f.destination() == term and f.slip_at(term) == mine and f.path_left() < Terminal.REFIT_HOLD:
+			return -1
+	return mine
 
 
 ## A working slip at `term` that takes a boat of `size`, isn't being refitted,
@@ -2310,6 +2331,27 @@ func take_first_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route], ti
 		request_return()
 
 
+## New stops that don't include the terminal she lies tied up at: her crew take
+## her across empty on `leg` to `target` (one of them), where she takes them up.
+## Laid up, she waits for Return to service; between sailings she goes at once.
+func reposition(target: int, leg: MapData.Route, stop_ids: Array[int], leg_routes: Array[MapData.Route], times: Array[int]) -> void:
+	var here_id := here().town.id
+	stops = [here_id, target]
+	legs = [leg, leg]
+	call = 0
+	plan_stops(stop_ids, leg_routes, times)
+	_positioning = true
+	set_timetable([])   # (she sails as soon as she's alongside; her times start at the new stops)
+	_offsets.clear()
+	_take_leg()
+	# (_take_leg puts her at the working slip of the new leg; she still lies here)
+	for run in _corridor_runs():
+		for e in run[2]:
+			if e[1].owner == self:
+				e[1].owner = null
+	global_position = _tie_up_point(tie_up)
+
+
 ## Where her hull lies at slip `i` of the terminal she is at (y = 0).
 func _tie_up_point(i: int) -> Vector3:
 	var isl := here().town
@@ -2366,6 +2408,9 @@ func _shift_blocked(into_working: bool) -> bool:
 		elif into_working and f.berth == Berth.WORKING and f.here() == term and f.slip_at(term) == mine:
 			return true
 	if into_working:
+		# A boat laid up in her working slip holds it until she's moved.
+		if mine != tie_up and sim.occupant(term, mine, self) != null:
+			return true
 		for run in _corridor_runs():
 			if run[0] <= 3.0 and _run_holder(run, 0.0) != null:
 				return true

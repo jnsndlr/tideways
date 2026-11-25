@@ -265,7 +265,7 @@ func _rebuild() -> void:
 	_apply.disabled = problem != "" or unchanged
 	_apply.text = "Apply"
 	if problem == "" and not unchanged:
-		_apply.text = "Apply · she starts from %s" % _name(ferry.here().town.id) if not ferry.assigned else "Apply · now" if _draft == ferry.stops else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id)
+		_apply.text = "Apply · she starts from %s" % _name(ferry.here().town.id) if not ferry.assigned else "Apply · now" if _draft == ferry.stops else ("Apply · she crosses empty to start them" if ferry.here().town.id not in _draft and ferry.berth == Ferry.Berth.TIED_UP else "Apply · from her next call at %s" % _name(ferry.next_dock().town.id))
 	_fit.call_deferred()
 
 
