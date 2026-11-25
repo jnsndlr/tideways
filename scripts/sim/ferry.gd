@@ -211,6 +211,7 @@ var _lane_k := 0.0          # how far out on her lane she keeps (1 on a route sh
 
 func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	sim = s
+	_lay_up.berth_changed.connect(sim.berths_changed.emit)
 	route = r
 	fc = FerryClass.of(size)
 	ferry_name = nm

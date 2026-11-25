@@ -37,6 +37,8 @@ var wildlife: Wildlife
 var marine: MarineTraffic
 ## A terminal changed its holding queue or lane allocation.
 signal queues_changed
+## A ferry changes berth during a lay-up, return or delivery.
+signal berths_changed
 ## A dock site was bought and its terminal is being built (buy_dock).
 signal slip_sites_changed
 signal dock_bought(town: MapData.Town)
