@@ -285,6 +285,10 @@ func _build_top_bar() -> void:
 	row.add_child(clock)
 
 
+var _game_menu: PopupMenu
+var _menu_button: Button
+
+
 func _build_sidebar() -> void:
 	sidebar = PanelContainer.new()
 	sidebar.position = Vector2(20, 112)
@@ -295,7 +299,7 @@ func _build_sidebar() -> void:
 	sidebar.add_child(col)
 	for item in [["COMPANY", "company"], ["RESEARCH", "research"], ["FLEET", "fleet"],
 			["WILDLIFE", "wildlife"], ["FINANCES", "finances"], ["WEATHER", "weather"],
-			["MAP", "map"], ["SETTINGS", "settings"]]:
+			["MAP", "map"], ["MENU", "menu"]]:
 		var b := Button.new()
 		b.text = item[0]
 		b.custom_minimum_size = Vector2(96, 46)
@@ -304,6 +308,25 @@ func _build_sidebar() -> void:
 		b.add_theme_font_size_override("font_size", 12)
 		b.pressed.connect(_on_sidebar.bind(item[1]))
 		col.add_child(b)
+		if item[1] == "menu":
+			_menu_button = b
+	_game_menu = PopupMenu.new()
+	_game_menu.add_item("Save game  (F5)", 0)
+	_game_menu.add_item("Settings", 1)
+	_game_menu.add_separator()
+	_game_menu.add_item("Main menu", 2)
+	_game_menu.id_pressed.connect(_on_game_menu)
+	root.add_child(_game_menu)
+
+
+func _on_game_menu(id: int) -> void:
+	match id:
+		0:
+			main.quick_save()
+		1:
+			SettingsPanel.open(get_tree())
+		2:
+			Scenes.go(get_tree(), Scenes.MENU)
 
 
 func _build_help() -> void:
@@ -346,8 +369,10 @@ func _on_sidebar(id: String) -> void:
 			_finance_panel.refresh(sim)
 		"map":
 			rig.focus_on(Vector3.ZERO, 1680.0)
-		"settings":
-			SettingsPanel.open(get_tree())
+		"menu":
+			_game_menu.set_item_disabled(0, not main.has_method("quick_save"))
+			var r := _menu_button.get_global_rect()
+			_game_menu.popup(Rect2i(Vector2i(r.end.x + 6, r.position.y), Vector2i.ZERO))
 		_:
 			show_toast(id.to_upper(), "Coming soon: this screen is a placeholder in the preview.")
 
@@ -574,6 +599,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			main.regenerate()
 		KEY_M:
 			Scenes.go(get_tree(), Scenes.MENU)
+		KEY_F5:
+			if main.has_method("quick_save"):
+				main.quick_save()
 		KEY_BRACKETLEFT, KEY_BRACKETRIGHT:
 			var step := -1.0 if (event as InputEventKey).physical_keycode == KEY_BRACKETLEFT else 1.0
 			main.day_cycle.set_hour(roundf(main.day_cycle.hour()) + step)

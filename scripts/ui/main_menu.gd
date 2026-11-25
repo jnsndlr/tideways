@@ -56,6 +56,11 @@ func _build() -> void:
 	col.add_child(gap)
 
 	var play := _button(col, "Play", func(): _play(""))
+	var load_btn := _button(col, "Load saved game", _load_saved)
+	var save := SaveGame.read()
+	load_btn.disabled = save.is_empty()
+	if not save.is_empty():
+		load_btn.tooltip_text = "%s · day %d · saved %s" % [str(save.get("scenario", "")).get_file().get_basename(), int(save.get("day", 0)), save.get("saved_at", "")]
 	_button(col, "Mission sandbox", func(): _play("", "Setting out with an open purse", true))
 	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
 	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
@@ -74,6 +79,14 @@ func _build() -> void:
 func _play(scenario: String, caption := "Setting out for the islands", unlimited := false) -> void:
 	if _start(Scenes.MAIN_MAP, caption):
 		MainMapScript.start_session(scenario, unlimited)
+
+
+func _load_saved() -> void:
+	var data := SaveGame.read()
+	if data.is_empty():
+		return
+	if _start(Scenes.MAIN_MAP, "Picking up where you left off"):
+		MainMapScript.load_session(data)
 
 
 func _start(path: String, caption: String) -> bool:

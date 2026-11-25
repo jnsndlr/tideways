@@ -24,6 +24,8 @@ static var scenario_path := ""
 ## Mission sandbox: the main mission with money that never runs out (more debug
 ## and quick-test tools to come).
 static var unlimited_cash := false
+## A loaded quick save's date: [day, minutes], applied once the map is built.
+static var _load_date: Array = []
 
 var editor: IslandEditor
 
@@ -32,6 +34,22 @@ static func start_session(path: String, unlimited := false) -> void:
 	scenario_path = path
 	unlimited_cash = unlimited
 	_carry.clear()
+	_load_date = []
+
+
+## Plays the quick save: its scenario from the top, with the clock at its date.
+static func load_session(data: Dictionary) -> void:
+	start_session(str(data.get("scenario", "")), bool(data.get("unlimited", false)))
+	_load_date = [int(data.get("day", 12)), float(data.get("minutes", 360.0))]
+
+
+## F5: saves the scenario name and the game date.
+func quick_save() -> void:
+	var name := scenario_path if scenario_path != "" else Scenario.OPENING
+	if SaveGame.save(name, unlimited_cash, sim.day, sim.minutes):
+		hud.show_toast("GAME SAVED", "%s · day %d, %s" % [name.get_file().get_basename(), sim.day, sim.clock_text(sim.minutes)], 3.0)
+	else:
+		hud.show_toast("SAVE FAILED", "Couldn't write the save file.", 3.0)
 
 
 func _generation_job(gen: MapGenerator) -> Callable:
@@ -83,6 +101,10 @@ func _ready() -> void:
 				rig.snap()
 				break
 	_carry.clear()
+	if not _load_date.is_empty():
+		sim.day = _load_date[0]
+		sim.minutes = _load_date[1]
+		_load_date = []
 	_site_pins = Node3D.new()
 	add_child(_site_pins)
 	if scenario and scenario.mission:
