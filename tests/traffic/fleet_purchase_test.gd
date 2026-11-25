@@ -133,8 +133,17 @@ func _process(_delta: float) -> bool:
 				boat.request_lay_up(rosario.town.id)
 				phase = 3
 		3:
-			if boat.can_sell() != (boat.berth == Ferry.Berth.TIED_UP and not boat.return_requested):
-				return _fail("Sellable while not laid up: %s" % boat.status_text())
+			if (
+				boat.can_sell()
+				and (
+					boat.state == Ferry.State.SAILING
+					or not boat.aboard.is_empty()
+					or not boat.passengers_aboard.is_empty()
+				)
+			):
+				return _fail(
+					"Sellable while sailing or carrying travellers: %s" % boat.status_text()
+				)
 			if boat.berth == Ferry.Berth.TIED_UP:
 				_log(sim, "Laid up at %s: %s" % [boat.here().town.name, boat.status_text()])
 				if not boat.here().town.slips[boat.tie_up].tie_up:
