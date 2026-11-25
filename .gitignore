@@ -15,3 +15,7 @@ assets/models/buoys/*.png
 assets/models/hot_air_balloon_*__albedo.png
 assets/models/work_skiff_mid_*.png
 __pycache__/
+
+# Blender's numbered previous saves in the editable art tree
+/art/**/*.blend[0-9]
+/art/**/*.blend[0-9][0-9]
