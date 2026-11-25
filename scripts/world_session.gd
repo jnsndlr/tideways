@@ -20,6 +20,8 @@ var day_cycle: DayCycle
 var clouds: CloudLayer
 var water_mat: ShaderMaterial
 var route_overlay: MeshInstance3D
+## Optional layer for regions that draw named water zones.
+var area_overlay: Node3D
 var cetaceans: Cetaceans
 var pinnipeds: Pinnipeds
 var eagles: Eagles
@@ -54,7 +56,7 @@ var built := false
 signal world_ready
 
 
-@abstract func intro(islands: int) -> Array
+@abstract func intro(islands: int) -> Array[String]
 @abstract func regenerate() -> void
 
 
@@ -221,6 +223,10 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	day_cycle.apply(sim.hour())
 	hud = Hud.new()
 	add_child(hud)
+	_setup_hud()
+
+
+func _setup_hud() -> void:
 	hud.setup(self)
 
 

@@ -98,10 +98,14 @@ func _process(_delta: float) -> bool:
 		print("Opening: %d terminals of %d dock towns, %d routes; buying %s for $%d of $%d" % [
 			sim.terminals.size(), docks.size(), map.routes.size(), _cypress.name, _price, int(_cash_before)])
 		_main.hud.select_town(_cypress, false)
+		if _main._site_pins.get_meta("key", "") != _cypress.key:
+			return _fail("Selecting the authored site must show its map pin")
 		var buy: Button = _main.hud._dock_button
 		if not buy.is_visible_in_tree() or buy.disabled or not buy.text.contains(Hud.fmt_money(_price)):
 			return _fail("The selected town did not offer the quoted purchase")
 		buy.pressed.emit()
+		if _main.hud._toast_title.text != "NEW TERMINAL":
+			return _fail("A successful dock purchase should show its confirmation")
 		if buy.visible or _main.hud._info_sub.text != "Terminal under construction":
 			return _fail("The purchase action did not switch the town panel to construction")
 		_bought_at = sim.abs_minutes()
