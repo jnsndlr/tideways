@@ -189,6 +189,10 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	gulls.setup(sim, day_cycle, builder.gull_perches)
 	if not await _setup_frames.can_continue():
 		return
+	var separation := SeparationBuoys.new()
+	separation.name = "Separation Buoys"
+	separation.setup(sim, builder.night_lights)
+	add_child(separation)
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"
 	ambience.setup(rig, gulls, day_cycle, builder)
