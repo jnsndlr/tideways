@@ -3,6 +3,8 @@ extends RefCounted
 ## The berth, manual orders and scheduled return for one ferry.
 ## The ferry supplies available slips and the clearance to begin a physical shift.
 
+signal berth_changed
+
 enum Berth { WORKING, TO_TIE_UP, TIED_UP, TO_WORKING, DELIVERING }
 
 ## Minutes between sailings that justify freeing the working slip.
@@ -10,7 +12,11 @@ const GAP_TIE_UP := 150.0
 ## Minutes to spare on return, before boarding opens.
 const GAP_MARGIN := 5.0
 
-var berth := Berth.WORKING
+var berth := Berth.WORKING:
+	set(value):
+		if value != berth:
+			berth = value
+			berth_changed.emit()
 var tie_up := -1
 var lay_up_requested := false
 var return_requested := false
