@@ -119,8 +119,14 @@ var passengers_aboard: Array[Dictionary] = []
 ## then cut off and clear the ramp before vehicles drive on.
 enum LoadPhase { WALK_ONS, WALK_ON_CLEAR, VEHICLES }
 const PAX_DISPATCH_GAP := 0.16
+## Walk-on boarding closes this many game minutes before BOARD_CLOSE, and walkers
+## still on the ramp get this long to step aboard before she stops waiting for them.
 const PAX_CUTOFF_MINUTES := 4.5
+## Most walk-ons shown boarding at one call (the rest board unseen, in batches).
 const MAX_VISIBLE_WALKERS := 16
+## Real seconds (at 1x) for every walk-on aboard to step off; a big load files off
+## several abreast to fit.
+const PAX_UNLOAD_SECONDS := 12.0
 ## In service at her working slip, or laid up: moving to, lying at, or coming
 ## back from a tie-up slip at the terminal she is at (`here()`).
 ## DELIVERING: bought in play and under tow to where she will lie (DeliveryTow).
@@ -151,7 +157,11 @@ var _shift_churn := 0.0       # how hard her props work moving slips, 0..1
 var _shift_yaw := 0.0         # how far she has turned from _shift_basis (eased)
 var deck: FerryDeck
 var _boarding := 0
-var _pax_boarding := 0
+var _boarding_spaces := 0  # deck slots taken by cars still driving on
+var _pax_walkers: Array[Passenger] = []  # walk-ons still on their way aboard
+var _walk_ons_since := -1.0      # when walk-ons started boarding at this call
+var _walk_on_clear_since := 0.0
+var _pax_unload_per_tick := 1
 var _load_phase := LoadPhase.WALK_ONS
 var _unload_queue: Array[Vehicle] = []
 var _pax_unload_queue: Array[Dictionary] = []
@@ -670,7 +680,8 @@ func _begin_unloading() -> void:
 		else:
 			pax_stay.append(pax)
 	passengers_aboard = pax_stay
-	_pax_unload_queue = pax_off.slice(0, MAX_VISIBLE_WALKERS)
+	_pax_unload_queue = pax_off
+	_pax_unload_per_tick = maxi(1, ceili(pax_off.size() * PAX_DISPATCH_GAP / PAX_UNLOAD_SECONDS))
 	_pax_dispatch_timer = 0.0
 	var exit_sign := -1.0 if _minus else 1.0
 	_unload_queue.sort_custom(func(a: Vehicle, b: Vehicle): return a.position.z * exit_sign > b.position.z * exit_sign)
@@ -684,9 +695,11 @@ func _tick_unloading(delta: float) -> void:
 	_dispatch_timer -= delta
 	_pax_dispatch_timer -= delta
 	if not _pax_unload_queue.is_empty() and _pax_dispatch_timer <= 0.0:
-		var pax: Dictionary = _pax_unload_queue.pop_front()
+		# Every walk-on steps off; this is paced by time alone, so it always finishes.
 		_pax_dispatch_timer = PAX_DISPATCH_GAP
-		_walk_off(int(pax["variant"]))
+		for k in mini(_pax_unload_per_tick, _pax_unload_queue.size()):
+			var pax: Dictionary = _pax_unload_queue.pop_front()
+			_walk_off(int(pax["variant"]), (k % 3 - 1) * 0.7)
 	if not _unload_queue.is_empty():
 		var term := here()
 		if _dispatch_timer <= 0.0 and (term.unloading_ferry == null or term.unloading_ferry == self):
@@ -694,7 +707,7 @@ func _tick_unloading(delta: float) -> void:
 			var car: Vehicle = _unload_queue.pop_front()
 			_dispatch_timer = _gap_after(car)
 			_drive_off(car)
-	elif _dispatch_timer < -2.0 and _last_vehicle_clear_of_lot():
+	elif _dispatch_timer < -2.0 and _pax_unload_queue.is_empty() and _last_vehicle_clear_of_lot():
 		if here().unloading_ferry == self:
 			here().unloading_ferry = null
 		if lay_up_requested and lay_up_slip(here()) >= 0 and not _held_close_in():
@@ -794,9 +807,9 @@ func schedule_routes() -> Array[MapData.Route]:
 	return out
 
 
-func _walk_off(variant: int) -> void:
+func _walk_off(variant: int, jitter := 0.0) -> void:
 	var exit_z := -fc.end_z if _minus else fc.end_z
-	var walk_x := -minf(fc.throat_x, 3.8)
+	var walk_x := -minf(fc.throat_x, 3.8) + jitter
 	var pax := sim.make_passenger(variant)
 	var start := to_global(Vector3(walk_x, Layout.DECK_Y, exit_z * 0.72))
 	pax.position = start
@@ -813,16 +826,42 @@ func _walk_on(pax_data: Dictionary, term: Terminal) -> void:
 		node = sim.make_passenger(int(pax_data["variant"]))
 		node.position = term._passenger_door_pos()
 	_pax_walkers_sent += 1
-	_pax_boarding += 1
+	_pax_walkers.append(node)
 	var jitter := ((_pax_walkers_sent % 3) - 1) * 0.45
 	var entry_z := -fc.end_z if _minus else fc.end_z
 	var walk_x := -minf(fc.throat_x, 3.8) + jitter * 0.4
 	var path := term.passenger_boarding_path(slip_at(term), jitter)
 	path.append(_over_apron(Vector3(walk_x, Layout.DECK_Y, entry_z)))
 	path.append(to_global(Vector3(walk_x, Layout.DECK_Y, entry_z * 0.72)))
-	node.walk(path, func(w: Passenger):
-		_pax_boarding = maxi(0, _pax_boarding - 1)
-		w.queue_free())
+	node.walk(path, _on_walker_aboard)
+
+
+func _end_walk_ons(now: float) -> void:
+	_load_phase = LoadPhase.WALK_ON_CLEAR
+	_walk_on_clear_since = now
+
+
+func _on_walker_aboard(w: Passenger) -> void:
+	_pax_walkers.erase(w)
+	w.queue_free()
+
+
+## Walk-ons still on their way aboard (any freed elsewhere no longer count).
+func _walkers_boarding() -> int:
+	_pax_walkers = _pax_walkers.filter(func(w: Passenger): return is_instance_valid(w) and not w.is_queued_for_deletion())
+	return _pax_walkers.size()
+
+
+## They have paid and are counted aboard already; stop showing any still walking.
+func _sweep_walkers() -> void:
+	for w in _pax_walkers:
+		if is_instance_valid(w):
+			w.queue_free()
+	_pax_walkers.clear()
+
+
+func _exit_tree() -> void:
+	_sweep_walkers()
 
 
 func _begin_loading() -> void:
@@ -835,7 +874,8 @@ func _begin_loading() -> void:
 	_dispatch_timer = 0.0
 	_pax_dispatch_timer = 0.0
 	_pax_walkers_sent = 0
-	_pax_boarding = 0
+	_walk_ons_since = -1.0
+	_sweep_walkers()
 	_last_sent = null
 	speed = 0.0
 
@@ -866,10 +906,13 @@ func _tick_loading(delta: float) -> void:
 	if boarding_open and not _casting_off and _ramp_down():
 		match _load_phase:
 			LoadPhase.WALK_ONS:
-				var timed_cutoff := timed and not late and now >= due_at - BOARD_CLOSE - 4.0
+				if _walk_ons_since < 0.0:
+					_walk_ons_since = now
+				# Walk-ons get PAX_CUTOFF_MINUTES to board; later arrivals wait for the next boat.
+				var cut_off := now - _walk_ons_since >= PAX_CUTOFF_MINUTES
 				var has_pax := passengers_aboard.size() < fc.passenger_capacity and term.has_waiting_passengers(serves)
-				if timed_cutoff or not has_pax:
-					_load_phase = LoadPhase.WALK_ON_CLEAR
+				if cut_off or not has_pax:
+					_end_walk_ons(now)
 				elif _pax_dispatch_timer <= 0.0:
 					# Stream animated walkers onto the ramp, then batch any additional queued
 					# walk-ons up to this ferry class's passenger capacity before cars load.
@@ -884,11 +927,6 @@ func _tick_loading(delta: float) -> void:
 						sim.collect_passenger_fare(_fare_route_id(int(pax["dest"])))
 						_walk_on(pax, term)
 					_pax_dispatch_timer = PAX_DISPATCH_GAP
-			LoadPhase.WALK_ON_CLEAR:
-				if _pax_boarding == 0:
-					_load_phase = LoadPhase.VEHICLES
-					if not timed:
-						_state_time = 0.0
 			LoadPhase.VEHICLES:
 				if _dispatch_timer <= 0.0:
 					var car := term.board_next(serves, fits)
@@ -896,11 +934,17 @@ func _tick_loading(delta: float) -> void:
 						_dispatch_timer = _gap_after(car)
 						_drive_on(car, term)
 	elif not boarding_open and _load_phase == LoadPhase.WALK_ONS:
-		_load_phase = LoadPhase.WALK_ON_CLEAR
-	elif _load_phase == LoadPhase.WALK_ON_CLEAR and _pax_boarding == 0:
-		_load_phase = LoadPhase.VEHICLES
-		if not timed:
-			_state_time = 0.0
+		_end_walk_ons(now)
+	if _load_phase == LoadPhase.WALK_ON_CLEAR:
+		# Walkers still on the ramp get PAX_CUTOFF_MINUTES (and never past boarding
+		# close) to step aboard; after that she stops waiting and counts them aboard.
+		var give_up := now - _walk_on_clear_since >= PAX_CUTOFF_MINUTES \
+			or (timed and not late and now >= due_at - BOARD_CLOSE)
+		if _walkers_boarding() == 0 or give_up:
+			_sweep_walkers()
+			_load_phase = LoadPhase.VEHICLES
+			if not timed:
+				_state_time = 0.0
 	# (full: nothing waiting would fit; only depart once walk-on phase finished and all walkers are aboard)
 	var full := _load_phase == LoadPhase.VEHICLES and not term.has_waiting(serves, fits)
 	var queue_empty := _load_phase == LoadPhase.VEHICLES and not term.has_waiting(serves, func(_c: Vehicle): return true)
@@ -909,7 +953,7 @@ func _tick_loading(delta: float) -> void:
 		loaded = _load_phase == LoadPhase.VEHICLES and now >= due_at - APRON_LIFT and (not late or loaded)
 	if _positioning:
 		loaded = _load_phase == LoadPhase.VEHICLES
-	if _casting_off or (_boarding == 0 and _pax_boarding == 0 and loaded):
+	if _casting_off or (_boarding == 0 and loaded):
 		# Apron up before she goes.
 		_casting_off = true
 		var ramp := _ramp(term)
@@ -940,6 +984,7 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 	var slot := _free_slot(car)
 	_take_slots(slot, car)
 	_boarding += 1
+	_boarding_spaces += car.slots
 	var park := _park_xform(slot, car)
 	var local := park.origin
 	var entry_z := -fc.end_z if _minus else fc.end_z
@@ -976,6 +1021,7 @@ func _on_boarded(car: Vehicle, park: Transform3D, term: Terminal) -> void:
 	_set_parked(car, park)
 	aboard.append(car)
 	_boarding -= 1
+	_boarding_spaces -= car.slots
 
 
 func _set_parked(car: Vehicle, park: Transform3D) -> void:
@@ -1809,8 +1855,13 @@ func stern_push() -> float:
 	return _push
 
 
+## Deck spaces in use (of fc.capacity), aboard or driving on: a car takes one, a
+## van or box truck two, a rig three or four by its length.
 func load_count() -> int:
-	return aboard.size() + _boarding
+	var n := _boarding_spaces
+	for car in aboard:
+		n += car.slots
+	return n
 
 
 func kind_text() -> String:

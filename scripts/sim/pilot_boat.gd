@@ -77,7 +77,7 @@ func _start_work() -> void:
 
 
 func _work_done(delta: float) -> bool:
-	_timer -= delta
+	_timer -= Units.game_minutes(delta)
 	if _timer <= 0.0:
 		_ladder.visible = false
 	return _timer <= 0.0

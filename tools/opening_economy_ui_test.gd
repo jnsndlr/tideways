@@ -28,7 +28,7 @@ func play_opening() -> bool:
 	var port := boat.here()
 	if port.town.name != "Port Rosario" or port.capacity() != 14:
 		return fail("Expected 14 holding spaces at Port Rosario before the first sailing")
-	if not await press("Speed 3"):
+	if not await press("8x speed"):
 		return false
 	for frame in 1200:
 		await process_frame
@@ -103,7 +103,7 @@ func buy_lane(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 		return fail("Buying one lane should debit exactly $150 from cash and purchases")
 	if port.work_stage != Terminal.WorkStage.DRAINING or port.capacity() != 14:
 		return fail("Construction should start before the extra spaces open")
-	if not await press("Speed 3"):
+	if not await press("8x speed"):
 		return false
 	for frame in 1200:
 		await process_frame

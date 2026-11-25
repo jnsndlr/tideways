@@ -269,7 +269,7 @@ func _must_move() -> bool:
 func _work(delta: float) -> void:
 	match work:
 		Work.SHOOTING:
-			_timer -= delta
+			_timer -= Units.game_minutes(delta)
 			if _timer <= 0.0:
 				work = Work.TOWING
 		Work.TOWING:
@@ -281,7 +281,7 @@ func _work(delta: float) -> void:
 				_timer = traffic.rng.randf_range(HAUL_TIME.x, HAUL_TIME.y)
 		Work.HAULING:
 			if not _must_move():
-				_timer -= delta
+				_timer -= Units.game_minutes(delta)
 			if _timer <= 0.0:
 				hauls += 1
 				fish_hold = minf(fish_hold + traffic.rng.randf_range(CATCH.x, CATCH.y) * ground.richness, 1.0)

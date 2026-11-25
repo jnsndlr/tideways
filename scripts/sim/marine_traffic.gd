@@ -710,7 +710,7 @@ func _process(delta: float) -> void:
 	# Paused: nothing moves.
 	if delta <= 0.0:
 		return
-	_cargo_timer -= delta
+	_cargo_timer -= Units.game_minutes(delta)
 	if _cargo_timer <= 0.0:
 		_cargo_timer = rng.randf_range(CARGO_GAP.x, CARGO_GAP.y)
 		if cargo_ships.size() < MAX_CARGO:

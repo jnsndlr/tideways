@@ -172,7 +172,7 @@ func _build_header() -> Control:
 	stats_grid.add_theme_constant_override("h_separation", 12)
 	stats_grid.add_theme_constant_override("v_separation", 2)
 	for item in [
-		["vehicles", "Vehicles aboard"],
+		["vehicles", "Deck spaces used"],
 		["walkons", "Walk-ons aboard"],
 		["speed", "Speed"],
 		["trips", "Crossings"],

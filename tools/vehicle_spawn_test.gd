@@ -54,7 +54,7 @@ func check_spawned_traffic(authored: bool) -> void:
 				expect(car.is_truck and car.trailer.get_parent() == car and car.slots > 1, "Rig must tow its trailer and occupy multiple deck slots")
 		else:
 			expect(car.model.is_empty() and car.trailer == null, "Classic traffic unexpectedly used authored assets")
-			expect(car.slots == 1 and car.speed == 24.0, "Classic vehicle behavior changed")
+			expect(car.slots == (2 if car.is_truck else 1) and car.speed == 24.0, "Classic vehicle behavior changed")
 		car.free()
 	expect(saw_car and saw_truck, "Seed 123 should exercise both car and truck construction")
 	if authored:

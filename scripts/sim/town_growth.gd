@@ -679,13 +679,12 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 			var lot := _claim_lot(town, MapData.TownLot.Kind.LANDMARK)
 			if lot == null:
 				lot = _claim_lot(town, MapData.TownLot.Kind.COMMERCIAL)
+			if lot == null:
+				break  # (keep it pending until a lot frees up)
 			var def: Dictionary = st.pending_milestones.pop_front()
-			if lot != null:
-				_start_build(town, st, lot, MapData.TownLot.Kind.LANDMARK, LANDMARK_BUILD_MINUTES,
-					str(def["id"]), str(def["model"]))
-				continue
-			else:
-				break
+			_start_build(town, st, lot, MapData.TownLot.Kind.LANDMARK, LANDMARK_BUILD_MINUTES,
+				str(def["id"]), str(def["model"]))
+			continue
 
 		# 2. Commercial buildings: 1 per 333 people.
 		var pending_comm := _count_active(st, MapData.TownLot.Kind.COMMERCIAL)

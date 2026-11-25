@@ -152,7 +152,8 @@ func _run() -> void:
 	var view := root.get_visible_rect().size
 	tag = "portrait" if view.y > view.x else "landscape"
 	var hud: Hud = main.hud
-	ed = hud._schedule_editor
+	# Stops and times are edited in the ferry panel's Schedule tab.
+	ed = hud._ferry_panel._schedule_editor
 	ed._times = [360, 370, 395]
 	if not ed._moved(0, 15).is_empty():
 		return _fail("The stepper let a sailing pass the next one")
@@ -165,15 +166,13 @@ func _run() -> void:
 	var hiyu: Ferry = sim.ferries[0]
 	hud.select_ferry(hiyu)
 	main.rig.follow = null
-	# On a short screen the opening toast lies over Edit stops; taps go through it.
+	# On a short screen the opening toast lies over the tabs; taps go through it.
 	await _frames(10)
 	var cam_before: Vector3 = main.rig.target_pos
-	# On a short screen Edit stops is below the fold of the ferry panel.
-	hud._info_scroll.ensure_control_visible(hud._stops_button)
-	await _frames(3)
-	await _tap(hud._stops_button)
-	if not ed.visible:
-		return _fail("Edit stops didn't open the editor by tap")
+	var tab: Button = hud._ferry_panel._tab_buttons[FerryPanel.TAB_NAMES.find("Schedule")]
+	await _tap(tab)
+	if not ed.is_visible_in_tree() or ed.ferry != hiyu:
+		return _fail("The Schedule tab didn't open the editor by tap")
 	await _tap(_button("Set times"))
 	if ed._times != [360]:
 		return _fail("Set times by tap gave %s" % [ed._times])
