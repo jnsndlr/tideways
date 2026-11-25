@@ -20,16 +20,16 @@ enum WorkStage { IDLE, DRAINING, ARRIVING, PAVING, LEAVING, OPEN }
 ## (boats on their way hold off REFIT_HOLD out), and once it is clear a pusher brings
 ## the crane scow in. The crew drives the new dolphins and wing walls, the slip takes
 ## the next size up as they leave, and it reopens when they have gone.
-enum RefitStage { NONE, CLEARING, ARRIVING, WORKING, LEAVING }
+const RefitStage = TerminalRefit.Stage
 
 const BUILD_MINUTES := 120.0
 const ARRIVAL_MINUTES := 20.0
 const DEPARTURE_MINUTES := 20.0
 # Price of refitting a slip up to each size (by the size it becomes: medium, large).
 const REFIT_PRICE := [0, 0, 8000, 20000]
-const REFIT_ARRIVAL := 20.0
-const REFIT_WORK := 150.0
-const REFIT_DEPARTURE := 20.0
+const REFIT_ARRIVAL := TerminalRefit.ARRIVAL
+const REFIT_WORK := TerminalRefit.WORK
+const REFIT_DEPARTURE := TerminalRefit.DEPARTURE
 const REFIT_HOLD := 320.0      # how far out boats for a closed slip hold off (m)
 # New slips (stage 5), built by the same crane scow as a refit: one slip job at a
 # time. They go along the shore beside the others (SlipSiteSurvey), dredged if need
@@ -63,13 +63,19 @@ var slip_guides: Array[SlipGuides] = [] # by slip index: its wing walls and dolp
 ## the forecourt until its last vehicle has passed the boarding approaches.
 var unloading_ferry: Ferry
 
-# The slip being refitted (-1 for none), how far along, and game minutes of work left
-# once the crew is under way.
-var refit_slip := -1
-var refit_stage := RefitStage.NONE
-var refit_remaining := 0.0
-var refit_work := REFIT_WORK   # the crew's working time on this job
-var refit_new := false         # building refit_slip new, rather than refitting it
+var _refit := TerminalRefit.new()
+var refit_slip: int:
+	get: return _refit.slip
+var refit_stage: TerminalRefit.Stage:
+	get: return _refit.stage
+	set(value): _refit.stage = value
+var refit_remaining: float:
+	get: return _refit.remaining
+	set(value): _refit.remaining = value
+var refit_work: float:
+	get: return _refit.work
+var refit_new: bool:
+	get: return _refit.new_slip
 ## Routes waiting to move to another working slip (route id -> slip index) once no
 ## boat on them is under way or alongside here (spread_routes).
 var _assignments: RouteBerthAssignments
@@ -100,6 +106,12 @@ var served_today := 0
 var _inbound: Array[PackedVector3Array] = []
 var _outbound: Array[PackedVector3Array] = []
 var _spawn_acc := 0.0
+
+
+func _init() -> void:
+	_refit.stage_changed.connect(refit_changed.emit)
+	_refit.widen_slip.connect(_widen_slip)
+	_refit.open_new_slip.connect(_open_slip)
 
 
 ## Equipment and material staging is on the outer side of the slip next to the
@@ -209,7 +221,7 @@ func buy(offer: TerminalUpgrade) -> bool:
 		TerminalUpgrade.Kind.SLIP, TerminalUpgrade.Kind.TIE_UP:
 			_start_slip(u)
 		TerminalUpgrade.Kind.REFIT, TerminalUpgrade.Kind.TIE_UP_REFIT:
-			_start_refit(u.slip, REFIT_WORK, false)
+			_refit.start(u.slip, REFIT_WORK, false)
 	return true
 
 
@@ -333,14 +345,6 @@ func buy_refit(i: int) -> bool:
 	return buy(find_upgrade(TerminalUpgrade.Kind.TIE_UP_REFIT if town.slips[i].tie_up else TerminalUpgrade.Kind.REFIT, i))
 
 
-func _start_refit(i: int, work: float, new_slip: bool) -> void:
-	refit_slip = i
-	refit_work = work
-	refit_new = new_slip
-	refit_remaining = REFIT_ARRIVAL + work + REFIT_DEPARTURE
-	_set_refit_stage(RefitStage.CLEARING)
-
-
 ## Lays out a bought slip where `u` says (hidden and closed while it is built) and
 ## brings the crane scow in to build it.
 func _start_slip(u: TerminalUpgrade) -> void:
@@ -355,7 +359,7 @@ func _start_slip(u: TerminalUpgrade) -> void:
 	slip_ramps.append(null)
 	slip_guides.append(null)
 	sim.slip_sites_changed.emit()
-	_start_refit(town.slips.size() - 1, u.build_minutes - REFIT_ARRIVAL - REFIT_DEPARTURE, true)
+	_refit.start(town.slips.size() - 1, u.build_minutes - REFIT_ARRIVAL - REFIT_DEPARTURE, true)
 
 
 ## A bought slip is built: it takes its ramp and guides and comes into use, and
@@ -386,59 +390,29 @@ func spread_routes() -> void:
 
 ## Whether slip `i` is closed for a refit (not a new slip whose crew is leaving).
 func slip_shut(i: int) -> bool:
-	return refit_stage != RefitStage.NONE and i == refit_slip and not (refit_new and refit_stage == RefitStage.LEAVING)
+	return _refit.slip_shut(i)
 
 
 ## Whether tie-up slip `i` is closed for a refit (no boat may make for it).
 func tie_up_closed(i: int) -> bool:
-	return refit_stage != RefitStage.NONE and i == refit_slip
+	return _refit.occupies(i)
 
 
 ## Whether the slip `rid` calls at here is closed for a refit.
 func slip_closed(rid: int) -> bool:
-	return refit_stage != RefitStage.NONE and town.slip_index(rid) == refit_slip
+	return refit_stage != RefitStage.NONE and _refit.occupies(town.slip_index(rid))
 
 
 ## How far through its current stage the refit is (0..1).
 func refit_progress() -> float:
-	match refit_stage:
-		RefitStage.ARRIVING:
-			return clampf((REFIT_ARRIVAL + refit_work + REFIT_DEPARTURE - refit_remaining) / REFIT_ARRIVAL, 0.0, 1.0)
-		RefitStage.WORKING:
-			return clampf((refit_work + REFIT_DEPARTURE - refit_remaining) / refit_work, 0.0, 1.0)
-		RefitStage.LEAVING:
-			return clampf(1.0 - refit_remaining / REFIT_DEPARTURE, 0.0, 1.0)
-	return 0.0
+	return _refit.progress()
 
 
-func _set_refit_stage(stage: RefitStage) -> void:
-	refit_stage = stage
-	refit_changed.emit()
-
-
-func _advance_refit(delta: float) -> void:
-	if refit_stage == RefitStage.CLEARING:
-		if _refit_slip_clear():
-			_set_refit_stage(RefitStage.ARRIVING)
-		return
-	refit_remaining = maxf(0.0, refit_remaining - delta)
-	if refit_remaining == 0.0:
-		refit_slip = -1
-		refit_new = false
-		_set_refit_stage(RefitStage.NONE)
-	elif refit_remaining <= REFIT_DEPARTURE and refit_stage != RefitStage.LEAVING:
-		if not refit_new:
-			# The work is done: the slip takes the next size up, with its new guides.
-			var slip := town.slips[refit_slip]
-			slip.size += 1
-			if slip_guides[refit_slip]:
-				slip_guides[refit_slip].fit(MapData.Slip.LARGEST_BOAT[slip.size])
-		_set_refit_stage(RefitStage.LEAVING)
-		if refit_new:
-			# A new slip is built: it comes into use as the crew leaves.
-			_open_slip(refit_slip)
-	elif refit_remaining <= refit_work + REFIT_DEPARTURE and refit_stage == RefitStage.ARRIVING:
-		_set_refit_stage(RefitStage.WORKING)
+func _widen_slip(i: int) -> void:
+	var slip := town.slips[i]
+	slip.size += 1
+	if slip_guides[i]:
+		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[slip.size])
 
 
 ## No boat lies at the slip being refitted, and none is coming in under the closure
@@ -743,7 +717,7 @@ func _process(delta: float) -> void:
 	if build_remaining > 0.0:
 		_advance_construction(delta)
 	if refit_stage != RefitStage.NONE:
-		_advance_refit(delta)
+		_refit.advance(delta, refit_stage == RefitStage.CLEARING and _refit_slip_clear())
 	if _assignments != null and _assignments.has_moves():
 		_assignments.apply_when_clear()
 	_spawn_acc += sim.demand_rate(town) * delta
