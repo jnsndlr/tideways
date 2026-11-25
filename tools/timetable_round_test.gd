@@ -5,6 +5,7 @@ var failures := 0
 
 
 func _initialize() -> void:
+	_check_dwell()
 	var schedule := Timetable.new()
 	var times: Array[int] = [1410, 30]
 	var offsets: Array[float] = [0.0, 40.0]
@@ -25,6 +26,33 @@ func _initialize() -> void:
 	if failures == 0:
 		print("TEST PASSED")
 	quit(int(failures > 0))
+
+
+func _check_dwell() -> void:
+	var defaults := FerryDwell.new()
+	_check(defaults.planned_dwell(5) == 24.0, "A small deck uses the 10-minute minimum loading time.")
+	_check(defaults.planned_dwell(50) == 74.0, "A large deck uses the 24-minute maximum loading time.")
+	for invalid: Variant in [null, [], {"minimum_loading": NAN, "maximum_loading": -1}, {"minimum_loading": 25},
+			{"boarding_close": 24}, {"apron_lift": 9}]:
+		var dwell := FerryDwell.new(invalid)
+		_check(dwell.minimum_loading == 10.0 and dwell.maximum_loading == 24.0
+				and dwell.boarding_close == 8.0 and dwell.apron_lift == 2.0, "Invalid boarding window uses safe defaults.")
+
+	var partial := FerryDwell.new({"planned_car_gap": "1", "unload_clearance": 0})
+	_check(partial.planned_unload(10) == 8.0, "An invalid car gap preserves an explicit zero clearance.")
+	var dwell := FerryDwell.new({"minimum_loading": 6, "maximum_loading": 15, "boarding_close": 5,
+			"apron_lift": 1, "planned_car_gap": 1.0, "unload_clearance": 3.0})
+	_check(dwell.planned_unload(20) == 23.0 and dwell.planned_dwell(20) == 43.0, "Full-deck plan uses configured times.")
+	_check(not dwell.boarding_open(0, 84.9, 100, 80) and dwell.boarding_open(0, 85, 100, 80),
+			"Scheduled boarding starts exactly at the configured boundary.")
+	_check(dwell.boarding_open(9, 94.9, 100, 80) and not dwell.boarding_open(10, 95, 100, 80),
+			"Scheduled boarding closes exactly at the configured boundary.")
+	_check(not dwell.ready_to_lift(18, 98, 100, 80, true) and dwell.ready_to_lift(19, 99, 100, 80, true),
+			"An on-time boat raises the apron one configured minute before departure.")
+	_check(not dwell.ready_to_lift(5, 101, 100, 96, true) and dwell.ready_to_lift(6, 102, 100, 96, true),
+			"A late boat still spends the minimum time loading.")
+	_check(dwell.boarding_open(14.9, 110, -1, 95) and not dwell.boarding_open(15, 110, -1, 95)
+			and dwell.ready_to_lift(15, 110, -1, 95, false), "Unscheduled boarding ends at the configured maximum.")
 
 
 func _check(ok: bool, message: String) -> void:
