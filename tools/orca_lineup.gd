@@ -1,7 +1,7 @@
 extends SceneTree
 ## Renders a lineup of orcas with different markings (and a calf), side on and from
 ## above, for checking cetacean.gdshader's per-animal markings by eye.
-##   godot --path . --script tools/orca_lineup.gd -- --out=DIR
+##   godot --path . --script tools/orca_lineup.gd -- --out=DIR [--classic-orca]
 
 var out := "user://"
 var cam: Camera3D
@@ -41,12 +41,9 @@ func _initialize() -> void:
 		var sweep := 0.1 if i == 0 else 1.0
 		var marks := rng.randf() * 0.499 + (0.5 if calf else 0.0)
 		mm.set_instance_custom_data(i, Color(fin, roundf(sweep * 100.0) + marks, 0.0, 0.0))
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/cetacean.gdshader")
-	mat.set_shader_parameter("orca_markings", true)
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
-	mmi.material_override = mat
+	mmi.material_override = Cetaceans.body_material("orca")
 	root.add_child(mmi)
 	cam = Camera3D.new()
 	cam.fov = 40

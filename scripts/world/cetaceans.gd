@@ -116,6 +116,13 @@ var _puff_mm: MultiMesh
 var _puff_buf := PackedFloat32Array()
 
 
+static func body_material(species: String) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/cetacean.gdshader")
+	material.set_shader_parameter("orca_markings", species == "orca" and OrcaModel.uv_markings)
+	return material
+
+
 func setup(w: Wildlife, t: Terrain) -> void:
 	name = "Cetaceans"
 	wildlife = w
@@ -144,8 +151,6 @@ func setup(w: Wildlife, t: Terrain) -> void:
 			"spacing": 4.0, "fin": 0.06, "sweep": 0.15, "tail": 0.04}),
 	]:
 		kinds[k.id] = k
-		var mat := ShaderMaterial.new()
-		mat.shader = load("res://shaders/cetacean.gdshader")
 		k.mm = MultiMesh.new()
 		k.mm.transform_format = MultiMesh.TRANSFORM_3D
 		k.mm.use_custom_data = true
@@ -153,11 +158,10 @@ func setup(w: Wildlife, t: Terrain) -> void:
 		k.mm.instance_count = MAX_PER_KIND
 		k.mm.visible_instance_count = 0
 		k.buf.resize(MAX_PER_KIND * 16)
-		mat.set_shader_parameter("orca_markings", k.id == "orca" and Models.mid_orca)
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = k.id
 		mmi.multimesh = k.mm
-		mmi.material_override = mat
+		mmi.material_override = body_material(k.id)
 		add_child(mmi)
 
 	_blows = Blows.new()
