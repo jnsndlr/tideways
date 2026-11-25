@@ -70,7 +70,7 @@ func _check(sim: Simulation) -> String:
 	shuttle.term_a = hiyu.term_a
 	shuttle.term_b = hiyu.term_b
 	shuttle.set_legs([madrona.town.id, rosario.town.id], [hiyu.route, hiyu.route])
-	shuttle.call = 1
+	shuttle.itinerary.advance()
 	shuttle.state = Ferry.State.SAILING
 	rosario.slots_per_lane = 1
 	var borrowed := shared

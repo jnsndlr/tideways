@@ -18,7 +18,6 @@ var _held_for := 0.0  # game minutes she's held
 var _manual_landed := false  # she's at manual_target and has set everyone down
 var _manual_resume_due := false  # Return to service asked for before she's there
 var _manual_pending: Array = []  # [town id, slip] given mid-shift between slips
-var _manual_prev := {}  # the stops, legs and times she goes back to
 var _turn_t := -1.0  # 0..1 through swinging round (_tick_turn); -1 when not
 var _turn_from := Transform3D()  # her pose as she began to swing
 var _turn_sweep := 0.0  # how far she turns (about +-PI), and which way
@@ -136,19 +135,7 @@ func order_move(town_id: int, slip: int) -> bool:
 		return true
 	_manual_pending = []
 	holding = false
-	if not manual:
-		if not _boat.next_stops.is_empty():
-			_manual_prev = {
-				"stops": _boat.next_stops.duplicate(),
-				"legs": _boat._next_legs.duplicate(),
-				"times": _boat._next_timetable.duplicate()
-			}
-		else:
-			_manual_prev = {
-				"stops": _boat.stops.duplicate(),
-				"legs": _boat.legs.duplicate(),
-				"times": _boat.timetable.duplicate()
-			}
+	_boat.itinerary.suspend_service()
 	manual = true
 	manual_target = town_id
 	manual_slip = slip
@@ -157,9 +144,6 @@ func order_move(town_id: int, slip: int) -> bool:
 	_boat._lay_up.lay_up_requested = false
 	_boat._lay_up.return_requested = false
 	_boat._lay_up.gap_due = -1.0
-	_boat.next_stops = []
-	_boat._next_legs = []
-	_boat._next_timetable = []
 	_boat.set_timetable([])
 	_boat._offsets.clear()
 	var here_id := _boat.here().town.id
@@ -170,9 +154,7 @@ func order_move(town_id: int, slip: int) -> bool:
 				_boat._lay_up.return_requested = true  # (to her working slip, then on to `slip`)
 		else:
 			var leg := _boat.sim.route_between(here_id, town_id)
-			_boat.stops = [here_id, town_id]
-			_boat.legs = [leg, leg]
-			_boat.call = 0
+			_boat.itinerary.set_circuit([here_id, town_id], [leg, leg])
 			_boat._positioning = true
 			_boat._take_leg()
 			for run in _boat._corridor_runs():
@@ -195,9 +177,7 @@ func order_move(town_id: int, slip: int) -> bool:
 				_boat._queue_disembarking()
 		else:
 			var leg := _boat.sim.route_between(here_id, town_id)
-			_boat.stops = [here_id, town_id]
-			_boat.legs = [leg, leg]
-			_boat.call = 0
+			_boat.itinerary.set_circuit([here_id, town_id], [leg, leg])
 			_boat._positioning = true  # (boarding shut: she casts off as soon as she can)
 	_boat.sim.stops_changed(_boat)
 	return true
@@ -231,14 +211,11 @@ func _redirect(town_id: int) -> void:
 	var now_from := _boat.here().town.id
 	var now_dest := _boat.destination().town.id
 	if via < 0:
-		_boat.stops = [now_from, now_dest]
-		_boat.legs = [_boat.route, _boat.route]
+		_boat.itinerary.set_circuit([now_from, now_dest], [_boat.route, _boat.route], 1)
 	else:
 		var onward := _boat.sim.route_between(via, town_id)
-		_boat.stops = [now_from, via, town_id]
-		_boat.legs = [_boat.route, onward, onward]
+		_boat.itinerary.set_circuit([now_from, via, town_id], [_boat.route, onward, onward], 1)
 		_boat._positioning = true  # (she calls at `via` only to set down whoever is bound there)
-	_boat.call = 1
 	_boat._slip_chosen = false
 	_boat._command.cancel_crossing()
 
@@ -378,26 +355,6 @@ func _manual_tick() -> void:
 		_manual_resume()
 
 
-## While moving under a manual order the temporary stops describe the diversion.
-## Schedule edits update the service to resume, without redirecting that order.
-func service_stops() -> Array[int]:
-	return _manual_prev.stops if manual else _boat.stops
-
-
-func service_times() -> Array[int]:
-	if manual:
-		return _manual_prev.times
-	return _boat._next_timetable if not _boat.next_stops.is_empty() else _boat.timetable
-
-
-func set_manual_service_plan(
-	ids: Array[int], leg_routes: Array[MapData.Route], times: Array[int]
-) -> void:
-	_manual_prev = {
-		"stops": ids.duplicate(), "legs": leg_routes.duplicate(), "times": times.duplicate()
-	}
-
-
 ## Return to service: back on the stops she ran before, from where she lies. If
 ## that isn't one of them she crosses empty to the first she can reach.
 func _manual_resume() -> void:
@@ -408,12 +365,10 @@ func _manual_resume() -> void:
 	):
 		_manual_resume_due = true  # (once she's there and has set everyone down)
 		return
-	var ids: Array[int] = []
-	ids.assign(_manual_prev.get("stops", _boat.stops))
-	var lr: Array[MapData.Route] = []
-	lr.assign(_manual_prev.get("legs", _boat.legs))
-	var times: Array[int] = []
-	times.assign(_manual_prev.get("times", []))
+	var plan := _boat.itinerary.suspended
+	var ids := plan.stops
+	var lr := plan.legs
+	var times := plan.times
 	var here_id := _boat.here().town.id
 	var target := -1
 	if here_id not in ids:
@@ -426,12 +381,10 @@ func _manual_resume() -> void:
 	manual_slip = -1
 	_manual_landed = false
 	_manual_resume_due = false
-	_manual_prev = {}
+	_boat.itinerary.resume_service()
 	_boat._positioning = false
 	if target < 0:
-		_boat.stops = ids
-		_boat.legs = lr
-		_boat.call = ids.find(here_id)
+		_boat.itinerary.set_circuit(ids, lr, ids.find(here_id))
 		_boat.set_timetable(times)
 		_boat._offsets.clear()
 		_boat._take_leg()
@@ -449,9 +402,7 @@ func _manual_resume() -> void:
 		_boat._lay_up.return_requested = true
 	else:
 		var leg := _boat.sim.route_between(here_id, target)
-		_boat.stops = [here_id, target]
-		_boat.legs = [leg, leg]
-		_boat.call = 0
+		_boat.itinerary.set_circuit([here_id, target], [leg, leg])
 		_boat.plan_stops(ids, lr, times)
 		_boat._positioning = true
 		_boat.set_timetable([])

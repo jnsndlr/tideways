@@ -391,8 +391,7 @@ func reschedule(f: Ferry, ids: Array[int], times = null) -> bool:
 	if f.manual:
 		f.set_manual_service_plan(ids, leg_routes, new_times)
 	elif not stops_edited:
-		f.next_stops = []
-		f._next_legs = []
+		f.itinerary.clear_pending()
 		if times_edited:
 			f.set_timetable(new_times)
 	elif f.berth == Ferry.Berth.TIED_UP and f.here().town.id not in ids:
@@ -437,7 +436,7 @@ func _mark_routes_in_service() -> void:
 	for f in ferries:
 		if not f.assigned:
 			continue
-		for r in f.legs + f._next_legs:
+		for r in f.legs + f.itinerary.pending.legs:
 			r.in_service = true
 	routes_changed.emit()
 
@@ -469,7 +468,7 @@ func _lane_destinations(term: Terminal) -> Array[int]:
 			continue
 		for i in f.stops.size():
 			if f.stops[i] == term.town.id:
-				for d in f._served_from(i):
+				for d in f.itinerary.served_from(i):
 					if d not in served:
 						served.append(d)
 	var dests: Array[int] = []

@@ -77,6 +77,26 @@ static var rough_landings := "--rough-landings" in OS.get_cmdline_user_args()
 static var _lane_w := -1.0
 
 ## Walk-on passengers currently aboard: {dest: int, variant: int}.
+var deck: FerryDeck
+## The island ids she calls at in turn, round and round, and the route of each
+## leg: legs[i] runs from stops[i] to the next stop. A shuttle has two of each.
+var itinerary := FerryItinerary.new()
+var stops: Array[int]:
+	get:
+		return itinerary.stops
+var legs: Array[MapData.Route]:
+	get:
+		return itinerary.legs
+var call: int:
+	get:
+		return itinerary.call
+var next_stops: Array[int]:
+	get:
+		return itinerary.pending.stops
+var timetable: Array[int]:
+	get:
+		return itinerary.clock.departures
+
 var passengers_aboard: Array[Dictionary] = []
 var holding: bool:
 	get:
@@ -101,21 +121,6 @@ var fc: FerryClass
 var route: MapData.Route
 var fleet_key := ""                 # follows the hull through renames and route changes
 var schedule: Scenario.Schedule     # the stops she runs (null when restored from a save)
-## The island ids she calls at in turn, round and round, and the route of each
-## leg: legs[i] runs from stops[i] to the next stop. A shuttle has two of each.
-var stops: Array[int] = []
-var legs: Array[MapData.Route] = []
-var call := 0                       # index into stops: where she is, or is sailing to
-## A schedule change from the editor (stage 4), taken at her next call at one of
-## its stops: she finishes the crossing she is on first.
-var next_stops: Array[int] = []
-var _next_legs: Array[MapData.Route] = []
-var _next_timetable: Array[int] = []
-## When she leaves stops[0], in minutes after midnight (Timetable); empty: as soon
-## as she has loaded. Each departure is a round of her stops.
-var timetable: Array[int]:
-	get: return _timetable.departures
-var _timetable := Timetable.new()
 var _offsets: Array[float] = []  # plan_offsets(stops), cached
 var late_by := 0.0           # minutes late she left her last stop
 var _loading_since := 0.0    # game minute (Simulation.abs_minutes) she began loading
@@ -210,7 +215,6 @@ var _shift_basis := Basis()   # her basis as she set off
 var _shift_shore := Vector3.ZERO  # her shoreward heading as she set off
 var _shift_churn := 0.0       # how hard her props work moving slips, 0..1
 var _shift_yaw := 0.0         # how far she has turned from _shift_basis (eased)
-var deck: FerryDeck
 var _boarding := 0
 var _boarding_spaces := 0  # deck slots taken by cars still driving on
 var _pax_walkers: Array[Passenger] = []  # walk-ons still on their way aboard
@@ -288,8 +292,7 @@ func setup(s: Simulation, r: MapData.Route, nm: String, size: int) -> void:
 	wake = WakeTrail.new(fc.half_length, 8.0 * fc.half_length / 15.0, 24.0, 46)
 	term_a = sim.terminals[r.a]
 	term_b = sim.terminals[r.b]
-	stops = [r.a, r.b]
-	legs = [r, r]
+	itinerary.set_circuit([r.a, r.b], [r, r])
 	deck = FerryDeck.new(fc)
 	# A stable room pattern, drawn once per ferry even in a view-free simulation.
 	room_seed = randf_range(1.0, 1000.0)
@@ -304,7 +307,7 @@ func start_staggered(i: int) -> void:
 			_begin_loading()
 		1:
 			state = State.SAILING
-			call = 1
+			itinerary.call = 1
 			traveled = run_length() * sim.rng.randf_range(0.25, 0.6)
 			speed = cruise
 			for k in sim.rng.randi_range(fc.capacity / 3, fc.capacity - fc.capacity / 9):
@@ -334,7 +337,7 @@ func start_staggered(i: int) -> void:
 			_place(_route_s(traveled))
 		2:
 			at_a = not at_a
-			call = 1
+			itinerary.call = 1
 			_place(_dock_s())
 			_begin_loading()
 
@@ -342,9 +345,7 @@ func start_staggered(i: int) -> void:
 ## Gives her a schedule: `stop_ids` in turn, `leg_routes[i]` from stop i to the
 ## next. She starts at the first stop.
 func set_legs(stop_ids: Array[int], leg_routes: Array[MapData.Route]) -> void:
-	stops = stop_ids
-	legs = leg_routes
-	call = 0
+	itinerary.set_circuit(stop_ids, leg_routes)
 	at_a = term_a.town.id == stops[0]
 	_place(_dock_s())
 
@@ -361,20 +362,25 @@ func next_dock() -> Terminal:
 ## Gives her new stops from her next call at one of them (see next_stops).
 ## `times`: her timetable from then (null keeps the one she has).
 func plan_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route], times = null) -> void:
-	next_stops = stop_ids
-	_next_legs = leg_routes
-	_next_timetable.assign(timetable if times == null else times)
+	itinerary.plan_circuit(stop_ids, leg_routes, times)
 
 
 ## Puts her on `times` at once (her stops stay as they are).
 func set_timetable(times: Array[int]) -> void:
-	_timetable.replace(times)
+	itinerary.clock.replace(times)
+	_timetable_changed()
+
+
+func _timetable_changed() -> void:
 	late_by = 0.0
 	if between_sailings():
 		# A ferry already away from her working slip must return for the new
 		# sailing, or at once if she now sails as loading allows.
 		var now := sim.abs_minutes()
-		_lay_up.reschedule_gap(now if timetable.is_empty() else _timetable.first_stop_due(now, dwell.maximum_loading))
+		var due_at := now
+		if not timetable.is_empty():
+			due_at = itinerary.clock.first_stop_due(now, dwell.maximum_loading)
+		_lay_up.reschedule_gap(due_at)
 
 
 ## Takes the planned stops if she is at one of them. Cars aboard for a stop she
@@ -383,23 +389,12 @@ func _take_next_stops() -> bool:
 	var term_id := here().town.id
 	if next_stops.is_empty() or _orders.manual:
 		return false
-	if term_id not in next_stops:
+	if not itinerary.take_pending_at(term_id):
 		return _divert_to_next_stops()
-	var came_from := stops[(call - 1 + stops.size()) % stops.size()]
-	var k := next_stops.find(term_id)
-	for i in next_stops.size():
-		if next_stops[i] == term_id and next_stops[(i - 1 + next_stops.size()) % next_stops.size()] == came_from:
-			k = i
 	_positioning = false
-	stops = next_stops
-	legs = _next_legs
-	call = k
-	set_timetable(_next_timetable)
+	_timetable_changed()
 	_offsets.clear()
-	next_stops = []
-	_next_legs = []
-	_next_timetable = []
-	_orders._set_down_short(term_id, _served_from(call))
+	_orders._set_down_short(term_id, serves_from_here())
 	sim.stops_changed(self)
 	return true
 
@@ -416,9 +411,7 @@ func _divert_to_next_stops() -> bool:
 	var leg := sim.route_between(term_id, target)
 	var fit: Array[MapData.Route] = [leg]
 	sim._fit_routes(self, fit)
-	stops = [term_id, target]
-	legs = [leg, leg]
-	call = 0
+	itinerary.set_circuit([term_id, target], [leg, leg])
 	_positioning = true
 	set_timetable([])
 	_offsets.clear()
@@ -449,31 +442,13 @@ func calls_at(term: Terminal) -> bool:
 	return term.town.id in stops
 
 
-## The islands she carries cars to from call `i`, in the order she reaches them:
-## every stop until she is back at stops[i].
-func _served_from(i: int) -> Array[int]:
-	var out: Array[int] = []
-	for k in range(1, stops.size()):
-		var j := (i + k) % stops.size()
-		if stops[j] == stops[i]:
-			break
-		if stops[j] not in out:
-			out.append(stops[j])
-	return out
-
-
 ## What she carries from the terminal she is at.
 func serves_from_here() -> Array[int]:
-	return _served_from(call)
+	return itinerary.served_from(call)
 
 
-## What she will carry from her next call at `term` (empty if she never calls there).
 func serves_next_call_at(term: Terminal) -> Array[int]:
-	for k in stops.size():
-		var i := (call + k) % stops.size()
-		if stops[i] == term.town.id:
-			return _served_from(i)
-	return []
+	return itinerary.served_at_next_call(term.town.id)
 
 
 ## Onto the route of the leg she is about to sail, keeping her hull as it lies.
@@ -1046,10 +1021,10 @@ func _tick_loading(delta: float) -> void:
 		_casting_off = false
 		late_by = maxf(now - due_at, 0.0) if timed else 0.0
 		if timed and call == 0:
-			_timetable.leave_first_stop()
+			itinerary.clock.leave_first_stop()
 		_command.depart()
 		_take_leg()
-		call = (call + 1) % stops.size()
+		itinerary.advance()
 		cruise = captain.cruise(paced_cruise())
 		voyage.depart()
 		_slip_chosen = false
@@ -1105,7 +1080,7 @@ func _on_boarded(car: Vehicle, park: Transform3D, term: Terminal) -> void:
 		if _orders.manual and here().town.id == _orders.manual_target:
 			_orders._manual_set_down()
 		elif not _orders.manual:
-			_orders._set_down_short(here().town.id, _served_from(call))
+			_orders._set_down_short(here().town.id, serves_from_here())
 		_queue_disembarking()
 
 
@@ -2186,7 +2161,7 @@ func _overnight_distance(ids: Array[int], times: Array[int], o: Array[float]) ->
 ## daily_cost of the timetable she runs now (or is taking at her next call).
 func planned_daily_cost() -> Dictionary:
 	if not next_stops.is_empty():
-		return daily_cost(next_stops, _next_timetable)
+		return daily_cost(next_stops, itinerary.pending.times)
 	return daily_cost(stops, timetable)
 
 
@@ -2214,8 +2189,8 @@ func due() -> float:
 	if timetable.is_empty() or berth != Berth.WORKING or lay_up_requested:
 		return -1.0
 	if call == 0:
-		return _timetable.first_stop_due(sim.abs_minutes(), dwell.maximum_loading)
-	return _timetable.call_due(call, _round_offsets())
+		return itinerary.clock.first_stop_due(sim.abs_minutes(), dwell.maximum_loading)
+	return itinerary.clock.call_due(call, _round_offsets())
 
 
 ## Alongside at her first stop overnight: her crew are off from when she was
@@ -2235,8 +2210,8 @@ func off_shift() -> bool:
 	if d < 0.0 or int(round(fmod(d, Timetable.DAY))) != timetable[0]:
 		return false
 	var now := sim.abs_minutes()
-	if _timetable.last_departure >= 0.0:
-		var shift_end := _timetable.last_departure + shift_tail(_round_offsets())
+	if itinerary.clock.last_departure >= 0.0:
+		var shift_end := itinerary.clock.last_departure + shift_tail(_round_offsets())
 		if between_sailings():
 			shift_end += shift_minutes(_shift_length(tie_up))
 		if now < shift_end:
@@ -2386,7 +2361,7 @@ static func idle_slip(term: Terminal, size: int, except: Ferry = null) -> int:
 			if f.berth != Berth.WORKING and f.here() == term and f.tie_up == j:
 				used = true
 			elif f.assigned or f.berth == Berth.WORKING:
-				for r: MapData.Route in f.legs + f._next_legs + [f.route]:
+				for r: MapData.Route in f.legs + f.itinerary.pending.legs + [f.route]:
 					if (r.a == town.id or r.b == town.id) and town.slip_index(r.id) == j:
 						used = true
 		if not used:
@@ -2466,17 +2441,17 @@ func order_move(town_id: int, slip: int) -> bool:
 
 
 func service_stops() -> Array[int]:
-	return _orders.service_stops()
+	return itinerary.service_stops()
 
 
 func service_times() -> Array[int]:
-	return _orders.service_times()
+	return itinerary.service_times()
 
 
 func set_manual_service_plan(
 	ids: Array[int], leg_routes: Array[MapData.Route], times: Array[int]
 ) -> void:
-	_orders.set_manual_service_plan(ids, leg_routes, times)
+	itinerary.edit_suspended(ids, leg_routes, times)
 
 
 ## Back into service: from the tie-up to her working slip once it is free.
@@ -2530,9 +2505,7 @@ func start_tied_up(term: Terminal) -> bool:
 func start_delivery(term: Terminal, i: int) -> void:
 	assigned = false
 	at_a = term == term_a
-	stops = [term.town.id, (term_b if at_a else term_a).town.id]
-	legs = [route, route]
-	call = 0
+	itinerary.set_circuit([term.town.id, (term_b if at_a else term_a).town.id], [route, route])
 	_begin_loading()
 	_place(_dock_s())
 	_lay_up.tie_up = i
@@ -2555,11 +2528,8 @@ func end_delivery() -> void:
 func take_first_stops(stop_ids: Array[int], leg_routes: Array[MapData.Route], times: Array[int]) -> void:
 	assigned = true
 	var here_id := here().town.id
-	stops = stop_ids
-	legs = leg_routes
-	call = stop_ids.find(here_id)
-	next_stops = []
-	_next_legs = []
+	itinerary.set_circuit(stop_ids, leg_routes, stop_ids.find(here_id))
+	itinerary.clear_pending()
 	set_timetable(times)
 	_offsets.clear()
 	_take_leg()
@@ -2584,9 +2554,7 @@ func reposition(
 	times: Array[int]
 ) -> void:
 	var here_id := here().town.id
-	stops = [here_id, target]
-	legs = [leg, leg]
-	call = 0
+	itinerary.set_circuit([here_id, target], [leg, leg])
 	plan_stops(stop_ids, leg_routes, times)
 	_positioning = true
 	set_timetable([])  # (she sails as soon as she's alongside; her times start at the new stops)

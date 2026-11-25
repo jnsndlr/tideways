@@ -86,7 +86,7 @@ func _route_groups() -> Array:
 			rid = parent[rid]
 		return rid
 	for f in sim.ferries:
-		for plan in [[f.stops, f.legs], [f.next_stops, f._next_legs]]:
+		for plan in [[f.stops, f.legs], [f.next_stops, f.itinerary.pending.legs]]:
 			var stops: Array = plan[0]
 			var legs: Array = plan[1]
 			if legs.size() != stops.size():
@@ -110,7 +110,7 @@ func _route_groups() -> Array:
 ## Whether every boat sailing a route in `g` fits slip `i`.
 func _group_fits(g: Array, i: int) -> bool:
 	for f in sim.ferries:
-		for r in f.legs + f._next_legs:
+		for r in f.legs + f.itinerary.pending.legs:
 			if r.id in g and not town.slips[i].fits(f.fc.size):
 				return false
 	return true
