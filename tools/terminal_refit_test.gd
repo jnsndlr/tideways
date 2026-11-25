@@ -18,6 +18,9 @@ func _initialize() -> void:
 	job.open_new_slip.connect(func(i: int) -> void: events.append("open %d during %s" % [i, TerminalRefit.Stage.keys()[job.stage]]))
 	for building: bool in [false, true]:
 		check_job(building)
+		for starting_stage in [TerminalRefit.Stage.ARRIVING, TerminalRefit.Stage.WORKING, TerminalRefit.Stage.LEAVING]:
+			for extra: float in [0.0, 30.0]:
+				check_large_step(building, starting_stage, extra)
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
@@ -53,3 +56,25 @@ func check_job(building: bool) -> void:
 		changes.append("open 2 during LEAVING")
 	changes.append("NONE")
 	check(events == changes, "Work effects and stage notifications run once in order: %s" % [events])
+
+
+func check_large_step(building: bool, starting_stage: TerminalRefit.Stage, extra: float) -> void:
+	job.start(2, 60.0, building)
+	job.advance(0.0, true)
+	if starting_stage >= TerminalRefit.Stage.WORKING:
+		job.advance(TerminalRefit.ARRIVAL, true)
+	if starting_stage == TerminalRefit.Stage.LEAVING:
+		job.advance(job.work, true)
+	events.clear()
+	job.advance(job.remaining + extra, true)
+	job.advance(10.0, true)
+	var expected := []
+	if starting_stage != TerminalRefit.Stage.LEAVING:
+		if not building:
+			expected.append("widen 2 during %s" % TerminalRefit.Stage.keys()[starting_stage])
+		expected.append("LEAVING")
+		if building:
+			expected.append("open 2 during LEAVING")
+	expected.append("NONE")
+	check(events == expected, "A jump from %s must apply every outstanding effect once: %s" % [TerminalRefit.Stage.keys()[starting_stage], events])
+	check(not job.occupies(2) and job.slip == -1 and job.remaining == 0.0, "The crane is free after the large step")
