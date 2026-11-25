@@ -35,6 +35,15 @@ const LIFT_LAMP := 4.8
 # Scale of the 360° lanterns on top of the lift and on the dolphins.
 const LIFT_LANTERN := 3.9
 const DOLPHIN_LANTERN := 3.9
+# The modelled channel buoys (art/buoys.py) are life-size; the world is drawn a bit larger.
+const BUOY_PORT_GLB := "res://assets/models/buoys/buoy_port_can.glb"
+const BUOY_STARBOARD_GLB := "res://assets/models/buoys/buoy_starboard_nun.glb"
+const BUOY_SCALE := 1.7
+const SPAR_GLB := "res://assets/models/buoys/buoy_hazard_spar.glb"
+const BELL_GLB := "res://assets/models/buoys/buoy_bell_tower.glb"
+const MARKER_PORT_GLB := "res://assets/models/buoys/marker_channel_port.glb"
+const MARKER_STARBOARD_GLB := "res://assets/models/buoys/marker_channel_starboard.glb"
+const AMBER := Color(1.0, 0.65, 0.15)
 # Side (m) of the tiles that trees, rocks and houses are batched in for culling.
 const MULTIMESH_TILE := 192.0
 # Eagle trees: within this of the water, the tallest one in each cell this size.
@@ -111,7 +120,7 @@ func build(frame: Signal = Signal()) -> Node3D:
 	root.name = "World"
 	# Towns grade their lots before terrain tiles read the heights.
 	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_quays,
-			_build_roads, _build_towns, _build_radio_towers, _build_terrain, _build_lighthouses, _build_haul_outs,
+			_build_roads, _build_towns, _build_radio_towers, _build_terrain, _build_lighthouses, _build_nav_aids, _build_haul_outs,
 			_build_vegetation, _build_shore_rocks, _build_route_overlay, _clear_grass_where_blocked]:
 		if not await _frames.can_continue():
 			break
@@ -841,8 +850,11 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 		# Channel buoy, flashing.
 		var buoy := Vector3(v + side * 25.5, 0.0, Layout.CHANNEL_BUOY_U)
 		var phase := Models.blink_phase_at(mb.xform * buoy)
-		Models.add_buoy(mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase)
-		glows.glow(Models.buoy_glow_at(buoy), mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+		var glow_at := _buoy_model(mb.xform, buoy, side < 0, "%s Buoy %d %s" % [isl.name, int(v), "G" if side < 0 else "R"])
+		if glow_at == Vector3.INF:
+			Models.add_buoy(mb, buoy, Color(0.2, 0.55, 0.3) if side < 0 else Color(0.8, 0.2, 0.15), mark, phase)
+			glow_at = Models.buoy_glow_at(buoy)
+		glows.glow(glow_at, mark, 0.66, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
 		# A caged lamp on the inside of each lift tower, lighting the ramp.
 		var lamp := Vector3(v + side * 7.95, 13.8, pe - 3.0)
 		var out := Vector3(-side, 0, 0)
@@ -850,6 +862,82 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 		glows.glow(Models.bulkhead_glow_at(lamp, out, LIFT_LAMP), GlowBuilder.WARM,
 			Models.bulkhead_glow_size(LIFT_LAMP), 5.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 	glows.pool(Vector3(v, ly + 0.15, pe - 9.0), GlowBuilder.SODIUM, 10.5, 0.3)
+
+
+## Places the modelled can (port, green) or nun (starboard, red) buoy at `base` in
+## the frame `xf`, and returns where its lantern's glow goes in that frame, or
+## Vector3.INF if the model isn't there (the caller draws the plain one).
+func _buoy_model(xf: Transform3D, base: Vector3, port: bool, node_name: String) -> Vector3:
+	return _nav_aid(BUOY_PORT_GLB if port else BUOY_STARBOARD_GLB, xf, base, 0.0, node_name)
+
+
+## Instances the nav-aid model at `path` at `base` (turned by `yaw`) in the frame
+## `xf`; returns its lantern's glow point in that frame, or Vector3.INF if missing.
+func _nav_aid(path: String, xf: Transform3D, base: Vector3, yaw: float, node_name: String) -> Vector3:
+	if root == null or not ResourceLoader.exists(path):
+		return Vector3.INF
+	var aid := (load(path) as PackedScene).instantiate() as Node3D
+	aid.name = node_name
+	root.add_child(aid)
+	var b := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * BUOY_SCALE)
+	aid.transform = xf * Transform3D(b, base)
+	var beacon := aid.find_child("BeaconLight", true, false) as Node3D
+	var lamp := beacon.position if beacon else Vector3(0, 2.9, 0)
+	return base + b * (lamp + Vector3(0, 0.35, 0))
+
+
+## Open-water marks: a hazard spar off the shoal edge of most islands, a bell
+## buoy out in deep water off each inhabited one, and a pair of channel markers
+## further out on each terminal's approach. All flash at night.
+func _build_nav_aids() -> void:
+	glows.xform = Transform3D.IDENTITY
+	var n := 0
+	for isl in map.islands:
+		if isl.is_mainland:
+			continue
+		var c := Vector3(isl.center.x, 0, isl.center.y)
+		# Spar on the shoal's edge, bell further out in deep water.
+		for kind in ["spar", "bell"]:
+			if kind == "bell" and not isl.inhabited:
+				continue
+			if kind == "spar" and rng.randf() > 0.7:
+				continue
+			var depth := -2.5 if kind == "spar" else -14.0
+			for _try in 6:
+				var ang := rng.randf() * TAU
+				var dir := Vector3(cos(ang), 0, sin(ang))
+				var r := 0.0
+				while r < isl.radius * 3.0 and terrain.height_v(c + dir * r) > depth:
+					r += 2.0
+				var p := c + dir * (r + (6.0 if kind == "spar" else 40.0))
+				if terrain.height_v(p) > depth or _is_blocked(p.x, p.z):
+					continue
+				var path := SPAR_GLB if kind == "spar" else BELL_GLB
+				var col := AMBER if kind == "spar" else GlowBuilder.LED
+				var at := _nav_aid(path, Transform3D.IDENTITY, p, rng.randf() * TAU, "Nav %s %d" % [kind, n])
+				if at != Vector3.INF:
+					var phase := Models.blink_phase_at(p)
+					glows.glow(at, col, 0.6, 7.0, true, Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+					_block(p, 12.0)
+					n += 1
+				break
+	# Channel markers out on each terminal's approach, wider than the slip buoys.
+	for town in map.towns:
+		if town.slips.is_empty():
+			continue
+		var xf := town.terminal_xform()
+		for side: float in [-1.0, 1.0]:
+			var base := Vector3(side * 48.0, 0.0, Layout.CHANNEL_BUOY_U + 70.0)
+			var w := xf * base
+			if terrain.height_v(w) > -1.5 or _is_blocked(w.x, w.z):
+				continue
+			var path := MARKER_PORT_GLB if side < 0 else MARKER_STARBOARD_GLB
+			var at := _nav_aid(path, xf, base, 0.0, "%s Channel Marker %s" % [town.name, "G" if side < 0 else "R"])
+			if at != Vector3.INF:
+				var phase := Models.blink_phase_at(w)
+				glows.glow(xf * at, GlowBuilder.GREEN if side < 0 else GlowBuilder.RED, 0.6, 7.0, true,
+					Models.blink_of(phase), Vector3.ZERO, Models.LAMP_ON_AT)
+				_block(w, 10.0)
 
 
 ## When the authored deck is unavailable, the concrete deck still follows the
