@@ -35,6 +35,9 @@ var font: SystemFont
 var bold: SystemFont
 var _labels := {}
 var _stat := {}
+var _queue_total_dirty := true
+var _displayed_queue: Terminal.QueueSummary
+var _lane_text := ""
 var _speed_buttons: Array[Button] = []
 var _speed_index := 1
 var _last_running_speed := 1
@@ -115,6 +118,7 @@ func setup(m: Node) -> void:
 	wildlife.visit_started.connect(_on_visit_started)
 	wildlife.sighted.connect(_on_sighted)
 	wildlife.photographed.connect(_on_photographed)
+	sim.queues_changed.connect(func() -> void: _queue_total_dirty = true)
 	sim.running_costs_posted.connect(_on_running_costs)
 	sim.ferry_delivered.connect(_on_ferry_delivered)
 	sim.ferry_removed.connect(_on_ferry_removed)
@@ -934,7 +938,8 @@ func _refresh_panels() -> void:
 				_dock_button.disabled = sim.available_cash < price
 				offer_dock = true
 		if term:
-			rows.append(["Vehicles waiting", str(term.total_queued())])
+			var queue := term.queue_summary()
+			rows.append(["Vehicles waiting", str(queue.waiting)])
 			rows.append(["Holding capacity", "%d car spaces" % term.capacity()])
 			rows.append(["Slips", _slips_text(isl)])
 			if term.refit_stage != Terminal.RefitStage.NONE:
@@ -952,8 +957,8 @@ func _refresh_panels() -> void:
 				var destination := sim.map.towns[term.lane_keys()[0]].name
 				rows.append(["Extra lane to", destination])
 				var lane_work := term.build_remaining > 0.0 or term.work_stage == Terminal.WorkStage.DRAINING
-				if term.extra_lane != null and not lane_work:
-					rows.append(["In newest lane", "%d waiting · %d spaces inbound" % [term.extra_lane.queue.size(), term.extra_lane.enroute]])
+				if queue.has_newest and not lane_work:
+					rows.append(["In newest lane", "%d waiting · %d spaces inbound" % [queue.newest_waiting, queue.newest_inbound]])
 				if lane_work:
 					var count := term.staging_lanes.size()
 					var phase: String = {
@@ -969,7 +974,7 @@ func _refresh_panels() -> void:
 						rows.append(["Lane opens in", "%d game min" % ceili(term.build_remaining)])
 				elif not term.site_lanes.is_empty():
 					rows.append(["Unpaved lot", "room for %d more lane%s" % [term.site_lanes.size(), "" if term.site_lanes.size() == 1 else "s"]])
-				elif term.extra_lane == null and term.can_stage_construction():
+				elif not queue.has_newest and term.can_stage_construction():
 					rows.append(["While building", _staging_loss(isl.construction_staging_lanes, term.slots_per_lane) + " closed"])
 			if term.has_service():
 				rows.append(["Avg. wait", "%d min" % roundi(term.avg_wait)])
@@ -1041,7 +1046,7 @@ func _tb_set(key: String, a: String, b: String, c: String) -> void:
 
 func _update_terminal_bar(term: Terminal) -> void:
 	_tb_set("terminal", term.town.name.to_upper() + " TERMINAL",
-		"Queue: %d vehicles" % term.total_queued(),
+		"Queue: %d vehicles" % term.queue_summary().waiting,
 		"Wait: %d min" % roundi(term.avg_wait) if term.has_service() else "No scheduled service")
 	var nd := term.next_departure()
 	var f: Ferry = nd[1]
@@ -1524,7 +1529,9 @@ func _process(delta: float) -> void:
 	_stat["vessels"].text = str(sim.ferries.size())
 	_stat["routes"].text = str(map.routes.filter(func(r): return r.in_service).size())
 	_stat["sat"].text = "%d%%" % roundi(sim.satisfaction())
-	_stat["queue"].text = fmt_int(sim.total_queued())
+	if _queue_total_dirty:
+		_stat["queue"].text = fmt_int(sim.total_queued())
+		_queue_total_dirty = false
 	_stat["date"].text = sim.date_text()
 	_stat["time"].text = sim.clock_text()
 	_refresh_panels()
@@ -1571,16 +1578,12 @@ func _slips_text(isl: MapData.Town) -> String:
 
 ## "Port Rosario 2 (1 sharing) · Gullrock 1" style summary of a terminal's lanes.
 func _lanes_text(term: Terminal) -> String:
-	var parts: PackedStringArray = []
-	for key in term.lanes.keys():
-		if not MapData.is_route(key):
-			continue
-		var guests := 0
-		for lane: Terminal.Lane in term.lanes[key]:
-			for waiting in lane.queue:
-				var car := instance_from_id(waiting.vehicle_id) as Vehicle
-				if car.dest != key:
-					guests += 1
-		var name: String = sim.map.towns[key].name.trim_suffix(" Island")
-		parts.append("%s %d%s" % [name, term.lanes[key].size(), " (%d sharing)" % guests if guests > 0 else ""])
-	return " · ".join(parts) if not parts.is_empty() else "-"
+	var summary := term.queue_summary()
+	if summary != _displayed_queue:
+		var parts: PackedStringArray = []
+		for dest in summary.destinations:
+			var name: String = sim.map.towns[dest.town_id].name.trim_suffix(" Island")
+			parts.append("%s %d%s" % [name, dest.lanes, " (%d sharing)" % dest.sharing if dest.sharing > 0 else ""])
+		_lane_text = " · ".join(parts) if not parts.is_empty() else "-"
+		_displayed_queue = summary
+	return _lane_text

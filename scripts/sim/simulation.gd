@@ -35,6 +35,8 @@ var moving_vehicles: Array[Vehicle] = []
 var traffic: Node3D
 var wildlife: Wildlife
 var marine: MarineTraffic
+## A terminal changed its holding queue or lane allocation.
+signal queues_changed
 ## A dock site was bought and its terminal is being built (buy_dock).
 signal slip_sites_changed
 signal dock_bought(town: MapData.Town)
@@ -140,6 +142,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 func _add_terminal(town: MapData.Town) -> Terminal:
 	var term := Terminal.new()
 	add_child(term)
+	term.queue_changed.connect(queues_changed.emit)
 	term.setup(self, town)
 	terminals[town.id] = term
 	return term

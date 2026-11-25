@@ -8,6 +8,7 @@ extends Node3D
 ## off the pier, out through the exit lane and back into town.
 ## The node's transform is the terminal frame (see Layout).
 
+signal queue_changed
 signal extension_changed
 signal refit_changed
 ## A slip bought here (Kind.SLIP or TIE_UP) is built and in use: `i` into town.slips.
@@ -51,6 +52,25 @@ const DREDGE_RATE := 12000.0    # cubic metres an hour, added to the build
 
 const Lane = preload("res://scripts/sim/terminal_lane.gd")
 
+## A snapshot of the holding lot. Waiting counts vehicles; inbound counts reserved spaces.
+class QueueSummary:
+	class Destination:
+		var town_id: int
+		var lanes: int
+		var sharing := 0
+
+		func _init(id: int, lane_count: int) -> void:
+			town_id = id
+			lanes = lane_count
+
+	var destinations: Array[Destination] = []
+	var waiting := 0
+	var has_newest := false
+	var newest_waiting := 0
+	var newest_inbound := 0
+
+
+var _queue_summary: QueueSummary
 var sim: Simulation
 var town: MapData.Town
 var lanes := {}        # destination town id -> Array[Lane] (MapData.NO_ROUTE when idle)
@@ -307,6 +327,7 @@ func _advance_construction(delta: float) -> void:
 			site_lanes.pop_front()
 		lanes[lane_keys()[0]].append(extra_lane)
 		staging_lanes.clear()
+		_queue_changed()
 		_set_work_stage(WorkStage.OPEN)
 	elif build_remaining <= DEPARTURE_MINUTES and work_stage != WorkStage.LEAVING:
 		_set_work_stage(WorkStage.LEAVING)
@@ -491,6 +512,7 @@ func build_lanes(dests: Array[int]) -> void:
 		for v in lane_sets[i]:
 			arr.append(Lane.new(v))
 		lanes[keys[i]] = arr
+	_queue_changed()
 
 
 ## After a schedule change: divides the lanes the lot has now (bought ones too)
@@ -515,7 +537,8 @@ func relane(dests: Array[int]) -> void:
 		arr.assign(all.slice(start, start + n))
 		lanes[keys[i]] = arr
 		start += n
-	sort_overflow()
+	_redirect_overflow()
+	_queue_changed()
 
 
 ## The wing walls and dolphins of the slip `rid` calls at here (null if none).
@@ -769,6 +792,8 @@ func _spawn_car() -> void:
 		car.queue_free()
 		return
 	lane.enroute += car.slots
+	if lane == extra_lane:
+		_queue_changed()
 	var path := _inbound[sim.rng.randi() % _inbound.size()].duplicate()
 	path.append(_local(to_local(path[-1]).x, Layout.LOT_BACK + 2.4))
 	path.append(_local(lane.v, Layout.LOT_BACK + 4.8))
@@ -792,6 +817,7 @@ func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> v
 					lane.enroute -= car.slots
 					car.lane_v = lane.v
 					_redirect_guest(car)
+					_queue_changed()
 					return
 				break
 	var ahead := lane.queued_slots()
@@ -799,6 +825,7 @@ func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> v
 	lane.arrive(car.get_instance_id(), car.slots)
 	car.lane_v = lane.v
 	_park_in_queue(car, lane, ahead)
+	_queue_changed()
 
 
 ## Places some already-waiting cars so the lot isn't empty at the start.
@@ -822,6 +849,7 @@ func prefill() -> void:
 				car.lot_arrival = sim.minutes - sim.rng.randf_range(0.0, 20.0)
 				lane.enqueue(car.get_instance_id(), car.slots)
 				k += car.slots
+	_queue_changed()
 
 
 ## The next car for a boat serving `serves` (town ids, her stops in order): from
@@ -861,6 +889,7 @@ func _dispatch(best: Lane) -> Vehicle:
 	_close_up(best)
 	avg_wait = lerpf(avg_wait, sim.minutes - car.lot_arrival, 0.1)
 	served_today += 1
+	_queue_changed()
 	return car
 
 
@@ -906,6 +935,12 @@ func _shared_lane(dest: int, need: int) -> Lane:
 ## next boat to load that lane serves them. Otherwise they move back to a lane of
 ## their own with room, or give up and go home.
 func sort_overflow() -> void:
+	if _redirect_overflow():
+		_queue_changed()
+
+
+func _redirect_overflow() -> bool:
+	var changed := false
 	for key in lanes.keys():
 		for lane: Lane in lanes[key]:
 			var loader := next_loader(key)
@@ -921,6 +956,8 @@ func sort_overflow() -> void:
 				_redirect_guest(car)
 			if moved:
 				_close_up(lane)
+				changed = true
+	return changed
 
 
 func _redirect_guest(car: Vehicle) -> void:
@@ -1014,6 +1051,34 @@ func exit_path(i: int) -> PackedVector3Array:
 	]))
 	path.append_array(_outbound[sim.rng.randi() % _outbound.size()])
 	return path
+
+
+func _queue_changed() -> void:
+	_queue_summary = null
+	queue_changed.emit()
+
+
+## Read-only queue data for inspectors. Build it only when observed after a change.
+func queue_summary() -> QueueSummary:
+	if _queue_summary:
+		return _queue_summary
+	var summary := QueueSummary.new()
+	summary.waiting = total_queued()
+	for key: int in lanes:
+		if not MapData.is_route(key):
+			continue
+		var row := QueueSummary.Destination.new(key, lanes[key].size())
+		for lane: Lane in lanes[key]:
+			for waiting in lane.queue:
+				if _car(waiting).dest != key:
+					row.sharing += 1
+		summary.destinations.append(row)
+	if extra_lane:
+		summary.has_newest = true
+		summary.newest_waiting = extra_lane.queue.size()
+		summary.newest_inbound = extra_lane.enroute
+	_queue_summary = summary
+	return summary
 
 
 func queued_for(rid: int) -> int:
