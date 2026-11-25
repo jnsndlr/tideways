@@ -171,6 +171,24 @@ func ribbon(points: PackedVector3Array, width: float, col: Color, skirt := 1.5) 
 		quad(a - lat, b - lat, b - lat + down, a - lat + down, side_col, -lat)
 
 
+## Append model-part triangles with their local transform and optional livery.
+func append_part(
+	part: MeshBuilder, xf: Transform3D, tint := Color.WHITE, paint := Color(-1, 0, 0)
+) -> void:
+	verts.append_array(xf * part.verts)
+	normals.append_array(Transform3D(xf.basis.orthonormalized(), Vector3.ZERO) * part.normals)
+	if paint.r >= 0.0:
+		var c := PackedColorArray()
+		c.resize(part.colors.size())
+		c.fill(paint)
+		colors.append_array(c)
+	elif tint == Color.WHITE:
+		colors.append_array(part.colors)
+	else:
+		for c in part.colors:
+			colors.append(c * tint)
+
+
 func is_empty() -> bool:
 	return verts.is_empty()
 
