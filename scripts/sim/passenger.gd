@@ -18,10 +18,25 @@ const MODELS := [
 	"res://assets/models/person_student.glb",
 	"res://assets/models/person_tourist.glb",
 	"res://assets/models/person_umbrella.glb",
+	"res://assets/models/person_biker.glb",
+	"res://assets/models/person_dad_baby.glb",
+	"res://assets/models/person_fisherman.glb",
+	"res://assets/models/person_fisherman_buoy.glb",
+	"res://assets/models/person_gym_kid.glb",
+	"res://assets/models/person_husky_tourist.glb",
+	"res://assets/models/person_stroller.glb",
+	"res://assets/models/person_student_girl.glb",
+	"res://assets/models/person_traveler.glb",
 ]
 const RECOLOR_SHADER := preload("res://shaders/passenger.gdshader")
 ## Models whose people are too young for grey hair.
-const YOUNG := ["kid", "student", "jogger", "hipster"]
+const YOUNG := ["kid", "student", "jogger", "hipster", "biker"]
+## Models whose overalls/oilskin bottoms must stay orange or yellow only.
+const OILSKIN_BOTTOM := ["fisherman_buoy"]
+const OILSKIN_COLORS := [
+	Color(0.98, 0.80, 0.21), Color(0.95, 0.72, 0.16),
+	Color(0.92, 0.46, 0.12), Color(0.86, 0.36, 0.10),
+]
 ## Recolour palettes, picked in sRGB like the Blender palettes (see
 ## art/person_recolor.py). Repeats weight the common picks.
 const SKIN_TONES := [
@@ -142,16 +157,22 @@ static func _apply_vertex_color_material(node: Node) -> void:
 
 ## Gives this passenger its own skin, hair, clothes and accessory colours.
 static func _apply_random_colors(node: Node, model_path: String) -> void:
+	var file_name := model_path.get_file()
 	var young := false
 	for y: String in YOUNG:
-		if y in model_path.get_file():
+		if y in file_name:
 			young = true
+	var oilskin := false
+	for o: String in OILSKIN_BOTTOM:
+		if o in file_name:
+			oilskin = true
 	var hair: Array = HAIR_COLORS if young else HAIR_COLORS + GREY_HAIR
+	var bottom: Array = OILSKIN_COLORS if oilskin else BOTTOM_COLORS
 	var picks := {
 		&"skin_col": _pick(SKIN_TONES),
 		&"hair_col": _pick(hair),
 		&"top_col": _pick(TOP_COLORS),
-		&"bottom_col": _pick(BOTTOM_COLORS),
+		&"bottom_col": _pick(bottom),
 		&"accent_col": _pick(TOP_COLORS),
 	}
 	_set_colors(node, picks)
