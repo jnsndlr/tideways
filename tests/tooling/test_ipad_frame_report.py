@@ -1,7 +1,7 @@
 import unittest
 import xml.etree.ElementTree as ET
 
-from ipad_frame_report import FRAME_TABLE, THERMAL_TABLE, summarize
+from tools.ipad_frame_report import FRAME_TABLE, THERMAL_TABLE, summarize
 
 
 def table(name, columns, rows):

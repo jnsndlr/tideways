@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise the gate itself without importing the game.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 cat > "$fixture/engine" <<'ENGINE'
@@ -55,9 +55,9 @@ for outcome in unrelated-load-error recovery-error-other-phase early-exit script
     exit 1
   fi
 done
-OUTCOME=pass GODOT_BIN="$fixture/engine" bash tools/art_free_region_test.sh > "$fixture/control"
+OUTCOME=pass GODOT_BIN="$fixture/engine" bash tests/tooling/art_free_region_test.sh > "$fixture/control"
 for outcome in import-marker-only import-error script-error one-leak process-failure; do
-  if OUTCOME="$outcome" GODOT_BIN="$fixture/engine" bash tools/art_free_region_test.sh > "$fixture/result" 2>&1; then
+  if OUTCOME="$outcome" GODOT_BIN="$fixture/engine" bash tests/tooling/art_free_region_test.sh > "$fixture/result" 2>&1; then
     echo "Asset-free runner accepted $outcome" >&2
     exit 1
   fi

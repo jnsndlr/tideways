@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Exercise the same Git comparison and pinned tools used for pull requests.
 set -euo pipefail
-checker="$(cd "$(dirname "$0")" && pwd)/check_gdscript.py"
+checker="$(cd "$(dirname "$0")/../../tools" && pwd)/check_gdscript.py"
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 cd "$fixture"

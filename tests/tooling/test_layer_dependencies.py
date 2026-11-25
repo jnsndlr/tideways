@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from layer_dependencies import inventory
+from tools.layer_dependencies import inventory
 
 
 class LayerDependenciesTest(unittest.TestCase):

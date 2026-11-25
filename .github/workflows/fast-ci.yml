@@ -38,15 +38,14 @@ jobs:
           export PATH="$RUNNER_TEMP/style-tools/bin:$PATH"
           if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then BASE=HEAD^; fi
           uv run --locked --script tools/check_gdscript.py --base "$BASE"
-          bash tools/test_gdscript_style.sh
+          bash tests/tooling/test_gdscript_style.sh
       - name: Check region and simulation dependencies
         run: |
-          python3 -B tools/test_layer_dependencies.py
           python3 -B tools/layer_dependencies.py
       - name: Verify the test runner
-        run: bash tools/fast_ci_runner_test.sh
-      - name: Test the iPad frame report
-        run: python3 -B tools/test_ipad_frame_report.py
+        run: bash tests/tooling/fast_ci_runner_test.sh
+      - name: Test the Python tools
+        run: python3 -B -m unittest discover -s tests/tooling
       - name: Install Godot 4.7.2
         working-directory: ${{ runner.temp }}
         run: |
@@ -58,7 +57,7 @@ jobs:
           chmod +x godot
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Generate a region and step a voyage without imported art
-        run: bash tools/art_free_region_test.sh
+        run: bash tests/tooling/art_free_region_test.sh
       - name: Run game checks
         env:
           SUITE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 'traffic' || 'fast' }}

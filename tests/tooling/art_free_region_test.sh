@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run production GDScript in a fresh project with no imported assets or game autoloads.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 engine=${GODOT_BIN:-godot}
 project=$(mktemp -d)
 trap 'rm -rf "$project"' EXIT
