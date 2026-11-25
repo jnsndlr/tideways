@@ -198,7 +198,7 @@ func _fit_if_visible() -> void:
 func open(f: Ferry) -> void:
 	ferry = f
 	_draft.assign(f.next_stops if not f.next_stops.is_empty() else f.stops)
-	_times.assign(f._next_timetable if not f.next_stops.is_empty() else f.timetable)
+	_times.assign(f.itinerary.pending.times if not f.next_stops.is_empty() else f.timetable)
 	_timed = not _times.is_empty()
 	_pace = f.pace
 	_rebuild()

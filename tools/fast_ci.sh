@@ -64,6 +64,7 @@ check vessel-hull test --script tests/world/vessel_hull_view_test.gd
 check vessel-night-lights test --script tests/world/vessel_night_lights_test.gd
 check trawler-gear test --script tests/world/trawler_gear_test.gd
 check sailboat-rig test --script tests/world/sailboat_rig_test.gd
+check ferry-itinerary test --script tests/rules/ferry_itinerary_test.gd
 check timetable-round test --script tests/rules/timetable_round_test.gd
 check mission-goals test --script tests/simulation/mission_goals_test.gd
 check land-distance-field test --script tests/world/land_distance_field_test.gd

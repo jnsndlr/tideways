@@ -60,7 +60,7 @@ static func plan_of(f: Ferry) -> Dictionary:
 		return {}
 	var pending := not f.next_stops.is_empty()
 	var ids: Array[int] = f.next_stops if pending else f.stops
-	var times: Array[int] = f._next_timetable if pending else f.timetable
+	var times: Array[int] = f.itinerary.pending.times if pending else f.timetable
 	return {"ferry": f, "ids": ids, "times": times, "pace": f.pace}
 
 

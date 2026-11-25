@@ -134,7 +134,7 @@ func _set_up(sim: Simulation, hiyu: Ferry, heron: Ferry) -> bool:
 	ed._times.assign([heron_t])
 	ed._rebuild()
 	ed._on_apply()
-	if heron.timetable != [heron_t] and heron._next_timetable != [heron_t]:
+	if heron.timetable != [heron_t] and heron.itinerary.pending.times != [heron_t]:
 		return _fail("Apply didn't put the Heron on her clashing sailing")
 	if hud._slip_clash_text(heron) == "" or hud._slip_clash_text(hiyu) == "":
 		return _fail("The ferry panel doesn't mention the clash for both boats")

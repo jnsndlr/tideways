@@ -242,7 +242,7 @@ func _check_early_crew_call() -> void:
 	var boat := Ferry.new(sim.operating_costs, dwell)
 	boat.sim = sim
 	boat.fc = FerryClass.of(2)
-	boat._timetable.replace([400])
+	boat.set_timetable([400])
 	var ids: Array[int] = [0, 1]
 	var planned := boat.daily_cost(ids, [400])
 	var paid_minutes := 32.0 + boat.shift_tail(boat.plan_offsets(ids))

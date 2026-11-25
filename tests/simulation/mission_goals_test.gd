@@ -34,7 +34,7 @@ func _initialize() -> void:
 	sim.terminals[town.id] = terminal
 	_check(panel._name(sim, town.key) == town.name, "Qualified mission goal must resolve the dock town.")
 	var ferry := Ferry.new()
-	ferry.next_stops.append(town.id)
+	ferry.plan_stops([town.id], [])
 	sim.add_child(ferry)
 	sim.ferries.append(ferry)
 	for goal in mission.goals:
@@ -43,7 +43,7 @@ func _initialize() -> void:
 	_check(panel._goal_label(sim, mission.goals[3]) == "Grow cash to $60.0K", "Author's goal label must take precedence.")
 	_check(panel._goal_progress(sim, mission.goals[0]) == "250 / 250", "Panel should include pre-rebuild passenger counts.")
 	_check(panel._goal_progress(sim, mission.goals[3]) == "$60.0K", "Panel should format cash using HUD conventions.")
-	ferry.next_stops.clear()
+	ferry.itinerary.clear_pending()
 	_check(not mission.goal_met(sim, mission.goals[2]), "Removing the scheduled call must reopen the service goal.")
 	panel.free()
 	sim.free()
