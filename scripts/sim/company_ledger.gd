@@ -8,13 +8,7 @@ const STARTING_CASH := 50000.0
 const INCOME := ["fares", "sales"]
 const EXPENSES := ["fuel", "crew", "purchases"]
 
-const FARE_CAR := 18.5
-const FARE_TRUCK := 42.0   # (the code-built truck)
-# Fares go by length, as WSF's do: a car's fare up to 22 ft (6.7 m), then this much
-# more of it for every metre over.
-const CAR_FARE_LENGTH := 6.7
-const FARE_PER_METRE := 0.3
-
+var _fares := FareSchedule.new(ProjectSettings.get_setting(FareSchedule.SETTING, {}))
 var cash := STARTING_CASH
 var today := _blank_day()
 var yesterday := _blank_day()
@@ -45,11 +39,11 @@ static func net(day: Dictionary) -> float:
 
 
 func credit_measured(metres: float) -> void:
-	_credit(FARE_CAR * (1.0 + FARE_PER_METRE * maxf(metres - CAR_FARE_LENGTH, 0.0)))
+	_credit(_fares.measured(metres))
 
 
 func credit_flat(is_truck: bool) -> void:
-	_credit(FARE_TRUCK if is_truck else FARE_CAR)
+	_credit(_fares.flat(is_truck))
 
 
 func _credit(fare: float) -> void:
