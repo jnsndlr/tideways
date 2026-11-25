@@ -9,6 +9,7 @@ func check(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	_check_fare_settings()
 	_check_pace()
 	_check_midnight_costs()
 	var sim := Simulation.new(Vehicle.new.unbind(1))
@@ -77,6 +78,34 @@ func _initialize() -> void:
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
+
+
+func _check_fare_settings() -> void:
+	for invalid: Variant in [null, "24", true, -1, INF, NAN]:
+		var schedule := FareSchedule.new({"car": invalid, "truck": 51})
+		check(schedule.flat(false) == 18.5 and schedule.flat(true) == 51, "Invalid rate falls back independently")
+	check(FareSchedule.new([]).flat(true) == 42.0, "Malformed fare block uses defaults")
+	check(FareSchedule.new({"car": 0}).measured(8.7) == 0.0, "Zero fare is valid")
+
+	var previous: Variant = ProjectSettings.get_setting(FareSchedule.SETTING, null)
+	ProjectSettings.set_setting(FareSchedule.SETTING, {
+		"car": 24, "truck": 50, "included_metres": 5, "extra_fraction_per_metre": 0.25,
+	})
+	var sim := Simulation.new(Vehicle.new.unbind(1))
+	ProjectSettings.set_setting(FareSchedule.SETTING, previous)
+	var car := Vehicle.new()
+	sim.collect_fare(car)
+	check(sim.revenue_today == 24.0, "Configured flat car fare")
+	car.is_truck = true
+	sim.collect_fare(car)
+	check(sim.revenue_today == 74.0, "Configured flat truck fare")
+	car.model = "measured"
+	car.length = 7.0 * Models.VEHICLE_SCALE
+	sim.collect_fare(car)
+	check(is_equal_approx(sim.revenue_today, 110.0) and sim.cars_today == 3, "Configured measured fare charged once")
+	check(is_equal_approx(sim.ledger.cash, CompanyLedger.STARTING_CASH + 110.0), "Configured fares reach cash")
+	car.free()
+	sim.free()
 
 
 func _check_midnight_costs() -> void:
