@@ -28,6 +28,17 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Check changed GDScript and verify failure detection
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/style-tools"
+          "$RUNNER_TEMP/style-tools/bin/pip" install --quiet uv==0.12.19
+          export PATH="$RUNNER_TEMP/style-tools/bin:$PATH"
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then BASE=HEAD^; fi
+          uv run --locked --script tools/check_gdscript.py --base "$BASE"
+          bash tools/test_gdscript_style.sh
       - name: Check region and simulation dependencies
         run: |
           python3 -B tools/test_layer_dependencies.py
