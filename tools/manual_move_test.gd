@@ -17,6 +17,9 @@ var _origin := -1
 var _bound := -1
 var _sat_before := 0.0
 var _cash_before := 0.0
+var _yaw0 := 0.0
+var _lead := false
+var _turned := false
 
 
 func _initialize() -> void:
@@ -59,11 +62,21 @@ func _process(_delta: float) -> bool:
 					return _fail("order_move refused turning her back")
 				if rhodo.global_position.distance_to(pos) > 2.0:
 					return _fail("She jumped %.1f m turning back" % rhodo.global_position.distance_to(pos))
+				_yaw0 = rhodo.global_basis.get_euler().y
+				_lead = rhodo._minus
 				if rhodo.destination().town.id != _origin:
 					return _fail("Turned back but bound for %s" % rhodo.destination().town.name)
 				_log(sim, "Rhododendron turned back with %d cars, %d walk-ons bound across: %s" % [short.x, short.y, rhodo.status_text()])
 				phase = 1
 		1:
+			if not _turned and rhodo._turn_t < 0.0 and rhodo.speed > 1.0:
+				_turned = true
+				var swung := absf(wrapf(rhodo.global_basis.get_euler().y - _yaw0, -PI, PI))
+				if swung < PI * 0.8:
+					return _fail("She didn't swing round: turned %.0f°" % rad_to_deg(swung))
+				if rhodo._minus != _lead:
+					return _fail("A different end leads after turning round")
+				_log(sim, "Swung round %.0f°, under way back: %s" % [rad_to_deg(swung), rhodo.status_text()])
 			if rhodo.state == Ferry.State.LOADING and rhodo._manual_landed and rhodo.aboard.is_empty() and rhodo.passengers_aboard.is_empty():
 				if rhodo.here().town.id != _origin:
 					return _fail("Landed at the wrong terminal")

@@ -985,6 +985,8 @@ func _set_parked(car: Vehicle, park: Transform3D) -> void:
 
 
 func _tick_sailing(delta: float) -> void:
+	if _turn_t >= 0.0 and _tick_turn(delta):
+		return
 	if _sail_time >= 0.0:
 		_sail_time += Units.game_minutes(delta)
 	var remaining := run_length() - traveled
@@ -2784,18 +2786,77 @@ func _redirect(town_id: int) -> void:
 	_sail_time = -1.0
 
 
-## Mid-crossing, back the way she came: the other end leads, from where she is.
+## Seconds (at 1x) she takes to swing round when turned back mid-crossing.
+const TURN_BACK_SECONDS := 15.0
+var _turn_t := -1.0                 # 0..1 through swinging round (_tick_turn); -1 when not
+var _turn_from := Transform3D()     # her pose as she began to swing
+var _turn_sweep := 0.0              # how far she turns (about +-PI), and which way
+
+
+## Mid-crossing, back the way she came: she stops and swings round where she is
+## (over to the other lane if the route is shared), and the end that led still leads.
 func _turn_back() -> void:
 	for run in _corridor_runs():
 		for e in run[2]:
 			if e[1].owner == self:
 				e[1].owner = null
+	var from := _base_xf if _turn_t < 0.0 else _turn_pose()
 	var run_len := run_length()
 	at_a = not at_a
+	_rev = not _rev   # (so _minus, the end that leads, is the same end)
 	traveled = maxf(run_len - traveled, 0.0)
 	_slip_chosen = false
-	speed = minf(speed, 1.0)   # (she comes to a stop and gathers way the other way)
+	speed = 0.0
+	_turn_from = from
+	_turn_t = 0.0
+	# Where she'll be lying once round, and the way round that takes her towards it
+	# (to starboard, if she stays on the centreline).
+	_place(_route_s(traveled))
+	var to := _base_xf
+	var y0 := from.basis.get_euler().y
+	var y1 := to.basis.get_euler().y
+	var d := wrapf(y1 - y0, -PI, PI)
+	var across := to.origin - from.origin
+	across.y = 0.0
+	# She heads +Z when _minus (she left from her -Z end), and turning +yaw swings
+	# +Z towards +X: turn towards the side she's crossing to.
+	var heading := 1.0 if _minus else -1.0
+	var want := 1.0 if across.length() < 1.0 or across.dot(from.basis.x) * heading >= 0.0 else -1.0
+	if signf(d) != want and absf(d) > PI * 0.5:
+		d -= signf(d) * TAU
+	_turn_sweep = d
+	global_transform = from
+	_base_xf = from
 	wake.clear()
+
+
+## Her pose `_turn_t` through swinging round: turning about her middle as she
+## eases across from where she began to where she'll lie on her way back.
+func _turn_pose() -> Transform3D:
+	var k := smoothstep(0.0, 1.0, _turn_t)
+	var to := _base_xf
+	var y0 := _turn_from.basis.get_euler().y
+	var origin := _turn_from.origin.lerp(to.origin, smoothstep(0.15, 1.0, _turn_t))
+	return Transform3D(Basis(Vector3.UP, y0 + _turn_sweep * k), origin)
+
+
+## Swinging round (see _turn_back). True while she is still turning.
+func _tick_turn(delta: float) -> bool:
+	_turn_t = minf(_turn_t + delta / TURN_BACK_SECONDS, 1.0)
+	speed = 0.0
+	hold = INF
+	_place(_route_s(traveled))   # (where she'll lie once round, in _base_xf)
+	var xf := _turn_pose()
+	if _turn_t >= 1.0:
+		_turn_t = -1.0
+		return false
+	_base_xf = xf
+	global_transform = xf
+	# Her props churn as she swings.
+	_thrust = move_toward(_thrust, 0.6, delta * 0.8)
+	_bob_time += delta
+	position.y = sin(_bob_time * 1.3) * 0.21
+	return true
 
 
 ## At manual_target: everyone aboard goes off here. Those bound elsewhere are
