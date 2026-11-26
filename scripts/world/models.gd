@@ -837,65 +837,9 @@ static func ferry(fc: FerryClass) -> ArrayMesh:
 		return mb.commit())
 
 
-## The mid-poly slip (art/slip_mid.py): lattice lift towers with their header, sheaves
-## and ladders (`towers`, static scenery in the slip frame) and the moving parts SlipRamp
-## works: the transfer span, the apron, counterweights, hoist cables and the apron's
-## rams. The old boxes are the fallback: with `--classic-slip`, or if the model is missing.
-const MID_SLIP_GLB := "res://assets/models/slip_mid.glb"
-static var mid_slip := not "--classic-slip" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(MID_SLIP_GLB)
-
-
-## The slip's guide structures, modelled in metres with the water at y = 0 and their
-## fendered faces looking +Z: a six-pile dolphin for the lit outer pair, a four-pile
-## one for the inner pair (art/ferry_dolphin*.blend) and the splayed wing wall
-## (art/wing_wall.blend, art/export_wing_wall.py), the wall running along X. Their
-## material colours are baked in (ModelParts.baked). The procedural piles and boxes are
-## the fallback: with `--classic-slip`, or if a model is missing.
-const SLIP_DOLPHIN_OUTER_GLB := "res://assets/models/ferry_dolphin_lod.glb"
-const SLIP_DOLPHIN_INNER_GLB := "res://assets/models/ferry_dolphin_small_lod.glb"
-const SLIP_WING_WALL_GLB := "res://assets/models/wing_wall_lod.glb"
-static var mid_slip_guides := not "--classic-slip" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(SLIP_DOLPHIN_OUTER_GLB) and ResourceLoader.exists(SLIP_DOLPHIN_INNER_GLB) \
-	and ResourceLoader.exists(SLIP_WING_WALL_GLB)
-
-
-## One part of the mid-poly slip, about its own pivot (see SlipRamp).
-static func slip_part(part: String) -> MeshBuilder:
-	return ModelParts.library(MID_SLIP_GLB)[part]
-
-
+## Moving spans and fixed towers share immutable meshes across installed slips.
 static func slip_mesh(part: String) -> ArrayMesh:
-	return _cached("slip_" + part, func(): return slip_part(part).commit())
-
-
-## The terminal trestle (art/trestle_mid.py): deck `bay`s and the `landing` onto the
-## span's hinge, both built level and lifted onto the road's profile vertex by vertex
-## (append_on_profile), the pile `bent`s under their joints, the `abutment` at the
-## lot's edge and the `lamp` poles on the barrier. Without it the old flat pier stands.
-const MID_TRESTLE_GLB := "res://assets/models/trestle_mid.glb"
-static var mid_trestle := mid_slip and ResourceLoader.exists(MID_TRESTLE_GLB)
-
-
-static func trestle_part(part: String) -> MeshBuilder:
-	return ModelParts.library(MID_TRESTLE_GLB)[part]
-
-
-## Appends `part` at (v, 0, u) in the frame `xf` maps to the world, each vertex lifted by
-## `height.call(u)` where it stands along u, so level-built deck parts follow a profile
-## and neighbours meet exactly (verticals stay vertical; the grades are gentle enough
-## to keep the normals).
-static func append_on_profile(mb: MeshBuilder, part: MeshBuilder, xf: Transform3D, v: float, u: float,
-		height: Callable) -> void:
-	var verts := PackedVector3Array()
-	verts.resize(part.verts.size())
-	for i in part.verts.size():
-		var p := part.verts[i] + Vector3(v, 0.0, u)
-		p.y += height.call(p.z)
-		verts[i] = xf * p
-	mb.verts.append_array(verts)
-	mb.normals.append_array(Transform3D(xf.basis.orthonormalized(), Vector3.ZERO) * part.normals)
-	mb.colors.append_array(part.colors)
+	return _cached("slip_" + part, func(): return SlipModel.span_part(part).commit())
 
 
 ## Car-deck nets at either end share their class mesh.

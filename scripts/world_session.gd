@@ -154,7 +154,10 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 
 func _setup_simulation(charts: MarineCharts) -> void:
 	sim = Simulation.new(
-		VehicleFactory.create, Models.mid_slip, Models.mid_slip_guides, PassengerView.create_view
+		VehicleFactory.create,
+		SlipModel.authored_span,
+		SlipModel.authored_guides,
+		PassengerView.create_view
 	)
 	if not starting_date.is_empty():
 		sim.day = int(starting_date.day)
