@@ -46,9 +46,6 @@ const FERRY_SIDELIGHT_SCALE := 1.3
 const NAV_GLASS_ALPHA := 0.3
 const NAV_RED := Color(0.85, 0.1, 0.07, NAV_GLASS_ALPHA)
 const NAV_GREEN := Color(0.1, 0.75, 0.3, NAV_GLASS_ALPHA)
-# The sailboat's anchor light, on top of the mast.
-const SAIL_MAST_TOP := Vector3(0, 4.3, 0.3)
-const SAIL_LANTERN := 0.8
 # Channel buoys' lanterns: height above the waterline and scale.
 const BUOY_LAMP_Y := 4.95
 const BUOY_LANTERN := 3.3
@@ -1483,98 +1480,31 @@ static func _mid_car_deck_lights(glb := FerryClass.MID_GLB) -> PackedVector3Arra
 	return out
 
 
-## Sailboats use the mid-poly sloop modelled in Blender (MID_SAILBOAT_GLB, source
-## art/sailboat_mid.blend). The original code-built sloop below is the fallback: with
-## the `--classic-sailboat` launch flag, or if the model is missing.
-const MID_SAILBOAT_GLB := "res://assets/models/sailboat_mid.glb"
-static var mid_sailboat := not "--classic-sailboat" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(MID_SAILBOAT_GLB)
-const MID_SAILBOAT_HULL := ["hull", "deckfittings", "keel", "mast", "rigging"]
-# The mid-poly jib sets on a real forestay, so it hinges on a different line.
-const MID_JIB_TACK := Vector3(0, 0.62, 1.976)
-const MID_JIB_HEAD := Vector3(0, 3.55, 0.391)
-
-
-static func jib_tack() -> Vector3:
-	return MID_JIB_TACK if mid_sailboat else SAIL_JIB_TACK
-
-
-static func jib_head() -> Vector3:
-	return MID_JIB_HEAD if mid_sailboat else SAIL_JIB_HEAD
-
-
 static func sailboat() -> ArrayMesh:
-	if mid_sailboat:
-		return _cached("sailboat_mid", func():
-			var mb := ModelParts.merge_named(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL)
-			add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
-			return mb.commit())
-	return _cached("sailboat", func():
-		var mb := MeshBuilder.new()
-		var hull := PackedVector2Array([Vector2(-0.6, -1.6), Vector2(0.6, -1.6), Vector2(0.65, 0.6), Vector2(0.0, 2.0), Vector2(-0.65, 0.6)])
-		mb.extrude(hull, -0.3, 0.35, WHITE, Color(0.75, 0.62, 0.45), 0.7)
-		mb.box(Vector3(0, 2.3, 0.3), Vector3(0.08, 4.0, 0.08), Color(0.8, 0.8, 0.8))
-		add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
-		return mb.commit())
-
-
-# The sails, each built round the line it swings on (Sailboat sheets them out
-# to leeward): the mainsail and boom round the mast, the jib round its forestay.
-const SAIL_MAIN_PIVOT := Vector3(0, 0, 0.2)
-const SAIL_JIB_TACK := Vector3(0, 0.8, 1.7)
-const SAIL_JIB_HEAD := Vector3(0, 3.6, 0.35)
+	return _cached("sailboat_mid" if SailboatModel.authored else "sailboat", SailboatModel.hull)
 
 
 static func sailboat_main() -> ArrayMesh:
-	if mid_sailboat:
-		return _cached("sailboat_main_mid", func(): return ModelParts.merge_named(MID_SAILBOAT_GLB, ["mainsail"]).commit())
-	return _cached("sailboat_main", func():
-		var mb := MeshBuilder.new()
-		var a := Vector3(0, 0.7, 0)
-		var b := Vector3(0, 4.2, 0)
-		var c := Vector3(0, 0.7, -1.6)
-		mb.tri(a, b, c, Color(0.98, 0.98, 0.96), Vector3.RIGHT)
-		mb.tri(a, b, c, Color(0.98, 0.98, 0.96), Vector3.LEFT)
-		mb.box(Vector3(0, 0.66, -0.8), Vector3(0.07, 0.07, 1.7), Color(0.8, 0.8, 0.8))
-		return mb.commit())
+	return _cached(
+		"sailboat_main_mid" if SailboatModel.authored else "sailboat_main", SailboatModel.mainsail
+	)
 
 
 static func sailboat_jib() -> ArrayMesh:
-	if mid_sailboat:
-		return _cached("sailboat_jib_mid", func(): return ModelParts.merge_named(MID_SAILBOAT_GLB, ["jib"]).commit())
-	return _cached("sailboat_jib", func():
-		var mb := MeshBuilder.new()
-		var head := SAIL_JIB_HEAD - SAIL_JIB_TACK
-		var clew := Vector3(0, 0.8, 0.4) - SAIL_JIB_TACK
-		mb.tri(head, clew, Vector3.ZERO, Color(0.95, 0.95, 0.9), Vector3.RIGHT)
-		mb.tri(head, clew, Vector3.ZERO, Color(0.95, 0.95, 0.9), Vector3.LEFT)
-		return mb.commit())
+	return _cached(
+		"sailboat_jib_mid" if SailboatModel.authored else "sailboat_jib", SailboatModel.jib
+	)
 
 
-## The sailboat at its berth: sails stowed along the boom.
 static func sailboat_furled() -> ArrayMesh:
-	if mid_sailboat:
-		return _cached("sailboat_furled_mid", func():
-			var mb := ModelParts.merge_named(MID_SAILBOAT_GLB, MID_SAILBOAT_HULL + ["furled"])
-			add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
-			return mb.commit())
-	return _cached("sailboat_furled", func():
-		var mb := MeshBuilder.new()
-		var hull := PackedVector2Array([Vector2(-0.6, -1.6), Vector2(0.6, -1.6), Vector2(0.65, 0.6), Vector2(0.0, 2.0), Vector2(-0.65, 0.6)])
-		mb.extrude(hull, -0.3, 0.35, WHITE, Color(0.75, 0.62, 0.45), 0.7)
-		mb.box(Vector3(0, 2.3, 0.3), Vector3(0.08, 4.0, 0.08), Color(0.8, 0.8, 0.8))
-		mb.box(Vector3(0, 0.78, -0.55), Vector3(0.07, 0.07, 1.8), Color(0.8, 0.8, 0.8))
-		mb.box(Vector3(0, 0.9, -0.5), Vector3(0.2, 0.18, 1.6), Color(0.2, 0.32, 0.5))
-		add_lantern(mb, SAIL_MAST_TOP, GlowBuilder.LED, SAIL_LANTERN)
-		return mb.commit())
+	return _cached(
+		"sailboat_furled_mid" if SailboatModel.authored else "sailboat_furled",
+		func(): return SailboatModel.hull(true)
+	)
 
 
-## The sailboat's anchor light, drawn by NightLights on each boat.
 static func sailboat_lights() -> ArrayMesh:
-	return _cached("sailboat_lights", func():
-		var gb := GlowBuilder.new()
-		gb.glow(lantern_glow_at(SAIL_MAST_TOP, SAIL_LANTERN), GlowBuilder.LED, 0.13, 4.0, true, 0.0, Vector3.ZERO, LAMP_ON_AT)
-		return gb.commit())
+	return _cached("sailboat_lights", SailboatModel.anchor_light)
 
 
 # Container ship (+Z is the bow): masthead lantern heights and the sidelights.

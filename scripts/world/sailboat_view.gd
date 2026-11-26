@@ -12,10 +12,10 @@ func _init(boat: Sailboat, hull: VesselHullView) -> void:
 	_boat = boat
 	_hull = hull
 	_main.mesh = Models.sailboat_main()
-	_main.position = Models.SAIL_MAIN_PIVOT
+	_main.position = SailboatModel.MAIN_PIVOT
 	add_child(_main)
 	_jib.mesh = Models.sailboat_jib()
-	_jib.position = Models.jib_tack()
+	_jib.position = SailboatModel.jib_tack()
 	add_child(_jib)
 
 
@@ -42,9 +42,9 @@ func _trim(angle: float) -> void:
 	# The imported sails are cambered to +x. Mirror their belly to leeward,
 	# flattening as they swing across through the wind.
 	var belly := Basis.IDENTITY
-	if Models.mid_sailboat:
+	if SailboatModel.authored:
 		var f := clampf(angle / 0.12, -1.0, 1.0)
 		belly = Basis.from_scale(Vector3(f if absf(f) > 0.1 else 0.1 * signf(f + 1e-6), 1, 1))
 	_main.basis = Basis(Vector3.UP, -angle) * belly
-	var stay := (Models.jib_head() - Models.jib_tack()).normalized()
+	var stay := (SailboatModel.jib_head() - SailboatModel.jib_tack()).normalized()
 	_jib.basis = Basis(stay, -clampf(angle, -0.8, 0.8)) * belly
