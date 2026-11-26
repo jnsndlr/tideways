@@ -3,14 +3,14 @@ extends Control
 
 const TEXT := Color(0.98, 0.91, 0.75)
 
+const DepartureBoard := preload("res://scripts/ui/departure_board.gd")
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _name_dialog: ColorRect
 
-@onready var _terminal: TextureRect = $Terminal
-@onready var _board: PanelContainer = $Board
-@onready var _departures: VBoxContainer = $Board/Rows/Departures
-@onready var _sandboxes: VBoxContainer = $Board/Rows/Sandboxes
-@onready var _load_error: Label = $Board/Rows/LoadError
+@onready var _board: DepartureBoard = $Board
+@onready var _departures: Control = $Board/Rows/Departures
+@onready var _sandboxes: Control = $Board/Rows/Sandboxes
+@onready var _load_error: Label = $LoadError
 
 
 func _ready() -> void:
@@ -24,29 +24,6 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	var title: HBoxContainer = $Board/Rows/Title
-	for letter in "TIDEWAYS":
-		var flap := Label.new()
-		flap.text = letter
-		flap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		flap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		flap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		flap.custom_minimum_size.y = 126
-		flap.add_theme_font_size_override("font_size", 88)
-		flap.add_theme_stylebox_override("normal", _board.get_theme_stylebox("normal", "Button"))
-		title.add_child(flap)
-		var seam := ColorRect.new()
-		seam.color = Color(0.035, 0.03, 0.025, 0.75)
-		seam.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		flap.add_child(seam)
-		seam.set_anchors_and_offsets_preset(Control.PRESET_HCENTER_WIDE)
-		seam.offset_bottom = 2
-
-	for group: VBoxContainer in [_departures, _sandboxes]:
-		for child in group.get_children():
-			if child is Button:
-				child.draw.connect(_draw_flap.bind(child))
-
 	var save := SaveGame.read()
 	var resume: Button = _departures.get_node("Continue")
 	var company: Label = _departures.get_node("Company")
@@ -59,14 +36,25 @@ func _build() -> void:
 		company.text = day_text if name_text.is_empty() else "%s  ·  %s" % [name_text, day_text]
 		company.tooltip_text = company.text
 	var primary := resume if resume.visible else new_company
-	primary.add_theme_font_size_override("font_size", 48)
-	primary.add_theme_stylebox_override("normal", _board.get_theme_stylebox("pressed", "Button"))
-	primary.custom_minimum_size.y = 98
+	if resume.visible:
+		resume.tooltip_text = (
+			"%s · %s · saved %s"
+			% [company.text, str(save.scenario).get_file().get_basename(), save.get("saved_at", "")]
+		)
+	_board.place_action(primary, 1)
+	_board.place_action(company, 2)
+	if resume.visible:
+		_board.place_action(new_company, 3)
+	_board.place_action(_departures.get_node("Sandboxes"), 4 if resume.visible else 3)
+	_board.place_action(_departures.get_node("Settings"), 5 if resume.visible else 4)
+	_board.place_action(_sandboxes.get_node("Mission"), 1)
+	_board.place_action(_sandboxes.get_node("Procedural"), 3)
+	_board.place_action(_sandboxes.get_node("Back"), 5)
 	resume.pressed.connect(_load_saved)
 	new_company.pressed.connect(func(): _ask_name(func(n): _play("", n)))
 	_departures.get_node("Sandboxes").pressed.connect(_show_sandboxes.bind(true))
 	_departures.get_node("Settings").pressed.connect(_open_settings)
-	var quit_button: Button = _departures.get_node("Quit")
+	var quit_button: Button = $Quit
 	quit_button.visible = not OS.has_feature("mobile")
 	quit_button.pressed.connect(get_tree().quit)
 	_sandboxes.get_node("Back").pressed.connect(_show_sandboxes.bind(false))
@@ -76,55 +64,33 @@ func _build() -> void:
 	_sandboxes.get_node("Procedural").pressed.connect(
 		func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox")
 	)
-	resized.connect(_layout_terminal)
-	_layout_terminal()
+	_display_departures(true)
 	primary.grab_focus()
 	Music.set_mood(get_tree(), Music.Mood.FULL)
 	RadioChatter.on_menu(get_tree())
 	UiSounds.install(get_tree())
 
 
-## Draw the split and its pivot pins on each working row of the board.
-func _draw_flap(button: Button) -> void:
-	var y := floorf(button.size.y * 0.5)
-	button.draw_line(Vector2(5, y), Vector2(button.size.x - 5, y), Color(0.04, 0.03, 0.02, 0.32))
-	for x: float in [9.0, button.size.x - 9.0]:
-		button.draw_rect(Rect2(x - 3, y - 5, 6, 10), Color("#181511"))
-		button.draw_line(Vector2(x - 2, y - 4), Vector2(x + 2, y - 4), Color("#a28761"), 2)
-
-
-func _layout_terminal() -> void:
-	var art_size := _terminal.texture.get_size()
-	var art_scale := maxf(size.x / art_size.x, size.y / art_size.y)
-	_terminal.size = art_size * art_scale
-	_terminal.position = (size - _terminal.size) * 0.5
-	var portrait := size.y > size.x
-	if portrait:
-		# Keep the slip in the window above the board when the device rotates.
-		_terminal.position.x = size.x - _terminal.size.x
-	var width := size.x * (0.88 if portrait else 0.47)
-	var board_scale := minf(width / 720.0, size.y / 900.0)
-	_board.scale = Vector2.ONE * board_scale
-	_board.size = Vector2(720, 0)
-	_board.position = size * Vector2(0.035, 0.12)
-	if portrait:
-		_board.position = Vector2(
-			(size.x - _board.size.x * board_scale) * 0.5,
-			minf(size.y * 0.52, size.y * 0.96 - _board.size.y * board_scale)
+func _display_departures(turn_title: bool) -> void:
+	var company: Label = _departures.get_node("Company")
+	if company.visible:
+		_board.display(
+			["TIDEWAYS", "Continue", company.text, "New company", "Sandboxes", "Settings"],
+			turn_title
 		)
+	else:
+		_board.display(["TIDEWAYS", "New company", "", "Sandboxes", "Settings", ""], turn_title)
 
 
 func _show_sandboxes(show_choices: bool) -> void:
 	_departures.visible = not show_choices
 	_sandboxes.visible = show_choices
-	_board.reset_size()
-	_layout_terminal()
-	var focus: Button
 	if show_choices:
-		focus = _sandboxes.get_node("Mission")
+		_board.display(["TIDEWAYS", "Mission sandbox", "", "Sandbox", "", "Back"], false)
+		_sandboxes.get_node("Mission").grab_focus()
 	else:
-		focus = _departures.get_node("Sandboxes")
-	focus.grab_focus()
+		_display_departures(false)
+		_departures.get_node("Sandboxes").grab_focus()
 
 
 func _open_settings() -> void:

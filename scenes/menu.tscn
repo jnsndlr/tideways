@@ -1,106 +1,33 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/textures/menu/ferry_terminal.jpg" id="2"]
+[ext_resource type="Script" path="res://scripts/ui/departure_board.gd" id="2"]
 
-[sub_resource type="StyleBoxFlat" id="Frame"]
-bg_color = Color(0.09, 0.079, 0.07, 1)
-border_color = Color(0.29, 0.23, 0.17, 1)
-border_width_left = 4
-content_margin_left = 18.0
-border_width_top = 4
-content_margin_top = 18.0
-border_width_right = 4
-content_margin_right = 18.0
-border_width_bottom = 4
-content_margin_bottom = 18.0
-corner_radius_top_left = 5
-corner_radius_top_right = 5
-corner_radius_bottom_left = 5
-corner_radius_bottom_right = 5
-shadow_color = Color(0.02, 0.015, 0.01, 0.72)
-shadow_size = 12
-shadow_offset = Vector2(4, 8)
+[sub_resource type="SystemFont" id="FaceFont"]
+font_names = PackedStringArray("Avenir Next", "Helvetica Neue", "DejaVu Sans")
+font_weight = 650
 
-[sub_resource type="StyleBoxFlat" id="Flap"]
-bg_color = Color(0.145, 0.133, 0.123, 1)
-border_color = Color(0.055, 0.049, 0.044, 1)
-border_width_left = 2
-content_margin_left = 6.0
-border_width_top = 2
-content_margin_top = 6.0
-border_width_right = 2
-content_margin_right = 6.0
-border_width_bottom = 2
-content_margin_bottom = 6.0
-corner_radius_top_left = 5
-corner_radius_top_right = 5
-corner_radius_bottom_left = 5
-corner_radius_bottom_right = 5
+[sub_resource type="StyleBoxEmpty" id="Bare"]
 
-[sub_resource type="StyleBoxFlat" id="Amber"]
-bg_color = Color(0.55, 0.27, 0.045, 1)
-border_color = Color(0.73, 0.43, 0.13, 1)
-border_width_left = 2
-content_margin_left = 6.0
-border_width_top = 2
-content_margin_top = 6.0
-border_width_right = 2
-content_margin_right = 6.0
-border_width_bottom = 2
-content_margin_bottom = 6.0
-corner_radius_top_left = 5
-corner_radius_top_right = 5
-corner_radius_bottom_left = 5
-corner_radius_bottom_right = 5
-
-[sub_resource type="StyleBoxFlat" id="Hover"]
-bg_color = Color(0.34, 0.25, 0.16, 1)
-border_color = Color(0.89, 0.64, 0.36, 1)
-border_width_left = 2
-content_margin_left = 6.0
-border_width_top = 2
-content_margin_top = 6.0
-border_width_right = 2
-content_margin_right = 6.0
-border_width_bottom = 2
-content_margin_bottom = 6.0
-corner_radius_top_left = 5
-corner_radius_top_right = 5
-corner_radius_bottom_left = 5
-corner_radius_bottom_right = 5
+[sub_resource type="StyleBoxFlat" id="Active"]
+bg_color = Color(1, 0.78, 0.36, 0.08)
 
 [sub_resource type="StyleBoxFlat" id="Focus"]
-bg_color = Color(0, 0, 0, 0)
-border_color = Color(1, 0.81, 0.45, 1)
-border_width_left = 3
-content_margin_left = 0.0
-border_width_top = 3
-content_margin_top = 0.0
-border_width_right = 3
-content_margin_right = 0.0
-border_width_bottom = 3
-content_margin_bottom = 0.0
-corner_radius_top_left = 5
-corner_radius_top_right = 5
-corner_radius_bottom_left = 5
-corner_radius_bottom_right = 5
 draw_center = false
-
-[sub_resource type="SystemFont" id="BoardFont"]
-font_names = PackedStringArray("Avenir Next Condensed", "Roboto Condensed", "DejaVu Sans")
-font_weight = 700
+border_width_left = 3
+border_color = Color(1, 0.84, 0.52, 0.85)
 
 [sub_resource type="Theme" id="BoardTheme"]
-default_font = SubResource("BoardFont")
-default_font_size = 36
-Button/colors/font_color = Color(0.98, 0.91, 0.75, 1)
-Button/styles/normal = SubResource("Flap")
-Button/styles/pressed = SubResource("Amber")
-Button/styles/hover = SubResource("Hover")
+Label/fonts/font = SubResource("FaceFont")
+Button/colors/font_color = Color(1, 1, 1, 0)
+Button/colors/font_focus_color = Color(1, 1, 1, 0)
+Button/colors/font_hover_color = Color(1, 1, 1, 0)
+Button/colors/font_pressed_color = Color(1, 1, 1, 0)
+Button/colors/font_hover_pressed_color = Color(1, 1, 1, 0)
+Button/styles/normal = SubResource("Bare")
 Button/styles/focus = SubResource("Focus")
-Label/colors/font_color = Color(0.98, 0.91, 0.75, 1)
-VBoxContainer/constants/separation = 8
+Button/styles/pressed = SubResource("Active")
+Button/styles/hover = SubResource("Active")
 
 [node name="Menu" type="Control"]
 anchors_preset = 15
@@ -110,75 +37,74 @@ script = ExtResource("1")
 
 [node name="Terminal" type="TextureRect" parent="."]
 mouse_filter = 2
-texture = ExtResource("2")
 expand_mode = 1
 
-[node name="Board" type="PanelContainer" parent="."]
+[node name="Board" type="Control" parent="."]
+mouse_filter = 2
 theme = SubResource("BoardTheme")
-theme_override_styles/panel = SubResource("Frame")
+script = ExtResource("2")
 
-[node name="Rows" type="VBoxContainer" parent="Board"]
-layout_mode = 2
+[node name="PortraitBoard" type="Polygon2D" parent="Board"]
 
-[node name="Title" type="HBoxContainer" parent="Board/Rows"]
-layout_mode = 2
-theme_override_constants/separation = 4
+[node name="Faces" type="Node2D" parent="Board"]
 
-[node name="Departures" type="VBoxContainer" parent="Board/Rows"]
-layout_mode = 2
+[node name="Rows" type="Control" parent="Board"]
+mouse_filter = 2
+
+[node name="Departures" type="Control" parent="Board/Rows"]
+mouse_filter = 2
 
 [node name="Continue" type="Button" parent="Board/Rows/Departures"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "Continue"
 
-[node name="Company" type="Label" parent="Board/Rows/Departures"]
-layout_mode = 2
-text_overrun_behavior = 3
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 27
-
 [node name="NewCompany" type="Button" parent="Board/Rows/Departures"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "New company"
 
 [node name="Sandboxes" type="Button" parent="Board/Rows/Departures"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "Sandboxes"
 
 [node name="Settings" type="Button" parent="Board/Rows/Departures"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "Settings"
 
-[node name="Quit" type="Button" parent="Board/Rows/Departures"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
-text = "Quit"
+[node name="Company" type="Label" parent="Board/Rows/Departures"]
+mouse_filter = 2
+self_modulate = Color(1, 1, 1, 0)
+text_overrun_behavior = 3
 
-[node name="Sandboxes" type="VBoxContainer" parent="Board/Rows"]
-layout_mode = 2
+[node name="Sandboxes" type="Control" parent="Board/Rows"]
 visible = false
+mouse_filter = 2
 
 [node name="Mission" type="Button" parent="Board/Rows/Sandboxes"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "Mission sandbox"
 
 [node name="Procedural" type="Button" parent="Board/Rows/Sandboxes"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "Sandbox"
 
 [node name="Back" type="Button" parent="Board/Rows/Sandboxes"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 72)
 text = "Back"
 
-[node name="LoadError" type="Label" parent="Board/Rows"]
-layout_mode = 2
+[node name="Quit" type="Button" parent="."]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -135.0
+offset_top = -74.0
+offset_right = -26.0
+offset_bottom = -22.0
+theme_override_font_sizes/font_size = 24
+text = "Quit"
+
+[node name="LoadError" type="Label" parent="."]
 visible = false
+anchor_left = 0.12
+anchor_right = 0.88
+anchor_top = 0.92
+anchor_bottom = 0.98
+horizontal_alignment = 1
+vertical_alignment = 1
 autowrap_mode = 3
+theme_override_constants/outline_size = 6
+theme_override_colors/font_outline_color = Color(0.05, 0.035, 0.02, 1)
 theme_override_font_sizes/font_size = 24
