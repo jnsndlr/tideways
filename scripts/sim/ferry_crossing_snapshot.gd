@@ -1,10 +1,10 @@
 class_name FerryCrossingSnapshot
 extends RefCounted
-## One working, two-stop ferry, during vehicle boarding or its crossing. Restore into
+## One working, two-stop ferry, during boarding or its crossing. Restore into
 ## an empty hull after rebuilding the same network, timetable, captain and class.
 ## The company owns the clock, ledger and waiting queues separately. Restore the
 ## network's corridor reservations after installing every hull's position.
-const VERSION := 1
+const VERSION := 2
 const NUMBERS := [
 	"distance",
 	"speed",
@@ -34,10 +34,12 @@ const NUMBERS := [
 static func capture(ferry: Ferry) -> Dictionary:
 	if not _ordinary_service(ferry):
 		return {}
-	if (
-		ferry.state != Ferry.State.SAILING
-		and (ferry.state != Ferry.State.LOADING or ferry._load_phase != Ferry.LoadPhase.VEHICLES)
-	):
+	if ferry.state not in [Ferry.State.SAILING, Ferry.State.LOADING]:
+		return {}
+	var walking := (
+		ferry.state == Ferry.State.LOADING and ferry._load_phase != Ferry.LoadPhase.VEHICLES
+	)
+	if not walking and not ferry._pax_walkers.is_empty():
 		return {}
 	var vehicles = FerryVehicleManifest.capture(ferry)
 	if vehicles == null:
@@ -56,7 +58,7 @@ static func capture(ferry: Ferry) -> Dictionary:
 			)
 		)
 	var command := ferry._command
-	return {
+	var record := {
 		"version": VERSION,
 		"service": _service(ferry),
 		"phase": "crossing" if ferry.state == Ferry.State.SAILING else "boarding",
@@ -92,6 +94,10 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"vehicles": vehicles,
 		"passengers": passengers,
 	}
+	if walking:
+		record.phase = "walk_ons"
+		record.walk_ons = FerryWalkOnSnapshot.capture(ferry)
+	return record
 
 
 static func _ordinary_service(ferry: Ferry) -> bool:
@@ -106,7 +112,6 @@ static func _ordinary_service(ferry: Ferry) -> bool:
 		and ferry.stops.size() == 2
 		and ferry.term_a != ferry.term_b
 		and ferry._end_slip == [-1, -1]
-		and ferry._pax_walkers.is_empty()
 	)
 
 
@@ -134,12 +139,15 @@ static func _service(ferry: Ferry) -> Dictionary:
 ## Stage every vehicle before touching the destination hull. Installing a vehicle
 ## resumes its paid booking and never calls the fare collection path.
 static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> bool:
-	if not _ordinary_service(ferry) or not _empty_hull(ferry):
+	if not _ordinary_service(ferry) or not _empty_hull(ferry) or not ferry._pax_walkers.is_empty():
 		return false
 	if not record is Dictionary or not _valid_state(record, ferry):
 		return false
 	var passengers: Array[Dictionary] = []
 	if not _read_passengers(record.get("passengers"), ferry, passengers):
+		return false
+	var walking: bool = record.phase == "walk_ons"
+	if walking and not FerryWalkOnSnapshot.valid(record.get("walk_ons"), passengers):
 		return false
 	var at_a: bool = record.from == ferry.term_a.town.key
 	var sailing: bool = record.phase == "crossing"
@@ -149,7 +157,7 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 		at_a != record.reversed,
 		build_vehicle,
 		ferry.term_a if at_a else ferry.term_b,
-		sailing
+		sailing or walking
 	)
 	if manifest == null:
 		return false
@@ -191,6 +199,8 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 		ferry._place(ferry._dock_s())
 	ferry.passengers_aboard = passengers
 	manifest.install(ferry)
+	if walking:
+		FerryWalkOnSnapshot.install(record.walk_ons, ferry)
 	return true
 
 
@@ -207,9 +217,12 @@ static func _empty_hull(ferry: Ferry) -> bool:
 
 static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 	if (
-		r.get("version") != VERSION
+		not _integer(r.get("version"), VERSION)
+		or r.version < 1
+		or (r.has("walk_ons") != (r.get("phase") == "walk_ons"))
+		or (r.has("walk_ons") and r.version != VERSION)
 		or r.get("service") != _service(ferry)
-		or r.get("phase") not in ["boarding", "crossing"]
+		or r.get("phase") not in ["boarding", "crossing", "walk_ons"]
 		or r.get("from") not in [ferry.term_a.town.key, ferry.term_b.town.key]
 		or not r.get("reversed") is bool
 		or not r.get("slip_chosen") is bool
@@ -218,7 +231,7 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 	):
 		return false
 	var call_town := ferry.sim.map.towns[ferry.stops[int(r.call)]].key
-	if (r.phase == "boarding") != (call_town == r.from):
+	if (r.phase != "crossing") != (call_town == r.from):
 		return false
 	for key in NUMBERS:
 		if not _number(r.get(key)):
