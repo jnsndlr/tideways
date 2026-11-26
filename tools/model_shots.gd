@@ -128,9 +128,9 @@ func _initialize() -> void:
 		# Each mid-poly ferry with it in her cradle (the full game mesh, at MID_SCALE).
 		models["hiyu_rib"] = [Models.ferry(FerryClass.of(2)), Vector3(8.3, 12.0, -5.0), 13.0]
 		models["evergreen_rib"] = [Models.ferry(FerryClass.of(3)), Vector3(9.1, 10.6, -43.6), 13.0]
-	for n: String in Models.PINE_VARIANTS + Models.BROAD_VARIANTS:
-		models[n] = [Models._tree_part(n), Vector3(0, 4.6, 0), 13.0]
-		models[n + "_lod"] = [Models._tree_part(n + "_lod"), Vector3(0, 3.6, 0), 13.0]
+	for n: String in TreeModel.pine_variants + TreeModel.BROAD_VARIANTS:
+		models[n] = [TreeModel.part(n), Vector3(0, 4.6, 0), 13.0]
+		models[n + "_lod"] = [TreeModel.part(n + "_lod"), Vector3(0, 3.6, 0), 13.0]
 	for name: String in models:
 		if only != "" and not name in only.split(","):
 			continue
