@@ -74,9 +74,9 @@ func _rebuild() -> void:
 	for i in _guide.walls.size():
 		var wall := _guide.walls[i]
 		_add_wall(mb, wall)
-		_add_dolphin(mb, wall.side, _guide.inner_caps[i], Models.SLIP_DOLPHIN_INNER_GLB)
+		_add_dolphin(mb, wall.side, _guide.inner_caps[i], SlipModel.INNER_DOLPHIN_GLB)
 		var cap := _guide.outer_caps[i]
-		_add_dolphin(mb, wall.side, cap, Models.SLIP_DOLPHIN_OUTER_GLB)
+		_add_dolphin(mb, wall.side, cap, SlipModel.OUTER_DOLPHIN_GLB)
 		Models.add_cage_lantern(mb, cap, Models.slip_mark(wall.side < 0), Models.DOLPHIN_LANTERN)
 	var fixed := MeshInstance3D.new()
 	fixed.name = "Fixed"
@@ -110,7 +110,11 @@ func _add_wall(mb: MeshBuilder, contact: SlipGuides.Wall) -> void:
 	# The model runs along its X with its face looking +Z: X along the wall, +Z towards
 	# the slip (-out).
 	var model := Basis(Vector3(0, 0, 1), Vector3.UP, Vector3(-1, 0, 0))
-	var root := _place(mb, Models.SLIP_WING_WALL_GLB, Transform3D(Basis(out, Vector3.UP, along) * model, (p0 + p1) * 0.5))
+	var root := _place(
+		mb,
+		SlipModel.WING_WALL_GLB,
+		Transform3D(Basis(out, Vector3.UP, along) * model, (p0 + p1) * 0.5)
+	)
 	var w := Wall.new()
 	for node in root.find_children("*", "Node3D", true, false):
 		if ModelParts._key(node) == "fenderfacetravel":

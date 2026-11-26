@@ -79,13 +79,13 @@ func _process(_delta: float) -> bool:
 		if madrona.town.working_slips() != 2:
 			return _fail("Madrona has %d working slips after the build" % madrona.town.working_slips())
 		var guide := madrona.slip_guides[new_slip]
-		if Models.mid_slip_guides:
+		if SlipModel.authored_guides:
 			if guide == null or guide.get_children().filter(func(node: Node): return node is SlipGuidesView).size() != 1:
 				return _fail("the new working slip should have one fitted guide view")
 		elif guide != null:
 			return _fail("classic working slips should have no guide contacts")
 		var ramp := madrona.slip_ramps[new_slip]
-		if Models.mid_slip:
+		if SlipModel.authored_span:
 			if ramp == null or ramp.get_children().filter(func(node: Node): return node is SlipRampView).size() != 1:
 				return _fail("the newly built working slip should have one fitted ramp view")
 		elif ramp != null:

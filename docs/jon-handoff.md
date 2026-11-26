@@ -6,7 +6,7 @@ Open [our shared Godot game](https://github.com/jnsndlr/Tideways) and run **Sand
 
 **When an experiment works**, put the player outcome on its Linear ticket. If you changed the design, a sentence about what you decided and why saves Paul or his agent from accidentally undoing it. A Discord heads-up helps when someone is already editing the same system.
 
-**When you want to move on**, leave the PR links in merge order, how to try the feature and what the player should notice. Put the ticket in **Ready for verification** and clear the assignee. For the captain work, that could read “Open Sandbox, select the same ferry and switch captains before departure. Watch the next crossing and compare its open-water and docking speeds.” That gives the next person a way to judge the change while you work on something else.
+**When you want to move on**, you can tell your agent “hand this to Paul.” Your agent can handle the ticket, PR and branch cleanup. Have it leave the PR links in merge order, how to try the feature and what the player should notice. Put the ticket in **Ready for verification** and clear the assignee. For the captain work, that could read “Open Sandbox, select the same ferry and switch captains before departure. Watch the next crossing and compare its open-water and docking speeds.” That gives the next person a way to judge the change while you work on something else.
 
 **When you pick up a handoff**, claim it in **In Review**. You or your agent can fix issues and merge after verification. Either of you can ship a verified build. Feature completion and tester delivery have separate tickets.
 

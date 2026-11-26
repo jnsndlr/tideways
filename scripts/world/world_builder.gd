@@ -798,7 +798,7 @@ func _terminal_for(isl: MapData.Town) -> void:
 		mb.box(Vector3(0, ly + 0.03, u), Vector3(0.42, 0.06, 3.6), LINE_YELLOW)
 		u += 7.2
 
-	if Models.mid_trestle:
+	if SlipModel.authored_trestle:
 		_lot_edge(mb, isl)
 	mb.xform = isl.terminal_xform()
 	glows.xform = mb.xform
@@ -885,9 +885,9 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	var pe := Layout.PIER_END
 	# With the mid-poly slip a trestle runs out from the lot to the transfer span's hinge
 	# (the span, apron and counterweights are SlipRampView's, the towers are scenery here).
-	var mid := Models.mid_slip
+	var mid := SlipModel.authored_span
 	var deck_end := Layout.RAMP_HINGE_U if mid else pe
-	if Models.mid_trestle:
+	if SlipModel.authored_trestle:
 		_build_trestle(mb, isl, v)
 	else:
 		_build_plain_trestle(mb, isl, v, deck_end, mid)
@@ -895,12 +895,20 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	var tower_x := 8.7
 	var beam_x := 8.7
 	if mid:
-		if not Models.mid_trestle:
+		if not SlipModel.authored_trestle:
 			# The hinge bent: a concrete cap on piles carrying the span's hinge pin.
 			mb.box(Vector3(v, ly - 1.9, deck_end), Vector3(15.6, 1.4, 1.5), CONCRETE)
 			for side: float in [-6.0, -2.0, 2.0, 6.0]:
-				mb.box(Vector3(v + side, -4.5, deck_end), Vector3(1.0, 9.0, 1.0), CONCRETE.darkened(0.2))
-		Models._append_part(mb, Models.slip_part("towers"), mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, 0, 0)))
+				mb.box(
+					Vector3(v + side, -4.5, deck_end),
+					Vector3(1.0, 9.0, 1.0),
+					CONCRETE.darkened(0.2)
+				)
+		Models._append_part(
+			mb,
+			SlipModel.span_part("towers"),
+			mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, 0, 0))
+		)
 		tower_x = SlipRampView.TOWER_X
 		beam_x = 8.0
 	else:
@@ -921,7 +929,7 @@ func _build_slip(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	for side: float in [-1.0, 1.0]:
 		var mark := Models.slip_mark(side < 0)
 		# The modelled wing walls and dolphins are the slip's own live part (SlipGuides).
-		if not Models.mid_slip_guides:
+		if not SlipModel.authored_guides:
 			var ww: Array = Layout.WING_WALL
 			for k in ww.size() - 1:
 				var w0: Vector2 = ww[k]
@@ -1072,7 +1080,7 @@ static func _build_plain_trestle(mb: MeshBuilder, isl: MapData.Town, v: float, e
 		deck.box(Vector3(0, -0.6, center), Vector3(15.0, 1.2, next - u), CONCRETE)
 		deck.box(Vector3(0, 0.03, center), Vector3(0.36, 0.06, next - u), LINE_YELLOW)
 		u = next
-	Models.append_on_profile(mb, deck, mb.xform, v, 0.0, isl.road_y)
+	SlipModel.append_on_profile(mb, deck, mb.xform, v, 0.0, isl.road_y)
 	u = front + 3.0
 	while u < end:
 		for side: float in [-6.6, 6.6]:
@@ -1081,7 +1089,7 @@ static func _build_plain_trestle(mb: MeshBuilder, isl: MapData.Town, v: float, e
 		u += 9.0 if not mid else 4.5
 
 
-## The trestle from the lot's edge out to slip `v`'s span hinge (Models.trestle_part):
+## The trestle from the lot's edge out to slip `v`'s span hinge (SlipModel.trestle_part):
 ## the abutment at the lot, deck bays lifted onto the road's profile (Island.road_y),
 ## the landing onto the hinge last, pile bents under the joints and light poles on the
 ## barrier every other bay. Terminal frame.
@@ -1089,15 +1097,27 @@ func _build_trestle(mb: MeshBuilder, isl: MapData.Town, v: float) -> void:
 	var n := isl.approach_bays
 	var u0 := isl.lot_front_u()
 	var road := isl.road_y
-	Models._append_part(mb, Models.trestle_part("abutment"), mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, isl.lot_y, u0)))
-	var lamp := Models.trestle_part("lamp")
+	Models._append_part(
+		mb,
+		SlipModel.trestle_part("abutment"),
+		mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, isl.lot_y, u0))
+	)
+	var lamp := SlipModel.trestle_part("lamp")
 	for i in n:
 		var u := u0 + i * Layout.TRESTLE_BAY
-		var part := Models.trestle_part("landing" if i == n - 1 else "bay")
-		Models.append_on_profile(mb, part, mb.xform, v, u, road)
+		var part := SlipModel.trestle_part("landing" if i == n - 1 else "bay")
+		SlipModel.append_on_profile(mb, part, mb.xform, v, u, road)
 		if i > 0:
-			Models._append_part(mb, Models.trestle_part("bent"),
-				mb.xform * Transform3D(Basis.IDENTITY, Vector3(v, isl.road_y(u) - Layout.TRESTLE_SLAB, u)))
+			Models._append_part(
+				mb,
+				SlipModel.trestle_part("bent"),
+				(
+					mb.xform
+					* Transform3D(
+						Basis.IDENTITY, Vector3(v, isl.road_y(u) - Layout.TRESTLE_SLAB, u)
+					)
+				)
+			)
 		if i % 2 == 1 or n == 1:
 			var lu := u + Layout.TRESTLE_BAY * 0.5
 			var foot := Vector3(v + Layout.TRESTLE_LAMP_V, isl.road_y(lu) + Layout.TRESTLE_LAMP_Y, lu)
