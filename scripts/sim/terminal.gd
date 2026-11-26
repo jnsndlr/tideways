@@ -1175,7 +1175,7 @@ func _redirect_guest(car: Vehicle) -> void:
 		car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own, true))
 	else:
 		turned_recent += 1.0
-		car.drive(_leave_path(car.lane_v), func(c: Vehicle): c.queue_free())
+		car.drive(_leave_path(car.lane_v), car.finish_road_exit)
 
 
 ## Out of lane `from_v`, round by the exit lane and back in at the tail of `to_v`.

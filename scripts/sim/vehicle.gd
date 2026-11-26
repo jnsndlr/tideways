@@ -186,6 +186,16 @@ func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0
 	_set_moving(not path.is_empty())
 
 
+## Both disembarked vehicles and traffic turned away from a full lot leave
+## the simulation at the end of the road. This also identifies their saved duty.
+func finish_road_exit(_vehicle: Vehicle) -> void:
+	queue_free()
+
+
+func is_leaving_terminal() -> bool:
+	return _on_arrive == finish_road_exit and not path.is_empty()
+
+
 ## The drive path has already been rounded. Restoring its remaining points directly
 ## avoids rounding a turn twice or firing the original dispatch a second time.
 func drive_motion() -> Dictionary:

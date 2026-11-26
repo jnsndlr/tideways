@@ -829,7 +829,7 @@ func _drive_off(car: Vehicle) -> void:
 	path.append(_over_apron(Vector3(x, Layout.DECK_Y, exit_z)))
 	car.reparent(sim.traffic)
 	path.append_array(here().exit_path(slip_at(here())))
-	_send(car, path, func(c: Vehicle): c.queue_free())
+	_send(car, path, car.finish_road_exit)
 
 
 func passenger_count() -> int:
