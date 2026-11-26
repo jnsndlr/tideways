@@ -70,6 +70,7 @@ check authored-tug test --script tests/world/tug_model_test.gd
 check classic-tug test --script tests/world/tug_model_test.gd -- --classic-tug
 check vessel-night-lights test --script tests/world/vessel_night_lights_test.gd
 check trawler-gear test --script tests/world/trawler_gear_test.gd
+check classic-trawler-gear test --script tests/world/trawler_gear_test.gd -- --classic-trawler
 check sailboat-rig test --script tests/world/sailboat_rig_test.gd
 check classic-sailboat-rig test --script tests/world/sailboat_rig_test.gd -- --classic-sailboat
 check ferry-itinerary test --script tests/rules/ferry_itinerary_test.gd
