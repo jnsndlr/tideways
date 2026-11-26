@@ -65,6 +65,7 @@ check vehicle-spawn test --script tests/simulation/vehicle_spawn_test.gd
 check simulation-rules test --script tests/simulation/simulation_rules_test.gd
 check motor-yacht-anchor test --script tests/world/motor_yacht_anchor_test.gd
 check vessel-hull test --script tests/world/vessel_hull_view_test.gd
+check classic-vessel-hull test --script tests/world/vessel_hull_view_test.gd -- --classic-cargo
 check authored-pilot test --script tests/world/pilot_boat_model_test.gd
 check classic-pilot test --script tests/world/pilot_boat_model_test.gd -- --classic-pilot
 check authored-tug test --script tests/world/tug_model_test.gd
