@@ -23,6 +23,10 @@ uniform vec3 yellow_line : source_color = vec3(0.86, 0.66, 0.16);
 uniform vec3 white_line : source_color = vec3(0.86, 0.86, 0.83);
 uniform vec3 sidewalk_color : source_color = vec3(0.62, 0.61, 0.58);
 uniform vec3 verge_color : source_color = vec3(0.55, 0.68, 0.25);
+uniform vec3 dirt_color : source_color = vec3(0.46, 0.36, 0.25);
+// How far a street has come as its town grows (WorldBuilder.set_street_stage):
+// 0 a dirt track, 1 gravel, 2 paved (its zone's look, from UV2.y).
+instance uniform float road_stage = 2.0;
 
 // A line `hw` either side of 0, box-filtered over a pixel `fw` wide: its share of
 // the pixel, so a thin line far off fades to its average rather than sparkling.
@@ -42,6 +46,35 @@ void road_detail(vec3 wp, vec2 uv, vec2 uv2, vec2 fw, float mpp, inout vec3 albe
 	int style = int(round(uv2.y));
 	vec2 p = wp.xz;
 	emit = vec3(0.0);
+
+	if (road_stage < 1.5) {
+		// Unpaved: a dirt track with two worn ruts and grass up the middle, or packed
+		// gravel; both narrower than tarmac and fraying into the grass at the sides.
+		float g_grain = gd_octave(p, 2.6, mpp) + 0.7 * gd_octave(p, 6.5, mpp);
+		float g_mottle = gd_octave(p, 0.11, mpp) + 0.5 * gd_octave(p, 0.37, mpp);
+		float g_edge = gd_noise(p * 0.45) * 0.6 + gd_noise(p * 1.6) * 0.4;
+		bool dirt = road_stage < 0.5;
+		float half_w = (dirt ? 2.4 : 3.2) - 0.6 * g_edge;
+		vec3 base = dirt ? dirt_color * (1.0 + 0.25 * g_grain + 0.18 * g_mottle)
+			: gravel_color * (1.0 + 0.4 * g_grain + 0.12 * g_mottle);
+		float rut = 1.0 - smoothstep(0.15, 0.45, abs(ax - 0.95));
+		base *= 1.0 - (dirt ? 0.18 : 0.08) * rut;
+		float mid_grass = dirt ? (1.0 - smoothstep(0.25, 0.5, ax + 0.25 * g_edge)) * 0.8 : 0.0;
+		float side_grass = smoothstep(half_w - 0.3, half_w + 0.3, ax);
+		vec3 grass = verge_color * (1.0 + 0.3 * g_grain + 0.2 * g_mottle);
+		float g_cover = clamp(side_grass + mid_grass, 0.0, 1.0);
+		albedo = mix(base, grass, g_cover);
+		float w0 = clamp(road_wet, 0.0, 1.0);
+		float g_low = gd_noise(p * 0.3) * 0.7 + gd_noise(p * 0.9) * 0.3;
+		float g_puddle = w0 * smoothstep(0.62, 0.74, g_low + 0.3 * rut) * (1.0 - side_grass);
+		albedo *= mix(1.0, 0.7, w0 * (1.0 - side_grass));
+		rough = mix(1.0, 0.1, g_puddle);
+		gloss = w0 * g_puddle;
+		// Where grass takes over, let the ground itself show (lit_vc discards on -1):
+		// a ragged, dithered edge rather than a strip of the wrong green.
+		if (g_cover > 0.35 + 0.3 * gd_noise(p * 2.3)) { rough = -1.0; }
+		return;
+	}
 
 	// Gravel shoulders, paved over where the markings fade out (junction mouths,
 	// the lot's apron).

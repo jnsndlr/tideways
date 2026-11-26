@@ -95,6 +95,9 @@ var _blocked := {}
 var _lots_cache := {}          # TownLots key -> baked lots (map.town_lots_cache_path)
 var _lots_cache_dirty := false
 var _lots_used: Array[String] = []
+var _lane_glows: Array[MeshInstance3D] = []
+var junction_nodes := {}  # Vector2i(town id, plan node) -> [MeshInstance3D, plan edges]
+var street_nodes := {}  # Vector2i(town id, plan edge) -> Node3D (see refresh_streets)
 var _road_cells := {}  # blocked cells that only a road blocks
 ## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
 ## in RGB and how much grass grows there in A (Grass reads it as a texture).
@@ -139,6 +142,10 @@ func build(frame: Signal = Signal()) -> Node3D:
 		return null
 	night_lights = _add_mesh(glows.commit(), "NightLights", false)
 	night_lights.visible = false
+	# Street lamps' light follows the day too, and each street's shows with it.
+	for gmi in _lane_glows:
+		night_lights.add_child(gmi)
+	_lane_glows.clear()
 	# Hidden sites' lights hang under the night lights, so they follow the day.
 	for id in _sites:
 		var site_glows: GlowBuilder = _sites[id][1]
@@ -1216,7 +1223,61 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 
 # --- Roads & towns ------------------------------------------------------------------
 
+## Street stages (road_detail's road_stage): a street shows once a building stands on
+## it, as dirt, then gravel, then its zone's paving as its lots fill. The core is paved
+## first: its streets get a head start on the share of lots built.
+const STREET_GRAVEL_AT := 0.4
+const STREET_PAVED_AT := 0.8
+const STREET_ZONE_HEAD_START := [0.3, 0.1, 0.0, 0.3]  # by StreetPlan.Zone
+
+
+## Shows and paves each plan street for how many of its lots are built.
+func refresh_streets(isl: MapData.Town) -> void:
+	if isl.street_plan == null:
+		return
+	for li in isl.street_plan.edges.size():
+		var node: Node3D = street_nodes.get(Vector2i(isl.id, li))
+		if node == null:
+			continue
+		var stage := street_stage(isl, li)
+		node.visible = stage >= 0
+		(node.get_node("Road") as GeometryInstance3D).set_instance_shader_parameter("road_stage", float(maxi(stage, 0)))
+		(node.get_node("Lamps") as Node3D).visible = stage >= 2
+		if node.has_meta("glow"):
+			(node.get_meta("glow") as Node3D).visible = stage >= 2
+	for key: Vector2i in junction_nodes:
+		if key.x != isl.id:
+			continue
+		var j: Array = junction_nodes[key]
+		var best := -1
+		for li: int in j[1]:
+			best = maxi(best, street_stage(isl, li))
+		(j[0] as MeshInstance3D).visible = best >= 0
+		(j[0] as MeshInstance3D).set_instance_shader_parameter("road_stage", float(maxi(best, 0)))
+
+
+## -1 hidden, 0 dirt, 1 gravel, 2 paved.
+static func street_stage(isl: MapData.Town, edge: int) -> int:
+	var built := int(isl.street_built.get(edge, 0))
+	if built <= 0:
+		return -1
+	var total := maxi(int(isl.street_lots.get(edge, 0)), 1)
+	var zone: int = isl.street_plan.edges[edge].zone
+	var k := float(built) / float(total) + float(STREET_ZONE_HEAD_START[zone])
+	return 2 if k >= STREET_PAVED_AT else (1 if k >= STREET_GRAVEL_AT else 0)
+
+
+## A building finished on `lot`: count it on its street and repave.
+func lot_built(isl: MapData.Town, lot: MapData.TownLot) -> void:
+	if lot.street < 0:
+		return
+	isl.street_built[lot.street] = int(isl.street_built.get(lot.street, 0)) + 1
+	refresh_streets(isl)
+
+
 func _build_roads() -> void:
+	var road_mat := ShaderMaterial.new()
+	road_mat.shader = load(ROAD_SHADER)
 	var mb := MeshBuilder.new()
 	var lamps := MeshBuilder.new()
 	var aprons := MeshBuilder.new()
@@ -1231,7 +1292,7 @@ func _build_roads() -> void:
 		var style := RoadMesh.Style.DOUBLE_EDGES if isl.population >= DOUBLE_LINE_POP else RoadMesh.Style.DASHED_EDGES
 		# road_lanes holds the plan's edges in order: each street's zone picks its look.
 		var zone_style := [RoadMesh.Style.CORE_WALK, RoadMesh.Style.CORE_WALK, RoadMesh.Style.DASHED, RoadMesh.Style.CORE_WALK]
-		var trims := _junctions(mb, plan, isl.road_main_a, style, zone_style) if by_plan else {}
+		var trims := _junctions(mb, plan, isl.road_main_a, style, zone_style, isl.id, road_mat) if by_plan else {}
 		var main := isl.road_main_a.duplicate()
 		var centre := RoadMesh.length_of(isl.road_main_a)
 		if isl.road_main_b.size() > 1:
@@ -1260,21 +1321,51 @@ func _build_roads() -> void:
 			var show := func(s: float) -> float:
 				return 0.5 + 0.5 * smoothstep(t0, t0 + 5.0, s) * smoothstep(t1, t1 + 5.0, length - s)
 			var lane_style: RoadMesh.Style = zone_style[plan.edges[li].zone] if by_plan else RoadMesh.Style.DASHED
-			RoadMesh.strip(mb, line, ROAD, lane_style, show, t0, length - t1)
-			lines.append(line)
+			# Plan streets are their own nodes, hidden until a lot along them builds and
+			# paved by stages as it fills (refresh_streets).
+			var lane_mb := MeshBuilder.new()
+			RoadMesh.strip(lane_mb, line, ROAD, lane_style, show, t0, length - t1)
+			var lane_lamps := MeshBuilder.new()
+			var main_glows := glows
+			glows = GlowBuilder.new()
+			_street_lamps(lane_lamps, line, isl.road_main_a[isl.road_main_a.size() - 1])
+			var lane_glows := glows
+			glows = main_glows
+			for i in range(0, line.size(), 3):
+				_block_road(line[i], 9.0)
+			var node := Node3D.new()
+			node.name = "Street_%d_%d" % [isl.id, li]
+			node.visible = false
+			var rmi := MeshInstance3D.new()
+			rmi.name = "Road"
+			rmi.mesh = lane_mb.commit(road_mat)
+			rmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			node.add_child(rmi)
+			var lmi := MeshInstance3D.new()
+			lmi.name = "Lamps"
+			lmi.mesh = lane_lamps.commit()
+			lmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			if not lane_glows.is_empty():
+				var gmi := MeshInstance3D.new()
+				gmi.name = "Glow"
+				gmi.mesh = lane_glows.commit()
+				gmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				node.set_meta("glow", gmi)
+				_lane_glows.append(gmi)
+			node.add_child(lmi)
+			root.add_child(node)
+			street_nodes[Vector2i(isl.id, li)] = node
 		for line in lines:
 			for i in range(0, line.size(), 3):
 				_block_road(line[i], 9.0)
 			_street_lamps(lamps, line, isl.road_main_a[isl.road_main_a.size() - 1])
-	var mat := ShaderMaterial.new()
-	mat.shader = load(ROAD_SHADER)
-	_add_mesh(mb.commit(mat), "Roads", false)
+	_add_mesh(mb.commit(road_mat), "Roads", false)
 	_add_mesh(lamps.commit(), "StreetLamps", false)
 	_add_mesh(aprons.commit(), "TicketApproaches", false)
 
 
 ## Join plan streets where two or more meet (see RoadMesh.junction).
-func _junctions(mb: MeshBuilder, plan: StreetPlan, lot_road: PackedVector3Array, lot_style: int, zone_style: Array) -> Dictionary:
+func _junctions(mb: MeshBuilder, plan: StreetPlan, lot_road: PackedVector3Array, lot_style: int, zone_style: Array, tid := -1, mat: Material = null) -> Dictionary:
 	# node → [centre, arms, keys]: key "li_end" names which street end each arm is.
 	var at := {}
 	if lot_road.size() > 2:
@@ -1318,7 +1409,23 @@ func _junctions(mb: MeshBuilder, plan: StreetPlan, lot_road: PackedVector3Array,
 			var t := _point_along(pts, from_end, reach[i] + 1.0) - m
 			t.y = 0.0
 			tangents.append(t.normalized() if t.length() > 0.01 else arms[i])
-		RoadMesh.junction(mb, at[n][0], mouths, tangents, styles, ROAD)
+		var keys: Array = at[n][2]
+		if tid < 0 or keys.has("lot"):
+			RoadMesh.junction(mb, at[n][0], mouths, tangents, styles, ROAD)
+		else:
+			# Off the square, a junction shows (and paves) with the streets it joins.
+			var jmb := MeshBuilder.new()
+			RoadMesh.junction(jmb, at[n][0], mouths, tangents, styles, ROAD)
+			var jmi := MeshInstance3D.new()
+			jmi.name = "Junction_%d_%d" % [tid, n]
+			jmi.mesh = jmb.commit(mat)
+			jmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			jmi.visible = false
+			root.add_child(jmi)
+			var lanes: Array[int] = []
+			for k: String in keys:
+				lanes.append(int(k.get_slice("_", 0)))
+			junction_nodes[Vector2i(tid, n)] = [jmi, lanes]
 		for i in arms.size():
 			trims[at[n][2][i]] = reach[i]
 	return trims
@@ -1582,6 +1689,7 @@ func _build_towns() -> void:
 			llot.yaw = float(c["yaw"])
 			llot.lot_y = float(c["h"])
 			llot.kind = MapData.TownLot.Kind.LANDMARK
+			llot.street = _count_street(isl, c, false)
 			llot.waterfront = float(c["h"]) < 15.0
 			isl.growth_lots.append(llot)
 			_block(p, 7.5)
@@ -1619,7 +1727,7 @@ func _build_towns() -> void:
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
 			var foot := _footprint(p, yaw, plan, sc, CITY_HALL_CLEAR if vi == city_hall_variant else BUILDING_GAP)
-			if _hits(taken, foot) or _on_street(streets, foot):
+			if _hits(taken, foot) or _lot_on_street(streets, c, p, yaw, plan, sc, foot):
 				continue
 			taken.append(foot)
 			used_idx[idx] = true
@@ -1637,6 +1745,7 @@ func _build_towns() -> void:
 					front_z += 0.46
 				_entry_light(xf, Vector3(.83, 2.59, front_z + .30), Vector3(0, .34, front_z + .64), float(c["h"]) < 15.0)
 				_block(p, 7.8)
+				_count_street(isl, c, true)
 				placed_comm += 1
 			else:
 				var clot := MapData.TownLot.new()
@@ -1645,6 +1754,7 @@ func _build_towns() -> void:
 				clot.scale = sc
 				clot.lot_y = lot.z
 				clot.kind = MapData.TownLot.Kind.COMMERCIAL
+				clot.street = _count_street(isl, c, false)
 				clot.variant = shop_idx
 				clot.waterfront = float(c["h"]) < 15.0
 				isl.growth_lots.append(clot)
@@ -1673,7 +1783,7 @@ func _build_towns() -> void:
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
 			var foot := _footprint(p, yaw, plan, hsc, BUILDING_GAP)
-			if _hits(taken, foot) or _on_street(streets, foot):
+			if _hits(taken, foot) or _lot_on_street(streets, c, p, yaw, plan, hsc, foot):
 				continue
 			taken.append(foot)
 			used_idx[idx] = true
@@ -1685,6 +1795,7 @@ func _build_towns() -> void:
 				(per_variant[vi] as Array[Transform3D]).append(xf)
 				_entry_light(xf, Models.kit_marker(kit_names[vi], "PorchLight"), Models.kit_marker(kit_names[vi], "Entry"), float(c["h"]) < 15.0)
 				_block(p, 7.8)
+				_count_street(isl, c, true)
 				placed_houses += 1
 			else:
 				var hlot := MapData.TownLot.new()
@@ -1693,6 +1804,7 @@ func _build_towns() -> void:
 				hlot.scale = hsc
 				hlot.lot_y = lot.z
 				hlot.kind = MapData.TownLot.Kind.HOUSE
+				hlot.street = _count_street(isl, c, false)
 				hlot.variant = vi
 				hlot.waterfront = float(c["h"]) < 15.0
 				isl.growth_lots.append(hlot)
@@ -1703,6 +1815,8 @@ func _build_towns() -> void:
 		isl.initial_commercial = placed_comm
 
 	_save_lots_cache()
+	for isl in map.towns:
+		refresh_streets(isl)
 	var no_colors: Array[Color] = []
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
@@ -1779,7 +1893,7 @@ func _plan_lot_candidates(isl: MapData.Town) -> Array[Dictionary]:
 			continue
 		out.append({"p": p, "yaw": atan2(facing.x, facing.y), "r": float(lot.along),
 			"front": lot.front, "facing": facing, "lot_w": float(lot.width), "lot_d": float(lot.depth),
-			"sort_r": float(lot.rank), "drop": hmax - hmin, "h": h})
+			"sort_r": float(lot.rank), "drop": hmax - hmin, "h": h, "edge": int(lot.edge)})
 	return out
 
 
@@ -1831,8 +1945,21 @@ func _street_hash(isl: MapData.Town) -> Dictionary:
 	return h
 
 
+## A StreetPlan lot already sits behind its street face (TownLots keeps it off the
+## roads), so only the building itself, unpadded, is kept clear of the asphalt and
+## kerb; grid lots keep the full STREET_CLEAR. Checking plan lots like grid lots threw
+## out ~80% of them.
+const PLAN_LOT_STREET_CLEAR := RoadMesh.ASPHALT_HALF + 0.7
+
+
+func _lot_on_street(h: Dictionary, c: Dictionary, p: Vector3, yaw: float, plan: Rect2, sc: float, padded: PackedVector2Array) -> bool:
+	if int(c.get("edge", -1)) < 0:
+		return _on_street(h, padded)
+	return _on_street(h, _footprint(p, yaw, plan, sc, 0.0), PLAN_LOT_STREET_CLEAR)
+
+
 ## Whether any part of the footprint (edges sampled every ~1.5 m) is on a street.
-func _on_street(h: Dictionary, foot: PackedVector2Array) -> bool:
+func _on_street(h: Dictionary, foot: PackedVector2Array, clear := STREET_CLEAR) -> bool:
 	for i in foot.size():
 		var a := foot[i]
 		var b := foot[(i + 1) % foot.size()]
@@ -1843,7 +1970,7 @@ func _on_street(h: Dictionary, foot: PackedVector2Array) -> bool:
 			for dx in range(-1, 2):
 				for dy in range(-1, 2):
 					for r: Vector2 in h.get(c + Vector2i(dx, dy), PackedVector2Array()):
-						if r.distance_to(q) < STREET_CLEAR:
+						if r.distance_to(q) < clear:
 							return true
 	return false
 

@@ -116,6 +116,8 @@ func _on_construction_completed(job: TownGrowth.BuildJob) -> void:
 			site.root.queue_free()
 	if job.lot != null:
 		_spawn_finished_building(job)
+		if builder != null and job.town_id >= 0:
+			builder.lot_built(builder.map.towns[job.town_id], job.lot)
 
 
 func _process(delta: float) -> void:

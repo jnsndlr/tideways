@@ -95,6 +95,8 @@ class Town:
 	var road_lanes: Array[PackedVector3Array] = []   # lanes climbing off the front street (no traffic yet)
 	var street_plan: StreetPlan   # the planned street network (step 1: overlay only)
 	var town_lots: TownLots       # blocks + ranked frontage lots from street_plan
+	var street_lots := {}         # plan edge → lots placed or reserved along it
+	var street_built := {}        # plan edge → buildings standing along it (reveals and paves it)
 	var label_pos := Vector3.ZERO
 
 	func lateral() -> Vector3:
@@ -216,6 +218,7 @@ class TownLot:
 	var variant := 0
 	var occupied := false
 	var waterfront := false
+	var street := -1                 # StreetPlan edge it fronts (-1: a grid lot)
 
 
 ## Somewhere boats tie up along a shore. Its frame is like a terminal's: origin
