@@ -52,6 +52,7 @@ static func capture(term: Terminal) -> Dictionary:
 		"lanes": groups,
 		"paved": term.paved.duplicate(),
 		"stage": Terminal.WorkStage.keys()[term.work_stage],
+		"staging": term.staging_lanes.map(func(lane: TerminalLane): return lane.v),
 		"remaining": term.build_remaining,
 		"passengers": passengers,
 		"average_wait": term.avg_wait,
@@ -106,6 +107,7 @@ static func _valid_header(r: Variant, term: Terminal) -> bool:
 		and Terminal.WorkStage.has(r.stage)
 		and r.get("lanes") is Dictionary
 		and r.lanes.size() == term.lanes.size()
+		and r.get("staging") is Array
 		and r.get("paved") is Array
 		and r.get("passengers") is Array
 	)
@@ -143,7 +145,7 @@ func _read_paved(paved: Array, term: Terminal, offsets: Array[float]) -> bool:
 	if not paved.is_empty() and term.town.lane_extension_price <= 0:
 		return false
 	var available := _remaining_sites.size()
-	if available == 0 and term.can_stage_construction():
+	if available == 0 and term.town.construction_staging_lanes in [1, 2]:
 		available = 1
 	if paved.size() > available:
 		return false
@@ -162,19 +164,38 @@ func _read_paved(paved: Array, term: Terminal, offsets: Array[float]) -> bool:
 
 func _valid_job(r: Dictionary, term: Terminal) -> bool:
 	if _stage == Terminal.WorkStage.IDLE or _stage == Terminal.WorkStage.OPEN:
-		return r.remaining == 0 and (_stage == Terminal.WorkStage.IDLE) == _paved.is_empty()
+		return (
+			r.staging.is_empty()
+			and r.remaining == 0
+			and (_stage == Terminal.WorkStage.IDLE) == _paved.is_empty()
+		)
 	if not _valid_remaining(_stage, r.remaining) or term.town.lane_extension_price <= 0:
 		return false
 	if not _remaining_sites.is_empty():
-		return true
-	if not _paved.is_empty() or not term.can_stage_construction():
+		return r.staging.is_empty()
+	var count := term.town.construction_staging_lanes
+	if not _paved.is_empty() or count not in [1, 2] or r.staging.size() != count:
 		return false
-	var group: Array = _lanes[term.lane_keys()[0]]
-	if group.size() <= term.town.construction_staging_lanes:
-		return false
-	for index in term.town.construction_staging_lanes:
-		_staging.append(group[index])
+	for v in r.staging:
+		if not _add_staging_lane(v):
+			return false
 	return true
+
+
+func _add_staging_lane(v: Variant) -> bool:
+	if not _number(v) or v > -Layout.EXIT_CLEAR:
+		return false
+	for group: Array in _lanes.values():
+		for lane: TerminalLane in group:
+			if is_equal_approx(lane.v, v):
+				if (
+					lane in _staging
+					or (_stage != Terminal.WorkStage.DRAINING and not lane.queue.is_empty())
+				):
+					return false
+				_staging.append(lane)
+				return true
+	return false
 
 
 static func _valid_remaining(stage: Terminal.WorkStage, remaining: float) -> bool:

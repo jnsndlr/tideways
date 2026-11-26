@@ -6,7 +6,7 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 
-func _world(renumber := false) -> Simulation:
+func _world(renumber := false, uses_staging := false) -> Simulation:
 	var region := TinyRegion.build()
 	if renumber:
 		region.map.towns.reverse()
@@ -16,7 +16,8 @@ func _world(renumber := false) -> Simulation:
 			route.a = 1 - route.a
 			route.b = 1 - route.b
 	for town in region.map.towns:
-		town.open_lanes = 2
+		town.open_lanes = 0 if uses_staging else 2
+		town.construction_staging_lanes = 1 if uses_staging else 0
 		town.lane_extension_price = 150
 	return region.start(root)
 
@@ -40,8 +41,38 @@ func _run() -> void:
 	live.free()
 	_compare(paving, open, expected, true)
 	_compare(open, open, expected, false)
+	_check_staging()
 	_check_overnight_wait()
 	finish()
+
+
+func _check_staging() -> void:
+	var live := _world(false, true)
+	var port: Terminal = live.terminals[0]
+	check(port.buy_holding_lane(), "Buy an extension that stages in an existing holding lane")
+	var lane := port.staging_lanes[0]
+	check(not lane.queue.is_empty(), "Allow waiting traffic while the crew drains the lane")
+	var draining := _record(port).holding as Dictionary
+	while not lane.queue.is_empty():
+		instance_from_id(lane.take_front()).free()
+	port._advance_construction(1.0)
+	var fresh := _world(false, true)
+	var target: Terminal = fresh.terminals[0]
+	var arriving := _record(port).holding as Dictionary
+	var broken := arriving.duplicate(true)
+	var rows: Array = broken.lanes.values()[0]
+	rows[0].vehicles.append(rows[1].vehicles.pop_front())
+	check(
+		not TerminalHoldingSnapshot.restore(broken, target, VehicleFactory.from_parts),
+		"Reject vehicles in a staging lane already occupied by the construction crew"
+	)
+	check(
+		TerminalHoldingSnapshot.restore(draining, target, VehicleFactory.from_parts),
+		"Restore the draining lane with its waiting vehicles"
+	)
+	check(_record(target).holding == draining, "Keep the crew's actual physical staging position")
+	fresh.free()
+	live.free()
 
 
 func _check_overnight_wait() -> void:
