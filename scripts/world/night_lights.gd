@@ -28,17 +28,17 @@ var _bufs := {}            # Vehicle.model -> its MultiMesh's buffer
 var _on := true
 
 
-func setup(s: Simulation, r: CameraRig, d: DayCycle, fixed: MeshInstance3D) -> void:
+func setup(
+	s: Simulation, r: CameraRig, d: DayCycle, fixed: MeshInstance3D, visible_ferries: Array[Ferry]
+) -> void:
 	name = "NightLights"
 	sim = s
 	rig = r
 	day_cycle = d
 	static_lights = fixed
-	for f in sim.ferries:
+	for f in visible_ferries:
 		_light_ferry(f)
-	# A boat bought in play gets hers; one sold takes hers with her.
 	sim.ferry_added.connect(_light_ferry)
-	sim.ferry_removed.connect(_unlight_ferry)
 	_car_mat = GlowBuilder.material().duplicate() as ShaderMaterial
 	_car_mat.set_shader_parameter("instance_gate", true)
 	static_lights.layers = LAYER
@@ -52,6 +52,7 @@ func _light_ferry(f: Ferry) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.layers = LAYER
 	f.add_child(mi)
+	f.tree_exiting.connect(_unlight_ferry.bind(f), CONNECT_ONE_SHOT)
 	_ferry_lights[f] = mi
 	mi.visible = _on
 	# Real lights in the enclosed car deck, so its floor, walls, deckhead and the
@@ -123,14 +124,15 @@ func _process(_delta: float) -> void:
 		return
 	RenderingServer.global_shader_parameter_set("focus_distance", rig.distance)
 	# Up with the lamp glass (Models.LAMP_ON_AT).
-	var deck := DECK_LIGHT_ENERGY * smoothstep(Models.LAMP_ON_AT, Models.LAMP_ON_AT + 0.08, day_cycle.night)
+	var deck := (
+		DECK_LIGHT_ENERGY * smoothstep(Models.LAMP_ON_AT, Models.LAMP_ON_AT + 0.08, day_cycle.night)
+	)
 	for l in _deck_lights:
 		l.light_energy = deck
-	for f in sim.ferries:
+	for f: Ferry in _ferry_lights:
 		# Sidelights: only the bow end's pair is lit, +Z heading A → B, -Z on the way back.
 		var flip := 1.0 if f.at_a else -1.0
-		if _ferry_lights.has(f):
-			_ferry_lights[f].set_instance_shader_parameter("nav_flip", flip)
+		_ferry_lights[f].set_instance_shader_parameter("nav_flip", flip)
 		var view := f.get_node_or_null(^"FerryView") as FerryView
 		if view:
 			view.hull.set_instance_shader_parameter("nav_flip", flip)

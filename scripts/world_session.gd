@@ -208,7 +208,12 @@ func _attach_simulation_views() -> void:
 	sim.routes_changed.connect(builder.rebuild_route_overlay)
 	if not await _setup_frames.can_continue():
 		return
-	for ferry in sim.ferries:
+	# A sold hull stays on screen until its tug takes it out of the region.
+	var visible_ferries: Array[Ferry] = sim.ferries.duplicate()
+	for tow in sim.tows:
+		if tow.outbound:
+			visible_ferries.append(tow.ferry)
+	for ferry in visible_ferries:
 		_add_ferry_view(ferry)
 		if not await _setup_frames.can_continue():
 			return
@@ -241,7 +246,7 @@ func _attach_simulation_views() -> void:
 	add_child(wakes)
 	var lights := NightLights.new()
 	add_child(lights)
-	lights.setup(sim, rig, day_cycle, builder.night_lights)
+	lights.setup(sim, rig, day_cycle, builder.night_lights, visible_ferries)
 	sim.marine.vessel_registered.connect(_dress_vessel.bind(lights))
 	for vessel in sim.marine.vessels:
 		_dress_vessel(vessel, lights)

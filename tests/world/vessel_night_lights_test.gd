@@ -5,8 +5,13 @@ var failures := 0
 
 
 func _initialize() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
 	check_tender_lights()
 	check_cargo_after_dusk()
+	check_departing_ferry_lights()
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
@@ -60,6 +65,26 @@ func check_cargo_after_dusk() -> void:
 	expect(not night_lamps.visible, "Dawn switches off the remaining ship after the first departs")
 	second.free()
 	expect(lights.switched.get_connections().is_empty(), "Departing ships release their night switch connection")
+	lights.free()
+
+
+func check_departing_ferry_lights() -> void:
+	var lights := NightLights.new()
+	lights.static_lights = MeshInstance3D.new()
+	lights.add_child(lights.static_lights)
+	var ferry := Ferry.new()
+	ferry.fc = FerryClass.of(1)
+	root.add_child(ferry)
+	lights._light_ferry(ferry)
+	lights._set_on(false)
+	lights._set_on(true)
+	expect(lights._ferry_lights[ferry].visible, "The hull under tow still lights at dusk")
+	ferry.free()
+	expect(
+		lights._ferry_lights.is_empty() and lights._deck_lights.is_empty(),
+		"The departing hull releases its navigation and deck lights"
+	)
+	lights._set_on(false)
 	lights.free()
 
 
