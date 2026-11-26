@@ -282,7 +282,7 @@ func _add_mesh(mesh: Mesh, node_name: String, shadows := true) -> MeshInstance3D
 ## Instances are split into MULTIMESH_TILE-sized tiles, one MultiMesh each, so the
 ## camera and every shadow cascade can cull the ones out of view (a single MultiMesh
 ## covering the map is drawn whole, everywhere).
-## Trees shared out among Models.tree_variants by where they stand, one set of tiles
+## Trees shared out among TreeModel.variants by where they stand, one set of tiles
 ## per variant.
 func _forest(variants: Array, xforms: Array[Transform3D], colors: Array[Color], node_name: String) -> void:
 	if _frames.cancelled:
@@ -293,15 +293,15 @@ func _forest(variants: Array, xforms: Array[Transform3D], colors: Array[Color], 
 		xs.append([] as Array[Transform3D])
 		cs.append([] as Array[Color])
 	for i in xforms.size():
-		var v := Models.tree_variant(xforms[i].origin, variants.size())
+		var v := TreeModel.variant_at(xforms[i].origin, variants.size())
 		xs[v].append(xforms[i])
 		cs[v].append(colors[i])
 	for v in variants.size():
 		await _multimesh(variants[v][0], xs[v], cs[v], "%s%d" % [node_name, v], variants[v])
 
 
-## Instances batched in tiles for culling. With a tree `variant` (Models.tree_variants),
-## each tile draws its levels of detail at their distances (Models.tree_lod_levels).
+## Instances batched in tiles for culling. With a tree `variant` (TreeModel.variants),
+## each tile draws its levels of detail at their distances (TreeLod.lod_levels).
 func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], node_name: String, variant: Array = []) -> void:
 	if _frames.cancelled or xforms.is_empty():
 		return
@@ -315,7 +315,9 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 	var group := Node3D.new()
 	group.name = node_name
 	root.add_child(group)
-	var levels: Array = Models.tree_lod_levels(variant) if not variant.is_empty() else [[mesh, 0.0, 0.0]]
+	var levels: Array = (
+		TreeLod.lod_levels(variant) if not variant.is_empty() else [[mesh, 0.0, 0.0]]
+	)
 	for key: Vector2i in tiles:
 		if not await _frames.can_continue():
 			return
@@ -335,7 +337,14 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 			var lv: Array = levels[l]
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = make.call(lv[0])
-			Models.dither_lod(mmi, lv[0], lv[1], lv[2], tile_slack(lv[0], idx, xforms), lv[3] if lv.size() > 3 else Vector3.ONE)
+			TreeLod.dither_lod(
+				mmi,
+				lv[0],
+				lv[1],
+				lv[2],
+				tile_slack(lv[0], idx, xforms),
+				lv[3] if lv.size() > 3 else Vector3.ONE
+			)
 			mmi.name = base if l == 0 else "%s_lod%d" % [base, l]
 			group.add_child(mmi)
 			if not variant.is_empty() and (levels.size() > 1 or levels[0][0] != variant[0]):
@@ -344,7 +353,7 @@ func _multimesh(mesh: Mesh, xforms: Array[Transform3D], colors: Array[Color], no
 				mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if not variant.is_empty() and (levels.size() > 1 or levels[0][0] != variant[0]):
 			var shade := MultiMeshInstance3D.new()
-			shade.multimesh = make.call(Models.tree_shadow_mesh(variant))
+			shade.multimesh = make.call(TreeLod.shadow_mesh(variant))
 			shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 			# Far off, a tree's shadow is under a pixel but still costs a draw in every
 			# cascade; the sandbox ends them where the shadow cascades end.
@@ -1255,7 +1264,7 @@ func nearest_tree_distance(p: Vector3, reach: float) -> float:
 ## Eagle lookouts: the tallest conifer in each EAGLE_CELL along the shore, its top
 ## (the variant's highest point) facing out over the nearest water.
 func _eagle_trees(pines: Array[Transform3D]) -> void:
-	var variants := Models.tree_variants(false)
+	var variants := TreeModel.variants(false)
 	var tops: Array[Vector3] = []
 	for vr: Array in variants:
 		var mesh: Mesh = vr[0]
@@ -1280,7 +1289,7 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 				away = a
 		if lowest > -1.0:
 			continue
-		var top := xf * tops[Models.tree_variant(o, variants.size())]
+		var top := xf * tops[TreeModel.variant_at(o, variants.size())]
 		var key := Vector2i(floori(o.x / EAGLE_CELL), floori(o.z / EAGLE_CELL))
 		if not best.has(key) or top.y > (best[key][0] as Vector3).y:
 			best[key] = [top, atan2(cos(away), sin(away))]
@@ -1935,10 +1944,10 @@ func _build_vegetation() -> void:
 			_add_tree_cell(xf.origin)
 	for c in edge_cards:
 		_add_tree_cell(c)
-	Models.card_material().set_shader_parameter("map_half", terrain.half_size)
-	Models.card_material(true).set_shader_parameter("map_half", terrain.half_size)
-	await _forest(Models.tree_variants(false), pines, pine_cols, "Pines")
-	await _forest(Models.tree_variants(true), rounds, round_cols, "RoundTrees")
+	TreeModel.card_material().set_shader_parameter("map_half", terrain.half_size)
+	TreeModel.card_material(true).set_shader_parameter("map_half", terrain.half_size)
+	await _forest(TreeModel.variants(false), pines, pine_cols, "Pines")
+	await _forest(TreeModel.variants(true), rounds, round_cols, "RoundTrees")
 	var no_colors: Array[Color] = []
 	await _multimesh(Models.rock(), rocks, no_colors, "Rocks")
 

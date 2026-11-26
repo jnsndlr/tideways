@@ -388,15 +388,19 @@ func _treeline(p: Vector3) -> float:
 
 ## Tiled like WorldBuilder's forests so the camera culls what it can't see.
 func _build_trees() -> void:
-	# Tiles per pine variant (Models.tree_variants), each level of detail at its
-	# distances (Models.tree_lod_levels).
-	var variants := Models.tree_variants(false)
+	# Tiles per pine variant (TreeModel.variants), each level of detail at its
+	# distances (TreeLod.lod_levels).
+	var variants := TreeModel.variants(false)
 	var tiles := {}
 	for i in _trees.size():
 		if i % 1024 == 0 and not await _frames.can_continue():
 			return
 		var o := _trees[i].origin
-		var key := Vector3i(floori(o.x / TREE_TILE), floori(o.z / TREE_TILE), Models.tree_variant(o, variants.size()))
+		var key := Vector3i(
+			floori(o.x / TREE_TILE),
+			floori(o.z / TREE_TILE),
+			TreeModel.variant_at(o, variants.size())
+		)
 		if not tiles.has(key):
 			tiles[key] = []
 		tiles[key].append(i)
@@ -404,7 +408,7 @@ func _build_trees() -> void:
 		if not await _frames.can_continue():
 			return
 		var idx: Array = tiles[key]
-		var levels := Models.tree_lod_levels(variants[key.z])
+		var levels := TreeLod.lod_levels(variants[key.z])
 		for l in levels.size():
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -417,7 +421,14 @@ func _build_trees() -> void:
 			# Dense forest hides its own floor; their shadows aren't worth the cascades.
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			var slack := WorldBuilder.tile_slack(levels[l][0], idx, _trees)
-			Models.dither_lod(mmi, levels[l][0], levels[l][1], levels[l][2], slack, levels[l][3] if levels[l].size() > 3 else Vector3.ONE)
+			TreeLod.dither_lod(
+				mmi,
+				levels[l][0],
+				levels[l][1],
+				levels[l][2],
+				slack,
+				levels[l][3] if levels[l].size() > 3 else Vector3.ONE
+			)
 			_near_trees.append(mmi)
 			mmi.name = "MainlandPines_%d_%d_%d%s" % [key.x, key.y, key.z, "_lod%d" % l if l > 0 else ""]
 			add_child(mmi)
