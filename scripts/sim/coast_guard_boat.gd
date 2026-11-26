@@ -177,6 +177,12 @@ func _place() -> void:
 	basis = Basis(Vector3.UP, yaw) * Basis(Vector3.BACK, sin(_bob * 0.45) * 0.015)
 
 
+## Never dives: NavalVessel's submarine dive (the last stretch of its path) would
+## shrink this hull's wake away on every trip home and smear it into a flat strip.
+func _dive() -> float:
+	return 0.0
+
+
 func wants_to_move() -> bool:
 	return not docked
 
