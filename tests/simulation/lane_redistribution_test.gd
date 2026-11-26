@@ -34,7 +34,7 @@ func _park(term: Terminal, lane: Terminal.Lane, dest: int) -> Vehicle:
 	term.sim.traffic.add_child(car)
 	car.dest = dest
 	car.lane_v = lane.v
-	car.lot_arrival = term.sim.minutes - 15.0
+	car.lot_arrival = term.sim.abs_minutes() - 15.0
 	car.position = term.queue_position(lane.v, lane.queued_slots(), car)
 	lane.enqueue(car.get_instance_id(), car.slots)
 	return car
