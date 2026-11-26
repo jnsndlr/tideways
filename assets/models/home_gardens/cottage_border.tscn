@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/fieldstone_bed.glb" id="fieldstone_bed"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/lupines.glb" id="lupines"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/birch_clump.glb" id="birch_clump"]
+
+[node name="cottage_border" type="Node3D"]
+
+[node name="fieldstone_bed_1" parent="." instance=ExtResource("fieldstone_bed")]
+position = Vector3(0, 0, 0)
+
+[node name="lupines_2" parent="." instance=ExtResource("lupines")]
+position = Vector3(0, 0.2, 0)
+
+[node name="birch_clump_3" parent="." instance=ExtResource("birch_clump")]
+position = Vector3(2.1, 0, 0.65)

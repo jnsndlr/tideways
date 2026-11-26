@@ -1,15 +1,16 @@
-# Builds an ultra-low-poly (< 350 tris) stylized commercial fisherman with a navy ribbed
-# knit beanie, full brown beard & bushy mustache, olive-green pullover hoodie, golden-yellow
-# foul-weather bib overalls (with full shoulder straps, bronze buttons & chest pocket),
-# slate-blue rubber work gloves, chunky brown boots, and a red-striped white lobster buoy
-# tied with coiled hemp rope to his right overall shoulder strap in Blender.
+# Builds a low-poly (< 500 tris) stylized commercial fisherman with a chunky cuffed navy knit
+# beanie, sculpted rounded brown beard & bushy mustache, olive-green pullover hoodie, thick
+# layered golden-yellow foul-weather bib overalls (with scooped sides, full shoulder straps,
+# bronze buttons, 3D chest pocket & cuffed legs), slate-blue rubber work gloves with thumbs,
+# sculpted brown boots, and a plump 6-sided red-striped white lobster buoy tied with thick
+# coiled hemp rope to his right overall shoulder strap in Blender.
 # (run headless: /Applications/Blender.app/Contents/MacOS/Blender --factory-startup --background --python art/person_fisherman_buoy.py)
 # Saves art/person_fisherman_buoy.blend, exports assets/models/person_fisherman_buoy.glb (rigged + Walk & Idle cycles),
 # renders art/person_fisherman_buoy_preview.png, art/person_fisherman_buoy_walk_preview.png,
 # art/person_fisherman_buoy_idle_preview.png, and outputs rendered videos
 # art/person_fisherman_buoy_walk.mp4 and art/person_fisherman_buoy_idle.mp4.
 #
-# Strict triangle budget: < 350 triangles.
+# Strict triangle budget: < 500 triangles (350 base + 150 extra detail pass).
 # Game frame: +Z forward, +Y up, +X left, feet on ground at y = 0, ~1.64 m tall.
 # Blender frame: -Y forward, +Z up via G(x, y, z) = (x, -z, y).
 
@@ -42,45 +43,45 @@ def col_srgb(r, g, b, a=1.0):
     return (srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a)
 
 
-# Palette closely matched to reference commercial fisherman image (sRGB -> linear).
+# Palette closely matched to reference commercial fisherman concept art (sRGB -> linear).
 # Every part has its own unique constants so person_recolor.py tags cleanly without collisions.
-SKIN              = col_srgb(0.95, 0.71, 0.47)
-SKIN_SHADE        = col_srgb(0.84, 0.60, 0.38)
+SKIN              = col_srgb(0.95, 0.72, 0.48)
+SKIN_SHADE        = col_srgb(0.84, 0.61, 0.39)
 EYE               = col_srgb(0.11, 0.10, 0.11)
 
-BEARD             = col_srgb(0.41, 0.29, 0.21)
-HAIR_DARK         = col_srgb(0.35, 0.24, 0.18)
-BEARD_SHADE       = col_srgb(0.30, 0.20, 0.15)
-MUSTACHE          = col_srgb(0.45, 0.32, 0.24)
+BEARD             = col_srgb(0.45, 0.32, 0.23)
+HAIR_DARK         = col_srgb(0.38, 0.26, 0.19)
+BEARD_SHADE       = col_srgb(0.33, 0.22, 0.16)
+MUSTACHE          = col_srgb(0.49, 0.35, 0.25)
 
-BEANIE            = col_srgb(0.33, 0.40, 0.53)
-BEANIE_CUFF       = col_srgb(0.28, 0.35, 0.47)
-BEANIE_SHADE      = col_srgb(0.22, 0.28, 0.39)
+BEANIE            = col_srgb(0.35, 0.42, 0.56)
+BEANIE_CUFF       = col_srgb(0.30, 0.37, 0.50)
+BEANIE_SHADE      = col_srgb(0.23, 0.29, 0.41)
 
-HOODIE            = col_srgb(0.37, 0.48, 0.37)
-HOODIE_SHADE      = col_srgb(0.29, 0.39, 0.29)
-HOODIE_HOOD       = col_srgb(0.33, 0.44, 0.33)
+HOODIE            = col_srgb(0.39, 0.49, 0.39)
+HOODIE_SHADE      = col_srgb(0.30, 0.40, 0.30)
+HOODIE_HOOD       = col_srgb(0.35, 0.45, 0.35)
 
-OVERALLS          = col_srgb(0.98, 0.80, 0.21)
-OVERALLS_SHADE    = col_srgb(0.88, 0.69, 0.16)
-OVERALLS_STRAP    = col_srgb(0.95, 0.76, 0.19)
-OVERALLS_TRIM     = col_srgb(0.67, 0.52, 0.15)
+OVERALLS          = col_srgb(0.99, 0.82, 0.22)
+OVERALLS_SHADE    = col_srgb(0.88, 0.70, 0.16)
+OVERALLS_STRAP    = col_srgb(0.96, 0.78, 0.20)
+OVERALLS_TRIM     = col_srgb(0.68, 0.53, 0.16)
 OVERALLS_BUTTON   = col_srgb(0.42, 0.33, 0.22)
 
-GLOVE             = col_srgb(0.35, 0.48, 0.68)
-GLOVE_SHADE       = col_srgb(0.26, 0.38, 0.56)
+GLOVE             = col_srgb(0.36, 0.49, 0.69)
+GLOVE_SHADE       = col_srgb(0.27, 0.39, 0.57)
 
-BOOT              = col_srgb(0.56, 0.38, 0.24)
-BOOT_SHADE        = col_srgb(0.45, 0.30, 0.18)
-SOLE              = col_srgb(0.29, 0.21, 0.15)
+BOOT              = col_srgb(0.60, 0.42, 0.27)
+BOOT_SHADE        = col_srgb(0.48, 0.33, 0.20)
+SOLE              = col_srgb(0.31, 0.23, 0.17)
 
-BUOY_WHITE        = col_srgb(0.93, 0.90, 0.85)
-BUOY_SHADE        = col_srgb(0.80, 0.77, 0.72)
-BUOY_STRIPE       = col_srgb(0.76, 0.32, 0.24)
-BUOY_STRIPE_SHADE = col_srgb(0.61, 0.24, 0.18)
-BUOY_PEG          = col_srgb(0.66, 0.51, 0.37)
-ROPE              = col_srgb(0.81, 0.67, 0.48)
-ROPE_SHADE        = col_srgb(0.66, 0.53, 0.36)
+BUOY_WHITE        = col_srgb(0.94, 0.91, 0.86)
+BUOY_SHADE        = col_srgb(0.81, 0.78, 0.73)
+BUOY_STRIPE       = col_srgb(0.77, 0.33, 0.25)
+BUOY_STRIPE_SHADE = col_srgb(0.62, 0.25, 0.19)
+BUOY_PEG          = col_srgb(0.68, 0.53, 0.38)
+ROPE              = col_srgb(0.83, 0.69, 0.50)
+ROPE_SHADE        = col_srgb(0.67, 0.54, 0.37)
 
 
 # Parts the game recolours per passenger (see art/person_recolor.py).
@@ -249,6 +250,29 @@ class MeshBuilder:
             ])
         self.loft(rings, colors, cap_bottom=False, cap_top=False, skip_k=skip_k)
 
+    def tube_path(self, pts, rad, n=4, colors=ROPE, cap_bottom=False, cap_top=False, phase=math.pi / 4.0):
+        """Chunky N-sided tube following polyline `pts` (great for thick braided hemp ropes!)."""
+        rings = []
+        n_pts = len(pts)
+        for idx in range(n_pts):
+            p = Vector(pts[idx])
+            if idx == 0:
+                tang = (Vector(pts[1]) - p).normalized()
+            elif idx == n_pts - 1:
+                tang = (p - Vector(pts[idx - 1])).normalized()
+            else:
+                tang = (Vector(pts[idx + 1]) - Vector(pts[idx - 1])).normalized()
+            ref = V(0.0, 1.0, 0.0) if abs(tang.y) < 0.85 else V(1.0, 0.0, 0.0)
+            u = tang.cross(ref).normalized()
+            v = tang.cross(u).normalized()
+            r_i = rad[idx] if isinstance(rad, (list, tuple)) else rad
+            rings.append([
+                p + u * (r_i * math.cos(phase + 2.0 * math.pi * k / n))
+                  + v * (r_i * math.sin(phase + 2.0 * math.pi * k / n))
+                for k in range(n)
+            ])
+        self.loft(rings, colors, cap_bottom=cap_bottom, cap_top=cap_top)
+
 
 def oval_ring(cx, cy, cz, rx, rz, n=6, phase=0.0):
     pts = []
@@ -281,9 +305,9 @@ def build_person():
     mb.set_part("head", bone="Head")
     head_specs = [
         # (y,     cz,     rx,    rz)
-        (1.124,  0.012, 0.168, 0.156),  # 0: jaw/nape base
-        (1.222,  0.016, 0.216, 0.200),  # 1: cheek / beard top line
-        (1.410,  0.008, 0.216, 0.200),  # 2: brow tucked cleanly inside beanie cuff
+        (1.122,  0.012, 0.168, 0.156),  # 0: jaw/nape base
+        (1.224,  0.016, 0.216, 0.200),  # 1: cheek / beard top line
+        (1.412,  0.008, 0.216, 0.200),  # 2: brow tucked cleanly inside beanie cuff
     ]
     head_rings = [oval_ring(0.0, y, cz, rx, rz, n=6, phase=math.pi / 6.0)
                   for (y, cz, rx, rz) in head_specs]
@@ -308,73 +332,101 @@ def build_person():
             mb.face([p0, p1, p2, p3], col, out=(mid - cmid))
 
     # =========================================================================
-    # 2. FULL FISHERMAN BEARD + BUSHY MUSTACHE (14 + 8 = 22 tris)
+    # 2. SCULPTED ROUNDED FULL BEARD + PLUMP WALRUS MUSTACHE (30 + 16 = 46 tris)
     # =========================================================================
     mb.set_part("beard", bone="Head")
-    # 3-panel chunky wrap-around beard tucked cleanly back into sideburns (zero side gap!)
+    # 5-segment rounded arc wrapping cleanly from sideburn -> outer cheek -> full rounded chin -> opposite sideburn!
     b_bot = [
-        V(-0.194, 1.148, -0.012),  # 0: right jaw back (overlaps nape cleanly)
-        V(-0.120, 1.114,  0.194),  # 1: right chin front
-        V( 0.120, 1.114,  0.194),  # 2: left chin front
-        V( 0.194, 1.148, -0.012),  # 3: left jaw back
+        V(-0.194, 1.158, -0.014),  # 0: right jaw back (seals cleanly into nape hair)
+        V(-0.172, 1.128,  0.118),  # 1: right outer jaw curve
+        V(-0.088, 1.106,  0.204),  # 2: right front chin
+        V( 0.088, 1.106,  0.204),  # 3: left front chin
+        V( 0.172, 1.128,  0.118),  # 4: left outer jaw curve
+        V( 0.194, 1.158, -0.014),  # 5: left jaw back
     ]
     b_top = [
-        V(-0.220, 1.244, -0.014),  # 0: right sideburn
-        V(-0.130, 1.240,  0.208),  # 1: right cheek
-        V( 0.130, 1.240,  0.208),  # 2: left cheek
-        V( 0.220, 1.244, -0.014),  # 3: left sideburn
+        V(-0.222, 1.258, -0.014),  # 0: right sideburn high
+        V(-0.204, 1.242,  0.126),  # 1: right cheek curve
+        V(-0.098, 1.246,  0.222),  # 2: right upper beard under mustache
+        V( 0.098, 1.246,  0.222),  # 3: left upper beard under mustache
+        V( 0.204, 1.242,  0.126),  # 4: left cheek curve
+        V( 0.222, 1.258, -0.014),  # 5: left sideburn high
     ]
     b_in_top = [
-        V(-0.190, 1.242, -0.010),
-        V(-0.106, 1.238,  0.184),
-        V( 0.106, 1.238,  0.184),
-        V( 0.190, 1.242, -0.010),
+        V(-0.190, 1.254, -0.010),
+        V(-0.176, 1.238,  0.114),
+        V(-0.084, 1.242,  0.186),
+        V( 0.084, 1.242,  0.186),
+        V( 0.176, 1.238,  0.114),
+        V( 0.190, 1.254, -0.010),
     ]
-    for k in range(3):
+    b_in_bot = [
+        V(-0.148, 1.148, -0.008),
+        V(-0.128, 1.128,  0.088),
+        V(-0.066, 1.116,  0.146),
+        V( 0.066, 1.116,  0.146),
+        V( 0.128, 1.128,  0.088),
+        V( 0.148, 1.148, -0.008),
+    ]
+    for k in range(5):
         p0, p1, p2, p3 = b_bot[k], b_bot[k + 1], b_top[k + 1], b_top[k]
         mid = (p0 + p1 + p2 + p3) * 0.25
-        mb.face([p0, p1, p2, p3], BEARD, out=V(mid.x, -0.08, mid.z))
-        mb.face([b_top[k], b_top[k + 1], b_in_top[k + 1], b_in_top[k]], BEARD, out=(0, 1, 0))
-    # Clean 1-quad chin underside cap (2 tris) closing jaw smoothly into neck
-    mb.face([b_bot[0], b_bot[1], b_bot[2], b_bot[3]], BEARD_SHADE, out=(0, -1, 0))
+        col = BEARD_SHADE if k in (0, 4) else BEARD
+        mb.face([p0, p1, p2, p3], col, out=V(mid.x, -0.10, mid.z))
+        mb.face([b_top[k], b_top[k + 1], b_in_top[k + 1], b_in_top[k]], BEARD, out=(0, 1, 0.1))
+        mb.face([b_bot[k + 1], b_bot[k], b_in_bot[k], b_in_bot[k + 1]], BEARD_SHADE, out=(0, -1, 0))
 
-    # Bushy rounded fisherman mustache hugging the upper lip snugly (8 tris)
-    m_c_top = V( 0.000, 1.258, 0.224)
-    m_c_bot = V( 0.000, 1.212, 0.226)
-    m_l_top = V(-0.092, 1.240, 0.214)
-    m_r_top = V( 0.092, 1.240, 0.214)
-    m_l_bot = V(-0.100, 1.202, 0.210)
-    m_r_bot = V( 0.100, 1.202, 0.210)
-    m_l_in  = V(-0.108, 1.218, 0.192)
-    m_r_in  = V( 0.108, 1.218, 0.192)
-    mb.face([m_l_bot, m_c_bot, m_c_top, m_l_top], MUSTACHE, out=(-0.22, 0.05, 1.0))
-    mb.face([m_c_bot, m_r_bot, m_r_top, m_c_top], MUSTACHE, out=( 0.22, 0.05, 1.0))
-    mb.face([m_l_top, m_c_top, m_r_top, V(0.0, 1.252, 0.190)], MUSTACHE, out=(0, 1, 0.2))
-    mb.face([m_l_in, m_l_bot, m_l_top], BEARD_SHADE, out=(-1, 0, 0.2))
-    mb.face([m_r_bot, m_r_in, m_r_top], BEARD_SHADE, out=( 1, 0, 0.2))
+    # Plump, rounded 2-wing walrus fisherman mustache arching snugly across the upper lip (16 tris)
+    # 3 cross-sections: left tip -> full plump center arch -> right tip!
+    m_ctr = [
+        V(0.000, 1.264, 0.198),  # 0: top back (against face)
+        V(0.000, 1.262, 0.232),  # 1: top front ridge
+        V(0.000, 1.222, 0.234),  # 2: lower front fullness
+        V(0.000, 1.218, 0.200),  # 3: bottom back
+    ]
+    m_l = [
+        V(-0.118, 1.236, 0.186),
+        V(-0.114, 1.240, 0.218),
+        V(-0.120, 1.202, 0.216),
+        V(-0.118, 1.200, 0.186),
+    ]
+    m_r = [
+        V( 0.118, 1.236, 0.186),
+        V( 0.114, 1.240, 0.218),
+        V( 0.120, 1.202, 0.216),
+        V( 0.118, 1.200, 0.186),
+    ]
+    # Loft left wing -> center -> right wing, skipping k=3 (hidden back face flush against face = 12 tris + 2 end caps = 16 tris!)
+    mb.loft(
+        [m_l, m_ctr, m_r],
+        lambda i, k: BEARD_SHADE if k == 2 else MUSTACHE,
+        cap_bottom=True, cap_top=True,
+        bot_color=BEARD_SHADE, top_color=BEARD_SHADE,
+        skip_k=(3,),
+    )
 
     # =========================================================================
-    # 3. EARS (compact beveled low-poly wedges peeking beneath beanie cuff = 8 tris)
+    # 3. EARS (compact beveled low-poly wedges peeking cleanly below beanie cuff = 8 tris)
     # =========================================================================
     mb.set_part("ears", bone="Head")
     for side in (-1, 1):
-        x_in  = side * 0.200
-        x_out = side * 0.236
-        p_in  = V(x_in,  1.266,  0.012)
-        p_tf  = V(x_out, 1.296,  0.034)
-        p_tb  = V(x_out, 1.296, -0.010)
-        p_bf  = V(x_out, 1.238,  0.030)
-        p_bb  = V(x_out, 1.238, -0.006)
+        x_in  = side * 0.198
+        x_out = side * 0.238
+        p_in  = V(x_in,  1.272,  0.014)
+        p_tf  = V(x_out, 1.304,  0.036)
+        p_tb  = V(x_out, 1.304, -0.010)
+        p_bf  = V(x_out, 1.242,  0.032)
+        p_bb  = V(x_out, 1.242, -0.006)
         mb.face([p_bf, p_bb, p_tb, p_tf], SKIN,       out=(side, 0, 0))
         mb.face([p_in, p_bf, p_tf],       SKIN,       out=(0, 0, 1))
         mb.face([p_bb, p_in, p_tb],       SKIN_SHADE, out=(0, 0, -1))
 
     # =========================================================================
-    # 4. NECK (compact 3-sided front/side throat peeking above cozy hood collar = 4 tris)
+    # 4. NECK (compact 3-sided throat peeking snugly above cozy hood collar = 4 tris)
     # =========================================================================
     mb.set_part("neck", bone="Head")
-    neck_r0 = oval_ring(0.0, 1.052, 0.014, 0.072, 0.068, n=3, phase=0.0)
-    neck_r1 = oval_ring(0.0, 1.148, 0.016, 0.068, 0.064, n=3, phase=0.0)
+    neck_r0 = oval_ring(0.0, 1.052, 0.016, 0.072, 0.068, n=3, phase=0.0)
+    neck_r1 = oval_ring(0.0, 1.148, 0.018, 0.068, 0.064, n=3, phase=0.0)
     mb.loft([neck_r0, neck_r1], SKIN_SHADE, cap_bottom=False, cap_top=False, skip_k=(1,))
 
     # =========================================================================
@@ -385,7 +437,7 @@ def build_person():
     z_eye = 0.194
     for side in (-1, 1):
         cx = side * 0.062
-        cy = 1.312
+        cy = 1.314
         rx = 0.019
         ry = 0.045
         pts = [
@@ -400,107 +452,142 @@ def build_person():
         mb.face([pts[5], pts[2], pts[3], pts[4]], EYE, out=(0, 0, 1))
 
     # =========================================================================
-    # 6. NAVY KNIT FISHERMAN BEANIE (chunky folded cuff + soft rounded crown = 28 tris)
+    # 6. NAVY KNIT FISHERMAN BEANIE (chunky overhanging folded cuff + crisp step + rounded crown = 40 tris)
     # =========================================================================
     mb.set_part("beanie", bone="Head")
-    tilt = math.radians(17.0)
+    tilt = math.radians(17.5)
     st, ct = math.sin(tilt), math.cos(tilt)
-    beanie_orig = V(0.0, 1.364, -0.008)
+    beanie_orig = V(0.0, 1.362, -0.008)
 
     def beanie_ring(h, rx, rz):
         cy = beanie_orig.y + h * ct
         cz = beanie_orig.z - h * st
         return tilted_ring(0.0, cy, cz, rx, rz, tilt, n=6, phase=math.pi / 6.0)
 
-    b_cuff0 = beanie_ring(0.000, 0.242, 0.234)  # folded cuff bottom rim
-    b_cuff1 = beanie_ring(0.096, 0.248, 0.240)  # chunky ribbed cuff lip
-    b_dome1 = beanie_ring(0.240, 0.148, 0.144)  # soft rounded beanie crown shoulder
+    b_cuff0 = beanie_ring(0.000, 0.246, 0.238)  # thick folded cuff bottom rim
+    b_cuff1 = beanie_ring(0.098, 0.252, 0.244)  # chunky overhanging cuff top ridge
+    b_dome0 = beanie_ring(0.106, 0.224, 0.218)  # crisp inset knit fold crease!
+    b_dome1 = beanie_ring(0.242, 0.146, 0.142)  # soft rounded beanie crown shoulder
 
-    # Folded ribbed cuff band (12 tris)
+    # Folded ribbed cuff outer band (12 tris)
     mb.loft(
         [b_cuff0, b_cuff1],
         lambda i, k: BEANIE_SHADE if k in (1, 2, 3) else BEANIE_CUFF,
         cap_bottom=False, cap_top=False,
     )
-    # Rounded knit dome + flat-topped crown cap (12 + 4 = 16 tris, soft & never pointy!)
+    # Crisp folded cuff top overhang step into dome (12 tris)
     mb.loft(
-        [b_cuff1, b_dome1],
+        [b_cuff1, b_dome0],
+        BEANIE_SHADE,
+        cap_bottom=False, cap_top=False,
+    )
+    # Rounded knit dome + flat-topped crown cap (12 + 4 = 16 tris)
+    mb.loft(
+        [b_dome0, b_dome1],
         lambda i, k: BEANIE_CUFF if k in (1, 2, 3) else BEANIE,
         cap_bottom=False, cap_top=True, top_color=BEANIE,
     )
 
     # =========================================================================
-    # 7. UNIFIED TORSO: YELLOW OILSKIN BIB + OLIVE HOODIE UPPER CHEST + FOLDED HOOD (32 + 8 = 40 tris)
+    # 7. OLIVE-GREEN PULLOVER HOODIE UPPER TORSO + CHUNKY FOLDED HOOD (16 + 10 = 26 tris)
+    #    (Worn UNDERNEATH the thick yellow overalls so the overalls have real physical thickness!)
     # =========================================================================
-    mb.set_part("overalls_torso", bone="Torso")
-    t_hip  = oval_ring(0.0, 0.585, 0.004, 0.240, 0.168, n=6, phase=math.pi / 6.0)
-    t_bib  = oval_ring(0.0, 0.905, 0.004, 0.226, 0.158, n=6, phase=math.pi / 6.0)
-    # Slightly lift front chest bib corners (indices 5 and 0 flank flat front face k=5!)
-    t_bib[5] = V(t_bib[5].x, 0.938, t_bib[5].z + 0.006)
-    t_bib[0] = V(t_bib[0].x, 0.938, t_bib[0].z + 0.006)
-    t_shld = oval_ring(0.0, 1.076, 0.002, 0.194, 0.130, n=6, phase=math.pi / 6.0)
-
-    # Band 0: Yellow oilskin bib overalls torso (12 tris)
-    mb.loft(
-        [t_hip, t_bib],
-        lambda i, k: OVERALLS_SHADE if k in (1, 2, 3) else OVERALLS,
-        cap_bottom=False, cap_top=False,
-    )
-
-    # Band 1: Olive-green hoodie upper chest & shoulders + top shoulder cap (12 + 4 = 16 tris)
     mb.set_part("hoodie", bone="Torso")
+    h_bot  = oval_ring(0.0, 0.810, 0.004, 0.204, 0.138, n=6, phase=math.pi / 6.0)
+    h_shld = oval_ring(0.0, 1.078, 0.002, 0.194, 0.132, n=6, phase=math.pi / 6.0)
     mb.loft(
-        [t_bib, t_shld],
+        [h_bot, h_shld],
         lambda i, k: HOODIE_SHADE if k in (1, 2, 3) else HOODIE,
         cap_bottom=False, cap_top=True, top_color=HOODIE,
     )
 
-    # Folded chunky olive hood draped snugly around neck & upper back (8 tris)
+    # Chunky cozy folded olive hood collar wrapping snugly around the neck & upper back (10 tris)
     hd_bot = [
-        V(-0.142, 1.046,  0.046),
-        V( 0.142, 1.046,  0.046),
-        V( 0.168, 1.036, -0.196),
-        V(-0.168, 1.036, -0.196),
+        V(-0.144, 1.050,  0.072),
+        V( 0.144, 1.050,  0.072),
+        V( 0.174, 1.036, -0.194),
+        V(-0.174, 1.036, -0.194),
     ]
     hd_top = [
-        V(-0.118, 1.124,  0.032),
-        V( 0.118, 1.124,  0.032),
-        V( 0.144, 1.152, -0.168),
-        V(-0.144, 1.152, -0.168),
+        V(-0.118, 1.132,  0.056),
+        V( 0.118, 1.132,  0.056),
+        V( 0.146, 1.162, -0.166),
+        V(-0.146, 1.162, -0.166),
     ]
-    mb.loft([hd_bot, hd_top], HOODIE_HOOD, cap_bottom=False, cap_top=True, top_color=HOODIE, skip_k=(0,))
+    # Keep all 4 sides + top cap? Skip front bottom? No, skip k=0 front neck gap -> 6 sides + 2 top = 8 tris!
+    # Add front collar left/right wrap lapels: actually keeping all 4 sides (k=0 dips slightly at throat) = 10 tris!
+    hd_top[0] = V(-0.116, 1.116, 0.068)
+    hd_top[1] = V( 0.116, 1.116, 0.068)
+    mb.loft([hd_bot, hd_top], lambda i, k: HOODIE if k == 0 else HOODIE_HOOD,
+            cap_bottom=False, cap_top=True, top_color=HOODIE)
+
+    # =========================================================================
+    # 8. THICK LAYERED YELLOW OILSKIN BIB OVERALLS TORSO (outer bib + thickness rim + crotch = 28 tris)
+    #    - Sits physically OUTSIDE the olive hoodie (~2.2 cm fabric stand-off!)
+    #    - Raised front & back chest bib panels with scooped lower sides under the armpits!
+    # =========================================================================
+    mb.set_part("overalls_torso", bone="Torso")
+    o_hip  = oval_ring(0.0, 0.582, 0.004, 0.252, 0.178, n=6, phase=math.pi / 6.0)
+    o_top  = oval_ring(0.0, 0.872, 0.004, 0.236, 0.168, n=6, phase=math.pi / 6.0)
+    # Sculpt bib silhouette: front chest (indices 5, 0) rises proudly to 0.946;
+    # back bib (indices 2, 3) rises to 0.922; side armpits (indices 1, 4) scoop down to 0.848!
+    o_top[5] = V(o_top[5].x, 0.946, o_top[5].z + 0.008)
+    o_top[0] = V(o_top[0].x, 0.946, o_top[0].z + 0.008)
+    o_top[1] = V(o_top[1].x, 0.848, o_top[1].z)
+    o_top[4] = V(o_top[4].x, 0.848, o_top[4].z)
+    o_top[2] = V(o_top[2].x, 0.922, o_top[2].z - 0.006)
+    o_top[3] = V(o_top[3].x, 0.922, o_top[3].z - 0.006)
+
+    # Inner thickness edge stepping smoothly inward onto the olive hoodie (gives unmistakable thick oilskin rim!)
+    o_rim_in = [
+        V(p.x * 0.84, p.y - 0.006, p.z * 0.82) for p in o_top
+    ]
+
+    # Outer yellow oilskin overalls body (12 tris)
+    mb.loft(
+        [o_hip, o_top],
+        lambda i, k: OVERALLS_SHADE if k in (1, 2, 3) else OVERALLS,
+        cap_bottom=False, cap_top=False,
+    )
+    # Chunky 3D top thickness rim around front chest bib, scooped armholes & back bib (12 tris)
+    mb.loft(
+        [o_top, o_rim_in],
+        OVERALLS_SHADE,
+        cap_bottom=False, cap_top=False,
+    )
 
     # Pelvis crotch bridge (front + back = 4 tris, weighted to Root so thighs never show a gap!)
     mb.set_part("overalls_torso", bone="Root")
-    mb.box(-0.192, 0.192, 0.515, 0.610, -0.116, 0.116, OVERALLS_SHADE, skip=("top", "bottom", "left", "right"))
+    mb.box(-0.200, 0.200, 0.510, 0.610, -0.122, 0.122, OVERALLS_SHADE, skip=("top", "bottom", "left", "right"))
 
     # =========================================================================
-    # 8. BIB DETAILS: CHEST POCKET, TOP TRIM & 2 BRONZE BUTTONS + FULL SHOULDER STRAPS (8 + 36 = 44 tris)
+    # 9. 3D BIB DETAILS: EXTRUDED CHEST POCKET, TOP WELT & BRONZE SNAP BUTTONS + THICK STRAPS (16 + 36 = 52 tris)
     # =========================================================================
     mb.set_part("overalls_details", bone="Torso")
-    z_pk_top = 0.156
-    z_pk_bot = 0.162
-    # Main front bib pocket quad (2 tris)
-    mb.face([
-        V(-0.072, 0.770, z_pk_bot),
-        V( 0.072, 0.770, z_pk_bot),
-        V( 0.072, 0.864, z_pk_top + 0.002),
-        V(-0.072, 0.864, z_pk_top + 0.002),
-    ], OVERALLS_SHADE, out=(0, 0, 1))
-    # Darker horizontal top hem/opening trim across top of chest pocket (2 tris)
-    mb.face([
-        V(-0.072, 0.864, z_pk_top + 0.003),
-        V( 0.072, 0.864, z_pk_top + 0.003),
-        V( 0.072, 0.886, z_pk_top + 0.001),
-        V(-0.072, 0.886, z_pk_top + 0.001),
-    ], OVERALLS_TRIM, out=(0, 0, 1))
+    # Extruded 3D front chest pocket sitting proudly off the thick yellow bib (10 tris)
+    # Main pocket box (front + left + right + bottom = 8 tris; skip back flush with bib & top covered by welt!)
+    mb.box(
+        -0.076, 0.076,
+        0.758, 0.864,
+        0.150, 0.172,
+        {"front": OVERALLS, "left": OVERALLS_SHADE, "right": OVERALLS_SHADE, "bottom": OVERALLS_SHADE},
+        skip=("back", "top"),
+    )
+    # Crisp darker horizontal top welt hem capping the extruded pocket (front + top = 4 tris)
+    mb.box(
+        -0.076, 0.076,
+        0.864, 0.888,
+        0.150, 0.173,
+        {"front": OVERALLS_TRIM, "top": OVERALLS_TRIM},
+        skip=("back", "bottom", "left", "right"),
+    )
 
-    # Two chunky dark bronze metal overall snap buttons sitting proudly on strap-to-bib corners (2 x 2 = 4 tris)
+    # Two chunky dark bronze metal overall snap buttons sitting proudly on strap-to-bib corners (4 tris)
     for side in (-1, 1):
-        bx = side * 0.096
-        by = 0.906
-        bz = 0.164
-        r_btn = 0.017
+        bx = side * 0.100
+        by = 0.916
+        bz = 0.176
+        r_btn = 0.019
         mb.face([
             V(bx - r_btn, by - r_btn, bz),
             V(bx + r_btn, by - r_btn, bz),
@@ -508,16 +595,16 @@ def build_person():
             V(bx - r_btn, by + r_btn, bz - 0.001),
         ], OVERALLS_BUTTON, out=(0, 0, 1))
 
-    # Two bold 4-point (3-segment) yellow oilskin shoulder straps riding cleanly OUTSIDE the hoodie! (2 x 18 = 36 tris)
+    # Two bold, chunky 4-point (3-segment) yellow oilskin shoulder straps riding cleanly OUTSIDE hoodie! (36 tris)
     mb.set_part("overalls_straps", bone="Torso")
     for side in (-1, 1):
-        sx_bib = side * 0.096
-        sx_sh  = side * 0.130
+        sx_bib = side * 0.100
+        sx_sh  = side * 0.132
         strap_pts = [
-            V(sx_bib, 0.916,  0.148),   # 0: front bib button anchor
-            V(sx_sh,  1.084,  0.118),   # 1: front-top hoodie shoulder corner (clears chest!)
-            V(sx_sh,  1.084, -0.114),   # 2: back-top hoodie shoulder corner
-            V(sx_bib, 0.896, -0.146),   # 3: back bib anchor
+            V(sx_bib, 0.922,  0.158),   # 0: front bib button anchor
+            V(sx_sh,  1.088,  0.122),   # 1: front-top hoodie shoulder corner
+            V(sx_sh,  1.088, -0.118),   # 2: back-top hoodie shoulder corner
+            V(sx_bib, 0.902, -0.156),   # 3: back bib anchor
         ]
         strap_norms = [
             V(side * 0.14, 0.18,  0.97),
@@ -527,14 +614,14 @@ def build_person():
         ]
         mb.tri_strap(
             strap_pts, strap_norms,
-            half_w=0.025, thick=0.022,
+            half_w=0.029, thick=0.028,
             colors=lambda i, k: OVERALLS_STRAP if k == 0 else OVERALLS_SHADE,
         )
 
     # =========================================================================
-    # 9. OLIVE HOODIE SLEEVES & BLUE RUBBER WORK GLOVES (32 + 20 = 52 tris)
+    # 10. OLIVE HOODIE SLEEVES & BLUE RUBBER WORK GLOVES WITH CHUNKY THUMBS (32 + 30 = 62 tris)
     # =========================================================================
-    def build_arm_and_glove(p_sh, p_el, p_wr, glove_len, arm_bone, fore_bone):
+    def build_arm_and_glove(p_sh, p_el, p_wr, glove_len, side_sign, arm_bone, fore_bone):
         ax1 = (p_el - p_sh).normalized()
         ax2 = (p_wr - p_el).normalized()
         ax_mid = (ax1 + ax2).normalized()
@@ -554,9 +641,9 @@ def build_person():
                 ctr + u * (-rx) + v * (-rperp),
             ]
 
-        r_sh = ring4(p_sh, ax1,    0.070, 0.076)
-        r_el = ring4(p_el, ax_mid, 0.080, 0.084)
-        r_wr = ring4(p_wr, ax2,    0.068, 0.072)
+        r_sh = ring4(p_sh, ax1,    0.072, 0.078)
+        r_el = ring4(p_el, ax_mid, 0.084, 0.088)
+        r_wr = ring4(p_wr, ax2,    0.072, 0.076)
 
         w_sh = {arm_bone: 1.0}
         w_el = {arm_bone: 0.5, fore_bone: 0.5}
@@ -570,41 +657,51 @@ def build_person():
             ring_weights=[w_sh, w_el, w_wr],
         )
 
-        # Chunky slate-blue commercial rubber fishing glove below wrist cuff (10 tris)
+        # Chunky slate-blue commercial rubber fishing glove + distinct mitten thumb (10 + 5 = 15 tris)
         mb.set_part("gloves", bone=fore_bone)
-        r_g0 = ring4(p_wr, ax2, 0.064, 0.068)
-        r_g1 = ring4(p_wr + ax2 * glove_len, ax2, 0.050, 0.054)
+        r_g0 = ring4(p_wr, ax2, 0.068, 0.072)
+        r_g1 = ring4(p_wr + ax2 * glove_len, ax2, 0.052, 0.056)
         mb.loft(
             [r_g0, r_g1],
             lambda i, k: GLOVE_SHADE if k in (2, 3) else GLOVE,
             cap_bottom=False, cap_top=True, top_color=GLOVE_SHADE,
         )
+        # Chunky rubber glove thumb protruding forward/inward (3-sided tapered stub skipping buried back = 5 tris!)
+        th_base = p_wr + ax2 * (glove_len * 0.36) + V(-side_sign * 0.022, 0.004, 0.044)
+        th_dir  = (ax2 * 0.62 + V(-side_sign * 0.25, -0.10, 0.74)).normalized()
+        th_u = th_dir.cross(V(0.0, 1.0, 0.0)).normalized()
+        th_v = th_dir.cross(th_u).normalized()
+        th_r0 = [th_base + th_u * (0.026 * math.cos(2.0 * math.pi * k / 3.0))
+                         + th_v * (0.026 * math.sin(2.0 * math.pi * k / 3.0)) for k in range(3)]
+        th_r1 = [th_base + th_dir * 0.052
+                         + th_u * (0.018 * math.cos(2.0 * math.pi * k / 3.0))
+                         + th_v * (0.018 * math.sin(2.0 * math.pi * k / 3.0)) for k in range(3)]
+        mb.loft([th_r0, th_r1], GLOVE, cap_bottom=False, cap_top=True, top_color=GLOVE_SHADE, skip_k=(2,))
 
     # Left arm (+X)
-    p_l_sh = V( 0.194, 0.996,  0.002)
-    p_l_el = V( 0.272, 0.832, -0.012)
-    p_l_wr = V( 0.278, 0.688,  0.032)
-    build_arm_and_glove(p_l_sh, p_l_el, p_l_wr, glove_len=0.128, arm_bone="Arm_L", fore_bone="Forearm_L")
+    p_l_sh = V( 0.184, 0.976,  0.002)
+    p_l_el = V( 0.278, 0.824, -0.010)
+    p_l_wr = V( 0.284, 0.684,  0.036)
+    build_arm_and_glove(p_l_sh, p_l_el, p_l_wr, glove_len=0.130, side_sign=1, arm_bone="Arm_L", fore_bone="Forearm_L")
 
     # Right arm (-X, cleared cleanly forward of the hanging lobster buoy!)
-    p_r_sh = V(-0.194, 0.996,  0.010)
-    p_r_el = V(-0.276, 0.832, -0.004)
-    p_r_wr = V(-0.280, 0.688,  0.042)
-    build_arm_and_glove(p_r_sh, p_r_el, p_r_wr, glove_len=0.128, arm_bone="Arm_R", fore_bone="Forearm_R")
+    p_r_sh = V(-0.184, 0.976,  0.012)
+    p_r_el = V(-0.282, 0.824, -0.002)
+    p_r_wr = V(-0.286, 0.684,  0.046)
+    build_arm_and_glove(p_r_sh, p_r_el, p_r_wr, glove_len=0.130, side_sign=-1, arm_bone="Arm_R", fore_bone="Forearm_R")
 
     # =========================================================================
-    # 10. LOBSTER/TRAP BUOY & COILED HEMP ROPE TIED TO RIGHT OVERALL STRAP (36 + 16 = 52 tris)
+    # 11. PLUMP 6-SIDED LOBSTER BUOY & THICK COILED HEMP ROPE TIED TO RIGHT STRAP (55 + 42 = 97 tris)
     # =========================================================================
-    # Buoy hangs down & slightly backward/outward behind right arm/hip with crisp clearance!
     mb.set_part("buoy", bone="Buoy")
-    buoy_ctr = V(-0.236, 0.590, -0.252)
-    # Axis pointing UP-FORWARD-INWARD toward the coiled rope bundle on the right overall strap
-    buoy_axis = V(0.24, 0.92, 0.31).normalized()
+    buoy_ctr = V(-0.238, 0.566, -0.258)
+    # Axis pointing UP-FORWARD-INWARD toward the chunky rope coil on the back-right shoulder strap
+    buoy_axis = V(0.24, 0.91, 0.34).normalized()
     ref_up = V(1.0, 0.0, 0.0)
     buoy_u = buoy_axis.cross(ref_up).normalized()
     buoy_v = buoy_axis.cross(buoy_u).normalized()
 
-    def buoy_ring(l_pos, rad, n=5, phase=math.pi / 10.0):
+    def buoy_ring(l_pos, rad, n=6, phase=math.pi / 6.0):
         c = buoy_ctr + buoy_axis * l_pos
         pts = []
         for k in range(n):
@@ -612,53 +709,92 @@ def build_person():
             pts.append(c + buoy_u * (rad * math.cos(a)) + buoy_v * (rad * math.sin(a)))
         return pts
 
-    # 5-sided faceted white maritime float buoy with bold terracotta-red center band (33 tris)
-    r_b_bot = buoy_ring(-0.168, 0.050, n=5)
-    r_b_s0  = buoy_ring(-0.058, 0.094, n=5)
-    r_b_s1  = buoy_ring( 0.038, 0.094, n=5)
-    r_b_top = buoy_ring( 0.192, 0.036, n=5)
+    # Plump 6-sided faceted white maritime float buoy with bold terracotta-red center band (40 tris)
+    r_b_bot = buoy_ring(-0.158, 0.064, n=6)
+    r_b_s0  = buoy_ring(-0.052, 0.112, n=6)
+    r_b_s1  = buoy_ring( 0.044, 0.112, n=6)
+    r_b_hi  = buoy_ring( 0.148, 0.058, n=6)
 
     mb.loft(
         [r_b_bot, r_b_s0],
-        lambda i, k: BUOY_SHADE if k in (2, 3) else BUOY_WHITE,
+        lambda i, k: BUOY_SHADE if k in (2, 3, 4) else BUOY_WHITE,
         cap_bottom=True, cap_top=False, bot_color=BUOY_SHADE,
     )
     mb.loft(
         [r_b_s0, r_b_s1],
-        lambda i, k: BUOY_STRIPE_SHADE if k in (2, 3) else BUOY_STRIPE,
+        lambda i, k: BUOY_STRIPE_SHADE if k in (2, 3, 4) else BUOY_STRIPE,
         cap_bottom=False, cap_top=False,
     )
     mb.loft(
-        [r_b_s1, r_b_top],
+        [r_b_s1, r_b_hi],
+        lambda i, k: BUOY_SHADE if k in (2, 3, 4) else BUOY_WHITE,
+        cap_bottom=False, cap_top=False,
+    )
+
+    # Tapered white wooden top spindle/stem rising UP into the thick braided rope eye (8 tris)
+    neck_r0 = buoy_ring(0.132, 0.046, n=4, phase=math.pi / 4.0)
+    neck_r1 = buoy_ring(0.285, 0.024, n=4, phase=math.pi / 4.0)
+    mb.loft(
+        [neck_r0, neck_r1],
         lambda i, k: BUOY_SHADE if k in (2, 3) else BUOY_WHITE,
         cap_bottom=False, cap_top=False,
     )
 
-    # Tapered wooden center spindle peg protruding cleanly from bottom of buoy (3 tris)
-    peg_r = buoy_ring(-0.158, 0.026, n=3, phase=0.0)
-    peg_tip = buoy_ctr + buoy_axis * (-0.232)
-    for k in range(3):
-        kn = (k + 1) % 3
-        mb.face([peg_r[k], peg_r[kn], peg_tip], BUOY_PEG, out=(peg_r[k] + peg_r[kn]) * 0.5 - buoy_ctr)
+    # Blunt stubby 3-sided tan wooden dowel peg protruding cleanly out the bottom of buoy (7 tris)
+    peg_r0 = buoy_ring(-0.228, 0.024, n=3, phase=0.0)
+    peg_r1 = buoy_ring(-0.148, 0.027, n=3, phase=0.0)
+    mb.loft([peg_r0, peg_r1], BUOY_PEG, cap_bottom=True, cap_top=False, bot_color=BUOY_PEG)
 
-    # Coiled warm tan hemp rope bundle tied directly onto right yellow shoulder strap (16 tris)
+    # THICK COILED HEMP ROPE tying the buoy to his right yellow overall shoulder strap (42 tris)
     mb.set_part("rope", bone="Buoy")
-    # 1. Chunky compact rope coil cushion tucked right behind right shoulder (10 tris)
-    coil_c0 = buoy_ctr + buoy_axis * 0.205
-    coil_c1 = buoy_ctr + buoy_axis * 0.345 + V(0.022, 0.012, 0.028)
-    coil_r0 = [coil_c0 + buoy_u * (0.068 * math.cos(math.pi / 4.0 + math.pi * 0.5 * k))
-               + buoy_v * (0.060 * math.sin(math.pi / 4.0 + math.pi * 0.5 * k)) for k in range(4)]
-    coil_r1 = [coil_c1 + buoy_u * (0.062 * math.cos(math.pi / 4.0 + math.pi * 0.5 * k))
-               + buoy_v * (0.056 * math.sin(math.pi / 4.0 + math.pi * 0.5 * k)) for k in range(4)]
+    # 1. Thick rope collar cinched tightly around the base of the buoy's white upper neck (8 tris)
+    col_r0 = buoy_ring(0.140, 0.068, n=4, phase=math.pi / 4.0)
+    col_r1 = buoy_ring(0.194, 0.066, n=4, phase=math.pi / 4.0)
     mb.loft(
-        [coil_r0, coil_r1],
+        [col_r0, col_r1],
         lambda i, k: ROPE_SHADE if k in (2, 3) else ROPE,
-        cap_bottom=False, cap_top=True, top_color=ROPE,
+        cap_bottom=False, cap_top=False,
     )
-    # 2. Thick hemp rope tie looping smoothly onto the right yellow shoulder strap (6 tris)
+
+    # 2. Thick twin braided rope loop rising on BOTH sides of the white buoy neck up to the shoulder coil! (12 tris)
+    coil_base = buoy_ctr + buoy_axis * 0.345 + V(0.015, 0.010, 0.022)
+    for sgn in (-1.0, 1.0):
+        strand_pts = [
+            buoy_ctr + buoy_axis * 0.168 + buoy_u * (sgn * 0.056),
+            buoy_ctr + buoy_axis * 0.258 + buoy_u * (sgn * 0.072) + buoy_v * (0.012),
+            coil_base + buoy_u * (sgn * 0.036),
+        ]
+        # 3-sided thick braided rope strand along 2 segments? Wait: 1 segment = 6 tris, 2 segs = 12 tris!
+        # Use thick 1-segment bowed rope bridge per side (2 x 6 = 12 tris) so the white neck peeks right between them!
+        mb.tube_path(
+            [strand_pts[0], strand_pts[2]],
+            rad=0.032, n=3,
+            colors=lambda i, k: ROPE_SHADE if k == 2 else ROPE,
+            cap_bottom=False, cap_top=False,
+        )
+
+    # 3. Plump twin coiled hemp rope rolls bundled tightly behind the right shoulder (2 x 10 = 20 tris, closed ends!)
+    for idx_c, offset in enumerate((V(-0.016, 0.012, -0.022), V(0.022, 0.032, 0.018))):
+        rc_ctr = coil_base + offset
+        # Fat pillowy 4-sided coil roll oriented cleanly along the shoulder strap!
+        c_ax = V(0.55, 0.58, 0.60).normalized()
+        c_u = c_ax.cross(V(0.0, 1.0, 0.0)).normalized()
+        c_v = c_ax.cross(c_u).normalized()
+        r0 = [rc_ctr - c_ax * 0.046 + c_u * (0.058 * math.cos(math.pi / 4.0 + math.pi * 0.5 * k))
+                                    + c_v * (0.054 * math.sin(math.pi / 4.0 + math.pi * 0.5 * k)) for k in range(4)]
+        r1 = [rc_ctr + c_ax * 0.046 + c_u * (0.058 * math.cos(math.pi / 4.0 + math.pi * 0.5 * k))
+                                    + c_v * (0.054 * math.sin(math.pi / 4.0 + math.pi * 0.5 * k)) for k in range(4)]
+        mb.loft(
+            [r0, r1],
+            lambda i, k: ROPE_SHADE if k in (2, 3) else ROPE,
+            cap_bottom=(idx_c == 0), cap_top=(idx_c == 1),
+            bot_color=ROPE_SHADE, top_color=ROPE,
+        )
+
+    # 4. Thick hemp rope lashing looping directly onto the right yellow overall shoulder strap! (6 tris)
     hitch_pts = [
-        coil_c1 + V(0.005, -0.015, 0.015),
-        V(-0.132, 1.064, -0.098),
+        coil_base + V(0.024, 0.034, 0.026),
+        V(-0.132, 1.072, -0.088),
     ]
     hitch_norms = [
         V(-0.48, 0.72, -0.50),
@@ -666,20 +802,21 @@ def build_person():
     ]
     mb.tri_strap(
         hitch_pts, hitch_norms,
-        half_w=0.032, thick=0.030,
+        half_w=0.038, thick=0.038,
         colors=lambda i, k: ROPE if k == 0 else ROPE_SHADE,
     )
 
     # =========================================================================
-    # 11. WIDE YELLOW OILSKIN OVERALL LEGS (2 x 16 = 32 tris)
+    # 12. WIDE CUFFED YELLOW OILSKIN OVERALL LEGS (2 x 26 = 52 tris)
     # =========================================================================
     for side in (-1, 1):
         leg_bone  = "Leg_L"  if side > 0 else "Leg_R"
         shin_bone = "Shin_L" if side > 0 else "Shin_R"
 
-        y_hip  = 0.605
-        y_knee = 0.400
-        y_hem  = 0.214  # crisp straight oilskin hem right above brown work boots
+        y_hip  = 0.606
+        y_knee = 0.402
+        y_cuf1 = 0.258  # top edge of turned oilskin pant cuff
+        y_cuf0 = 0.208  # crisp bottom hem edge right above brown boots
 
         def leg_ring(y, xi, xo, rz):
             xa, xb = min(side * xi, side * xo), max(side * xi, side * xo)
@@ -695,33 +832,35 @@ def build_person():
         w_shin = {shin_bone: 1.0}
 
         mb.set_part("overalls_legs")
-        r_hip  = leg_ring(y_hip,  0.008, 0.204, 0.114)
-        r_knee = leg_ring(y_knee, 0.018, 0.218, 0.110)
-        r_hem  = leg_ring(y_hem,  0.022, 0.224, 0.108)
+        r_hip  = leg_ring(y_hip,  0.008, 0.214, 0.120)
+        r_knee = leg_ring(y_knee, 0.016, 0.226, 0.116)
+        r_cuf1 = leg_ring(y_cuf1, 0.020, 0.232, 0.114)
+        r_cuf0 = leg_ring(y_cuf0, 0.014, 0.240, 0.120)  # subtle thick flared oilskin cuff!
         mb.loft(
-            [r_hem, r_knee, r_hip],
-            lambda i, k: OVERALLS_SHADE if k == 2 else OVERALLS,
-            cap_bottom=False, cap_top=False,
-            ring_weights=[w_shin, w_knee, w_hip],
+            [r_cuf0, r_cuf1, r_knee, r_hip],
+            lambda i, k: OVERALLS_SHADE if (k == 2 or i == 0) else OVERALLS,
+            cap_bottom=True, cap_top=False, bot_color=OVERALLS_SHADE,
+            ring_weights=[w_shin, w_shin, w_knee, w_hip],
         )
 
     # =========================================================================
-    # 12. CHUNKY BROWN WORK BOOTS WITH DARK TREADED SOLES (2 x 18 = 36 tris)
+    # 13. CHUNKY SCULPTED BROWN WORK BOOTS WITH TOE VAMP & DARK TREADED SOLES (2 x 26 = 52 tris)
     # =========================================================================
     mb.set_part("boots")
     for side in (-1, 1):
         mb.set_bone("Shin_L" if side > 0 else "Shin_R")
-        cx = side * 0.122
-        w = 0.074
-        w_toe = 0.064
-        z_heel = -0.094
-        z_mid  =  0.072
-        z_toe  =  0.176
+        cx = side * 0.124
+        w = 0.078
+        w_toe = 0.068
+        z_heel = -0.098
+        z_inst =  0.072
+        z_toe  =  0.184
         y_s0   =  0.000
-        y_s1   =  0.036
-        y_top  =  0.242  # rises cleanly inside wide overall cuff so zero gap during walk!
+        y_s1   =  0.038
+        y_vamp =  0.106  # rounded chunky toe box height
+        y_top  =  0.242  # rises cleanly inside cuffed overall hem for zero walk gap!
 
-        # Thick dark brown boot outsole (8 sides + 2 bottom cap = 10 tris)
+        # Thick dark brown treaded outsole (8 sides + 2 bottom cap = 10 tris)
         sole_bot = [
             V(cx - w,     y_s0, z_heel),
             V(cx + w,     y_s0, z_heel),
@@ -736,16 +875,22 @@ def build_person():
         ]
         mb.loft([sole_bot, sole_top], SOLE, cap_bottom=True, cap_top=False, bot_color=SOLE)
 
-        # Sturdy medium-brown leather/rubber boot shaft (8 tris)
+        # Sculpted chunky brown boot vamp + ankle shaft (2 loft bands = 16 tris -> rounded toe silhouette!)
+        vamp_ring = [
+            V(cx - w * 0.96, y_vamp + 0.012, z_heel + 0.008),
+            V(cx + w * 0.96, y_vamp + 0.012, z_heel + 0.008),
+            V(cx + w_toe * 0.94, y_vamp,     z_toe - 0.018),
+            V(cx - w_toe * 0.94, y_vamp,     z_toe - 0.018),
+        ]
         boot_top = [
-            V(cx - w * 0.96, y_top, z_heel + 0.014),
-            V(cx + w * 0.96, y_top, z_heel + 0.014),
-            V(cx + w * 0.96, y_top, z_mid),
-            V(cx - w * 0.96, y_top, z_mid),
+            V(cx - w * 0.92, y_top, z_heel + 0.016),
+            V(cx + w * 0.92, y_top, z_heel + 0.016),
+            V(cx + w * 0.92, y_top, z_inst),
+            V(cx - w * 0.92, y_top, z_inst),
         ]
         mb.loft(
-            [sole_top, boot_top],
-            lambda i, k: BOOT_SHADE if k == 0 else BOOT,
+            [sole_top, vamp_ring, boot_top],
+            lambda i, k: BOOT_SHADE if (k == 0 or (i == 1 and k == 2)) else BOOT,
             cap_bottom=False, cap_top=False,
         )
 
@@ -946,17 +1091,17 @@ def build_rig_and_animations(ob, mb, coll):
 
     bone_defs = [
         ("Root",      None,    ( 0.000, 0.565,  0.000), ( 0.000, 0.675,  0.000)),
-        ("Torso",     "Root",  ( 0.000, 0.610,  0.000), ( 0.000, 1.075,  0.000)),
+        ("Torso",     "Root",  ( 0.000, 0.610,  0.000), ( 0.000, 1.078,  0.000)),
         ("Head",      "Torso", ( 0.000, 1.095,  0.000), ( 0.000, 1.430,  0.000)),
-        ("Arm_L",     "Torso", ( 0.194, 0.996,  0.002), ( 0.194, 1.156,  0.002)),
-        ("Forearm_L", "Arm_L", ( 0.272, 0.832, -0.012), ( 0.272, 0.972, -0.012)),
-        ("Arm_R",     "Torso", (-0.194, 0.996,  0.010), (-0.194, 1.156,  0.010)),
-        ("Forearm_R", "Arm_R", (-0.276, 0.832, -0.004), (-0.276, 0.972, -0.004)),
-        ("Buoy",      "Torso", (-0.132, 1.064, -0.098), (-0.132, 1.224, -0.098)),
-        ("Leg_L",     "Root",  ( 0.114, 0.560,  0.000), ( 0.114, 0.720,  0.000)),
-        ("Shin_L",    "Leg_L", ( 0.118, 0.400,  0.000), ( 0.118, 0.540,  0.000)),
-        ("Leg_R",     "Root",  (-0.114, 0.560,  0.000), (-0.114, 0.720,  0.000)),
-        ("Shin_R",    "Leg_R", (-0.118, 0.400,  0.000), (-0.118, 0.540,  0.000)),
+        ("Arm_L",     "Torso", ( 0.184, 0.976,  0.002), ( 0.184, 1.136,  0.002)),
+        ("Forearm_L", "Arm_L", ( 0.278, 0.824, -0.010), ( 0.278, 0.964, -0.010)),
+        ("Arm_R",     "Torso", (-0.184, 0.976,  0.012), (-0.184, 1.136,  0.012)),
+        ("Forearm_R", "Arm_R", (-0.282, 0.824, -0.002), (-0.282, 0.964, -0.002)),
+        ("Buoy",      "Torso", (-0.132, 1.072, -0.088), (-0.132, 1.232, -0.088)),
+        ("Leg_L",     "Root",  ( 0.118, 0.560,  0.000), ( 0.118, 0.720,  0.000)),
+        ("Shin_L",    "Leg_L", ( 0.122, 0.402,  0.000), ( 0.122, 0.542,  0.000)),
+        ("Leg_R",     "Root",  (-0.118, 0.560,  0.000), (-0.118, 0.720,  0.000)),
+        ("Shin_R",    "Leg_R", (-0.122, 0.402,  0.000), (-0.122, 0.542,  0.000)),
     ]
 
     ebones = {}
@@ -1052,7 +1197,7 @@ def render_preview(obj, out_path):
     specs = [
         (-1.74, math.radians(56)),   # Front-3/4 matching reference angle
         (-0.58, math.radians(0)),    # Front
-        ( 0.58, math.radians(90)),   # Right side (showing lobster buoy & rope tie clearly)
+        ( 0.58, math.radians(90)),   # Right side (showing lobster buoy & thick coiled rope clearly)
         ( 1.74, math.radians(180)),  # Back
     ]
     obj.hide_render = True
