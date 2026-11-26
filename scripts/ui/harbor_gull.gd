@@ -42,20 +42,38 @@ func _visit() -> void:
 		else:
 			_perch_index = (_perch_index + _rng.randi_range(1, PERCHES.size() - 1)) % PERCHES.size()
 		var perch: Vector2 = PERCHES[_perch_index]
-		_flight(visit, entrance, entrance + Vector2(_direction * 210, 25),
-				perch - Vector2(_direction * 55, 18), perch, Flight.LANDING)
+		_flight(
+			visit,
+			entrance,
+			entrance + Vector2(_direction * 210, 25),
+			perch - Vector2(_direction * 55, 18),
+			perch,
+			Flight.LANDING
+		)
 		var rest := _rng.randf_range(14.0, 36.0)
 		visit.tween_interval(rest * 0.45)
 		visit.tween_method(_look, 0.0, 1.0, 0.30)
 		visit.tween_interval(_rng.randf_range(0.8, 2.4))
 		visit.tween_method(_look, 1.0, 0.0, 0.34)
 		visit.tween_interval(rest * 0.55)
-		_flight(visit, perch, perch + Vector2(_direction * 45, -120),
-				exit_point - Vector2(_direction * 180, 50), exit_point, Flight.TAKEOFF)
+		_flight(
+			visit,
+			perch,
+			perch + Vector2(_direction * 45, -120),
+			exit_point - Vector2(_direction * 180, 50),
+			exit_point,
+			Flight.TAKEOFF
+		)
 	else:
 		var dip := _rng.randf_range(235.0, 350.0)
-		_flight(visit, entrance, Vector2(entrance.lerp(exit_point, 0.32).x, dip),
-				Vector2(entrance.lerp(exit_point, 0.71).x, dip + 36), exit_point, Flight.CROSSING)
+		_flight(
+			visit,
+			entrance,
+			Vector2(entrance.lerp(exit_point, 0.32).x, dip),
+			Vector2(entrance.lerp(exit_point, 0.71).x, dip + 36),
+			exit_point,
+			Flight.CROSSING
+		)
 	visit.tween_callback(_wait_for_visit.bind(_rng.randf_range(18.0, 47.0)))
 
 
@@ -63,14 +81,24 @@ func _sky_edge(side: int) -> Vector2:
 	return Vector2(-85 if side < 0 else 1365, _rng.randf_range(135.0, 245.0))
 
 
-func _flight(visit: Tween, start: Vector2, a: Vector2, b: Vector2, end: Vector2, kind: Flight) -> void:
+func _flight(
+	visit: Tween, start: Vector2, a: Vector2, b: Vector2, end: Vector2, kind: Flight
+) -> void:
 	var seconds := clampf(start.distance_to(end) / _rng.randf_range(120.0, 165.0), 3.5, 11.0)
 	var size_in_air := _rng.randf_range(82.0, 105.0)
 	visit.tween_method(_fly.bind(start, a, b, end, kind, seconds, size_in_air), 0.0, 1.0, seconds)
 
 
-func _fly(t: float, start: Vector2, a: Vector2, b: Vector2, end: Vector2,
-		kind: Flight, seconds: float, size_in_air: float) -> void:
+func _fly(
+	t: float,
+	start: Vector2,
+	a: Vector2,
+	b: Vector2,
+	end: Vector2,
+	kind: Flight,
+	seconds: float,
+	size_in_air: float
+) -> void:
 	_glass.set_shader_parameter("gull_anchor", start.bezier_interpolate(a, b, end, t))
 	var size_px := size_in_air
 	if kind == Flight.LANDING:
