@@ -69,6 +69,10 @@ func _run_case(reverse: bool) -> void:
 		live.cars_today == 2 and rig.fare_paid == 54,
 		"The rig paid before reaching its reserved slots"
 	)
+	# The next paying vehicle is already on the road at the other end.
+	# Its approach and the paid rig's boarding callback belong to different owners.
+	ferry.destination()._spawn_car()
+	check(live.moving_vehicles.size() >= 2, "Both the approaching car and paid rig are moving")
 	var boarding := _save(ferry)
 	var half := ferry.run_length() / 2.0
 	for frame in LIMIT:
@@ -154,7 +158,14 @@ func _save(ferry: Ferry) -> Dictionary:
 		if car.trailer:
 			pose.append(var_to_str(car.trailer.global_transform))
 		poses[car.model] = pose
+	var lots := {}
+	for term: Terminal in sim.terminals.values():
+		var holding := TerminalHoldingSnapshot.capture(term)
+		if holding.is_empty():
+			return {}
+		lots[term.town.key] = holding
 	var record := {
+		"lots": lots,
 		"vehicle_poses": poses,
 		"voyage": voyage,
 		"ledger": sim.ledger.snapshot(sim.map.routes),
@@ -192,6 +203,14 @@ func _compare_resume(saved: Dictionary, expected: Dictionary) -> void:
 		),
 		"Failed restore leaves the hull, reservations and traffic empty"
 	)
+	# Install the queues before reconnecting the paid rig to its departure lane.
+	for term: Terminal in sim.terminals.values():
+		check(
+			TerminalHoldingSnapshot.restore(
+				saved.lots[term.town.key], term, VehicleFactory.from_parts
+			),
+			"Reconnect terminal traffic at %s" % term.town.key
+		)
 	var restored := FerryCrossingSnapshot.restore(saved.voyage, ferry, VehicleFactory.from_parts)
 	check(restored, "Restore %s into a fresh simulation" % saved.voyage.phase)
 	if restored:
@@ -229,8 +248,15 @@ func _check_clock_rejections(record: Dictionary, sim: Simulation) -> void:
 
 
 func _arrive_and_board_again(ferry: Ferry) -> Dictionary:
-	# Place one new paying car at the far terminal to prove the next transaction.
-	var next := _enqueue(ferry.destination(), VehicleFactory.from_parts(false, "sedan_compact", 1))
+	var next: Vehicle
+	for car: Vehicle in ferry.sim.traffic.get_children():
+		if car.dest == ferry.here().town.id:
+			next = car
+			break
+	check(next != null, "The vehicle approaching the far terminal survives the save")
+	if next == null:
+		return {}
+	var fare := ferry.sim.ledger.vehicle_fare_for(ferry.route.id) * next.fare_multiplier()
 	var unloading: Array[String] = []
 	for frame in LIMIT:
 		_step(ferry)
@@ -244,7 +270,11 @@ func _arrive_and_board_again(ferry: Ferry) -> Dictionary:
 		"Both original vehicles unload at their destination"
 	)
 	check(
-		next.fare_paid == 18 and ferry.sim.cars_today == 3 and ferry.sim.revenue_today == 90,
+		(
+			next.fare_paid == fare
+			and ferry.sim.cars_today == 3
+			and ferry.sim.revenue_today == 72 + fare
+		),
 		"Only the next boarding adds a third fare"
 	)
 	return {
