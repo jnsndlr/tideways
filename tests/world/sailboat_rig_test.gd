@@ -77,15 +77,31 @@ func check_canvas(hull: VesselHullView, view: SailboatView, hoisted: bool) -> vo
 
 func check_trim(view: SailboatView, tack: int) -> void:
 	var sheet := tack * (PI / 2.0 - 0.6) * 0.55
-	var camber := Basis.from_scale(Vector3(tack, 1, 1)) if Models.mid_sailboat else Basis.IDENTITY
+	var authored := (
+		not "--classic-sailboat" in OS.get_cmdline_user_args()
+		and ResourceLoader.exists("res://assets/models/sailboat_mid.glb")
+	)
+	var camber := Basis.from_scale(Vector3(tack, 1, 1)) if authored else Basis.IDENTITY
+	var pivot := Vector3(0, 0.62, 1.976) if authored else Vector3(0, 0.8, 1.7)
+	var head := Vector3(0, 3.55, 0.391) if authored else Vector3(0, 3.6, 0.35)
 	var mainsail: MeshInstance3D = view.get_child(0)
 	var jib: MeshInstance3D = view.get_child(1)
-	expect(mainsail.mesh == Models.sailboat_main() and mainsail.position.is_equal_approx(Models.SAIL_MAIN_PIVOT),
-			"The mainsail is attached at the boom pivot")
-	expect(jib.mesh == Models.sailboat_jib() and jib.position.is_equal_approx(Models.jib_tack()),
-			"The jib is attached at its tack")
-	var stay := (Models.jib_head() - Models.jib_tack()).normalized()
-	expect(mainsail.basis.is_equal_approx(Basis(Vector3.UP, -sheet) * camber), "Mainsail swings to leeward")
+	expect(
+		(
+			mainsail.mesh == Models.sailboat_main()
+			and mainsail.position.is_equal_approx(Vector3(0, 0, 0.2))
+		),
+		"The mainsail is attached at the boom pivot"
+	)
+	expect(
+		jib.mesh == Models.sailboat_jib() and jib.position.is_equal_approx(pivot),
+		"The jib is attached at its tack"
+	)
+	var stay := (head - pivot).normalized()
+	expect(
+		mainsail.basis.is_equal_approx(Basis(Vector3.UP, -sheet) * camber),
+		"Mainsail swings to leeward"
+	)
 	expect(jib.basis.is_equal_approx(Basis(stay, -sheet) * camber), "Jib trims around its stay")
 
 
