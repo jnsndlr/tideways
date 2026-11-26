@@ -632,6 +632,8 @@ func _build_road_paths() -> void:
 	if town.road_main_b.size() > 1:
 		branches.append(town.road_main_b)
 	branches.append_array(town.road_cross)
+	if town.street_plan != null:
+		branches.append_array(town.street_plan.drives_from_square())
 	if branches.is_empty():
 		branches.append(PackedVector3Array([town.road_main_a[town.road_main_a.size() - 1]]))
 	for b in branches:

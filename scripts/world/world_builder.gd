@@ -1223,18 +1223,27 @@ func _build_roads() -> void:
 		if isl.road_main_a.is_empty():
 			continue
 		_ticket_approach(aprons, isl)
+		var plan := isl.street_plan
+		var by_plan := plan != null and plan.edges.size() == isl.road_lanes.size()
+		# Where plan streets (and the lot road into the square) meet: one plate each,
+		# and how far back each street stops for it.
+		var style := RoadMesh.Style.DOUBLE_EDGES if isl.population >= DOUBLE_LINE_POP else RoadMesh.Style.DASHED_EDGES
+		# road_lanes holds the plan's edges in order: each street's zone picks its look.
+		var zone_style := [RoadMesh.Style.CORE_WALK, RoadMesh.Style.CORE_WALK, RoadMesh.Style.DASHED, RoadMesh.Style.CORE_WALK]
+		var trims := _junctions(mb, plan, isl.road_main_a, style, zone_style) if by_plan else {}
 		var main := isl.road_main_a.duplicate()
 		var centre := RoadMesh.length_of(isl.road_main_a)
 		if isl.road_main_b.size() > 1:
 			main.append_array(isl.road_main_b.slice(1))
 		var total := RoadMesh.length_of(main)
 		var crossed := not isl.road_cross.is_empty()
-		var style := RoadMesh.Style.DOUBLE_EDGES if isl.population >= DOUBLE_LINE_POP else RoadMesh.Style.DASHED_EDGES
+		var main_stop: float = total - float(trims.get("lot", 0.0))
 		# No markings over the lot's apron, through the junction or right at the end.
 		var show_main := func(s: float) -> float:
-			var k := smoothstep(3.0, 9.0, s) * smoothstep(0.0, 4.0, total - s)
-			return k * smoothstep(6.0, 11.0, absf(s - centre)) if crossed else k
-		RoadMesh.strip(mb, main, ROAD, style, show_main)
+			var k := smoothstep(3.0, 9.0, s) * smoothstep(0.0, 4.0, main_stop - s)
+			k = k * smoothstep(6.0, 11.0, absf(s - centre)) if crossed else k
+			return 0.5 + 0.5 * k  # the sidewalk runs right up to the lot and the junction
+		RoadMesh.strip(mb, main, ROAD, style, show_main, 0.0, main_stop if trims.has("lot") else INF)
 		var lines: Array[PackedVector3Array] = [main]
 		for line in isl.road_cross:
 			var length := RoadMesh.length_of(line)
@@ -1242,19 +1251,15 @@ func _build_roads() -> void:
 				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(0.0, 4.0, length - s)
 			RoadMesh.strip(mb, line, ROAD, RoadMesh.Style.DASHED, show, RoadMesh.HALF)
 			lines.append(line)
-		# Plan streets meet another street at both ends: fade out by both junctions
-		# so neither end's verge draws over the road it joins.
-		# road_lanes holds the plan's edges in order: each street's zone picks its look.
-		var plan := isl.street_plan
-		var by_plan := plan != null and plan.edges.size() == isl.road_lanes.size()
-		var zone_style := [RoadMesh.Style.CORE_WALK, RoadMesh.Style.DASHED, RoadMesh.Style.LANE, style]
 		for li in isl.road_lanes.size():
 			var line := isl.road_lanes[li]
 			var length := RoadMesh.length_of(line)
+			var t0: float = trims.get("%d_0" % li, RoadMesh.HALF)
+			var t1: float = trims.get("%d_1" % li, RoadMesh.HALF)
 			var show := func(s: float) -> float:
-				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, length - s)
+				return 0.5 + 0.5 * smoothstep(t0, t0 + 5.0, s) * smoothstep(t1, t1 + 5.0, length - s)
 			var lane_style: RoadMesh.Style = zone_style[plan.edges[li].zone] if by_plan else RoadMesh.Style.DASHED
-			RoadMesh.strip(mb, line, ROAD, lane_style, show, RoadMesh.HALF)
+			RoadMesh.strip(mb, line, ROAD, lane_style, show, t0, length - t1)
 			lines.append(line)
 		for line in lines:
 			for i in range(0, line.size(), 3):
@@ -1265,6 +1270,82 @@ func _build_roads() -> void:
 	_add_mesh(mb.commit(mat), "Roads", false)
 	_add_mesh(lamps.commit(), "StreetLamps", false)
 	_add_mesh(aprons.commit(), "TicketApproaches", false)
+
+
+## Join plan streets where two or more meet (see RoadMesh.junction).
+func _junctions(mb: MeshBuilder, plan: StreetPlan, lot_road: PackedVector3Array, lot_style: int, zone_style: Array) -> Dictionary:
+	# node → [centre, arms, keys]: key "li_end" names which street end each arm is.
+	var at := {}
+	if lot_road.size() > 2:
+		var sqn := 0
+		var end := lot_road[lot_road.size() - 1]
+		for i in plan.nodes.size():
+			if plan.nodes[i].distance_to(end) < plan.nodes[sqn].distance_to(end):
+				sqn = i
+		at[sqn] = [end, [_heading(lot_road, true)] as Array[Vector3], ["lot"], [[lot_road, true, lot_style]]]
+	for li in plan.edges.size():
+		var e: Dictionary = plan.edges[li]
+		var pts: PackedVector3Array = e.pts
+		if pts.size() < 2:
+			continue
+		for end: int in [0, 1]:
+			var n: int = e.a if end == 0 else e.b
+			if n < 0:
+				continue
+			if not at.has(n):
+				at[n] = [pts[0] if end == 0 else pts[pts.size() - 1], [] as Array[Vector3], [], []]
+			at[n][1].append(_heading(pts, end == 1))
+			at[n][3].append([pts, end == 1, zone_style[e.zone]])
+			at[n][2].append("%d_%d" % [li, end])
+	var trims := {}
+	for n: int in at:
+		var arms: Array[Vector3] = at[n][1]
+		if arms.size() < 2 or (arms.size() == 2 and arms[0].dot(arms[1]) < -0.9):
+			for k: String in at[n][2]:
+				trims[k] = 0.0  # a dead end or a street running straight on
+			continue
+		var reach := RoadMesh.junction_reach(arms)
+		var mouths := PackedVector3Array()
+		var tangents := PackedVector3Array()
+		var styles: Array[int] = []
+		for i in arms.size():
+			styles.append(at[n][3][i][2])
+			var pts: PackedVector3Array = at[n][3][i][0]
+			var from_end: bool = at[n][3][i][1]
+			var m := _point_along(pts, from_end, reach[i])
+			mouths.append(m)
+			var t := _point_along(pts, from_end, reach[i] + 1.0) - m
+			t.y = 0.0
+			tangents.append(t.normalized() if t.length() > 0.01 else arms[i])
+		RoadMesh.junction(mb, at[n][0], mouths, tangents, styles, ROAD)
+		for i in arms.size():
+			trims[at[n][2][i]] = reach[i]
+	return trims
+
+
+## Point on a line `dist` metres in from its start (or end).
+func _point_along(pts: PackedVector3Array, from_end: bool, dist: float) -> Vector3:
+	var s := 0.0
+	for k in pts.size() - 1:
+		var a := pts[pts.size() - 1 - k] if from_end else pts[k]
+		var b := pts[pts.size() - 2 - k] if from_end else pts[k + 1]
+		var seg := Vector2(b.x - a.x, b.z - a.z).length()
+		if s + seg >= dist:
+			return a.lerp(b, (dist - s) / maxf(seg, 0.001))
+		s += seg
+	return pts[0] if from_end else pts[pts.size() - 1]
+
+
+## Flat heading out of a line's start (or, with `from_end`, back out of its end),
+## taken ~8 m along so a curving street points the way it actually leaves.
+func _heading(pts: PackedVector3Array, from_end: bool) -> Vector3:
+	var p0 := pts[pts.size() - 1] if from_end else pts[0]
+	var p1 := p0
+	for i in pts.size():
+		p1 = pts[pts.size() - 1 - i] if from_end else pts[i]
+		if Vector2(p1.x - p0.x, p1.z - p0.z).length() > 8.0:
+			break
+	return Vector3(p1.x - p0.x, 0.0, p1.z - p0.z).normalized()
 
 
 func _ticket_approach(mb: MeshBuilder, isl: MapData.Town) -> void:
@@ -1280,8 +1361,9 @@ func _ticket_approach(mb: MeshBuilder, isl: MapData.Town) -> void:
 		var sb := Layout.ticket_spread((entrance - b).dot(isl.dock_dir), length)
 		if sa <= 0.0:
 			break
-		var inner_a := a - lateral * RoadMesh.HALF
-		var inner_b := b - lateral * RoadMesh.HALF
+		# From the kerb line, laid just over the sidewalk so it gives way to the lanes.
+		var inner_a := a - lateral * RoadMesh.ASPHALT_HALF + Vector3.UP * 0.02
+		var inner_b := b - lateral * RoadMesh.ASPHALT_HALF + Vector3.UP * 0.02
 		var outer_a := inner_a - lateral * Layout.TICKET_EXTRA_WIDTH * sa
 		var outer_b := inner_b - lateral * Layout.TICKET_EXTRA_WIDTH * sb
 		mb.quad(inner_a, outer_a, outer_b, inner_b, ROAD, Vector3.UP)
@@ -1463,6 +1545,8 @@ func _build_towns() -> void:
 		var RESERVE_COMMERCIAL := maxi(0, ceili(candidates.size() * 0.24) - want_commercial)
 		var RESERVE_HOUSES := candidates.size()
 		var has_city_hall := false
+		var taken: Array[PackedVector2Array] = []  # footprints placed or reserved so far
+		var streets := _street_hash(isl)
 		var placed_comm := 0
 		var placed_houses := 0
 		var reserved_landmarks := 0
@@ -1533,6 +1617,10 @@ func _build_towns() -> void:
 			var lot := _kit_lot_heights(p, basis, plan)
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
+			var foot := _footprint(p, yaw, plan, sc, CITY_HALL_CLEAR if vi == city_hall_variant else BUILDING_GAP)
+			if _hits(taken, foot) or _on_street(streets, foot):
+				continue
+			taken.append(foot)
 			used_idx[idx] = true
 			if placed_comm < want_commercial:
 				var pad := _lot_pad(c, plan, sc)
@@ -1583,6 +1671,10 @@ func _build_towns() -> void:
 			var lot := _kit_lot_heights(p, basis, plan)
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
+			var foot := _footprint(p, yaw, plan, hsc, BUILDING_GAP)
+			if _hits(taken, foot) or _on_street(streets, foot):
+				continue
+			taken.append(foot)
 			used_idx[idx] = true
 			if placed_houses < want_houses:
 				var pad := _lot_pad(c, plan, hsc)
@@ -1697,6 +1789,71 @@ func _plan_lot_candidates(isl: MapData.Town) -> Array[Dictionary]:
 const LOT_SETBACK := 1.0
 const LOT_SIDE_GAP := 0.6   # total, split between the two sides
 const LOT_MIN_SCALE := 0.8
+## Gap kept between neighbouring buildings, and the clear ground round city hall.
+const BUILDING_GAP := 0.75
+const CITY_HALL_CLEAR := 4.0
+
+
+## A building's footprint corners in XZ, grown by `grow` each side.
+func _footprint(p: Vector3, yaw: float, plan: Rect2, sc: float, grow: float) -> PackedVector2Array:
+	var r := Rect2(plan.position * sc, plan.size * sc).grow(grow)
+	var b := Basis(Vector3.UP, yaw)
+	var out := PackedVector2Array()
+	for c: Vector2 in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+		var w := p + b * Vector3(c.x, 0.0, c.y)
+		out.append(Vector2(w.x, w.z))
+	return out
+
+
+## Street centreline points bucketed by STREET_CELL, for _on_street.
+const STREET_CELL := 12.0
+## A building keeps this far from any street's centreline (past the sidewalk).
+const STREET_CLEAR := RoadMesh.HALF + 0.6
+
+
+func _street_hash(isl: MapData.Town) -> Dictionary:
+	var lines: Array[PackedVector3Array] = [isl.road_main_a, isl.road_main_b]
+	lines.append_array(isl.road_cross)
+	lines.append_array(isl.road_lanes)
+	var h := {}
+	for line in lines:
+		for i in line.size() - 1:
+			var a := Vector2(line[i].x, line[i].z)
+			var b := Vector2(line[i + 1].x, line[i + 1].z)
+			var n := maxi(1, ceili(a.distance_to(b) / 2.0))
+			for k in n + 1:
+				var q := a.lerp(b, float(k) / n)
+				var key := Vector2i(floori(q.x / STREET_CELL), floori(q.y / STREET_CELL))
+				if not h.has(key):
+					h[key] = PackedVector2Array()
+				h[key].append(q)
+	return h
+
+
+## Whether any part of the footprint (edges sampled every ~1.5 m) is on a street.
+func _on_street(h: Dictionary, foot: PackedVector2Array) -> bool:
+	for i in foot.size():
+		var a := foot[i]
+		var b := foot[(i + 1) % foot.size()]
+		var n := maxi(1, ceili(a.distance_to(b) / 1.5))
+		for k in n:
+			var q := a.lerp(b, float(k) / n)
+			var c := Vector2i(floori(q.x / STREET_CELL), floori(q.y / STREET_CELL))
+			for dx in range(-1, 2):
+				for dy in range(-1, 2):
+					for r: Vector2 in h.get(c + Vector2i(dx, dy), PackedVector2Array()):
+						if r.distance_to(q) < STREET_CLEAR:
+							return true
+	return false
+
+
+func _hits(taken: Array[PackedVector2Array], foot: PackedVector2Array) -> bool:
+	for t in taken:
+		if not Geometry2D.intersect_polygons(t, foot).is_empty():
+			return true
+	return false
+
+
 func _fit_lot(c: Dictionary, plans: Array[Rect2], want: int, count: int, sc: float) -> Array:
 	if not c.has("lot_w"):
 		return [want, sc, c["p"]]

@@ -51,6 +51,9 @@ var detail := FastNoiseLite.new()
 var rubble := FastNoiseLite.new()
 var hills := FastNoiseLite.new()
 var flats: Array[Dictionary] = []
+## Under a graded road the ground may not rise above the road bed again (lot pads,
+## later flats): NAN where no road claims the cell.
+var road_cap := PackedFloat32Array()
 ## The land past the grid's edge (heights there come from it, see outer_height).
 var mainland: Mainland
 ## owner_grid's mark for ground the mainland shaped (not an island's stamp).
@@ -419,6 +422,10 @@ func _apply_roads(f: Dictionary) -> void:
 				continue
 			if d <= 0.0:
 				h_grid[g] = target
+				if road_cap.size() != h_grid.size():
+					road_cap.resize(h_grid.size())
+					road_cap.fill(NAN)
+				road_cap[g] = target
 				continue
 			var run := clampf(absf(h_grid[g] - target) * 3.0, blend, ROAD_SLOPE_MAX)
 			if d < run:
@@ -466,6 +473,8 @@ func _apply_flat(f: Dictionary) -> void:
 					h_grid[k] = lerpf(h_grid[k], cap, 1.0 - smoothstep(0.0, blend, dd))
 				continue
 			h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
+			if k < road_cap.size() and not is_nan(road_cap[k]):
+				h_grid[k] = minf(h_grid[k], road_cap[k])
 
 
 ## Dredging (a slip bought where the water is shallow, Terminal): the ground over

@@ -420,3 +420,66 @@ func _near_other(q: Vector3, own: PackedVector3Array, gap: float) -> bool:
 			if Vector2(p.x - q.x, p.z - q.z).length() < gap and p.distance_to(own[0]) > gap + 1.0:
 				return true
 	return false
+
+
+## Drives for cars: from the square out along the streets to up to `count` junctions
+## spread through the town (farthest first), each as one polyline of street points.
+func drives_from_square(count := 10) -> Array[PackedVector3Array]:
+	var out: Array[PackedVector3Array] = []
+	if nodes.is_empty() or edges.is_empty():
+		return out
+	var start := 0
+	for i in nodes.size():
+		if nodes[i].distance_to(_sq) < nodes[start].distance_to(_sq):
+			start = i
+	# Dijkstra over street lengths; prev_e[n] = edge index used to reach n.
+	var dist := PackedFloat32Array()
+	dist.resize(nodes.size())
+	dist.fill(INF)
+	var prev_e := PackedInt32Array()
+	prev_e.resize(nodes.size())
+	prev_e.fill(-1)
+	dist[start] = 0.0
+	var open: Array[int] = [start]
+	while not open.is_empty():
+		var bi := 0
+		for k in open.size():
+			if dist[open[k]] < dist[open[bi]]:
+				bi = k
+		var n: int = open[bi]
+		open.remove_at(bi)
+		for ei in edges.size():
+			var e: Dictionary = edges[ei]
+			var m: int = e.b if e.a == n else (e.a if e.b == n else -2)
+			if m < 0:
+				continue
+			var d := dist[n] + RoadMesh.length_of(e.pts)
+			if d < dist[m]:
+				dist[m] = d
+				prev_e[m] = ei
+				open.append(m)
+	var reach: Array[int] = []
+	for i in nodes.size():
+		if i != start and dist[i] < INF:
+			reach.append(i)
+	reach.sort_custom(func(x: int, y: int) -> bool: return dist[x] > dist[y])
+	var stride := maxi(1, reach.size() / count)
+	for r in range(0, reach.size(), stride):
+		var path := PackedVector3Array()
+		var n: int = reach[r]
+		while n != start:
+			var e: Dictionary = edges[prev_e[n]]
+			var pts: PackedVector3Array = e.pts.duplicate()
+			var from: int = e.a if e.b == n else e.b
+			if e.a == n:
+				pts.reverse()  # pts now run from → n
+			# prepend
+			if not path.is_empty():
+				pts.append_array(path.slice(1))
+			path = pts
+			n = from
+		if path.size() > 1:
+			out.append(path)
+		if out.size() >= count:
+			break
+	return out

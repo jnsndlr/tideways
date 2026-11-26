@@ -209,6 +209,10 @@ func _seed_starting_milestones(town: MapData.Town, st: TownState) -> void:
 			_apply_milestone_bonuses(st, def)
 
 
+## Off until airfields are placed on the map (docs/town-layout-plan.md, island beyond).
+const AIRFIELDS_PLACED := false
+
+
 func _town_milestone_defs(community_type: String) -> Array[Dictionary]:
 	var defs: Array[Dictionary] = []
 	match community_type:
@@ -239,7 +243,9 @@ func _town_milestone_defs(community_type: String) -> Array[Dictionary]:
 				"id": "tier_2500", "pop": 2500, "title": "Civic Hall",
 				"model": "city_hall", "growth": 0.15, "res": 12.0, "ind": 5.0, "tour": 6.0, "econ": 8.0, "rec": 5.0,
 			})
-	defs.append({
+	# The hangar belongs on an island with an airfield; none are placed on the map yet.
+	if AIRFIELDS_PLACED:
+		defs.append({
 		"id": "airfield_4000", "pop": 4000, "title": "Regional Airfield Hangar",
 		"model": "airplane_hangar_low", "growth": 0.20, "res": 8.0, "ind": 10.0, "tour": 10.0, "econ": 12.0, "rec": 6.0,
 	})

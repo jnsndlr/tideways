@@ -113,8 +113,10 @@ void road_detail(vec3 wp, vec2 uv, vec2 uv2, vec2 fw, float mpp, inout vec3 albe
 	if (style == 2 || style == 3) {
 		white = rd_band(ax - RD_EDGE_LINE, 0.07, fw.x);
 	}
-	yellow *= show * wear;
-	white *= show * wear * (1.0 - shoulder);
+	// Markings use the upper half of `show`; below 0.5 the shoulders are paved over too.
+	float paint_k = clamp(show * 2.0 - 1.0, 0.0, 1.0);
+	yellow *= paint_k * wear;
+	white *= paint_k * wear * (1.0 - shoulder);
 	vec3 paint_y = yellow_line;
 	vec3 paint_w = white_line;
 	albedo = mix(albedo, paint_y, yellow);
