@@ -65,6 +65,8 @@ check motor-yacht-anchor test --script tests/world/motor_yacht_anchor_test.gd
 check vessel-hull test --script tests/world/vessel_hull_view_test.gd
 check authored-pilot test --script tests/world/pilot_boat_model_test.gd
 check classic-pilot test --script tests/world/pilot_boat_model_test.gd -- --classic-pilot
+check authored-tug test --script tests/world/tug_model_test.gd
+check classic-tug test --script tests/world/tug_model_test.gd -- --classic-tug
 check vessel-night-lights test --script tests/world/vessel_night_lights_test.gd
 check trawler-gear test --script tests/world/trawler_gear_test.gd
 check sailboat-rig test --script tests/world/sailboat_rig_test.gd
