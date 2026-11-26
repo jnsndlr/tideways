@@ -8,6 +8,8 @@
 
 **Background traffic and wildlife.** On reopening a company, regenerate ambient marine traffic and wildlife for the region. Ferry service, vehicles aboard, and passengers and vehicles using terminals belong to the company snapshot. Arriving ferries resume their landing ramp, ordered discharge queues and terminal ownership. Vehicles and walk-ons already heading home finish their saved paths. [Unloading checks](../tests/session/ferry_unloading_snapshot_test.gd) The hull retains the last vehicle it discharged until that vehicle clears the lot. [Outbound vehicles](../tests/session/outbound_traffic_snapshot_test.gd) [Save policy](https://linear.app/tideways/issue/TID-312) · [iPad reopen acceptance](https://linear.app/tideways/issue/TID-239)
 
+**Inbound delivery.** A paid ferry under tow keeps its target berth and the tug’s saved path, progress and speed. Continue reconstructs the moving pair before the first simulation frame. The ordinary arrival callback hands the ferry over once. Saving again after that handoff records the unassigned ferry at its berth, so the next Continue resumes it alongside. The shipyard remains the only place that charges the purchase. [TID-333](https://linear.app/tideways/issue/TID-333)
+
 **Purchased berth sites.** Restore the first added working slip or tie-up at the purchased offset before applying fitted berth sizes. The original survey recreates necessary dredging. The crane resumes its saved phase and opens outstanding work once. The ledger restores the original payment. Multiple successive berth purchases and route reassignment still need coverage. [New berth and dredging checks](../tests/session/terminal_berth_purchase_snapshot_test.gd)
 
 ## Where editable art lives
