@@ -75,6 +75,15 @@ func lift() -> void:
 ## Continue an already-started lift from its saved pose.
 func resume_lift(span: float, apron: float) -> void:
 	lift()
+	_resume_pose(span, apron)
+
+
+func resume_landing(span: float, apron: float) -> void:
+	land()
+	_resume_pose(span, apron)
+
+
+func _resume_pose(span: float, apron: float) -> void:
 	span_fraction = span
 	apron_fraction = apron
 	pose_changed.emit(span_fraction, apron_fraction)

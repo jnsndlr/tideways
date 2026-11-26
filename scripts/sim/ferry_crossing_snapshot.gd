@@ -4,7 +4,7 @@ extends RefCounted
 ## an empty hull after rebuilding the same network, timetable, captain and class.
 ## The company owns the clock, ledger and waiting queues separately. Restore the
 ## network's corridor reservations after installing every hull's position.
-const VERSION := 3
+const VERSION := 4
 const NUMBERS := [
 	"distance",
 	"speed",
@@ -34,7 +34,7 @@ const NUMBERS := [
 static func capture(ferry: Ferry) -> Dictionary:
 	if not _ordinary_service(ferry):
 		return {}
-	if ferry.state not in [Ferry.State.SAILING, Ferry.State.LOADING]:
+	if ferry.state not in [Ferry.State.SAILING, Ferry.State.LOADING, Ferry.State.UNLOADING]:
 		return {}
 	var walking := (
 		ferry.state == Ferry.State.LOADING and ferry._load_phase != Ferry.LoadPhase.VEHICLES
@@ -49,19 +49,6 @@ static func capture(ferry: Ferry) -> Dictionary:
 	var vehicles = FerryVehicleManifest.capture(ferry)
 	if vehicles == null:
 		return {}
-	var passengers := []
-	for pax in ferry.passengers_aboard:
-		var dest: int = pax.dest
-		(
-			passengers
-			. append(
-				{
-					"town": ferry.sim.map.towns[dest].key if dest >= 0 else "",
-					"variant": pax.variant,
-					"fare_paid": pax.fare_paid,
-				}
-			)
-		)
 	var command := ferry._command
 	var record := {
 		"version": VERSION,
@@ -97,8 +84,19 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"landing_askew": ferry._landing_askew,
 		"slip_chosen": ferry._slip_chosen,
 		"vehicles": vehicles,
-		"passengers": passengers,
+		"passengers": _capture_passengers(ferry.passengers_aboard, ferry),
+		"homeward_walkers": FerryWalkOnSnapshot.capture_walkers(ferry._homeward_walkers),
 	}
+	if ferry.state == Ferry.State.UNLOADING:
+		var ramp := ferry._ramp(ferry.here())
+		record.phase = "unloading"
+		record.unloading = {
+			"ramp": [ramp.span_fraction, ramp.apron_fraction] if ramp else null,
+			"owns_terminal": ferry.here().unloading_ferry == ferry,
+			"passengers": _capture_passengers(ferry._pax_unload_queue, ferry),
+			"passenger_dispatch": ferry._pax_dispatch_timer,
+			"passengers_per_tick": ferry._pax_unload_per_tick,
+		}
 	if ferry._casting_off:
 		record.phase = "casting_off"
 		var ramp := ferry._ramp(ferry.here())
@@ -107,6 +105,23 @@ static func capture(ferry: Ferry) -> Dictionary:
 		record.phase = "walk_ons"
 		record.walk_ons = FerryWalkOnSnapshot.capture(ferry)
 	return record
+
+
+static func _capture_passengers(aboard: Array[Dictionary], ferry: Ferry) -> Array:
+	var passengers := []
+	for pax in aboard:
+		var dest: int = pax.dest
+		(
+			passengers
+			. append(
+				{
+					"town": ferry.sim.map.towns[dest].key if dest >= 0 else "",
+					"variant": pax.variant,
+					"fare_paid": pax.fare_paid,
+				}
+			)
+		)
+	return passengers
 
 
 static func _ordinary_service(ferry: Ferry) -> bool:
@@ -164,13 +179,24 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 	var ramp := ferry._ramp(departure)
 	if casting_off and not _valid_lift(record.get("lifting_ramp"), ramp):
 		return false
+	var unloading: bool = record.phase == "unloading"
+	var waiting_to_leave: Array[Dictionary] = []
+	if (
+		unloading
+		and not _valid_unloading(record.unloading, ferry, departure, passengers, waiting_to_leave)
+	):
+		return false
+	var homeward: Variant = record.get("homeward_walkers", [])
+	if not FerryWalkOnSnapshot.valid_walkers(homeward):
+		return false
 	var manifest := FerryVehicleManifest.prepare(
 		record.get("vehicles"),
 		ferry,
 		at_a != record.reversed,
 		build_vehicle,
 		departure,
-		sailing or walking or casting_off
+		sailing or walking or casting_off or unloading,
+		unloading
 	)
 	if manifest == null:
 		return false
@@ -180,6 +206,17 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 		if ramp:
 			ramp.resume_lift(record.lifting_ramp[0], record.lifting_ramp[1])
 	ferry.state = Ferry.State.SAILING if sailing else Ferry.State.LOADING
+	if unloading:
+		var off: Dictionary = record.unloading
+		ferry.state = Ferry.State.UNLOADING
+		ferry._ramp_synced = true
+		if ramp:
+			ramp.resume_landing(off.ramp[0], off.ramp[1])
+		if off.owns_terminal:
+			departure.unloading_ferry = ferry
+		ferry._pax_unload_queue = waiting_to_leave
+		ferry._pax_dispatch_timer = off.passenger_dispatch
+		ferry._pax_unload_per_tick = int(off.passengers_per_tick)
 	ferry.at_a = at_a
 	ferry._rev = record.reversed
 	ferry._load_phase = Ferry.LoadPhase.VEHICLES
@@ -217,6 +254,9 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 		ferry._place(ferry._dock_s())
 	ferry.passengers_aboard = passengers
 	manifest.install(ferry)
+	FerryWalkOnSnapshot.install_walkers(
+		homeward, ferry, ferry._homeward_walkers, ferry._on_walker_home
+	)
 	if walking:
 		FerryWalkOnSnapshot.install(record.walk_ons, ferry)
 	return true
@@ -227,6 +267,7 @@ static func _empty_hull(ferry: Ferry) -> bool:
 		ferry.aboard.is_empty()
 		and ferry.passengers_aboard.is_empty()
 		and ferry._boarding == 0
+		and ferry._homeward_walkers.is_empty()
 		and ferry._unload_queue.is_empty()
 		and ferry._pax_unload_queue.is_empty()
 		and ferry.deck.occupants.count(0) == ferry.deck.occupants.size()
@@ -241,8 +282,11 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 		or (r.has("walk_ons") and r.version < 2)
 		or (r.has("lifting_ramp") != (r.get("phase") == "casting_off"))
 		or (r.has("lifting_ramp") and r.version < 3)
+		or (r.has("unloading") != (r.get("phase") == "unloading"))
+		or (r.has("unloading") and r.version < 4)
+		or (r.has("homeward_walkers") != (r.version >= 4))
 		or r.get("service") != _service(ferry)
-		or r.get("phase") not in ["boarding", "crossing", "walk_ons", "casting_off"]
+		or r.get("phase") not in ["boarding", "crossing", "walk_ons", "casting_off", "unloading"]
 		or r.get("from") not in [ferry.term_a.town.key, ferry.term_b.town.key]
 		or not r.get("reversed") is bool
 		or not r.get("slip_chosen") is bool
@@ -268,6 +312,31 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 		and r.crew_owed >= 0
 		and r.lane_fraction >= 0
 		and r.lane_fraction <= 1
+	)
+
+
+static func _valid_unloading(
+	off: Variant,
+	ferry: Ferry,
+	term: Terminal,
+	aboard: Array[Dictionary],
+	leaving: Array[Dictionary]
+) -> bool:
+	if not off is Dictionary or not off.has("ramp") or not _valid_lift(off.ramp, ferry._ramp(term)):
+		return false
+	if not off.get("owns_terminal") is bool or (off.owns_terminal and term.unloading_ferry != null):
+		return false
+	if (
+		not _number(off.get("passenger_dispatch"))
+		or not _integer(off.get("passengers_per_tick"), ferry.fc.passenger_capacity)
+	):
+		return false
+	if off.passengers_per_tick < 1 or not _read_passengers(off.get("passengers"), ferry, leaving):
+		return false
+	return (
+		aboard.size() + leaving.size() <= ferry.fc.passenger_capacity
+		and aboard.all(func(p: Dictionary): return p.dest != term.town.id and p.dest >= 0)
+		and leaving.all(func(p: Dictionary): return p.dest == term.town.id or p.dest < 0)
 	)
 
 

@@ -39,7 +39,10 @@ func _empty_queues(sim: Simulation) -> void:
 
 
 func _enqueue(term: Terminal, paint: int) -> Vehicle:
-	var car := VehicleFactory.from_parts(false, "sedan_compact", paint)
+	return _enqueue_vehicle(term, VehicleFactory.from_parts(false, "sedan_compact", paint))
+
+
+func _enqueue_vehicle(term: Terminal, car: Vehicle) -> Vehicle:
 	var dest := term.lane_keys()[0]
 	var lane: TerminalLane = term.lanes[dest][0]
 	car.moving_traffic = term.sim.moving_vehicles

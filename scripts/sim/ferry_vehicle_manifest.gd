@@ -4,6 +4,8 @@ extends RefCounted
 ## Instance IDs are local to the live deck. Only manifest indices cross the save boundary.
 
 var _cars: Array[Vehicle] = []
+var _released: Array[bool] = []
+var _park_from_minus: Array[bool] = []
 var _slots: Array[int] = []
 var _leaders: Array[int] = []
 var _lanes: Array[TerminalLane] = []
@@ -12,6 +14,8 @@ var _last := -1
 
 static func capture(ferry: Ferry) -> Variant:
 	var cars: Array[Vehicle] = ferry.aboard.duplicate()
+	var unloading := ferry.state == Ferry.State.UNLOADING
+	cars.append_array(ferry._unload_queue)
 	var cells := ferry.deck.occupants
 	for car in ferry.sim.moving_vehicles:
 		if cells.has(car.get_instance_id()) and not cars.has(car):
@@ -20,27 +24,34 @@ static func capture(ferry: Ferry) -> Variant:
 	var accounted := 0
 	for car in cars:
 		var id := car.get_instance_id()
-		var slot := cells.find(id) if ferry._minus else cells.rfind(id)
-		if (
-			slot < 0
-			or cells.count(id) != car.slots
-			or car.dest < 0
-			or car.dest >= ferry.sim.map.towns.size()
-		):
+		var released := ferry._unload_queue.has(car)
+		var parked := released or ferry.aboard.has(car)
+		var from_minus := ferry._minus
+		if parked:
+			# The vehicle keeps its original boarding orientation across arrival.
+			from_minus = car.transform.basis.z.z > 0
+		var slot := cells.find(id) if from_minus else cells.rfind(id)
+		if released:
+			slot = _released_slot(ferry, car, from_minus)
+		var expected_cells := 0 if released else car.slots
+		if slot < 0 or cells.count(id) != expected_cells:
+			return null
+		if car.dest < -1 or car.dest >= ferry.sim.map.towns.size():
 			return null
 		var entry := VehiclePartsSnapshot.capture(car)
 		entry.slot = slot
-		entry.destination = ferry.sim.map.towns[car.dest].key
+		entry.destination = ferry.sim.map.towns[car.dest].key if car.dest >= 0 else ""
 		entry.fare_paid = car.fare_paid
+		entry.lot_arrival = car.lot_arrival
+		entry.lane_offset = car.lane_v
 		entry.last_sent = car == ferry._last_sent
-		if ferry.aboard.has(car):
-			var park := ferry._park_xform(slot, car)
-			var yaw := park.basis.get_euler().y
-			if (
-				not car.position.is_equal_approx(park.origin)
-				or not is_zero_approx(angle_difference(car.rotation.y, yaw))
-			):
+		if parked:
+			if not _matches_pose(ferry, car, slot, from_minus):
 				return null
+			if unloading or from_minus != ferry._minus:
+				entry.park_from_minus = from_minus
+			if unloading:
+				entry.released = released
 		else:
 			var lane := ferry.here().boarding_lane_for(car)
 			if lane == null or car.path.is_empty():
@@ -54,14 +65,29 @@ static func capture(ferry: Ferry) -> Variant:
 				and car.leader.is_processing()
 			):
 				return null
-		accounted += car.slots
+		accounted += expected_cells
 		records.append(entry)
 	if (
 		accounted + cells.count(0) != cells.size()
-		or cars.size() - ferry.aboard.size() != ferry._boarding
+		or cars.size() - ferry.aboard.size() - ferry._unload_queue.size() != ferry._boarding
 	):
 		return null
 	return records
+
+
+static func _matches_pose(ferry: Ferry, car: Vehicle, slot: int, from_minus: bool) -> bool:
+	var pose := ferry.parked_pose(slot, car, from_minus)
+	return (
+		car.position.is_equal_approx(pose.origin)
+		and is_zero_approx(angle_difference(car.rotation.y, pose.basis.get_euler().y))
+	)
+
+
+static func _released_slot(ferry: Ferry, car: Vehicle, from_minus: bool) -> int:
+	for slot in ferry.deck.occupants.size():
+		if _matches_pose(ferry, car, slot, from_minus):
+			return slot
+	return -1
 
 
 static func prepare(
@@ -70,7 +96,8 @@ static func prepare(
 	from_a: bool,
 	build_vehicle: Callable,
 	departure: Terminal,
-	sailing: bool
+	sailing: bool,
+	unloading := false
 ) -> FerryVehicleManifest:
 	if (
 		not saved is Array
@@ -79,14 +106,32 @@ static func prepare(
 	):
 		return null
 	var manifest := FerryVehicleManifest.new()
-	var towns := {}
+	var towns := {"": -1}
 	for town in ferry.sim.map.towns:
 		if town.key.is_empty() or towns.has(town.key):
 			return null
 		towns[town.key] = town.id
 	var deck := FerryDeck.new(ferry.fc)
 	for entry in saved:
-		if not manifest._prepare_car(entry, towns, deck, from_a, build_vehicle):
+		if not entry is Dictionary or entry.has("released") != unloading:
+			return null
+		if (
+			entry.has("park_from_minus")
+			and (not entry.park_from_minus is bool or entry.has("boarding"))
+		):
+			return null
+		if (
+			unloading
+			and (
+				not entry.get("released") is bool
+				or not entry.has("park_from_minus")
+				or entry.get("last_sent") != false
+				or entry.released != (entry.get("destination") in ["", departure.town.key])
+			)
+		):
+			return null
+		var parked_from: bool = entry.get("park_from_minus", from_a)
+		if not manifest._prepare_car(entry, towns, deck, parked_from, build_vehicle):
 			return null
 		if (
 			entry.has("boarding")
@@ -121,7 +166,11 @@ func _prepare_car(
 		_last = _cars.size() - 1
 	car.dest = towns[entry.destination]
 	car.fare_paid = entry.fare_paid
+	car.lot_arrival = entry.get("lot_arrival", 0.0)
+	car.lane_v = entry.get("lane_offset", 0.0)
 	_slots.append(slot)
+	_park_from_minus.append(from_a)
+	_released.append(entry.get("released", false))
 	_leaders.append(-1)
 	_lanes.append(null)
 	return true
@@ -144,11 +193,15 @@ func install(ferry: Ferry) -> void:
 	for i in _cars.size():
 		var car := _cars[i]
 		car.moving_traffic = ferry.sim.moving_vehicles
-		ferry._take_slots(_slots[i], car)
+		if not _released[i]:
+			ferry.deck.reserve(_slots[i], car.slots, _park_from_minus[i], car.get_instance_id())
 		if _lanes[i] == null:
 			ferry.add_child(car)
-			ferry._set_parked(car, ferry._park_xform(_slots[i], car))
-			ferry.aboard.append(car)
+			ferry._set_parked(car, ferry.parked_pose(_slots[i], car, _park_from_minus[i]))
+			if _released[i]:
+				ferry._unload_queue.append(car)
+			else:
+				ferry.aboard.append(car)
 		else:
 			var terminal := ferry.here()
 			terminal.resume_boarding(car, _lanes[i])
@@ -177,6 +230,8 @@ static func _valid_entry(data: Variant, towns: Dictionary) -> bool:
 		and _integer(data.get("slot"))
 		and _scalar(data.get("fare_paid"))
 		and data.fare_paid >= 0
+		and _scalar(data.get("lot_arrival", 0.0))
+		and _scalar(data.get("lane_offset", 0.0))
 		and data.get("last_sent") is bool
 	)
 

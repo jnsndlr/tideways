@@ -68,6 +68,7 @@ func _run() -> void:
 	var legacy := _world()
 	var v1: Dictionary = expected.voyage.duplicate(true)
 	v1.version = 1.0
+	v1.erase("homeward_walkers")
 	check(
 		FerryCrossingSnapshot.restore(v1, legacy.ferries[0], VehicleFactory.from_parts),
 		"Existing vehicle-boarding saves still load"
