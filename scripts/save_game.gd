@@ -8,14 +8,12 @@ static var _path := PATH
 
 
 var _opening_service := {}
-var _opening_slips := {}
 
 
-## Current restore builds the original hulls, stops and route-to-slip assignments.
+## Current restore builds the original hulls and stops.
 ## Decline changed topology before replacing the last usable player save.
 func remember_region(sim: Simulation) -> void:
 	_opening_service = _fleet_service(sim)
-	_opening_slips = _slip_routes(sim.map)
 
 
 static func _fleet_service(sim: Simulation) -> Dictionary:
@@ -28,18 +26,8 @@ static func _fleet_service(sim: Simulation) -> Dictionary:
 	return service
 
 
-static func _slip_routes(map: MapData) -> Dictionary:
-	var routes := {}
-	for town in map.dock_towns():
-		for index in town.slips.size():
-			var slip := town.slips[index]
-			if not slip.routes.is_empty():
-				routes[Vector2i(town.id, index)] = slip.routes.duplicate()
-	return routes
-
-
 func save_company(sim: Simulation, scenario: String, company: String, unlimited: bool) -> Error:
-	if _fleet_service(sim) != _opening_service or _slip_routes(sim.map) != _opening_slips:
+	if _fleet_service(sim) != _opening_service:
 		return ERR_UNAVAILABLE
 	var snapshot := CompanySnapshot.capture(sim)
 	if snapshot.is_empty():

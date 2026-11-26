@@ -3,10 +3,12 @@ extends RefCounted
 ## Compose verified company records over a freshly rebuilt network. The caller
 ## supplies a private simulation with its own map and terrain. Only a completely
 ## restored simulation is returned. No current game or save slot is replaced.
-const VERSION := 6
+const VERSION := 7
 
 
 static func capture(sim: Simulation) -> Dictionary:
+	if not sim.working_slips.matches(sim.map):
+		return {}
 	var sales := []
 	for tow in sim.tows:
 		if tow.outbound:
@@ -50,8 +52,8 @@ static func capture(sim: Simulation) -> Dictionary:
 	for corridor: MarineTraffic.Corridor in _corridors(sim).values():
 		if corridor.owner != null:
 			reservations[corridor.key] = corridor.owner.fleet_key
-	return {
-		"version": VERSION,
+	var record := {
+		"version": 6,
 		"network": CompanyNetwork.record(sim),
 		"clock": CompanyClockSnapshot.capture(sim),
 		"ledger": ledger,
@@ -63,6 +65,10 @@ static func capture(sim: Simulation) -> Dictionary:
 		"sale_tows": sales,
 		"progression": TownGrowthSnapshot.capture(sim),
 	}
+	if not sim.working_slips.moves.is_empty():
+		record.version = VERSION
+		record.working_slips = sim.working_slips.capture(sim.map)
+	return record
 
 
 static func _terminal_record(term: Terminal) -> Dictionary:
@@ -98,6 +104,10 @@ static func restore(
 static func supports(data: Variant) -> bool:
 	if not data is Dictionary or not _integer_in(data.get("version"), 1, VERSION):
 		return false
+	if data.has("working_slips") != (data.version >= 7):
+		return false
+	if data.has("working_slips") and not WorkingSlipHistory.supports(data.working_slips):
+		return false
 	if data.has("sale_tows") != (data.version >= 6) or not data.get("sale_tows", []) is Array:
 		return false
 	if data.version == 1 and data.has("outbound"):
@@ -120,7 +130,7 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 		or not DockSiteSnapshot.restore(data.docks, sim)
 	):
 		return false
-	if not _install_berths(data.terminals, sim):
+	if not _install_berths(data.terminals, sim, data.get("working_slips", {})):
 		return false
 	var network := CompanyNetwork.new()
 	if not network.read(data.network, sim.map).is_empty():
@@ -148,7 +158,7 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 	return CompanyClockSnapshot.restore(data.clock, sim)
 
 
-static func _install_berths(records: Dictionary, sim: Simulation) -> bool:
+static func _install_berths(records: Dictionary, sim: Simulation, moves: Dictionary) -> bool:
 	if records.size() != sim.terminals.size():
 		return false
 	for term: Terminal in sim.terminals.values():
@@ -160,7 +170,10 @@ static func _install_berths(records: Dictionary, sim: Simulation) -> bool:
 			and not TerminalBerthPurchaseSnapshot.restore(record.purchase, term)
 		):
 			return false
-		if not TerminalRefitSnapshot.restore(record.get("refit"), term):
+	if not moves.is_empty() and not sim.working_slips.restore(moves, sim):
+		return false
+	for term: Terminal in sim.terminals.values():
+		if not TerminalRefitSnapshot.restore(records[term.town.key].get("refit"), term):
 			return false
 	return true
 

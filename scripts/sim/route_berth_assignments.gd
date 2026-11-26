@@ -155,19 +155,7 @@ func apply_when_clear() -> void:
 			continue
 		for rid in moving:
 			var to: int = _pending[rid]
-			_pending.erase(rid)
-			town.slips[town.slip_index(rid)].routes.erase(rid)
-			town.slips[to].routes.append(rid)
-			terminal.slip_v[rid] = town.slip_offset(to)
-			if terminal.slip_ramps[to]:
-				terminal.ramps[rid] = terminal.slip_ramps[to]
-			else:
-				terminal.ramps.erase(rid)
-			var r := sim.map.routes[rid]
-			r.curve = curves[rid]
-			r.length = r.curve.get_baked_length()
-			for f in sim.ferries:
-				f.route_reshaped(r)
+			_apply(rid, to, curves[rid])
 		if sim.marine:
 			sim.marine.refresh_corridors()
 		sim.routes_changed.emit()
@@ -216,6 +204,12 @@ func move_now(rid: int, to: int) -> bool:
 	var c := _reaimed_curve(sim.map.routes[rid], town.slip_offset(to) - town.slip_offset(from))
 	if c == null:
 		return false
+	_apply(rid, to, c)
+	return true
+
+
+func _apply(rid: int, to: int, curve: Curve3D) -> void:
+	var from := town.slip_index(rid)
 	_pending.erase(rid)
 	town.slips[from].routes.erase(rid)
 	town.slips[to].routes.append(rid)
@@ -224,9 +218,9 @@ func move_now(rid: int, to: int) -> bool:
 		terminal.ramps[rid] = terminal.slip_ramps[to]
 	else:
 		terminal.ramps.erase(rid)
-	var r := sim.map.routes[rid]
-	r.curve = c
-	r.length = r.curve.get_baked_length()
-	for f in sim.ferries:
-		f.route_reshaped(r)
-	return true
+	var route := sim.map.routes[rid]
+	route.curve = curve
+	route.length = curve.get_baked_length()
+	sim.working_slips.moved(town, route, from, to)
+	for ferry in sim.ferries:
+		ferry.route_reshaped(route)
