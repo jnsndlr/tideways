@@ -35,9 +35,9 @@ static func lights(spec: VesselSpec) -> ArrayMesh:
 		VesselSpec.Hull.CONTAINER:
 			return Models.cargo_ship_lights()
 		VesselSpec.Hull.TANKER:
-			return Models.cargo_ship_lights(Models.mid_tanker)
+			return Models.cargo_ship_lights(CargoShipModel.authored_tanker)
 		VesselSpec.Hull.BULK_CARRIER:
-			return Models.cargo_ship_lights(Models.mid_bulker)
+			return Models.cargo_ship_lights(CargoShipModel.authored_bulker)
 		VesselSpec.Hull.TRAWLER:
 			return Models.trawler_lights()
 		VesselSpec.Hull.MOTOR_YACHT:
@@ -56,10 +56,10 @@ static func name_plate(spec: VesselSpec, vessel_name: String) -> ArrayMesh:
 		VesselSpec.Hull.CONTAINER:
 			return Models.cargo_name_plate(vessel_name)
 		VesselSpec.Hull.TANKER:
-			if Models.mid_tanker:
+			if CargoShipModel.authored_tanker:
 				return Models.cargo_name_plate(vessel_name)
 		VesselSpec.Hull.BULK_CARRIER:
-			if Models.mid_bulker:
+			if CargoShipModel.authored_bulker:
 				return Models.cargo_name_plate(vessel_name)
 	return null
 
