@@ -22,8 +22,13 @@ static func create(model_variant: int) -> Passenger:
 
 
 func stand_at(pos: Vector3, yaw: float) -> void:
+	stand_facing(pos, yaw + randf_range(-0.18, 0.18))
+
+
+## Install a saved waiting pose without choosing another facing direction.
+func stand_facing(pos: Vector3, yaw: float) -> void:
 	position = pos
-	rotation.y = yaw + randf_range(-0.18, 0.18)
+	rotation.y = yaw
 	path.clear()
 	_on_arrive = Callable()
 	_stand_yaw = NAN

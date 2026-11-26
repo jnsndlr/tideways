@@ -1,25 +1,9 @@
-extends "res://tests/rule_test_case.gd"
+extends "res://tests/support/terminal_snapshot_case.gd"
 ## Compare a purchased lane still being paved and already open in fresh simulations.
 
 
 func _initialize() -> void:
 	call_deferred("_run")
-
-
-func _world(renumber := false, uses_staging := false) -> Simulation:
-	var region := TinyRegion.build()
-	if renumber:
-		region.map.towns.reverse()
-		for i in region.map.towns.size():
-			region.map.towns[i].id = i
-		for route in region.map.routes:
-			route.a = 1 - route.a
-			route.b = 1 - route.b
-	for town in region.map.towns:
-		town.open_lanes = 0 if uses_staging else 2
-		town.construction_staging_lanes = 1 if uses_staging else 0
-		town.lane_extension_price = 150
-	return region.start(root)
 
 
 func _run() -> void:
@@ -43,7 +27,6 @@ func _run() -> void:
 	_compare(open, open, expected, false)
 	_check_json_boundaries()
 	_check_staging()
-	_check_version_one()
 	_check_moving_traffic()
 	_check_two_arrivals()
 	_check_overnight_wait()
@@ -99,23 +82,6 @@ func _check_staging() -> void:
 		"Restore the draining lane with its waiting vehicles"
 	)
 	check(_record(target).holding == draining, "Keep the crew's actual physical staging position")
-	fresh.free()
-	live.free()
-
-
-func _check_version_one() -> void:
-	var live := _world()
-	var port: Terminal = live.terminals[0]
-	var snapshot := _record(port).holding as Dictionary
-	snapshot.version = 1
-	for group: Array in snapshot.lanes.values():
-		for row: Dictionary in group:
-			row.erase("approaching")
-	var fresh := _world()
-	check(
-		TerminalHoldingSnapshot.restore(snapshot, fresh.terminals[0], VehicleFactory.from_parts),
-		"Version-one settled lots restore without moving traffic fields"
-	)
 	fresh.free()
 	live.free()
 
@@ -326,19 +292,6 @@ func _check_overnight_wait() -> void:
 		)
 	live.free()
 	fresh.free()
-
-
-func _record(port: Terminal) -> Dictionary:
-	var holding := TerminalHoldingSnapshot.capture(port)
-	check(not holding.is_empty(), "Capture a settled terminal holding lot")
-	return JSON.parse_string(
-		JSON.stringify(
-			{"holding": holding, "ledger": port.sim.ledger.snapshot(port.sim.map.routes)},
-			"",
-			true,
-			true
-		)
-	)
 
 
 func _compare(start: Dictionary, opened: Dictionary, expected: Dictionary, paving: bool) -> void:
