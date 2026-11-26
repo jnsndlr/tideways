@@ -4,11 +4,13 @@
 [ext_resource type="Script" path="res://scripts/ui/departure_board.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/ui/harbor_window.gd" id="3"]
 [ext_resource type="Shader" path="res://scripts/ui/harbor_glass.gdshader" id="4"]
-[ext_resource type="VideoStreamTheora" path="res://assets/textures/menu/harbor_cycle.ogv" id="5"]
+[ext_resource type="Script" path="res://scripts/ui/harbor_gull.gd" id="5"]
+[ext_resource type="Texture2D" path="res://assets/textures/menu/harbor_gull.png" id="6"]
 
 [sub_resource type="ShaderMaterial" id="HarborGlass"]
 resource_local_to_scene = true
 shader = ExtResource("4")
+shader_parameter/gull_atlas = ExtResource("6")
 
 [sub_resource type="SystemFont" id="FaceFont"]
 font_names = PackedStringArray("Avenir Next", "Helvetica Neue", "DejaVu Sans")
@@ -49,11 +51,11 @@ expand_mode = 1
 [node name="Harbor" type="VideoStreamPlayer" parent="Terminal"]
 material = SubResource("HarborGlass")
 mouse_filter = 2
-stream = ExtResource("5")
-autoplay = true
 expand = true
-loop = true
 script = ExtResource("3")
+
+[node name="Gull" type="Node" parent="Terminal/Harbor"]
+script = ExtResource("5")
 
 [node name="Board" type="Control" parent="."]
 mouse_filter = 2

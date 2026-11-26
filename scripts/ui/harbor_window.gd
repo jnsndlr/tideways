@@ -1,5 +1,10 @@
 extends VideoStreamPlayer
-## Project one continuous movie through either set of painted window panes.
+## Alternate two sailings through either set of painted window panes.
+
+const TRAFFIC_SETS := [
+	preload("res://assets/textures/menu/harbor_cycle.ogv"),
+	preload("res://assets/textures/menu/harbor_cycle_b.ogv"),
+]
 
 const LANDSCAPE_GLASS := preload("res://assets/textures/menu/harbor_landscape_glass.png")
 const PORTRAIT_GLASS := preload("res://assets/textures/menu/harbor_portrait_glass.png")
@@ -10,6 +15,17 @@ const PORTRAIT_GLASS_RECT := Rect2(16, 0, 1056, 594)
 const LANDSCAPE_VIEW := Rect2(338, 0, 704, 704)
 const PORTRAIT_VIEW := Rect2(0, 44, 1280, 676)
 const CAMERA_SIZE := Vector2(1280, 720)
+
+
+func _ready() -> void:
+	finished.connect(_next_sailing)
+	stream = TRAFFIC_SETS.pick_random()
+	play()
+
+
+func _next_sailing() -> void:
+	stream = TRAFFIC_SETS[1] if stream == TRAFFIC_SETS[0] else TRAFFIC_SETS[0]
+	play()
 
 
 func fit_art(portrait: bool, art_scale: float) -> void:
