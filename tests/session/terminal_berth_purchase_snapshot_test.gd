@@ -9,6 +9,8 @@ func _world(kind: TerminalUpgrade.Kind, clear_water: bool) -> Simulation:
 	var region := TinyRegion.build()
 	# A shallow bank along both sides makes the survey's cut and quote measurable.
 	region.terrain.h_grid.fill(-2.0)
+	for town: MapData.Town in region.map.towns:
+		town.slips[0].size = 1
 	var scenario := Scenario.from_network(region.map, ["Harbour ferry"], [2])
 	scenario.cash = 10000000
 	var sim := Simulation.new(VehicleFactory.create)
@@ -34,6 +36,9 @@ func _check_purchase(kind: TerminalUpgrade.Kind, clear_water: bool) -> void:
 	var sim := _world(kind, clear_water)
 	var term := sim.ferries[0].destination()
 	var initial_grid := sim.terrain.h_grid.duplicate()
+	check(term.buy_refit(0), "Buy a widening on the existing slip before expanding the harbour")
+	term._refit.advance(0, true)
+	term._refit.advance(1e6, true)
 	var initial_cash := sim.available_cash
 	var offer := term.find_upgrade(kind)
 	if offer == null or not term.buy(offer):
@@ -72,6 +77,7 @@ func _save(term: Terminal) -> Dictionary:
 		JSON.stringify(
 			{
 				"purchase": TerminalBerthPurchaseSnapshot.capture(term),
+				"fitted": TerminalRefitSnapshot.capture(term),
 				"ledger": term.sim.ledger.snapshot(term.sim.map.routes)
 			},
 			"",
@@ -105,6 +111,10 @@ func _compare(
 	var restored := TerminalBerthPurchaseSnapshot.restore(saved.purchase, term)
 	check(restored, "Restore the purchased berth without buying it again")
 	if restored:
+		check(
+			TerminalRefitSnapshot.restore(saved.fitted, term) and term.town.slips[0].size == 2,
+			"Restore the earlier widening alongside the new crane job"
+		)
 		check(
 			_save(term) == saved and sim.terrain.h_grid == seabed,
 			"Physical dredging, crane stage, berth location and balance match uninterrupted work"
