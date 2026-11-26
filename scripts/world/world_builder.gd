@@ -1535,9 +1535,9 @@ func _build_towns() -> void:
 				continue
 			used_idx[idx] = true
 			if placed_comm < want_commercial:
-				var pad := Rect2(plan.position * sc, plan.size * sc).grow(KIT_LOT_MARGIN)
+				var pad := _lot_pad(c, plan, sc)
 				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
-					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
+					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, _lot_blend(c))
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				(per_variant[vi] as Array[Transform3D]).append(xf)
 				if vi == city_hall_variant:
@@ -1585,9 +1585,9 @@ func _build_towns() -> void:
 				continue
 			used_idx[idx] = true
 			if placed_houses < want_houses:
-				var pad := Rect2(plan.position * hsc, plan.size * hsc).grow(KIT_LOT_MARGIN)
+				var pad := _lot_pad(c, plan, hsc)
 				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
-					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
+					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, _lot_blend(c))
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				(per_variant[vi] as Array[Transform3D]).append(xf)
 				_entry_light(xf, Models.kit_marker(kit_names[vi], "PorchLight"), Models.kit_marker(kit_names[vi], "Entry"), float(c["h"]) < 15.0)
@@ -1717,6 +1717,19 @@ func _fit_lot(c: Dictionary, plans: Array[Rect2], want: int, count: int, sc: flo
 		var at := front - facing * (LOT_SETBACK + plan.end.y * s) - right * (plan.get_center().x * s)
 		return [vi, s, Vector3(at.x, 0.0, at.y)]
 	return []
+
+
+## A building's levelled pad. On a street lot the pad stops at the building's front
+## and blends out within the setback + verge, so it never lifts ground over the road.
+func _lot_pad(c: Dictionary, plan: Rect2, sc: float) -> Rect2:
+	var pad := Rect2(plan.position * sc, plan.size * sc).grow(KIT_LOT_MARGIN)
+	if c.has("lot_w"):
+		pad.size.y = plan.end.y * sc - pad.position.y
+	return pad
+
+
+func _lot_blend(c: Dictionary) -> float:
+	return LOT_SETBACK + 0.5 if c.has("lot_w") else KIT_LOT_BLEND
 
 
 ## Grid lots fill in behind the streets only after every street-front lot.
