@@ -452,10 +452,14 @@ func refit_progress() -> float:
 
 
 func _widen_slip(i: int) -> void:
-	var slip := town.slips[i]
-	slip.size += 1
+	fit_slip(i, town.slips[i].size + 1)
+
+
+## Apply the capacity to the harbour record and its physical contacts together.
+func fit_slip(i: int, size: int) -> void:
+	town.slips[i].size = size
 	if slip_guides[i]:
-		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[slip.size])
+		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[size])
 
 
 ## No boat lies at the slip being refitted, and none is coming in under the closure
