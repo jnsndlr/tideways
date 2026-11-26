@@ -97,6 +97,7 @@ class Town:
 	var town_lots: TownLots       # blocks + ranked frontage lots from street_plan
 	var street_lots := {}         # plan edge → lots placed or reserved along it
 	var street_built := {}        # plan edge → buildings standing along it (reveals and paves it)
+	var street_pinned := {}       # plan edge → true: shown paved from the start (the airport road joins it)
 	var label_pos := Vector3.ZERO
 
 	func lateral() -> Vector3:

@@ -1235,11 +1235,12 @@ const STREET_ZONE_HEAD_START := [0.3, 0.1, 0.0, 0.3]  # by StreetPlan.Zone
 func refresh_streets(isl: MapData.Town) -> void:
 	if isl.street_plan == null:
 		return
+	var stages := street_stages(isl)
 	for li in isl.street_plan.edges.size():
 		var node: Node3D = street_nodes.get(Vector2i(isl.id, li))
 		if node == null:
 			continue
-		var stage := street_stage(isl, li)
+		var stage := stages[li]
 		node.visible = stage >= 0
 		(node.get_node("Road") as GeometryInstance3D).set_instance_shader_parameter("road_stage", float(maxi(stage, 0)))
 		(node.get_node("Lamps") as Node3D).visible = stage >= 2
@@ -1251,12 +1252,64 @@ func refresh_streets(isl: MapData.Town) -> void:
 		var j: Array = junction_nodes[key]
 		var best := -1
 		for li: int in j[1]:
-			best = maxi(best, street_stage(isl, li))
+			best = maxi(best, stages[li])
 		(j[0] as MeshInstance3D).visible = best >= 0
 		(j[0] as MeshInstance3D).set_instance_shader_parameter("road_stage", float(maxi(best, 0)))
 
 
-## -1 hidden, 0 dirt, 1 gravel, 2 paved.
+## Each plan street's stage, grown outward from the square: a street's own stage
+## comes from its lots (street_stage), but every street shown also shows the way back
+## to the square, at least as good a surface as anything beyond it. So no street sits
+## cut off, and paving only ever joins paving. Streets the square can't reach stay hidden.
+static func street_stages(isl: MapData.Town) -> PackedInt32Array:
+	var plan := isl.street_plan
+	var ne := plan.edges.size()
+	var out := PackedInt32Array()
+	out.resize(ne)
+	out.fill(-1)
+	if ne == 0 or plan.nodes.is_empty():
+		return out
+	# The square: the plan node nearest where the lot road ends (as _junctions finds it).
+	var root := 0
+	if isl.road_main_a.size() > 0:
+		var end := isl.road_main_a[isl.road_main_a.size() - 1]
+		for i in plan.nodes.size():
+			if plan.nodes[i].distance_to(end) < plan.nodes[root].distance_to(end):
+				root = i
+	var at := {}  # node → edges meeting there
+	for li in ne:
+		for n: int in [plan.edges[li].a, plan.edges[li].b]:
+			if n >= 0:
+				(at.get_or_add(n, []) as Array).append(li)
+	# Breadth-first from the square: each street's parent is the one it's reached by.
+	var parent := PackedInt32Array()
+	parent.resize(ne)
+	parent.fill(-2)  # -2 unreached, -1 leaves the square
+	var order: Array[int] = []
+	var queue: Array = [[root, -1]]
+	var seen := {root: true}
+	while not queue.is_empty():
+		var q: Array = queue.pop_front()
+		for li: int in at.get(q[0], []):
+			if parent[li] != -2:
+				continue
+			parent[li] = q[1]
+			order.append(li)
+			for n: int in [plan.edges[li].a, plan.edges[li].b]:
+				if n >= 0 and not seen.has(n):
+					seen[n] = true
+					queue.append([n, li])
+	# Leaves first: a street needs at least what anything beyond it needs.
+	for li in order:
+		out[li] = 2 if isl.street_pinned.has(li) else street_stage(isl, li)
+	for i in range(order.size() - 1, -1, -1):
+		var li := order[i]
+		if parent[li] >= 0:
+			out[parent[li]] = maxi(out[parent[li]], out[li])
+	return out
+
+
+## This street's own stage from its lots alone: -1 hidden, 0 dirt, 1 gravel, 2 paved.
 static func street_stage(isl: MapData.Town, edge: int) -> int:
 	var built := int(isl.street_built.get(edge, 0))
 	if built <= 0:
@@ -2687,18 +2740,22 @@ func _airfield_road(isl: MapData.Island, on_strip: Callable) -> void:
 	var out: Vector3 = (on_strip.call(GATE.x + 30.0, GATE.y) as Transform3D).origin
 	var best := Vector3.ZERO
 	var best_d := INF
+	var best_town: MapData.Town = null
+	var best_lane := -1   # plan street (road_lanes index) the road joins, if any
 	for t in map.towns:
 		if t.island != map.islands.find(isl):
 			continue
 		var lines: Array[PackedVector3Array] = [t.road_main_a, t.road_main_b]
 		lines.append_array(t.road_cross)
 		lines.append_array(t.road_lanes)
-		for line in lines:
-			for q in line:
+		for li in lines.size():
+			for q in lines[li]:
 				var dd := Vector2(q.x - out.x, q.z - out.z).length()
 				if dd < best_d:
 					best_d = dd
 					best = q
+					best_town = t
+					best_lane = li - (lines.size() - t.road_lanes.size())
 	if best_d > 1600.0:
 		print("airport road: no town street near ", isl.name)
 		return
@@ -2712,6 +2769,9 @@ func _airfield_road(isl: MapData.Island, on_strip: Callable) -> void:
 			return
 		pts.append(Vector3(q.x, h + 0.15, q.z) if i < n else best)
 	pts[1].y = out.y
+	# The street it joins is paved from the start, and so the way back to the square.
+	if best_town != null and best_lane >= 0:
+		best_town.street_pinned[best_lane] = true
 	var mb := MeshBuilder.new()
 	RoadMesh.strip(mb, pts, ROAD, RoadMesh.Style.DASHED, func(_s: float) -> float: return 1.0)
 	var mat := ShaderMaterial.new()

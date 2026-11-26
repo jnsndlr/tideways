@@ -97,7 +97,7 @@ func _process(_delta: float) -> bool:
 	root.get_viewport().get_texture().get_image().save_png(file)
 	var stages := []
 	for e in t.street_plan.edges.size():
-		stages.append(WorldBuilder.street_stage(t, e))
+		stages.append(WorldBuilder.street_stages(t)[e])
 	print("Saved %s  streets %s" % [file, stages])
 	_jobs.pop_front()
 	return false
