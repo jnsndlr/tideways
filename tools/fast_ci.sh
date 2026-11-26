@@ -52,6 +52,7 @@ check ferry-assignment test --script tests/simulation/fast_ferry_test.gd
 check region-voyage test --script tests/world/art_free_region_test.gd
 check terminal-refit test --script tests/rules/terminal_refit_test.gd
 check refit-restore test --script tests/session/terminal_refit_snapshot_test.gd
+check purchased-berth-restore test --script tests/session/terminal_berth_purchase_snapshot_test.gd
 check slip-completion test --script tests/simulation/slip_completion_test.gd
 check ferry-lay-up test --script tests/rules/ferry_lay_up_test.gd
 check ferry-voyage test --script tests/rules/ferry_voyage_test.gd

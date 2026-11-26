@@ -75,7 +75,7 @@ static func restore(record: Variant, term: Terminal) -> bool:
 		if sizes[i] != term.town.slips[i].size:
 			term.fit_slip(i, sizes[i])
 	if target >= 0:
-		term._refit.resume_widening(target, stage, job.remaining)
+		term._refit.resume_job(target, stage, job.remaining, TerminalRefit.WORK, false)
 	else:
 		term.refit_changed.emit()
 	return true
