@@ -5,10 +5,7 @@ extends RefCounted
 
 
 static func rebuild(
-	fleet: Array[CompanyNetwork.Assignment],
-	voyages: Dictionary,
-	sim: Simulation,
-	allow_purchases: bool
+	fleet: Array[CompanyNetwork.Assignment], voyages: Dictionary, sim: Simulation, version: int
 ) -> bool:
 	var opening := {}
 	for ferry in sim.ferries:
@@ -19,7 +16,7 @@ static func rebuild(
 			if not opening.erase(hull.key):
 				return false
 			continue
-		if not allow_purchases or not _restore_hull(hull, voyages.get(hull.key), sim):
+		if version < 4 or not _restore_hull(hull, voyages.get(hull.key), sim, version):
 			return false
 		added = true
 	if not opening.is_empty():
@@ -39,7 +36,7 @@ static func rebuild(
 
 
 static func _restore_hull(
-	hull: CompanyNetwork.Assignment, voyage: Variant, sim: Simulation
+	hull: CompanyNetwork.Assignment, voyage: Variant, sim: Simulation, version: int
 ) -> bool:
 	var number := hull.key.trim_prefix("hull-")
 	if not number.is_valid_int() or number.to_int() < 0 or hull.key != "hull-%d" % number.to_int():
@@ -56,9 +53,18 @@ static func _restore_hull(
 	var b := sim.map.towns[route.b]
 	if stops != [a.key, b.key] and stops != [b.key, a.key]:
 		return false
+	var delivery: bool = voyage.get("phase") in ["delivery", "delivered"]
+	if delivery and (version < 5 or not voyage.get("delivery") is Dictionary):
+		return false
 	for town in [a, b]:
 		var index: int = town.slip_index(route.id)
-		if index < 0 or not town.slips[index].fits(hull.size):
+		if (
+			index < 0
+			or (
+				(not delivery or voyage.delivery.get("assigned") == true)
+				and not town.slips[index].fits(hull.size)
+			)
+		):
 			return false
 	sim._spawn_ferry(hull.key, route, hull.display_name, hull.size)
 	var ferry := sim.ferries[-1]
@@ -68,4 +74,7 @@ static func _restore_hull(
 		ids.reverse()
 	ferry.set_legs(ids, [route, route])
 	sim.marine.register(ferry, MarineTraffic.RANK_FERRY)
-	return true
+	return (
+		not delivery
+		or InboundDeliverySnapshot.restore(voyage.delivery, ferry, ids, voyage.phase == "delivered")
+	)

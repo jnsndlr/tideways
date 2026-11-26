@@ -15,7 +15,13 @@ extends "res://tests/support/ui_test_driver.gd"
 ## size 1 delivery using the normal company balance. Apply her schedule in the
 ## player inspector, then save with two occupied boats. To repeat the check after
 ## the departing tug has left the map, also set TIDEWAYS_REOPEN_WAIT_TUG=1.
-## Production exports exclude tests.
+## For an unassigned hull under tow, use TIDEWAYS_REOPEN_INBOUND_TOW=1 instead.
+## This case compares the inbound path, two moving poses, berth reservation and
+## single arrival plus ten game minutes of docked service. After resume saves the
+## delivered hull in the same slot, launch phase delivered to verify its berth
+## and ledger through another interval. Production exports exclude tests.
+
+const DeliveryProbe := preload("res://tests/device/inbound_delivery_probe.gd")
 
 var _phase := OS.get_environment("TIDEWAYS_REOPEN_PHASE")
 var _run_id := OS.get_environment("TIDEWAYS_REOPEN_RUN")
@@ -24,6 +30,8 @@ var _min_trips := OS.get_environment("TIDEWAYS_REOPEN_MIN_TRIPS").to_int()
 var _edit_service := OS.get_environment("TIDEWAYS_REOPEN_EDIT_SERVICE") == "1"
 var _buy_ferry := OS.get_environment("TIDEWAYS_REOPEN_BUY_FERRY") == "1"
 var _wait_tug := OS.get_environment("TIDEWAYS_REOPEN_WAIT_TUG") == "1"
+var _inbound := OS.get_environment("TIDEWAYS_REOPEN_INBOUND_TOW") == "1"
+var _delivery := DeliveryProbe.new()
 var _prefix: String
 var _control := {}
 var _report := {}
@@ -37,7 +45,7 @@ func _initialize() -> void:
 func _run() -> void:
 	if (
 		not _run_id.is_valid_identifier()
-		or _phase not in ["record", "resume"]
+		or _phase not in ["record", "resume", "delivered"]
 		or _map not in ["opening", "mission", "sandbox"]
 	):
 		push_error("Set TIDEWAYS_REOPEN_PHASE, TIDEWAYS_REOPEN_RUN and TIDEWAYS_REOPEN_MAP")
@@ -56,16 +64,32 @@ func _run() -> void:
 		_fail_review("The review run already has a slot. Choose a new run identifier.")
 		return
 	_write_report()
-	if _phase == "resume":
-		_control = _read_report(_prefix + "-record.json")
+	if _phase != "record":
+		_control = _read_report(
+			_prefix + ("-resume.json" if _phase == "delivered" else "-record.json")
+		)
 		if _control.get("status") != "passed" or _control.get("pid") == OS.get_process_id():
 			_fail_review("Continue needs a completed control from a different process")
 			return
+		_inbound = _control.checkpoint.has("inbound_tow")
+		if (
+			_phase == "delivered"
+			and (
+				not _control.has("delivered_checkpoint")
+				or not _inbound
+				or _control.get("record_pid") == OS.get_process_id()
+			)
+		):
+			_fail_review(
+				"The third launch needs the delivered save from two distinct earlier processes"
+			)
+			return
+	if _phase != "record" or _inbound:
 		node_added.connect(_watch_session)
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
 	var path := Scenes.SANDBOX if _map == "sandbox" else Scenes.MAIN_MAP
-	if _phase == "resume":
+	if _phase != "record":
 		if not await enter_game("Continue", path):
 			_fail_review("Continue did not open the saved world")
 			return
@@ -82,12 +106,16 @@ func _run() -> void:
 		await _record(session)
 	elif _restored.is_empty():
 		_fail_review("Continue never exposed the rebuilt company before its first simulation frame")
+	elif _phase == "delivered":
+		await _verify_docked(session)
 	else:
 		await _resume(session)
 
 
 func _watch_session(node: Node) -> void:
-	if node is WorldSession:
+	if _inbound and node is Simulation:
+		node.ferry_delivered.connect(_delivery.delivered)
+	if _phase != "record" and node is WorldSession:
 		node.world_ready.connect(_at_reopen.bind(node), CONNECT_ONE_SHOT)
 
 
@@ -104,15 +132,22 @@ func _at_reopen(session: WorldSession) -> void:
 
 func _record(session: WorldSession) -> void:
 	session.hud.set_speed(2)
-	if _buy_ferry:
-		if _map != "opening" or not await _buy_and_assign(session):
-			_fail_review("Could not purchase and assign the second boat with the opening balance")
+	if _buy_ferry or _inbound:
+		if _map != "opening" or not await _buy_ferry_from_catalogue(session):
+			_fail_review(
+				"Could not purchase the second boat with the opening balance or prepare its service"
+			)
 			return
 	var started := _fleet_trips(session.sim)
 	var ferry: Ferry
 	var deadline := Time.get_ticks_msec() + 240000
 	while Time.get_ticks_msec() < deadline and ferry == null:
 		await process_frame
+		if _inbound:
+			var purchased := session.sim.ferries.back() as Ferry
+			if _delivery.mid_tow(purchased):
+				ferry = purchased
+			continue
 		if _buy_ferry and not session.sim.ferries.all(_working_with_cars):
 			continue
 		if _wait_tug and not session.sim.tows.is_empty():
@@ -137,29 +172,22 @@ func _record(session: WorldSession) -> void:
 		if not await _edit_opening_service(session, ferry):
 			_fail_review("Could not apply the edited departure and pace through the Schedule tab")
 			return
-	if not await press("MENU"):
-		_fail_review("Cannot reach the HUD menu")
+	await _record_checkpoint(session, ferry)
+
+
+func _record_checkpoint(session: WorldSession, ferry: Ferry) -> void:
+	var menu := await _open_save_menu(session)
+	if menu == null:
 		return
-	var menu := session.hud._game_menu
-	var item := menu.get_item_index(0)
-	if not menu.visible or item < 0 or menu.is_item_disabled(item):
-		_fail_review("Save game is unavailable in this session")
+	if _inbound and not _visible_delivery(ferry):
 		return
-	if _buy_ferry:
+	if _buy_ferry or _inbound:
 		_report.delivery_tug_phases = session.sim.tows.map(
 			func(tug: DeliveryTow): return DeliveryTow.Phase.keys()[tug.phase]
 		)
 	var before := _checkpoint(ferry)
 	_report.checkpoint = before
-	# Native menu windows consume physical input outside the scene viewport.
-	# Activate the visible Save item through the same signal as a native selection.
-	menu.id_pressed.emit(menu.get_item_id(item))
-	menu.hide()
-	var saved := SaveGame.read()
-	if not saved.get("snapshot") is Dictionary or session.hud._toast_title.text != "GAME SAVED":
-		_fail_review(
-			"The HUD did not persist a company snapshot: %s" % session.hud._toast_title.text
-		)
+	if not _activate_save(session, menu):
 		return
 	_report.status = "saved"
 	_write_report()
@@ -171,7 +199,7 @@ func _working_with_cars(boat: Ferry) -> bool:
 	return boat.berth == Ferry.Berth.WORKING and not boat.aboard.is_empty()
 
 
-func _buy_and_assign(session: WorldSession) -> bool:
+func _buy_ferry_from_catalogue(session: WorldSession) -> bool:
 	var sim := session.sim
 	session.hud.set_speed(0)
 	if sim.ferries.size() != 1 or sim.ledger.cash >= CompanyLedger.UNLIMITED_CASH:
@@ -196,6 +224,19 @@ func _buy_and_assign(session: WorldSession) -> bool:
 	}
 	if before - sim.ledger.cash != PRICE or sim.ledger.today.purchases - purchases_before != PRICE:
 		return false
+	return _start_inbound(session, bought) if _inbound else await _assign_purchased(session, bought)
+
+
+func _start_inbound(session: WorldSession, bought: Ferry) -> bool:
+	if bought.tow != null and not bought.assigned:
+		_delivery.start(bought.tow)
+		session.hud.clear_selection()
+		session.hud.set_speed(2)
+		return true
+	return false
+
+
+func _assign_purchased(session: WorldSession, bought: Ferry) -> bool:
 	var panel: FerryPanel = session.hud._ferry_panel
 	var tab := panel._tab_buttons[FerryPanel.TAB_NAMES.find("Schedule")]
 	if (
@@ -205,7 +246,7 @@ func _buy_and_assign(session: WorldSession) -> bool:
 		return false
 	session.hud.clear_selection()
 	session.hud.set_speed(2)
-	var assigned := bought.assigned and bought.fleet_key != sim.ferries[0].fleet_key
+	var assigned := bought.assigned and bought.fleet_key != session.sim.ferries[0].fleet_key
 	if assigned:
 		_report.status = "assigned"
 		_write_report()
@@ -271,6 +312,8 @@ func _press_panel_button(panel: FerryPanel, button: Button) -> bool:
 func _resume(session: WorldSession) -> void:
 	_report.checkpoint = _restored
 	var expected: Dictionary = _control.checkpoint
+	if _inbound and not _visible_delivery(_find_ferry(session.sim, expected.hull)):
+		return
 	if _restored != expected:
 		var different := []
 		for key in expected:
@@ -300,7 +343,12 @@ func _checkpoint(ferry: Ferry) -> Dictionary:
 			}
 		)
 	)
-	if _buy_ferry or _control.has("purchase"):
+	if _inbound:
+		if ferry.tow != null:
+			record.inbound_tow = _delivery.capture(ferry)
+		else:
+			record.docked = _delivery.docked(ferry)
+	if _buy_ferry or _inbound or _control.has("purchase"):
 		var hulls := {}
 		for boat in sim.ferries:
 			hulls[boat.fleet_key] = _hull_state(boat)
@@ -362,12 +410,20 @@ func _follow_receipts(sim: Simulation, initial: Dictionary) -> Dictionary:
 				deltas[key] = cents
 		if not transactions.has("first") and not deltas.is_empty():
 			transactions.first = {"cents": deltas, "day": sim.day}
-		if ledger.revenue_total != initial.revenue_total:
+		if not transactions.has("next_fare") and ledger.revenue_total != initial.revenue_total:
 			transactions.next_fare = {
 				"cents": roundi((ledger.revenue_total - initial.revenue_total) * 100),
 				"cars": ledger.cars_total - int(initial.cars_total),
 				"walk_ons": ledger.passengers_total - int(initial.passengers_total),
 			}
+		if _inbound:
+			var key: String = (
+				(_report.purchase if _phase == "record" else _control.purchase).new_hull
+			)
+			_delivery.observe(_find_ferry(sim, key))
+			if _delivery.after_arrival.is_empty():
+				continue
+		if transactions.has("next_fare"):
 			return transactions
 	return {}
 
@@ -375,12 +431,125 @@ func _follow_receipts(sim: Simulation, initial: Dictionary) -> Dictionary:
 func _finish(session: WorldSession, observed: Dictionary) -> void:
 	session.hud.set_speed(0)
 	_report.transactions = _json_form(observed)
+	if _inbound:
+		_report.delivery = _json_form(_delivery.outcome())
+		var key: String = (_report.purchase if _phase == "record" else _control.purchase).new_hull
+		if not _delivery.completed(_find_ferry(session.sim, key)):
+			_fail_review(
+				"Delivery must move forward, arrive exactly once and retain its $30,000 charge"
+			)
+			return
+		if _phase == "resume" and _report.delivery != _control.delivery:
+			_fail_review(
+				"The resumed tow movement, arrival or docked interval differed from control"
+			)
+			return
 	if not observed.has("first") or not observed.has("next_fare"):
 		_fail_review("No subsequent posting and fare were observed")
 		return
 	if _phase == "resume" and _report.transactions != _control.transactions:
 		_fail_review("The next posting or next fare differed from the uninterrupted company")
 		return
+	if _phase == "resume" and _inbound:
+		if not await _save_docked(session):
+			return
+	_pass()
+
+
+func _visible_delivery(boat: Ferry) -> bool:
+	_report.visible_delivery_pair = boat != null and DeliveryProbe.visible_pair(boat)
+	if not _report.visible_delivery_pair:
+		_fail_review(
+			"The purchased ferry and attached tug must both have their fitted visible hull meshes"
+		)
+	return _report.visible_delivery_pair
+
+
+func _save_docked(session: WorldSession) -> bool:
+	var boat := _find_ferry(session.sim, _control.purchase.new_hull)
+	var menu := await _open_save_menu(session)
+	if menu == null:
+		return false
+	_report.delivered_checkpoint = _checkpoint(boat)
+	_report.record_pid = _control.pid
+	if not _activate_save(session, menu):
+		return false
+	session.sim.process_mode = Node.PROCESS_MODE_DISABLED
+	if not await _docked_interval(session, boat):
+		return false
+	return true
+
+
+func _open_save_menu(session: WorldSession) -> PopupMenu:
+	if not await press("MENU"):
+		_fail_review("Cannot reach the HUD menu")
+		return null
+	var menu := session.hud._game_menu
+	var item := menu.get_item_index(0)
+	if not menu.visible or item < 0 or menu.is_item_disabled(item):
+		_fail_review("Save game is unavailable in this session")
+		return null
+	return menu
+
+
+func _activate_save(session: WorldSession, menu: PopupMenu) -> bool:
+	# Native menu windows consume physical input outside the scene viewport.
+	# Activate the visible Save item through the same signal as a native selection.
+	menu.id_pressed.emit(menu.get_item_id(menu.get_item_index(0)))
+	menu.hide()
+	var saved := SaveGame.read()
+	if not saved.get("snapshot") is Dictionary or session.hud._toast_title.text != "GAME SAVED":
+		_fail_review(
+			"The HUD did not persist a company snapshot: %s" % session.hud._toast_title.text
+		)
+		return false
+	return true
+
+
+func _verify_docked(session: WorldSession) -> void:
+	_report.checkpoint = _restored
+	if _restored != _control.delivered_checkpoint or not _delivery.deliveries.is_empty():
+		_fail_review(
+			"Cold reopen of the delivered hull changed its checkpoint or emitted a delivery signal"
+		)
+		return
+	var boat := _find_ferry(session.sim, _restored.hull)
+	if not await _docked_interval(session, boat):
+		return
+	if _report.docked_interval != _control.docked_interval:
+		_fail_review(
+			"The delivered company's next ten minutes differed from the uninterrupted control"
+		)
+		return
+	_pass()
+
+
+func _docked_interval(session: WorldSession, boat: Ferry) -> bool:
+	var count := _delivery.deliveries.size()
+	var until := session.sim.abs_minutes() + 10
+	var deadline := Time.get_ticks_msec() + 90000
+	session.hud.set_speed(2)
+	await process_frame
+	session.sim.process_mode = Node.PROCESS_MODE_INHERIT
+	while session.sim.abs_minutes() < until and Time.get_ticks_msec() < deadline:
+		await process_frame
+	session.hud.set_speed(0)
+	_report.docked_interval = _json_form(_delivery.docked(boat))
+	if (
+		session.sim.abs_minutes() < until
+		or _delivery.deliveries.size() != count
+		or boat.tow != null
+		or not _report.docked_interval.occupied_by_hull
+		or _report.docked_interval.purchases != 30000
+	):
+		_fail_review(
+			"Docked observation lost the berth, repeated a handoff or changed the purchase debit"
+		)
+		return false
+	return true
+
+
+func _pass() -> void:
 	_report.status = "passed"
 	_write_report()
 	if not OS.has_feature("mobile"):

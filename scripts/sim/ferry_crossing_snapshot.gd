@@ -4,7 +4,7 @@ extends RefCounted
 ## an empty hull after rebuilding the same network, timetable, captain and class.
 ## The company owns the clock, ledger and waiting queues separately. Restore the
 ## network's corridor reservations after installing every hull's position.
-const VERSION := 4
+const VERSION := 5
 const NUMBERS := [
 	"distance",
 	"speed",
@@ -52,7 +52,7 @@ static func capture(ferry: Ferry) -> Dictionary:
 	var command := ferry._command
 	var record := {
 		"version": VERSION,
-		"service": _service(ferry),
+		"service": service_record(ferry),
 		"phase": "crossing" if ferry.state == Ferry.State.SAILING else "boarding",
 		"from": ferry.here().town.key,
 		"reversed": ferry._rev,
@@ -87,6 +87,12 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"passengers": _capture_passengers(ferry.passengers_aboard, ferry),
 		"homeward_walkers": FerryWalkOnSnapshot.capture_walkers(ferry._homeward_walkers),
 	}
+	if ferry.state == Ferry.State.SAILING:
+		# _update_lie eases the simulation angle after place_underway applies this frame.
+		record.sailing_pose = {
+			"position": SnapshotVector3.encode(ferry.global_position),
+			"forward": SnapshotVector3.encode(ferry.global_basis.z),
+		}
 	if ferry.state == Ferry.State.UNLOADING:
 		var ramp := ferry._ramp(ferry.here())
 		record.phase = "unloading"
@@ -142,7 +148,7 @@ static func _captain_id(person: Captain) -> String:
 	return "" if person == null else person.id
 
 
-static func _service(ferry: Ferry) -> Dictionary:
+static func service_record(ferry: Ferry) -> Dictionary:
 	var stops := []
 	for id in ferry.stops:
 		stops.append(ferry.sim.map.towns[id].key)
@@ -250,6 +256,12 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 	ferry._slip_chosen = record.slip_chosen
 	if sailing:
 		ferry.place_underway()
+		if record.has("sailing_pose"):
+			var forward := SnapshotVector3.decode(record.sailing_pose.forward)
+			var position := SnapshotVector3.decode(record.sailing_pose.position)
+			ferry.global_transform = Transform3D(
+				Basis(Vector3.UP.cross(forward), Vector3.UP, forward), position
+			)
 	else:
 		ferry._place(ferry._dock_s())
 	ferry.passengers_aboard = passengers
@@ -285,7 +297,8 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 		or (r.has("unloading") != (r.get("phase") == "unloading"))
 		or (r.has("unloading") and r.version < 4)
 		or (r.has("homeward_walkers") != (r.version >= 4))
-		or r.get("service") != _service(ferry)
+		or (r.has("sailing_pose") != (r.version >= 5 and r.get("phase") == "crossing"))
+		or r.get("service") != service_record(ferry)
 		or r.get("phase") not in ["boarding", "crossing", "walk_ons", "casting_off", "unloading"]
 		or r.get("from") not in [ferry.term_a.town.key, ferry.term_b.town.key]
 		or not r.get("reversed") is bool
@@ -300,6 +313,8 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 	for key in NUMBERS:
 		if not _number(r.get(key)):
 			return false
+	if r.has("sailing_pose") and not _valid_sailing_pose(r, ferry):
+		return false
 	for key in ["last_captain", "previous_captain"]:
 		if not r.get(key) is String or (r[key] != "" and _captain(r[key]) == null):
 			return false
@@ -337,6 +352,34 @@ static func _valid_unloading(
 		aboard.size() + leaving.size() <= ferry.fc.passenger_capacity
 		and aboard.all(func(p: Dictionary): return p.dest != term.town.id and p.dest >= 0)
 		and leaving.all(func(p: Dictionary): return p.dest == term.town.id or p.dest < 0)
+	)
+
+
+static func _valid_sailing_pose(record: Dictionary, ferry: Ferry) -> bool:
+	var pose = record.sailing_pose
+	if (
+		not pose is Dictionary
+		or not SnapshotVector3.valid(pose.get("position"))
+		or not SnapshotVector3.valid(pose.get("forward"))
+	):
+		return false
+	var forward := SnapshotVector3.decode(pose.forward)
+	var position := SnapshotVector3.decode(pose.position)
+	var at_a: bool = record.from == ferry.term_a.town.key
+	var distance: float = (
+		record.distance - ferry.dock_inset()
+		if at_a
+		else ferry.route.length + ferry.dock_inset() - record.distance
+	)
+	var lane := ferry.lane_pose_on(ferry.route, distance, at_a, record.lane_fraction)
+	return (
+		is_zero_approx(forward.y)
+		and is_equal_approx(forward.length_squared(), 1.0)
+		and absf(position.y) <= 0.22
+		and (
+			Vector2(position.x, position.z).distance_to(Vector2(lane.x, lane.z))
+			<= ferry.fc.half_length
+		)
 	)
 
 
