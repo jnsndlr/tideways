@@ -17,7 +17,7 @@ The game selects these model families at process startup. With the imported GLB 
 | `--classic-cargo` | VesselAppearance fits container hulls (including the scaled feeder), tankers and bulkers, plus lights and hull lettering. The tanker and bulker GLBs are optional independently once the cargo GLB is available. Classic selects the code-built family. | `vessel_hull_view_test.gd` covers a named feeder; `vessel_shots.gd` |
 | `--classic-trawler` | VesselAppearance and FishingBoatView use the chosen hull, livery, fishing gear and lamp positions. | `trawler_gear_test.gd`, `fishing_shots.gd` |
 | `--classic-pilot` | PilotBoatModel builds the launch, its three liveries, lights and boarding ladder. VesselAppearance supplies its meshes and PilotLadder fits the ladder for a transfer. | `pilot_boat_model_test.gd` checks both modes; `vessel_night_lights_test.gd`, `vessel_shots.gd` |
-| `--classic-tug` | VesselAppearance selects the tug hull, livery, mast and lights. | `vessel_night_lights_test.gd`, `vessel_shots.gd` |
+| `--classic-tug` | TugModel builds the three hull liveries, wheelhouse glow, navigation lights and mast light. VesselAppearance supplies them to the live tug. | `tug_model_test.gd` checks both modes; `vessel_night_lights_test.gd`, `vessel_shots.gd` |
 
 **Porpoises.** Dall’s and harbor porpoises each use one procedural mesh built by PorpoiseModel. Models caches each species separately. Cetaceans applies the live fin and tail animation. The porpoise model test covers both species.
 
