@@ -1,6 +1,6 @@
 extends SceneTree
 ## Bakes the 300-triangle pine's impostor (tree_impostor.gdshader) into
-## Models.IMPOSTOR_DIR: the model drawn unlit and square on (orthographic) from every
+## TreeModel.IMPOSTOR_DIR: the model drawn unlit and square on (orthographic) from every
 ## heading and height of Models' impostor layout, framed in the sphere round it.
 ##   lpine_albedo.res  rgb its vertex colours, a its coverage
 ##   lpine_normal.res  rgb its normals (model frame, 0.5 + n / 2), a its depth
@@ -19,16 +19,16 @@ func _initialize() -> void:
 
 
 func _bake() -> void:
-	var base := Models.impostor_base()
+	var base := TreeModel.impostor_base()
 	var mesh: ArrayMesh = base[0]
 	var center: Vector3 = base[1]
 	var radius: float = base[2]
-	var F := Models.IMPOSTOR_FRAME
-	var AZ := Models.IMPOSTOR_AZIMUTHS
-	var EL := Models.IMPOSTOR_ELEVATIONS
+	var frame_size := TreeModel.IMPOSTOR_FRAME
+	var azimuths := TreeModel.IMPOSTOR_AZIMUTHS
+	var elevations := TreeModel.IMPOSTOR_ELEVATIONS
 
 	var vp := SubViewport.new()
-	vp.size = Vector2i(F, F)
+	vp.size = Vector2i(frame_size, frame_size)
 	vp.own_world_3d = true
 	vp.transparent_bg = true
 	vp.msaa_3d = Viewport.MSAA_DISABLED
@@ -57,12 +57,16 @@ func _bake() -> void:
 	vp.add_child(cam)
 	cam.current = true
 
-	var albedo := Image.create(F * AZ, F * EL, false, Image.FORMAT_RGBA8)
-	var normal := Image.create(F * AZ, F * EL, false, Image.FORMAT_RGBA8)
-	for j in EL:
-		for i in AZ:
-			var a := TAU * i / AZ
-			var e := deg_to_rad(Models.IMPOSTOR_EL_STEP * j)
+	var albedo := Image.create(
+		frame_size * azimuths, frame_size * elevations, false, Image.FORMAT_RGBA8
+	)
+	var normal := Image.create(
+		frame_size * azimuths, frame_size * elevations, false, Image.FORMAT_RGBA8
+	)
+	for j in elevations:
+		for i in azimuths:
+			var a := TAU * i / azimuths
+			var e := deg_to_rad(TreeModel.IMPOSTOR_EL_STEP * j)
 			var d := Vector3(cos(e) * cos(a), sin(e), cos(e) * sin(a))
 			# Camera basis as the shader builds its card: x across, y up, z towards us.
 			var x := Vector3.UP.cross(d).normalized()
@@ -78,16 +82,18 @@ func _bake() -> void:
 				var img := vp.get_texture().get_image()
 				img.convert(Image.FORMAT_RGBA8)
 				shots.append(img)
-			_fill_frame(shots, albedo, normal, Vector2i(i * F, j * F))
+			_fill_frame(shots, albedo, normal, Vector2i(i * frame_size, j * frame_size))
 	if preview != "":
 		DirAccess.make_dir_recursive_absolute(preview)
 		albedo.save_png(preview.path_join("lpine_albedo.png"))
 		normal.save_png(preview.path_join("lpine_normal.png"))
-	DirAccess.make_dir_recursive_absolute(Models.IMPOSTOR_DIR)
+	DirAccess.make_dir_recursive_absolute(TreeModel.IMPOSTOR_DIR)
 	for pair in [[albedo, "lpine_albedo.res"], [normal, "lpine_normal.res"]]:
 		var img: Image = pair[0]
 		img.generate_mipmaps()
-		var err := ResourceSaver.save(ImageTexture.create_from_image(img), Models.IMPOSTOR_DIR + pair[1])
+		var err := ResourceSaver.save(
+			ImageTexture.create_from_image(img), TreeModel.IMPOSTOR_DIR + pair[1]
+		)
 		print("bake_impostor: saved %s (%s)" % [pair[1], error_string(err)])
 	quit()
 
