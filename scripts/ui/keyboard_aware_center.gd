@@ -8,4 +8,6 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var keyboard_pixels := maxi(0, DisplayServer.virtual_keyboard_get_height())
-	offset_bottom = -keyboard_pixels / get_screen_transform().get_scale().y
+	var window_height := DisplayServer.window_get_size().y
+	if window_height > 0:
+		offset_bottom = -keyboard_pixels * get_viewport_rect().size.y / window_height
