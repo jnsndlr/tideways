@@ -8,22 +8,27 @@ var crew: PavingCrew
 func setup(terminal: Terminal) -> void:
 	transform = terminal.town.lot_offset()  # in the lot's frame, like everything on the lot
 	terminal.extension_changed.connect(_refresh.bind(terminal))
+	_refresh(terminal)
 
 
 func _refresh(terminal: Terminal) -> void:
-	match terminal.work_stage:
-		Terminal.WorkStage.DRAINING:
-			crew = PavingCrew.new()
-			add_child(crew)
-			crew.setup(terminal)
-		Terminal.WorkStage.ARRIVING:
-			mesh = _surface(terminal, terminal.extension_offset())
-		Terminal.WorkStage.OPEN:
-			if crew:
-				remove_child(crew)
-				crew.queue_free()
-				crew = null
+	var stage := terminal.work_stage
+	if stage in [Terminal.WorkStage.IDLE, Terminal.WorkStage.OPEN]:
+		if crew:
+			remove_child(crew)
+			crew.queue_free()
+			crew = null
+		if not terminal.paved.is_empty():
 			mesh = _surface(terminal, NAN)
+		return
+	if crew == null:
+		crew = PavingCrew.new()
+		add_child(crew)
+		crew.setup(terminal)
+	if stage != Terminal.WorkStage.DRAINING:
+		mesh = _surface(terminal, terminal.extension_offset())
+	elif not terminal.paved.is_empty():
+		mesh = _surface(terminal, NAN)
 
 
 ## Every lane paved so far, and gravel where one is being built (`building`, NAN for none).

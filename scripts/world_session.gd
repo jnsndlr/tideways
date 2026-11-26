@@ -5,8 +5,8 @@ extends Node3D
 
 signal world_ready
 
-## Date to apply before actors start when continuing a saved company.
-var starting_date: Dictionary = {}
+## A generated region has no scenario path. Only the authored entry supplies one.
+var save_scenario := ""
 var map: MapData
 var terrain: Terrain
 var _building_backdrop: Backdrop
@@ -57,6 +57,8 @@ var build_from := 0.0
 var build_to := 0.0
 ## The world is fully built.
 var built := false
+var _save_game := SaveGame.new()
+var _resume_data: Dictionary = {}
 
 
 @abstract func intro(islands: int) -> Array[String]
@@ -77,6 +79,8 @@ func start_authored(layout: MapLayout, opening: Scenario, route_cache_path: Stri
 
 
 func _start_region(gen: MapGenerator, generate: Callable) -> void:
+	_resume_data = RegionEntryState.pending_save
+	RegionEntryState.pending_save = {}
 	if not uncapped and DisplayServer.get_name() != "headless":
 		Engine.max_fps = MAX_FPS
 	set_process(false)
@@ -139,7 +143,7 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 	_setup_frames.start(get_tree().process_frame if async_build else Signal())
 	await _setup_simulation(charts)
 	_setup_frames.finish()
-	if _setup_frames.cancelled:
+	if _setup_frames.cancelled or not is_instance_valid(sim):
 		return
 	process_mode = previous_mode
 	set_process(true)
@@ -159,14 +163,48 @@ func _setup_simulation(charts: MarineCharts) -> void:
 		SlipModel.authored_guides,
 		PassengerView.create_view
 	)
-	if not starting_date.is_empty():
-		sim.day = int(starting_date.day)
-		sim.minutes = float(starting_date.minutes)
+	var saved := _resume_data
+	_resume_data = {}
+	if not saved.is_empty() and not saved.has("snapshot"):
+		sim.day = int(saved.day)
+		sim.minutes = float(saved.minutes)
 	sim.name = "Simulation"
 	add_child(sim)
 	# The rest of the simulation spawns nodes into the live tree, so it stays on the
 	# main thread.
 	await sim.setup(map, terrain, scenario, charts, _setup_frames)
+	if _setup_frames.cancelled:
+		return
+	_save_game.remember_region(sim)
+	if saved.has("snapshot"):
+		# The scene is still disabled. Discard the whole candidate if any section fails.
+		for terminal: Terminal in sim.terminals.values():
+			_watch_dredging(terminal)
+		sim.terminal_opened.connect(_watch_dredging)
+		var target := sim
+		if (
+			CompanySnapshot.restore(
+				saved.snapshot, func(): return target, VehicleFactory.from_parts
+			)
+			== null
+		):
+			sim = null
+			RegionEntryState.load_error = SaveGame.INVALID
+			_setup_frames.cancel()
+			Scenes.go.call_deferred(get_tree(), Scenes.MENU)
+			return
+		sim.terminal_opened.disconnect(_watch_dredging)
+		if scenario and scenario.mission:
+			scenario.mission.start_day = int(saved.mission_start)
+		for terminal: Terminal in sim.terminals.values():
+			builder.show_terminal(terminal.town)
+			for index in range(terminal.original_slip_count, terminal.town.slips.size()):
+				if not terminal.town.slips[index].building:
+					builder.build_bought_slip(terminal.town, index)
+	await _attach_simulation_views()
+
+
+func _attach_simulation_views() -> void:
 	sim.routes_changed.connect(builder.rebuild_route_overlay)
 	if not await _setup_frames.can_continue():
 		return
@@ -264,11 +302,29 @@ func _setup_simulation(charts: MarineCharts) -> void:
 
 
 func can_quick_save() -> bool:
-	return false
+	return true
 
 
 func quick_save() -> void:
-	pass
+	var result := ERR_UNAVAILABLE
+	if can_quick_save():
+		var generated := save_scenario.is_empty()
+		result = _save_game.save_company(
+			sim,
+			save_scenario,
+			"Sandbox" if generated else RegionEntryState.company_name,
+			false if generated else RegionEntryState.unlimited_cash
+		)
+	if result == OK:
+		hud.show_toast("GAME SAVED", "Day %d · %s" % [sim.day, sim.clock_text(sim.minutes)], 3.0)
+	elif result == ERR_UNAVAILABLE:
+		hud.show_toast(
+			"SAVE UNAVAILABLE",
+			"This service state can’t be saved yet. Your previous save is safe.",
+			4.0
+		)
+	else:
+		hud.show_toast("SAVE FAILED", "Couldn't write the save file.", 3.0)
 
 
 func _setup_hud() -> void:
@@ -377,6 +433,8 @@ func _setup_environment() -> void:
 
 
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED and built and can_quick_save():
+		quick_save()
 	if uncapped or DisplayServer.get_name() == "headless":
 		return
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
@@ -475,7 +533,12 @@ func _dress_terminal(terminal: Terminal) -> void:
 		terminal.add_child(extension)
 		extension.setup(terminal)
 	terminal.slip_built.connect(_on_slip_built.bind(terminal))
-	terminal.seabed_dredged.connect(builder.rebuild_terrain)
+	_watch_dredging(terminal)
+
+
+func _watch_dredging(terminal: Terminal) -> void:
+	if not terminal.seabed_dredged.is_connected(builder.rebuild_terrain):
+		terminal.seabed_dredged.connect(builder.rebuild_terrain)
 
 
 ## A slip bought at `terminal` is built: it goes into the world where it stands.

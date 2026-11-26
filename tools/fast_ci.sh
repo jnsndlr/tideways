@@ -96,7 +96,9 @@ check terminal-walking-queue-restore test --script tests/session/terminal_walkin
 check unloading-restore test --script tests/session/ferry_unloading_snapshot_test.gd
 check crossing-restore test --script tests/session/ferry_crossing_snapshot_test.gd
 check company-network test --script tests/session/company_network_test.gd
+check town-growth-restore test --script tests/session/town_growth_snapshot_test.gd
 check company-restore test --script tests/session/company_snapshot_test.gd
+check purchased-fleet-restore test --script tests/session/purchased_fleet_snapshot_test.gd
 check outbound-traffic-restore test --script tests/session/outbound_traffic_snapshot_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
 check town-growth test --fixed-fps 30 --script tests/simulation/town_growth_test.gd

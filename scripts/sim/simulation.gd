@@ -153,6 +153,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 	else:
 		for hull in network.fleet:
 			_spawn_ferry(hull.key, hull.route, hull.display_name, hull.size)
+			ferries[-1].purchased = hull.purchased
 	if not await frames.can_continue():
 		return
 	_build_lanes()

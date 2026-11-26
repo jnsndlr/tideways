@@ -9,4 +9,5 @@ static var scenario_path := ""
 static var editor_restore := {}
 static var unlimited_cash := false
 static var company_name := ""
-static var saved_date: Dictionary = {}
+static var pending_save: Dictionary = {}
+static var load_error := ""
