@@ -116,6 +116,23 @@ func display(words: PackedStringArray, turn_title: bool) -> void:
 		_turns.tween_method(func(t: float): mat.set_shader_parameter("elapsed", t), 0.0, 1.4, 1.4)
 
 
+## Long names ellipsize at the end of the flap. Put the day first when necessary.
+func company_caption(company: String, day: String) -> String:
+	if company.is_empty():
+		return day
+	var caption := "%s  ·  %s" % [company, day]
+	var ink := _ink[2]
+	var font := ink.get_theme_font("font")
+	var width := (
+		font
+		. get_string_size(
+			caption, HORIZONTAL_ALIGNMENT_LEFT, -1, ink.get_theme_font_size("font_size")
+		)
+		. x
+	)
+	return caption if width <= ink.size.x else "%s  ·  %s" % [day, company]
+
+
 func place_action(control: Control, row: int) -> void:
 	var top: Vector4 = RAILS[row][0]
 	var bottom: Vector4 = RAILS[row][2]

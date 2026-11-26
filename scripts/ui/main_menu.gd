@@ -33,7 +33,7 @@ func _build() -> void:
 	if resume.visible:
 		var name_text := str(save.get("company", "")).strip_edges()
 		var day_text := "Day %d" % int(save.day)
-		company.text = day_text if name_text.is_empty() else "%s  ·  %s" % [name_text, day_text]
+		company.text = _board.company_caption(name_text, day_text)
 		company.tooltip_text = company.text
 	var primary := resume if resume.visible else new_company
 	if resume.visible:
@@ -95,7 +95,22 @@ func _show_sandboxes(show_choices: bool) -> void:
 
 func _open_settings() -> void:
 	var settings_button: Button = _departures.get_node("Settings")
-	SettingsPanel.open(get_tree()).tree_exited.connect(settings_button.grab_focus)
+	_keep_focus_in(SettingsPanel.open(get_tree()), settings_button)
+
+
+## Keep keyboard navigation on the open panel and return it to the invoking action.
+func _keep_focus_in(panel: Node, opener: Control) -> void:
+	focus_behavior_recursive = Control.FOCUS_BEHAVIOR_DISABLED
+	panel.tree_exited.connect(
+		func():
+			focus_behavior_recursive = Control.FOCUS_BEHAVIOR_INHERITED
+			if (
+				is_instance_valid(opener)
+				and opener.is_inside_tree()
+				and opener.is_visible_in_tree()
+			):
+				opener.grab_focus()
+	)
 
 
 ## Asks for the company name, then calls `on_done` with it.
@@ -105,8 +120,8 @@ func _ask_name(on_done: Callable) -> void:
 	var dim := ColorRect.new()
 	_name_dialog = dim
 	var opener := get_viewport().gui_get_focus_owner()
-	if opener:
-		dim.tree_exited.connect(opener.grab_focus)
+	dim.focus_behavior_recursive = Control.FOCUS_BEHAVIOR_ENABLED
+	_keep_focus_in(dim, opener)
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)

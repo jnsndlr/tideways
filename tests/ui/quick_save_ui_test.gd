@@ -11,6 +11,8 @@ func run() -> void:
 	var path := "user://quick-save-ui-%d.json" % OS.get_process_id()
 	SaveGame._path = path
 	var passed := await exercise_slot(path)
+	if passed:
+		passed = await check_long_company()
 	SaveGame._path = SaveGame.PATH
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	change_scene_to_file(Scenes.MENU)
@@ -62,6 +64,35 @@ func check_empty_board() -> bool:
 			return fail("The square window cropped the %s control" % button.text)
 	root.size = Vector2i(1366, 1024)
 	return true
+
+
+func check_long_company() -> bool:
+	var name_text := "W".repeat(32)
+	if not SaveGame.save(Scenario.OPENING, false, 123, 480, name_text):
+		return fail("Could not prepare the long-name save")
+	change_scene_to_file(Scenes.MENU)
+	await scene_changed
+	var ink: Label = current_scene.get_node("Board")._ink[2]
+	if not ink.text.begins_with("Day 123") or not ink.text.ends_with(name_text):
+		return fail("The end ellipsis must preserve the day for a maximum-width name")
+	var opener: Button = current_scene.get_node("Board/Rows/Departures/NewCompany")
+	opener.grab_focus()
+	if not await press("New company"):
+		return false
+	var dialog: Control = current_scene._name_dialog
+	for step in 4:
+		var event := InputEventAction.new()
+		event.action = &"ui_focus_next"
+		event.pressed = true
+		root.push_input(event)
+		await process_frame
+		var focused := root.gui_get_focus_owner()
+		if not focused or not dialog.is_ancestor_of(focused):
+			return fail("Tab navigation left the open company naming panel")
+	if not await press("Cancel"):
+		return false
+	await process_frame
+	return root.gui_get_focus_owner() == opener or fail("Cancel should return focus to New company")
 
 
 func check_slot(session: WorldSession) -> bool:
