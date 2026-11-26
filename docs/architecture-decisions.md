@@ -12,6 +12,8 @@
 
 **Lay-up after a sailing.** A working ferry keeps its paid manifest until it unloads. A lay-up order suspends its scheduled service while it travels to the selected berth. The company save carries the berth order and the suspended schedule so Continue can finish the maneuver and the player can put the tied-up ferry back into service. [TID-333](https://linear.app/tideways/issue/TID-333)
 
+**Working-slip reassignment.** Moving a route to another slip changes its approach curve. Each move starts from the curve left by the previous move, including moves at the opposite terminal. Continue needs that same approach before it restores a ferry’s position along the route. The terminal purchase receipt remains in the company ledger. [TID-333](https://linear.app/tideways/issue/TID-333)
+
 **Outbound sale.** Selling a purchased ferry credits its resale value and removes it from the company fleet immediately. While the tug collects it and takes it out to sea, the save records the departing vessels separately from the owned fleet. Continue restores the tow at its saved position. After the hull leaves the region, subsequent saves keep the sale in the ledger and the ferry stays gone. [TID-333](https://linear.app/tideways/issue/TID-333)
 
 **Purchased berth sites.** Restore the first added working slip or tie-up at the purchased offset before applying fitted berth sizes. The original survey recreates necessary dredging. The crane resumes its saved phase and opens outstanding work once. The ledger restores the original payment. Multiple successive berth purchases and route reassignment still need coverage. [New berth and dredging checks](../tests/session/terminal_berth_purchase_snapshot_test.gd)
