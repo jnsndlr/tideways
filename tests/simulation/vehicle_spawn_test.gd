@@ -23,6 +23,7 @@ func run() -> void:
 		check_spawned_traffic(authored)
 	check_invalid_parts()
 	check_queue_parking()
+	check_parking_trailer_clearance()
 	check_boarding_approaches()
 	check_world_isolation()
 	Models.mid_cars = original_mode
@@ -209,6 +210,26 @@ func check_queue_parking() -> void:
 	terminal._close_up(lane)
 	rig._process(0.033)
 	expect(absf(rig._tail().x - lane.v) < 0.01, "Closing a queue should preserve the parked pose")
+	sim.free()
+
+
+func check_parking_trailer_clearance() -> void:
+	var sim := make_world()
+	var follower := moving_car(sim, 0.0)
+	var rig := VehicleFactory.from_parts(true, "tractor_day", 0, "trailer_van", 0)
+	rig.moving_traffic = sim.moving_vehicles
+	sim.traffic.add_child(rig)
+	rig.position = follower._g_front + Vector3(8, 0, 6)
+	rig.rotation.y = PI / 2.0
+	rig.straighten()
+	rig.park_in_lane(rig.position + Vector3.RIGHT * 40.0, rig.rotation.y)
+	expect(
+		is_equal_approx(follower._room_ahead(), 6.0 - Vehicle.FOLLOW_GAP),
+		"Yield to the trailer across the aisle after its tractor has turned into a lane"
+	)
+	rig.position.x += rig.length
+	rig._cache_ends()
+	expect(is_inf(follower._room_ahead()), "Proceed as soon as the tail clears the aisle")
 	sim.free()
 
 

@@ -283,6 +283,32 @@ func _room_to(o: Vehicle) -> float:
 	return maxf(0.0, rel.dot(_g_fwd) - FOLLOW_GAP)
 
 
+## An arriving car crosses the backs of the holding lanes. When a tractor turns
+## into its final lane its trailer can still span that aisle. Clip the actual
+## hitch-to-tail segment to the strip in front of our bumper.
+func _parking_trailer_room(o: Vehicle) -> float:
+	var hitch := o.global_transform * o._hitch - _g_front
+	var tail := o._g_tail - _g_front
+	if absf(tail.y) > FOLLOW_WIDTH:
+		return INF
+	var right := _g_fwd.cross(Vector3.UP)
+	var x0 := tail.dot(right)
+	var x1 := hitch.dot(right)
+	if minf(x0, x1) > FOLLOW_WIDTH or maxf(x0, x1) < -FOLLOW_WIDTH:
+		return INF
+	var z0 := tail.dot(_g_fwd)
+	var z1 := hitch.dot(_g_fwd)
+	if not is_equal_approx(x0, x1):
+		var t0 := (-FOLLOW_WIDTH - x0) / (x1 - x0)
+		var t1 := (FOLLOW_WIDTH - x0) / (x1 - x0)
+		var near_z := lerpf(z0, z1, clampf(minf(t0, t1), 0.0, 1.0))
+		z1 = lerpf(z0, z1, clampf(maxf(t0, t1), 0.0, 1.0))
+		z0 = near_z
+	if maxf(z0, z1) <= 0.0:
+		return INF
+	return maxf(0.0, minf(z0, z1) - FOLLOW_GAP)
+
+
 ## How far it can go before closing on the vehicle in front: its leader (whichever
 ## way that is heading) or anything else under way heading its way.
 func _room_ahead() -> float:
@@ -294,12 +320,15 @@ func _room_ahead() -> float:
 			leader = null
 	var reach := room if room < INF else 60.0
 	for o in moving_traffic:
-		if o == self or o == leader or o._g_fwd.dot(_g_fwd) < SAME_WAY:
+		if o == self or o == leader:
 			continue
 		var d := o._g_tail - _g_front
 		if d.x * d.x + d.z * d.z > reach * reach + 900.0:
 			continue
-		room = minf(room, _room_to(o))
+		if o._g_fwd.dot(_g_fwd) >= SAME_WAY:
+			room = minf(room, _room_to(o))
+		elif o.trailer and not is_nan(o._parking_yaw) and is_nan(_parking_yaw):
+			room = minf(room, _parking_trailer_room(o))
 	return room
 
 
