@@ -16,7 +16,7 @@ static func capture(sim: Simulation) -> Dictionary:
 			sales.append(sale)
 		elif not tow.delivery_complete() and not InboundDeliverySnapshot.attached(tow, sim):
 			return {}
-	if not _accounts_for_traffic(sim):
+	if not _accounts_for_traffic(sim) or not _unique_berths(sim):
 		return {}
 	var terminals := {}
 	for term: Terminal in sim.terminals.values():
@@ -28,7 +28,13 @@ static func capture(sim: Simulation) -> Dictionary:
 	for ferry in sim.ferries:
 		var voyage := (
 			InboundDeliverySnapshot.capture(ferry)
-			if ferry.purchased and ferry.berth in [Ferry.Berth.DELIVERING, Ferry.Berth.TIED_UP]
+			if (
+				ferry.purchased
+				and (
+					ferry.berth == Ferry.Berth.DELIVERING
+					or (ferry.berth == Ferry.Berth.TIED_UP and not ferry.assigned)
+				)
+			)
 			else FerryCrossingSnapshot.capture(ferry)
 		)
 		if voyage.is_empty() or ferry.fleet_key.is_empty() or voyages.has(ferry.fleet_key):
@@ -187,11 +193,29 @@ static func _install_fleet(
 				or voyage.service != FerryCrossingSnapshot.service_record(ferry)
 			):
 				return false
-		elif not FerryCrossingSnapshot.restore(voyage, ferry, make_vehicle):
-			return false
+		else:
+			# A scenario can start this working hull parked at a different slip.
+			ferry.berth = Ferry.Berth.WORKING
+			ferry._lay_up.tie_up = -1
+			if not FerryCrossingSnapshot.restore(voyage, ferry, make_vehicle):
+				return false
 		ferry.ferry_name = hull.display_name
 		ferry.vessel_name = hull.display_name
-	return _install_reservations(data.reservations, sim, ferries)
+	return _unique_berths(sim) and _install_reservations(data.reservations, sim, ferries)
+
+
+## The tie-up remains booked during either shift and throughout inbound delivery.
+## Ordinary calls at a shared working slip never reserve the berth this way.
+static func _unique_berths(sim: Simulation) -> bool:
+	var reserved := {}
+	for f in sim.ferries:
+		if f.berth == Ferry.Berth.WORKING:
+			continue
+		var berth := Vector2i(f.here().town.id, f.tie_up)
+		if reserved.has(berth):
+			return false
+		reserved[berth] = true
+	return true
 
 
 ## Reapply the player's choices before the voyage verifies hull, route and stops.

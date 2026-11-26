@@ -4,7 +4,7 @@ extends RefCounted
 ## an empty hull after rebuilding the same network, timetable, captain and class.
 ## The company owns the clock, ledger and waiting queues separately. Restore the
 ## network's corridor reservations after installing every hull's position.
-const VERSION := 5
+const VERSION := 6
 const NUMBERS := [
 	"distance",
 	"speed",
@@ -32,7 +32,12 @@ const NUMBERS := [
 
 
 static func capture(ferry: Ferry) -> Dictionary:
-	if not _ordinary_service(ferry):
+	var lay_up := {}
+	if FerryLayUpSnapshot.needed(ferry):
+		lay_up = FerryLayUpSnapshot.capture(ferry)
+		if lay_up.is_empty():
+			return {}
+	elif not _ordinary_service(ferry):
 		return {}
 	if ferry.state not in [Ferry.State.SAILING, Ferry.State.LOADING, Ferry.State.UNLOADING]:
 		return {}
@@ -51,7 +56,7 @@ static func capture(ferry: Ferry) -> Dictionary:
 		return {}
 	var command := ferry._command
 	var record := {
-		"version": VERSION,
+		"version": VERSION if not lay_up.is_empty() else 5,
 		"service": service_record(ferry),
 		"phase": "crossing" if ferry.state == Ferry.State.SAILING else "boarding",
 		"from": ferry.here().town.key,
@@ -87,6 +92,8 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"passengers": _capture_passengers(ferry.passengers_aboard, ferry),
 		"homeward_walkers": FerryWalkOnSnapshot.capture_walkers(ferry._homeward_walkers),
 	}
+	if not lay_up.is_empty():
+		record.lay_up = lay_up
 	if ferry.state == Ferry.State.SAILING:
 		# _update_lie eases the simulation angle after place_underway applies this frame.
 		record.sailing_pose = {
@@ -168,7 +175,14 @@ static func service_record(ferry: Ferry) -> Dictionary:
 ## Stage every vehicle before touching the destination hull. Installing a vehicle
 ## resumes its paid booking and never calls the fare collection path.
 static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> bool:
-	if not _ordinary_service(ferry) or not _empty_hull(ferry) or not ferry._pax_walkers.is_empty():
+	if (
+		(
+			not _ordinary_service(ferry)
+			and not (ferry.manual and record is Dictionary and record.has("lay_up"))
+		)
+		or not _empty_hull(ferry)
+		or not ferry._pax_walkers.is_empty()
+	):
 		return false
 	if not record is Dictionary or not _valid_state(record, ferry):
 		return false
@@ -271,7 +285,7 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 	)
 	if walking:
 		FerryWalkOnSnapshot.install(record.walk_ons, ferry)
-	return true
+	return not record.has("lay_up") or FerryLayUpSnapshot.install(record.lay_up, ferry)
 
 
 static func _empty_hull(ferry: Ferry) -> bool:
@@ -290,6 +304,11 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 	if (
 		not _integer(r.get("version"), VERSION)
 		or r.version < 1
+		or r.has("lay_up") != (r.version >= 6)
+		or (
+			r.has("lay_up")
+			and (not r.lay_up is Dictionary or r.lay_up.has("order") != ferry.manual)
+		)
 		or (r.has("walk_ons") != (r.get("phase") == "walk_ons"))
 		or (r.has("walk_ons") and r.version < 2)
 		or (r.has("lifting_ramp") != (r.get("phase") == "casting_off"))
