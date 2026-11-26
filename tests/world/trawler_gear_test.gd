@@ -9,6 +9,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	check_hulls()
 	var sim := TinyRegion.build().start(root)
 	for with_view: bool in [false, true]:
 		check_haul_and_landing(sim, with_view)
@@ -16,6 +17,22 @@ func _run() -> void:
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
+
+
+func check_hulls() -> void:
+	var spec := VesselTypes.fishing_boats()[0]
+	var paints: Array[PackedColorArray] = []
+	for variant in spec.variants:
+		var hull := VesselAppearance.hull(spec, variant)
+		expect(hull == Models.trawler(variant), "Repeated requests reuse the livery")
+		expect(hull.get_surface_count() == 1, "Trawler hull uses one painted surface")
+		if hull.get_surface_count() != 1:
+			continue
+		var paint: PackedColorArray = hull.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+		expect(paint.size() == hull.surface_get_array_len(0), "All hull vertices have paint")
+		expect(not paints.has(paint), "Each trawler has a distinct livery")
+		paints.append(paint)
+	expect(paints.size() == 3, "The fleet has three trawler liveries")
 
 
 func check_haul_and_landing(sim: Simulation, with_view: bool) -> void:
