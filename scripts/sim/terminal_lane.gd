@@ -15,6 +15,13 @@ class WaitingVehicle:
 var v: float
 var queue: Array[WaitingVehicle] = []
 var enroute := 0
+## Vehicles still driving toward this lane. A transfer retains its first lot arrival.
+var approaching: Dictionary[int, bool] = {}
+
+
+func reserve_arrival(vehicle_id: int, slots: int, transfer: bool) -> void:
+	approaching[vehicle_id] = transfer
+	enroute += slots
 
 
 func _init(offset: float) -> void:

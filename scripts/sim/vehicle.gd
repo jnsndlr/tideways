@@ -188,7 +188,7 @@ func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0
 
 ## The drive path has already been rounded. Restoring its remaining points directly
 ## avoids rounding a turn twice or firing the original dispatch a second time.
-func boarding_motion() -> Dictionary:
+func drive_motion() -> Dictionary:
 	return {
 		"path": path,
 		"delay": delay,
@@ -201,7 +201,7 @@ func boarding_motion() -> Dictionary:
 	}
 
 
-func restore_boarding_motion(motion: Dictionary) -> void:
+func restore_drive_motion(motion: Dictionary) -> void:
 	path = motion.path
 	delay = motion.delay
 	_held = motion.held
@@ -213,7 +213,7 @@ func restore_boarding_motion(motion: Dictionary) -> void:
 		trailer.rotation.y = motion.trailer_yaw
 
 
-func resume_boarding(on_arrive: Callable) -> void:
+func resume_drive(on_arrive: Callable) -> void:
 	_on_arrive = on_arrive
 
 
@@ -230,6 +230,11 @@ func _tip(slope: float, delta: float) -> void:
 ## to settle parallel to the lane even when the turn into a busy lot was tight.
 func park_in_lane(spot: Vector3, heading: float) -> void:
 	drive(PackedVector3Array([spot]))
+	_parking_yaw = heading
+
+
+## The remaining path is already rounded and the rig is already articulated.
+func resume_parking(heading: float) -> void:
 	_parking_yaw = heading
 
 

@@ -45,14 +45,7 @@ static func capture(ferry: Ferry) -> Variant:
 			var lane := ferry.here().boarding_lane_for(car)
 			if lane == null or car.path.is_empty():
 				return null
-			entry.boarding = car.boarding_motion()
-			entry.boarding.position = _xyz(car.position)
-			entry.boarding.rotation = _xyz(car.rotation)
-			var points := []
-			for point in car.path:
-				points.append(_xyz(point))
-			entry.boarding.path = points
-			entry.boarding.axle = _xyz(entry.boarding.axle)
+			entry.boarding = VehicleMotionSnapshot.capture(car)
 			entry.boarding.lane = lane.v
 			entry.boarding.leader = cars.find(car.leader) if is_instance_valid(car.leader) else -1
 			if (
@@ -140,39 +133,11 @@ func _prepare_boarding(data: Variant, departure: Terminal) -> bool:
 	if data.leader < -1 or data.leader >= _cars.size() - 1 or departure == null:
 		return false
 	var lane := departure.lane_at_offset(data.lane)
-	var motion := _decode_motion(data)
-	if lane == null or motion.is_empty():
+	if lane == null or not VehicleMotionSnapshot.restore(data, _cars[-1]):
 		return false
-	_cars[-1].position = _vec(data.position)
-	_cars[-1].rotation = _vec(data.rotation)
-	_cars[-1].restore_boarding_motion(motion)
 	_lanes[-1] = lane
 	_leaders[-1] = int(data.leader)
 	return true
-
-
-static func _decode_motion(data: Dictionary) -> Dictionary:
-	for name in ["delay", "held", "creep", "body_pitch", "reach", "trailer_yaw"]:
-		if not _scalar(data.get(name)):
-			return {}
-	if not _point(data.get("position")) or not _point(data.get("rotation")):
-		return {}
-	if (
-		not _point(data.get("axle"))
-		or data.reach < 0
-		or not data.get("path") is Array
-		or data.path.is_empty()
-	):
-		return {}
-	var points := PackedVector3Array()
-	for point in data.path:
-		if not _point(point):
-			return {}
-		points.append(_vec(point))
-	var motion := data.duplicate()
-	motion.path = points
-	motion.axle = _vec(data.axle)
-	return motion
 
 
 func install(ferry: Ferry) -> void:
@@ -188,7 +153,7 @@ func install(ferry: Ferry) -> void:
 			var terminal := ferry.here()
 			terminal.resume_boarding(car, _lanes[i])
 			var parked := ferry._park_xform(_slots[i], car)
-			car.resume_boarding(ferry._on_boarded.bind(parked, terminal))
+			car.resume_drive(ferry._on_boarded.bind(parked, terminal))
 			if _leaders[i] >= 0:
 				car.leader = _cars[_leaders[i]]
 			ferry._boarding += 1
@@ -222,22 +187,3 @@ static func _scalar(value: Variant) -> bool:
 
 static func _integer(value: Variant) -> bool:
 	return _scalar(value) and floor(value) == value and absf(value) <= 2147483647
-
-
-static func _point(value: Variant) -> bool:
-	return (
-		value is Array
-		and value.size() == 3
-		and _scalar(value[0])
-		and _scalar(value[1])
-		and _scalar(value[2])
-		and _vec(value).is_finite()
-	)
-
-
-static func _xyz(value: Vector3) -> Array:
-	return [value.x, value.y, value.z]
-
-
-static func _vec(value: Array) -> Vector3:
-	return Vector3(value[0], value[1], value[2])
