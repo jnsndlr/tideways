@@ -101,7 +101,7 @@ func _process(_delta: float) -> bool:
 		for c in holder.get_children():
 			c.queue_free()
 		var mi := MeshInstance3D.new()
-		mi.mesh = Models.vehicle(n, paints.get(n, 0))
+		mi.mesh = RoadVehicleModel.body_mesh(n, paints.get(n, 0))
 		mi.material_override = Models.vc_material()
 		holder.add_child(mi)
 		var size: Vector3 = VehicleData.VARIANTS[n]["size"]
@@ -109,7 +109,7 @@ func _process(_delta: float) -> bool:
 		if hitch != "" and VehicleData.VARIANTS[n].has("pin"):
 			# The tractor ahead, its fifth wheel under the kingpin; frame the whole rig.
 			var tr := MeshInstance3D.new()
-			tr.mesh = Models.vehicle(hitch, paints.get(hitch, 0))
+			tr.mesh = RoadVehicleModel.body_mesh(hitch, paints.get(hitch, 0))
 			tr.material_override = Models.vc_material()
 			var pin: Vector3 = VehicleData.VARIANTS[n]["pin"]
 			var hp: Vector3 = VehicleData.VARIANTS[hitch]["hitch"]

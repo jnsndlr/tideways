@@ -21,19 +21,19 @@ func _initialize() -> void:
 		"Default ticket prices"
 	)
 	var car := Vehicle.new()
-	car.setup(Node3D.new(), false, "sedan_modern", Models.VEHICLE_SCALE)
+	car.setup(Node3D.new(), false, "sedan_modern", Units.VEHICLE_MODEL_SCALE)
 	check(car.slots == 1 and car.fare_multiplier() == 1, "Sedan takes 1 slot and pays 1x")
 	sim.collect_fare(car)
 	check(is_equal_approx(sim.revenue_today, 18.0), "Standard car fare")
 
 	var van := Vehicle.new()
-	van.setup(Node3D.new(), false, "van_cargo", Models.VEHICLE_SCALE)
+	van.setup(Node3D.new(), false, "van_cargo", Units.VEHICLE_MODEL_SCALE)
 	check(van.slots == 2 and van.fare_multiplier() == 2, "Van takes 2 slots and pays 2x")
 	sim.collect_fare(van)
 	check(is_equal_approx(sim.revenue_today, 54.0), "Van pays double vehicle fare")
 
 	var small_truck := Vehicle.new()
-	small_truck.setup(Node3D.new(), true, "truck_step", Models.VEHICLE_SCALE)
+	small_truck.setup(Node3D.new(), true, "truck_step", Units.VEHICLE_MODEL_SCALE)
 	check(
 		small_truck.slots == 2 and small_truck.fare_multiplier() == 2,
 		"Small truck takes 2 slots and pays 2x"
@@ -42,7 +42,7 @@ func _initialize() -> void:
 	check(is_equal_approx(sim.revenue_today, 90.0), "Small truck pays double vehicle fare")
 
 	var rig := Vehicle.new()
-	rig.setup(Node3D.new(), true, "tractor_day", Models.VEHICLE_SCALE)
+	rig.setup(Node3D.new(), true, "tractor_day", Units.VEHICLE_MODEL_SCALE)
 	rig.attach_trailer("trailer_container", Node3D.new())
 	check(rig.slots >= 3 and rig.fare_multiplier() == 3, "Large truck takes ~3+ slots and pays 3x")
 	sim.collect_fare(rig)
