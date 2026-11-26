@@ -148,6 +148,8 @@ func _layout() -> void:
 			view.y * 0.90 - 812.0 * fit if portrait else view.y * 0.08 - 53.0 * fit
 		)
 	else:
+		# Keep the board on-screen as an iPad window approaches square.
+		backdrop.position.x = maxf(backdrop.position.x, -24.0 * fill)
 		backdrop.position.y = clampf(backdrop.position.y, -44.0 * fill, 0.0)
 		position = backdrop.position
 		scale = Vector2.ONE * fill

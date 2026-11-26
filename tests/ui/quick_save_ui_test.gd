@@ -23,9 +23,8 @@ func run() -> void:
 func exercise_slot(path: String) -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
-	for button: Button in current_scene.find_children("*", "Button", true, false):
-		if button.text == "Continue" and button.is_visible_in_tree():
-			return fail("Continue should be hidden for an empty slot")
+	if not await check_empty_board():
+		return false
 	if not await enter_game("Mission sandbox", Scenes.MAIN_MAP):
 		return false
 	var session: WorldSession = current_scene
@@ -47,6 +46,22 @@ func exercise_slot(path: String) -> bool:
 	if not check_slot(session):
 		return false
 	return await try_failed_save(session, menu, path)
+
+
+func check_empty_board() -> bool:
+	root.size = Vector2i(900, 900)
+	await process_frame
+	await process_frame
+	for button: Button in current_scene.find_children("*", "Button", true, false):
+		if button.text == "Continue" and button.is_visible_in_tree():
+			return fail("Continue should be hidden for an empty slot")
+		if (
+			button.is_visible_in_tree()
+			and not root.get_visible_rect().encloses(button.get_global_rect())
+		):
+			return fail("The square window cropped the %s control" % button.text)
+	root.size = Vector2i(1366, 1024)
+	return true
 
 
 func check_slot(session: WorldSession) -> bool:
