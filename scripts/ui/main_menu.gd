@@ -1,9 +1,9 @@
 extends Control
 ## Launch Tideways from the ferry terminal's departure board.
 
-const TEXT := Color(0.98, 0.91, 0.75)
 
 const DepartureBoard := preload("res://scripts/ui/departure_board.gd")
+const CompanyNameDialog := preload("res://scenes/company_name_dialog.tscn")
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _name_dialog: ColorRect
 
@@ -130,53 +130,13 @@ func _keep_focus_in(panel: Node, opener: Control) -> void:
 func _ask_name(on_done: Callable) -> void:
 	if is_instance_valid(_name_dialog) or get_tree().root.has_node(LoadingScreen.LAYER_NAME):
 		return
-	var dim := ColorRect.new()
-	_name_dialog = dim
 	var opener := get_viewport().gui_get_focus_owner()
-	dim.focus_behavior_recursive = Control.FOCUS_BEHAVIOR_ENABLED
-	_keep_focus_in(dim, opener)
-	dim.color = Color(0, 0, 0, 0.6)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(dim)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.add_child(center)
-	var panel := PanelContainer.new()
-	center.add_child(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	panel.add_child(box)
-	var label := Label.new()
-	label.text = "Name your ferry company"
-	label.add_theme_font_size_override("font_size", 22)
-	label.add_theme_color_override("font_color", TEXT)
-	box.add_child(label)
-	var field := LineEdit.new()
-	field.placeholder_text = "Island Ferries"
-	field.max_length = 32
-	field.custom_minimum_size = Vector2(360, 48)
-	field.add_theme_font_size_override("font_size", 20)
-	box.add_child(field)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_END
-	row.add_theme_constant_override("separation", 10)
-	box.add_child(row)
-	var go := func():
-		var n := field.text.strip_edges()
-		dim.queue_free()
-		on_done.call(n if n != "" else field.placeholder_text)
-	var cancel := Button.new()
-	cancel.text = "Cancel"
-	cancel.custom_minimum_size = Vector2(110, 44)
-	cancel.pressed.connect(dim.queue_free)
-	row.add_child(cancel)
-	var start := Button.new()
-	start.text = "Start"
-	start.custom_minimum_size = Vector2(110, 44)
-	start.pressed.connect(go)
-	row.add_child(start)
-	field.text_submitted.connect(func(_t): go.call())
-	field.grab_focus()
+	var dialog := CompanyNameDialog.instantiate()
+	_name_dialog = dialog
+	_keep_focus_in(dialog, opener)
+	dialog.name_chosen.connect(on_done, CONNECT_ONE_SHOT)
+	add_child(dialog)
+
 
 
 ## Play the main map from `scenario` ("" for the opening).

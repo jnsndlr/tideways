@@ -11,7 +11,7 @@ func run() -> void:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
 	for second_load: bool in [false, true]:
-		if not await press("New company") or not await press("Start"):
+		if not await press("New company") or not await start_named_company():
 			quit(1)
 			return
 		await scene_changed
