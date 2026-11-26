@@ -232,7 +232,7 @@ static func _accounts_for_traffic(sim: Simulation) -> bool:
 	for ferry in sim.ferries:
 		for id in ferry.deck.occupants:
 			owned[id] = true
-		for walker in ferry._pax_walkers:
+		for walker in ferry._pax_walkers + ferry._homeward_walkers:
 			if not is_instance_valid(walker):
 				return false
 			owned[walker.get_instance_id()] = true

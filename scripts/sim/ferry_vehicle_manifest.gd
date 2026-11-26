@@ -42,6 +42,8 @@ static func capture(ferry: Ferry) -> Variant:
 		entry.slot = slot
 		entry.destination = ferry.sim.map.towns[car.dest].key if car.dest >= 0 else ""
 		entry.fare_paid = car.fare_paid
+		entry.lot_arrival = car.lot_arrival
+		entry.lane_offset = car.lane_v
 		entry.last_sent = car == ferry._last_sent
 		if parked:
 			if not _matches_pose(ferry, car, slot, from_minus):
@@ -164,6 +166,8 @@ func _prepare_car(
 		_last = _cars.size() - 1
 	car.dest = towns[entry.destination]
 	car.fare_paid = entry.fare_paid
+	car.lot_arrival = entry.get("lot_arrival", 0.0)
+	car.lane_v = entry.get("lane_offset", 0.0)
 	_slots.append(slot)
 	_park_from_minus.append(from_a)
 	_released.append(entry.get("released", false))
@@ -226,6 +230,8 @@ static func _valid_entry(data: Variant, towns: Dictionary) -> bool:
 		and _integer(data.get("slot"))
 		and _scalar(data.get("fare_paid"))
 		and data.fare_paid >= 0
+		and _scalar(data.get("lot_arrival", 0.0))
+		and _scalar(data.get("lane_offset", 0.0))
 		and data.get("last_sent") is bool
 	)
 
