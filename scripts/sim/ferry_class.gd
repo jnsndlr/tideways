@@ -421,6 +421,17 @@ func is_upper(y: float) -> bool:
 	return not upper.is_empty() and y > Layout.DECK_Y + 0.5 * (upper_y - Layout.DECK_Y)
 
 
+## The main-deck wing lanes use the passage beside the tween-deck ramp.
+## Jumbo's outer through lanes also narrow toward the apron but stay in the tunnel.
+func uses_wing_passage(x: float) -> bool:
+	if wing_via.is_empty():
+		return false
+	for lane in low:
+		if is_equal_approx(x, cols[lane]):
+			return true
+	return false
+
+
 ## Her outline at the waterline, as Vessel.wake_waterline: the mid-poly boats'
 ## from their models (their hulls up to the car deck, taking in the flare and guards
 ## overhanging the water: where the water is seen to meet them from above), the
