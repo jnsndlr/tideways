@@ -3,12 +3,18 @@ extends RefCounted
 ## Compose verified company records over a freshly rebuilt network. The caller
 ## supplies a private simulation with its own map and terrain. Only a completely
 ## restored simulation is returned. No current game or save slot is replaced.
-const VERSION := 5
+const VERSION := 6
 
 
 static func capture(sim: Simulation) -> Dictionary:
+	var sales := []
 	for tow in sim.tows:
-		if not tow.delivery_complete() and not InboundDeliverySnapshot.attached(tow, sim):
+		if tow.outbound:
+			var sale := SaleTowSnapshot.capture(tow)
+			if sale.is_empty():
+				return {}
+			sales.append(sale)
+		elif not tow.delivery_complete() and not InboundDeliverySnapshot.attached(tow, sim):
 			return {}
 	if not _accounts_for_traffic(sim):
 		return {}
@@ -48,6 +54,7 @@ static func capture(sim: Simulation) -> Dictionary:
 		"voyages": voyages,
 		"reservations": reservations,
 		"outbound": outbound,
+		"sale_tows": sales,
 		"progression": TownGrowthSnapshot.capture(sim),
 	}
 
@@ -84,6 +91,8 @@ static func restore(
 
 static func supports(data: Variant) -> bool:
 	if not data is Dictionary or not _integer_in(data.get("version"), 1, VERSION):
+		return false
+	if data.has("sale_tows") != (data.version >= 6) or not data.get("sale_tows", []) is Array:
 		return false
 	if data.version == 1 and data.has("outbound"):
 		return false
@@ -122,6 +131,9 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 	sim.ledger = ledger
 	if not _install_fleet(network, data, sim, make_vehicle):
 		return false
+	for sale in data.get("sale_tows", []):
+		if not SaleTowSnapshot.restore(sale, sim):
+			return false
 	if not OutboundTrafficSnapshot.restore(data.get("outbound", []), sim, make_vehicle):
 		return false
 	if data.has("progression") and not TownGrowthSnapshot.restore(data.progression, sim):

@@ -83,6 +83,22 @@ static func _money(v: float) -> String:
 	return "$" + digits + out
 
 
+static func is_purchase_key(key: String) -> bool:
+	var number := key.trim_prefix("hull-")
+	return number.is_valid_int() and number.to_int() >= 0 and key == "hull-%d" % number.to_int()
+
+
+## A sold hull keeps its identity on the water until its tow departs.
+func key_in_use(key: String) -> bool:
+	for ferry in sim.ferries:
+		if ferry.fleet_key == key:
+			return true
+	for tow in sim.tows:
+		if tow.outbound and is_instance_valid(tow.ferry) and tow.ferry.fleet_key == key:
+			return true
+	return false
+
+
 ## Buys a new boat of `size` (FerryClass.price on the ledger's purchases) and has
 ## a tug tow her in to delivery_slip, where she lies laid up until she is given
 ## stops (Edit stops). Returns her, or null if she can't be bought.
@@ -95,7 +111,7 @@ func buy_ferry(size: int) -> Ferry:
 	var route := _delivery_route(term)
 	var key := ""
 	var n := sim.ferries.size()
-	while key == "" or sim.ferries.any(func(f): return f.fleet_key == key):
+	while key == "" or key_in_use(key):
 		key = "hull-%d" % n
 		n += 1
 	var display_name := ""

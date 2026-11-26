@@ -125,6 +125,7 @@ func _check_failures(saved: Dictionary, live: Simulation) -> void:
 	)
 	var older := saved.duplicate(true)
 	older.version = 1
+	older.erase("sale_tows")
 	older.erase("outbound")
 	older.erase("progression")
 	for term: Dictionary in older.terminals.values():

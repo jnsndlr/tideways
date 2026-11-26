@@ -511,11 +511,18 @@ func sell_ferry(f: Ferry) -> bool:
 
 
 func _spawn_ferry(key: String, route: MapData.Route, display_name: String, size: int) -> void:
+	ferries.append(create_ferry_actor(key, route, display_name, size))
+
+
+## A sold ferry remains a physical actor until her tug clears the region.
+func create_ferry_actor(
+	key: String, route: MapData.Route, display_name: String, size: int
+) -> Ferry:
 	var ferry := Ferry.new(operating_costs, dwell)
 	ferry.fleet_key = key
 	add_child(ferry)
 	ferry.setup(self, route, display_name, size)
-	ferries.append(ferry)
+	return ferry
 
 
 ## The size of ferry each route gets (FerryClass), by how busy it is: the mean

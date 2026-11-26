@@ -38,8 +38,7 @@ static func rebuild(
 static func _restore_hull(
 	hull: CompanyNetwork.Assignment, voyage: Variant, sim: Simulation, version: int
 ) -> bool:
-	var number := hull.key.trim_prefix("hull-")
-	if not number.is_valid_int() or number.to_int() < 0 or hull.key != "hull-%d" % number.to_int():
+	if not FleetMarket.is_purchase_key(hull.key):
 		return false
 	if sim.ferries.any(func(f): return f.fleet_key == hull.key):
 		return false

@@ -11,6 +11,7 @@ func _run() -> void:
 	var starter := sim.ferries[0]
 	var older := _save(sim)
 	older.version = 3
+	older.erase("sale_tows")
 	var legacy := CompanySnapshot.restore(older, _world, VehicleFactory.from_parts)
 	check(
 		legacy != null and legacy.ferries.size() == 1, "Version 3 still restores the original fleet"
@@ -78,6 +79,7 @@ func _run() -> void:
 		)
 		damaged = checkpoint.duplicate(true)
 		damaged.version = 3
+		damaged.erase("sale_tows")
 		check(
 			CompanySnapshot.restore(damaged, _world, VehicleFactory.from_parts) == null,
 			"Older formats cannot introduce paid hulls"
