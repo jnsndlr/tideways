@@ -72,6 +72,14 @@ func lift() -> void:
 	_apron_down = false
 
 
+## Continue an already-started lift from its saved pose.
+func resume_lift(span: float, apron: float) -> void:
+	lift()
+	span_fraction = span
+	apron_fraction = apron
+	pose_changed.emit(span_fraction, apron_fraction)
+
+
 ## Down and lying on the ferry's deck, as it is for a boat already in at the start.
 func snap_down() -> void:
 	land()

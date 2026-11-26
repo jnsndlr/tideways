@@ -74,9 +74,19 @@ func _run_case(reverse: bool) -> void:
 	ferry.destination()._spawn_car()
 	check(live.moving_vehicles.size() >= 2, "Both the approaching car and paid rig are moving")
 	var boarding := _save(ferry)
+	var casting_off := {}
+	var departure_minute := -1.0
 	var half := ferry.run_length() / 2.0
 	for frame in LIMIT:
 		_step(ferry)
+		if (
+			casting_off.is_empty()
+			and ferry._casting_off
+			and ferry._ramp(ferry.here()).apron_fraction >= 0.4
+		):
+			casting_off = _save(ferry)
+		if departure_minute < 0 and ferry.state == Ferry.State.SAILING:
+			departure_minute = live.minutes
 		if ferry.state == Ferry.State.SAILING and ferry.traveled >= half:
 			break
 	check(
@@ -90,10 +100,11 @@ func _run_case(reverse: bool) -> void:
 	)
 	var expected := _arrive_and_board_again(ferry)
 	live.free()
-	if boarding.is_empty() or crossing.is_empty():
-		check(false, "Both supported checkpoints produced JSON")
+	if boarding.is_empty() or casting_off.is_empty() or crossing.is_empty():
+		check(false, "Paid boarding, casting off and crossing all produced JSON")
 	else:
 		_compare_resume(boarding, expected)
+		_compare_resume(casting_off, expected, departure_minute)
 		_compare_resume(crossing, expected)
 
 
@@ -176,7 +187,7 @@ func _save(ferry: Ferry) -> Dictionary:
 	return JSON.parse_string(JSON.stringify(record, "", true, true))
 
 
-func _compare_resume(saved: Dictionary, expected: Dictionary) -> void:
+func _compare_resume(saved: Dictionary, expected: Dictionary, departure_minute := -1.0) -> void:
 	var sim := _world()
 	var ferry := sim.ferries[0]
 	sim.ledger = CompanyLedgerSnapshot.restore(saved.ledger, sim.map.routes)
@@ -211,6 +222,13 @@ func _compare_resume(saved: Dictionary, expected: Dictionary) -> void:
 			),
 			"Reconnect terminal traffic at %s" % term.town.key
 		)
+	if saved.voyage.phase == "casting_off":
+		var impossible := saved.voyage.duplicate(true) as Dictionary
+		impossible.lifting_ramp = [0.5, 0.5]
+		check(
+			not FerryCrossingSnapshot.restore(impossible, ferry, VehicleFactory.from_parts),
+			"Reject a span raised before its apron cleared"
+		)
 	var restored := FerryCrossingSnapshot.restore(saved.voyage, ferry, VehicleFactory.from_parts)
 	check(restored, "Restore %s into a fresh simulation" % saved.voyage.phase)
 	if restored:
@@ -223,6 +241,15 @@ func _compare_resume(saved: Dictionary, expected: Dictionary) -> void:
 			sim.cars_today == 2 and sim.revenue_today == 72,
 			"Installing a paid rig does not credit another fare"
 		)
+		if departure_minute >= 0:
+			for i in LIMIT:
+				_step(ferry)
+				if ferry.state == Ferry.State.SAILING:
+					break
+			check(
+				ferry.state == Ferry.State.SAILING and absf(sim.minutes - departure_minute) < 1e-8,
+				"The restored apron clears and the ferry departs on the original tick"
+			)
 		check(
 			_arrive_and_board_again(ferry) == expected,
 			"Restored sailing matches uninterrupted unloading and next fare"
