@@ -7,6 +7,7 @@ class Assignment:
 	var key: String
 	var route: MapData.Route
 	var display_name: String
+	var purchased := false
 	var size: int
 
 
@@ -45,8 +46,15 @@ static func record(sim: Simulation) -> Dictionary:
 	for route in map.routes:
 		routes.append(_route_record(map, route))
 	for ferry in sim.ferries:
-		ferries.append({"key": ferry.fleet_key, "route": ferry.route.key,
-			"name": ferry.ferry_name, "size": ferry.fc.size})
+		var row := {
+			"key": ferry.fleet_key,
+			"route": ferry.route.key,
+			"name": ferry.ferry_name,
+			"size": ferry.fc.size
+		}
+		if ferry.purchased:
+			row.purchased = true
+		ferries.append(row)
 	# JSON numbers are parsed as doubles. Keep the entire int64 seed.
 	return {"seed": str(map.map_seed), "towns": towns, "routes": routes, "ferries": ferries}
 
@@ -98,7 +106,10 @@ func read(data: Variant, map: MapData) -> String:
 		var size = record.get("size")
 		if not record.get("name") is String or not _valid_size(size):
 			return "Invalid name or size for ferry %s" % record.key
+		if record.has("purchased") and (not record.purchased is bool or not record.purchased):
+			return "Invalid purchase marker for %s" % record.key
 		var hull := Assignment.new()
+		hull.purchased = record.has("purchased")
 		hull.key = record.key
 		hull.route = route_by_key[record.route]
 		hull.display_name = record.name

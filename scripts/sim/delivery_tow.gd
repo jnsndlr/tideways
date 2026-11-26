@@ -317,6 +317,23 @@ func _leave() -> void:
 	speed = 0.0
 
 
+## Once detached from a delivered, working ferry the tug only sails out of the
+## region and unregisters itself. Company restore may regenerate this background traffic.
+func delivery_complete() -> bool:
+	return (
+		phase == Phase.LEAVING
+		and not outbound
+		and not waiting
+		and not committed
+		and consort == null
+		and is_instance_valid(ferry)
+		and ferry.purchased
+		and ferry.berth == Ferry.Berth.WORKING
+		and ferry.tow == null
+		and ferry.consort == null
+	)
+
+
 func _done() -> void:
 	sim.tows.erase(self)
 	sim.marine.remove(self)

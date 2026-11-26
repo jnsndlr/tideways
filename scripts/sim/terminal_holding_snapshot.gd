@@ -400,17 +400,24 @@ static func _valid_waiter(row: Variant, term: Terminal) -> bool:
 	return town != null and town != term.town and term.lanes.has(town.id)
 
 
-func _install(r: Dictionary, term: Terminal) -> void:
+## Discard only a newly constructed staging terminal’s prefill before restoring its live lanes.
+static func discard_initial_traffic(term: Terminal) -> void:
 	for group: Array in term.lanes.values():
 		for lane: TerminalLane in group:
 			for id: int in lane.approaching:
 				instance_from_id(id).free()
 			for waiting in lane.queue:
 				instance_from_id(waiting.vehicle_id).free()
+			lane.approaching.clear()
+			lane.queue.clear()
 	for pax in term.passenger_queue:
 		if pax.node != null:
 			pax.node.free()
 	term.passenger_queue.clear()
+
+
+func _install(r: Dictionary, term: Terminal) -> void:
+	discard_initial_traffic(term)
 	term.lanes = _lanes
 	term.site_lanes = _remaining_sites
 	term.paved = _paved
