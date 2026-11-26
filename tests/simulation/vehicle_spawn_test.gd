@@ -21,6 +21,7 @@ func run() -> void:
 	for authored: bool in [true, false]:
 		Models.mid_cars = authored
 		check_spawned_traffic(authored)
+	check_invalid_parts()
 	check_queue_parking()
 	check_boarding_approaches()
 	check_world_isolation()
@@ -93,12 +94,61 @@ func check_spawned_traffic(authored: bool) -> void:
 				car.slots == (2 if car.is_truck else 1) and car.speed == 24.0,
 				"Classic vehicle behavior changed"
 			)
+		check_reconstructed_vehicle(car, body.mesh)
 		car.free()
 	expect(saw_car and saw_truck, "Seed 123 should exercise both car and truck construction")
 	if authored:
 		expect(saw_trailer, "Seed 123 should exercise a tractor with an attached trailer")
 	sim.free()
 
+
+func check_reconstructed_vehicle(car: Vehicle, mesh: Mesh) -> void:
+	var copy := VehicleFactory.from_parts(
+		car.is_truck, car.model, car.body_paint, car.trailer_model, car.trailer_paint
+	)
+	expect(copy != null, "Reconstruct the selected vehicle")
+	if not copy:
+		return
+	var body := copy.get_child(0) as MeshInstance3D
+	expect(body.mesh == mesh, "Reconstructed vehicle uses the same painted mesh")
+	expect(
+		(
+			copy.slots == car.slots
+			and copy.length == car.length
+			and copy.speed == car.speed
+			and copy.fare_multiplier() == car.fare_multiplier()
+		),
+		"Reconstructed vehicle keeps its deck and fare rules"
+	)
+	if car.trailer:
+		var original := car.trailer.get_child(0) as MeshInstance3D
+		var rebuilt := copy.trailer.get_child(0) as MeshInstance3D
+		expect(
+			original.mesh == rebuilt.mesh and copy.trailer_paint == car.trailer_paint,
+			"Reconstructed trailer keeps its selected paint, including fixed-color trailers"
+		)
+	copy.free()
+
+
+func check_invalid_parts() -> void:
+	expect(
+		VehicleFactory.from_parts(false, "", Models.CAR_COLORS.size()) == null,
+		"Reject classic paint outside its palette"
+	)
+	expect(VehicleFactory.from_parts(true, "tractor_day", 0) == null, "Reject incomplete rigs")
+	expect(VehicleFactory.from_parts(true, "rig", 0) == null, "Reject the selection placeholder")
+	expect(
+		VehicleFactory.from_parts(false, "truck_box", 0) == null,
+		"Reject a truck presented as a car"
+	)
+	expect(
+		VehicleFactory.from_parts(false, "sedan_compact", 0, "trailer_van", 0) == null,
+		"Reject trailer on a car"
+	)
+	expect(
+		VehicleFactory.from_parts(true, "tractor_day", 0, "trailer_van", -1) == null,
+		"Reject an unknown trailer paint"
+	)
 
 
 func make_world() -> Simulation:

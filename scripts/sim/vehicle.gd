@@ -43,6 +43,10 @@ var slots := 1             # queue / deck slots it takes
 var dest := -1             # island id it is travelling to (-1: not set)
 var center_offset := 0.0   # where the middle of the whole rig lies along its own z
 var trailer: Node3D        # pivots at the fifth wheel (null for anything else)
+## Palette choices made when this vehicle was built, including fixed-color trailers
+## that can share their mesh across several paint indices.
+var body_paint := -1
+var trailer_paint := -1
 var trailer_model := ""
 var _hitch := Vector3.ZERO     # the fifth wheel, in the tractor's frame (model units)
 var _trailer_axle := Vector3.ZERO  # the trailer's axle centre, in the parent's space
