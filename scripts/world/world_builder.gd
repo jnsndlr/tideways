@@ -2765,41 +2765,305 @@ func _airfield_fence(on_strip: Callable, isl_name: String) -> void:
 			fence.add_child(f)
 
 
-## A wooden pier out to a T-head float with berths along its seaward face (the
+const DockKit := preload("res://scripts/world/dock_kit.gd")
+const MARINA_HEAD_C := 50.0   # T-head float centre (u); fingers run out from its seaward edge
+
+
+## The marina from the dock kit: a fixed pier on piles from the shore, a ramp down
+## to the T-head float, and finger floats between the berths.
+func _marina_docks(m: MapData.Marina) -> void:
+	if not DockKit.available():
+		return
+	var kit := DockKit.new()
+	kit.name = map.islands[m.island].name + " MarinaDocks" + str(m.id)
+	root.add_child(kit)
+	kit.transform = m.xform()
+	var p := Vector3(0, DockKit.HIGH, -12.0)
+	while p.z < MARINA_HEAD_C - DockKit.MAIN_WIDTH * 0.5 - DockKit.RUN * 2.0 - 0.01:
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.PILES)
+	p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.LOW)
+	kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.FLOATS)
+	var plan := _marina_plan(m)
+	# The head reaches just past the outermost branch on each side; drop branches
+	# until it (and the water either side of it) stays clear of the island.
+	var reach: Array[float] = []
+	for si in 2:
+		var sp: Dictionary = plan[si]
+		var side := -1.0 if si == 0 else 1.0
+		var at := 21.0
+		while true:
+			var outer: float = 21.0 + sp.shift + sp.pitch * (sp.count - 0.5) + DockKit.MAIN_WIDTH * 0.5 if sp.count > 0 else 21.0
+			at = ceilf((outer - 21.0) / DockKit.RUN) * DockKit.RUN + 21.0
+			if sp.count == 0 or _marina_head_clear(m, side, at):
+				break
+			sp.count -= 1
+		reach.append(at)
+	var h := Vector3(-reach[0], DockKit.LOW, MARINA_HEAD_C)
+	for k in roundi((reach[0] + reach[1]) / DockKit.RUN):
+		h = kit.add_deck(DockKit.Width.MAIN, h, Vector2(1, 0), DockKit.Support.FLOATS)
+	var edge := MARINA_HEAD_C + DockKit.MAIN_WIDTH * 0.5
+	for b in Layout.MARINA_BERTHS + 1:
+		var v := m.berth_v(b) - Layout.MARINA_BERTH_SPACING * 0.5
+		var fp := kit.add_deck(DockKit.Width.FINGER, Vector3(v, DockKit.LOW, edge), Vector2(0, 1), DockKit.Support.FLOATS)
+		kit.add_deck(DockKit.Width.FINGER, fp, Vector2(0, 1), DockKit.Support.FLOATS)
+	_marina_branches(m, kit, plan, edge)
+	_marina_cliff_stair(m, kit)
+
+
+const MARINA_SLIP_BOATS := [
+	"res://assets/models/powerboats/cuddy_runabout.glb", "res://assets/models/powerboats/picnic_launch.glb",
+	"res://assets/models/powerboats/downeast_cruiser.glb", "res://assets/models/powerboats/alloy_pilothouse.glb",
+]
+
+
+## Deep water all along the head out to `to` on one side, with room for slips
+## on its shoreward and seaward faces.
+func _marina_head_clear(m: MapData.Marina, side: float, to: float) -> bool:
+	var xf := m.xform()
+	var v := 21.0
+	while v <= to + 14.0:
+		for u: float in [MARINA_HEAD_C - 14.0, MARINA_HEAD_C, MARINA_HEAD_C + 14.0]:
+			if terrain.height_v(xf * Vector3(side * v, 0, u)) > -2.0:
+				return false
+		v += 3.0
+	return true
+
+
+## Each side of the head gets a run of branch docks, packed close like a real
+## marina: a few metres out past the visitor berths, a fairway apart. Bigger
+## towns get more branches.
+func _marina_plan(m: MapData.Marina) -> Array[Dictionary]:
+	var lots := 0
+	for t in map.towns:
+		if t.island == m.island:
+			lots = maxi(lots, t.growth_lots.size())
+	var most := 2 if lots < 80 else (3 if lots < 160 else 4)
+	var r := RandomNumberGenerator.new()
+	r.seed = m.id * 977 + m.island * 31 + 5
+	var plan: Array[Dictionary] = []
+	for side in 2:
+		plan.append({
+			shift = 6.0 * r.randi_range(1, 2),
+			pitch = 34.0 + 2.0 * r.randi_range(0, 2),
+			count = r.randi_range(maxi(most - 1, 1), most),
+			seed = r.randi(),
+		})
+	return plan
+
+
+## Branch docks cross the head (the spine) like the ribs of a fish, long runs of
+## 12 m finger slips down both sides, seaward and, where it is deep enough,
+## shoreward too. About one slip in five is under a boathouse, kept together at
+## a branch's outer end; nearly every open slip holds a boat.
+func _marina_branches(m: MapData.Marina, kit: Node3D, plan: Array[Dictionary], edge: float) -> void:
+	var xf := m.xform()
+	var back := MARINA_HEAD_C - DockKit.MAIN_WIDTH * 0.5
+	var mb := MeshBuilder.new()
+	mb.xform = xf
+	glows.xform = xf
+	for si in 2:
+		var side := -1.0 if si == 0 else 1.0
+		var sp: Dictionary = plan[si]
+		var r := RandomNumberGenerator.new()
+		r.seed = sp.seed
+		for k in sp.count:
+			var bv: float = side * (21.0 + sp.shift + sp.pitch * (k + 0.5))
+			var sea: int = 5 + r.randi_range(0, 4) + sp.count
+			var land := r.randi_range(1, 4)
+			_marina_branch(kit, xf, r, bv, edge, 1.0, sea, side, mb)
+			_marina_branch(kit, xf, r, bv, back, -1.0, land, side, mb)
+	if not mb.is_empty():
+		_add_mesh(mb.commit(), map.islands[m.island].name + " MarinaFurniture")
+
+
+## One arm of a branch from the head's face at `u0`, `runs` long toward `dir`
+## (+1 seaward), cut short of shallow water.
+func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: float, u0: float, dir: float, runs: int, side: float, mb: MeshBuilder) -> void:
+	var n := 0
+	while n < runs:
+		var ok := true
+		for dv: float in [-14.0, 0.0, 14.0]:
+			if terrain.height_v(xf * Vector3(bv + dv, 0, u0 + dir * DockKit.RUN * (n + 1))) > -2.0:
+				ok = false
+		if not ok:
+			break
+		n += 1
+	if n < 2:
+		return
+	var p := Vector3(bv, DockKit.LOW, u0)
+	for i in n:
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, dir), DockKit.Support.FLOATS)
+	_marina_furniture(kit, mb, r, bv, u0, dir, n)
+	var fingers := n
+	var covered := maxi(1 if dir > 0 else 0, roundi((fingers - 1) * 2 / 5.0))
+	for fs: float in [-1.0, 1.0]:
+		var x0 := bv + fs * DockKit.MAIN_WIDTH * 0.5
+		for j in fingers:
+			var fp := Vector3(x0, DockKit.LOW, u0 + dir * DockKit.RUN * (j + 0.5))
+			for q in 2:
+				fp = kit.add_deck(DockKit.Width.FINGER, fp, Vector2(fs, 0), DockKit.Support.FLOATS)
+		for j in fingers - 1:
+			var su := u0 + dir * DockKit.RUN * (j + 1.0)
+			var from_end := fingers - 2 - j
+			var is_cov := from_end * 2 + (0 if fs == side else 1) < covered
+			if is_cov:
+				kit.add_boathouse(DockKit.Boathouse.OPEN if r.randf() < 0.6 else DockKit.Boathouse.ENCLOSED,
+					Vector3(x0, DockKit.LOW, su), Vector2(fs, 0))
+			if r.randf() < (0.3 if is_cov else 0.12):
+				continue
+			var boat: Node3D
+			if not is_cov and r.randf() < 0.35:
+				var mi := MeshInstance3D.new()
+				mi.mesh = Models.sailboat_furled()
+				mi.scale = Vector3.ONE * VesselTypes.MODEL_SCALE
+				boat = mi
+			else:
+				boat = (load(MARINA_SLIP_BOATS[r.randi() % MARINA_SLIP_BOATS.size()]) as PackedScene).instantiate() as Node3D
+			kit.add_child(boat)
+			var yaw := 0.0 if r.randf() < 0.5 else PI
+			boat.transform = Transform3D(Basis(Vector3.UP, fs * PI * 0.5 + yaw), Vector3(x0 + fs * 6.5, 0.0, su))
+			# Fenders over the finger edges either side of the hull.
+			for e: float in [-1.0, 1.0]:
+				for along: float in [4.0, 8.5]:
+					_marina_prop(kit, MARINA_FENDER, Vector3(x0 + fs * along, DockKit.LOW, su + e * (DockKit.RUN - DockKit.FINGER_WIDTH) * 0.5), 0.0 if e < 0 else PI)
+
+
+const MARINA_PEDESTAL := "res://assets/models/dock_kit/power_pedestal.glb"
+const MARINA_DOCK_BOX := "res://assets/models/dock_kit/dock_box.glb"
+const MARINA_FENDER := "res://assets/models/dock_kit/fender.glb"
+const MARINA_CRAB_POT := "res://assets/models/dock_kit/crab_pot.glb"
+const MARINA_FISH_CRATE := "res://assets/models/dock_kit/fish_crate.glb"
+func _marina_prop(kit: Node3D, path: String, at: Vector3, yaw: float) -> void:
+	var n := (load(path) as PackedScene).instantiate() as Node3D
+	kit.add_child(n)
+	n.transform = Transform3D(Basis(Vector3.UP, yaw), at)
+
+
+## Along a branch: a power pedestal at every other finger (a little light on
+## top at night), white dock boxes here and there, and a lamp at the outer end.
+func _marina_furniture(kit: Node3D, mb: MeshBuilder, r: RandomNumberGenerator, bv: float, u0: float, dir: float, n: int) -> void:
+	var hw := DockKit.MAIN_WIDTH * 0.5
+	for j in n:
+		var u := u0 + dir * DockKit.RUN * (j + 0.5)
+		for e: float in [-1.0, 1.0]:
+			var x := bv + e * (hw - 0.35)
+			var yaw := -e * PI * 0.5   # face across the branch
+			if j % 2 == 0:
+				_marina_prop(kit, MARINA_PEDESTAL, Vector3(x, DockKit.LOW, u), yaw)
+				glows.glow(mb.xform * Vector3(x, DockKit.LOW + 1.1, u), GlowBuilder.LED, 0.12, 1.2, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			elif r.randf() < 0.45:
+				_marina_prop(kit, MARINA_DOCK_BOX, Vector3(x, DockKit.LOW, u + 1.6 * e), yaw)
+	# Gear left out near the head: a stack of crab pots, a crate or two.
+	if r.randf() < 0.45:
+		var g := Vector3(bv + (0.9 if r.randf() < 0.5 else -0.9), DockKit.LOW, u0 + dir * (DockKit.RUN * 1.0 + r.randf() * DockKit.RUN))
+		for i in r.randi_range(1, 3):
+			_marina_prop(kit, MARINA_CRAB_POT, g + Vector3(0, 0.43 * i - 0.43, 0), r.randf() * 0.5)
+		for i in r.randi_range(0, 2):
+			_marina_prop(kit, MARINA_FISH_CRATE, g + Vector3(0, 0, dir * (1.3 + 0.7 * i)), r.randf() * 0.4 - 0.2)
+	var end := Vector3(bv, DockKit.LOW, u0 + dir * (DockKit.RUN * n - 0.8))
+	mb.box(end + Vector3(0, 2.0, 0), Vector3(0.22, 4.0, 0.22), Color(0.25, 0.26, 0.28))
+	var lamp := end + Vector3(0, 4.0, 0)
+	Models.add_lantern(mb, lamp, GlowBuilder.WARM, 2.2)
+	glows.glow(Models.lantern_glow_at(lamp, 2.2), GlowBuilder.WARM, 0.4, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+	glows.pool(end + Vector3(0, 0.1, -dir * 2.5), GlowBuilder.WARM, 7.0, 0.22)
+
+
+## Where the marina pier meets a cliff, dock-kit gangways switch back up the
+## face beside it, landing to landing, and a deck carries the last landing in
+## onto the clifftop.
+const STAIR_RISE := 1.4     # per 6 m gangway
+const STAIR_FLIGHT := 3     # gangways between landings
+func _marina_cliff_stair(m: MapData.Marina, kit: Node3D) -> void:
+	var xf := m.xform()
+	var face := 0.0
+	var u := 4.0
+	while u > -20.0:
+		if terrain.height_v(xf * Vector3(0, 0, u)) > DockKit.HIGH + 0.3:
+			face = u
+			break
+		u -= 1.0
+	if face == 0.0:
+		return
+	var v0 := DockKit.MAIN_WIDTH * 0.5
+	var top := 0.0
+	for du in range(2, 20, 2):
+		top = maxf(top, terrain.height_v(xf * Vector3(0, 0, face - du)))
+	if top < DockKit.HIGH + 2.5:
+		return
+	# Run along whichever side keeps the stair closest in to the face: its
+	# length follows the height, and the lane stands just off the rock.
+	var best := INF
+	var sv := 1.0
+	var su := face
+	var ramps := 1
+	for side: float in [1.0, -1.0]:
+		var t := top
+		var rp := 1
+		var length := 0.0
+		var lane := face
+		for it in 3:
+			rp = maxi(1, ceili((t - DockKit.HIGH) / STAIR_RISE))
+			length = rp * DockKit.RUN + (ceili(float(rp) / STAIR_FLIGHT) - 1) * DockKit.MAIN_WIDTH
+			var g := 0.0
+			for du in range(2, 14, 2):
+				g = maxf(g, terrain.height_v(xf * Vector3(side * (v0 + length + DockKit.MAIN_WIDTH * 0.5), 0, face - du)))
+			t = maxf(g, DockKit.HIGH + STAIR_RISE)
+		var v := 0.0
+		while v <= length + DockKit.MAIN_WIDTH:
+			var uu := face + 12.0
+			while uu > face - 6.0 and terrain.height_v(xf * Vector3(side * (v0 + v), 0, uu)) < DockKit.HIGH:
+				uu -= 0.5
+			lane = maxf(lane, uu)
+			v += 1.0
+		if lane < best:
+			best = lane
+			sv = side
+			su = lane
+			ramps = rp
+			top = t
+	su += DockKit.MAIN_WIDTH * 0.5 + 0.4
+	var rise := (top - DockKit.HIGH) / ramps
+	var mb := MeshBuilder.new()
+	mb.xform = xf
+	var post := Color(0.3, 0.25, 0.2)
+	var p := Vector3(sv * v0, DockKit.HIGH, su)
+	var done := 0
+	while true:
+		for k in mini(STAIR_FLIGHT, ramps - done):
+			p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(sv, 0), p.y + rise)
+			done += 1
+			for e: float in [-1.0, 1.0]:
+				mb.box(Vector3(p.x, (p.y - 0.25) * 0.5 - 0.5, p.z + e * (DockKit.MAIN_WIDTH * 0.5 - 0.2)), Vector3(0.25, p.y + 0.75, 0.25), post)
+		if done >= ramps:
+			break
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(sv, 0), DockKit.Support.PILES)
+	# Deck in from the top of the run until it meets the clifftop.
+	var b := Vector3(p.x + sv * DockKit.MAIN_WIDTH * 0.5, p.y, su - DockKit.MAIN_WIDTH * 0.5)
+	for i in 5:
+		if terrain.height_v(xf * Vector3(b.x, 0, b.z)) >= p.y - 0.6:
+			break
+		b = kit.add_deck(DockKit.Width.MAIN, b, Vector2(0, -1), DockKit.Support.PILES)
+	_add_mesh(mb.commit(), map.islands[m.island].name + " MarinaStair")
+
+
+## A pier out to a T-head float with berths along its seaward face (the
 ## sailboats themselves are MarineTraffic's), a lamp at each end of the head.
 func _build_marinas() -> void:
-	var plank := Color(0.56, 0.46, 0.34)
-	var float_col := Color(0.66, 0.6, 0.5)
 	for m in map.marinas:
 		if not await _frames.can_continue():
 			return
 		var mb := MeshBuilder.new()
 		mb.xform = m.xform()
 		glows.xform = mb.xform
-		var pe := Layout.MARINA_PIER_END
-		var hu := Layout.MARINA_HEAD_U
 		var hh := Layout.MARINA_HEAD_HALF
-		mb.box(Vector3(0, 2.25, (pe - 12.0) * 0.5), Vector3(5.4, 0.75, pe + 12.0), plank)
-		var u := -3.0
-		while u < pe:
-			for side: float in [-1.0, 1.0]:
-				mb.box(Vector3(side * 3.0, -3.9, u), Vector3(0.84, 12.9, 0.84), Models.WOOD)
-			u += 10.5
-		# The T-head, a little lower, its pilings standing proud.
-		mb.box(Vector3(0, 1.5, hu), Vector3(hh * 2.0, 0.9, 6.0), float_col)
-		mb.box(Vector3(0, 1.08, hu + 3.06), Vector3(hh * 2.0, 0.36, 0.24), Color(0.25, 0.25, 0.26))
-		for v: float in [-hh + 0.9, -4.5, 4.5, hh - 0.9]:
-			mb.cylinder(Vector3(v, -6.0, hu - 3.6), 0.6, 0.54, 10.8, 6, Models.WOOD, Color(0.4, 0.33, 0.27))
-		for b in Layout.MARINA_BERTHS:
-			# A cleat for each berth.
-			mb.box(Vector3(m.berth_v(b), 2.1, hu + 2.25), Vector3(1.05, 0.3, 0.36), Color(0.3, 0.3, 0.32))
+		_marina_docks(m)
 		for side: float in [-1.0, 1.0]:
-			var post := Vector3(side * (hh - 0.9), 1.95, hu)
+			var post := Vector3(side * (hh - 0.9), DockKit.LOW, MARINA_HEAD_C)
 			mb.box(post + Vector3(0, 2.4, 0), Vector3(0.3, 4.8, 0.3), Color(0.25, 0.26, 0.28))
 			var lamp := post + Vector3(0, 4.8, 0)
 			Models.add_lantern(mb, lamp, GlowBuilder.WARM, 2.7)
 			glows.glow(Models.lantern_glow_at(lamp, 2.7), GlowBuilder.WARM, 0.48, 4.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
-			glows.pool(Vector3(side * (hh - 3.6), 1.98, hu), GlowBuilder.WARM, 9.0, 0.25)
+			glows.pool(Vector3(side * (hh - 3.6), DockKit.LOW + 0.03, MARINA_HEAD_C), GlowBuilder.WARM, 9.0, 0.25)
 			var top := mb.xform * (lamp + Vector3(0, 1.08, 0))
 			_perch(top, top, 0.0, Seagulls.Kind.LAMP)
 		_add_mesh(mb.commit(), map.islands[m.island].name + " Marina")

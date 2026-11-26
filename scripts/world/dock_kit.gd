@@ -4,6 +4,12 @@ extends Node3D
 ## Directions use the XZ plane. Each call returns the far edge for chaining.
 enum Width { MAIN, FINGER }
 enum Support { FLOATS, PILES }
+enum Boathouse { OPEN, ENCLOSED }
+
+const BOATHOUSES := [
+	"res://assets/models/dock_kit/boathouse_open.glb",
+	"res://assets/models/dock_kit/boathouse_enclosed.glb",
+]
 
 const RUN := 6.0
 const MAIN_WIDTH := 4.0
@@ -66,6 +72,17 @@ func add_deck(width: Width, start: Vector3, direction: Vector2, support: Support
 		add_child(foundation)
 		foundation.transform = Transform3D(Basis.looking_at(end - start), start)
 	return end
+
+
+## Shelter a 12 m slip between two level fingers spaced one RUN apart.
+## Start at deck height, centred between the fingers, and face open water.
+func add_boathouse(kind: Boathouse, start: Vector3, direction: Vector2) -> void:
+	if direction.is_zero_approx():
+		push_error("Boathouse direction must have a horizontal heading.")
+		return
+	var shelter := _piece(BOATHOUSES[kind])
+	add_child(shelter)
+	shelter.transform = Transform3D(Basis.looking_at(Vector3(direction.x, 0, direction.y).normalized()), start)
 
 
 func add_ramp(width: Width, start: Vector3, direction: Vector2, end_height: float) -> Vector3:
