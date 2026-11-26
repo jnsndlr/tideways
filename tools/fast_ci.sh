@@ -131,6 +131,7 @@ check opening-scenario test --script tests/session/opening_scenario_test.gd
 check full-network-opening test --script tests/session/opening_scenario_test.gd -- --full-network
 check region-load-recovery test --fixed-fps 30 --script tests/session/region_load_recovery_test.gd
 check fleet-purchase-ui test --fixed-fps 30 --script tests/ui/fleet_purchase_ui_test.gd
+check harbor-window test --fixed-fps 30 --script tests/ui/harbor_window_test.gd
 check quick-save-ui test --fixed-fps 30 --script tests/ui/quick_save_ui_test.gd
 check opening-economy-ui test --fixed-fps 30 --script tests/ui/opening_economy_ui_test.gd
 check menu smoke --fixed-fps 30 --quit-after 30 res://scenes/menu.tscn
