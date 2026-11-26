@@ -20,9 +20,7 @@ func _initialize() -> void:
 		check(mesh.surface_get_material(0) == Models.vc_material(), "Hull keeps vertex color")
 	check(paint.size() == 3, "The fleet offers three tug liveries")
 	var lamps := VesselAppearance.running_lights(spec)
-	check(
-		lamps == [Models.tug_nav_lights(), Models.tug_mast_light()], "Running lamps"
-	)
+	check(lamps == [Models.tug_nav_lights(), Models.tug_mast_light()], "Running lamps")
 	lamps.append(VesselAppearance.lights(spec))
 	for mesh in lamps:
 		check(

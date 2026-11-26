@@ -20,9 +20,9 @@ const MID_TUG_SIDELIGHT := Vector3(1.5, 3.95, 2.6)
 const MID_TUG_SIDELIGHT_SCALE := 1.2
 const MID_TUG_STERN_LIGHT := Vector3(0, 2.02, -7.11)
 
-
-static var authored := not "--classic-tug" in OS.get_cmdline_user_args() \
-	and ResourceLoader.exists(ASSET)
+static var authored := (
+	not "--classic-tug" in OS.get_cmdline_user_args() and ResourceLoader.exists(ASSET)
+)
 
 
 static func _tug_mast() -> Vector3:
@@ -31,7 +31,11 @@ static func _tug_mast() -> Vector3:
 
 ## Where the port (+x, red) sidelight's glow sits; the starboard one mirrors it.
 static func _tug_sidelight() -> Vector3:
-	return Models.sidelight_glow_at(MID_TUG_SIDELIGHT, 1.0, MID_TUG_SIDELIGHT_SCALE) if authored else TUG_SIDELIGHT
+	return (
+		Models.sidelight_glow_at(MID_TUG_SIDELIGHT, 1.0, MID_TUG_SIDELIGHT_SCALE)
+		if authored
+		else TUG_SIDELIGHT
+	)
 
 
 static func _tug_stern_light() -> Vector3:
@@ -41,9 +45,14 @@ static func _tug_stern_light() -> Vector3:
 ## The mid-poly tug in `variant`'s livery.
 static func _authored_hull(variant: int) -> MeshBuilder:
 	var mb := ModelParts.merge_named(ASSET, ["fixed"])
-	var paint := {"hull": TUG_HULLS[variant % TUG_HULLS.size()], "house": TUG_HOUSES[variant % TUG_HOUSES.size()],
-		"stack": TUG_STACKS[variant % TUG_STACKS.size()], "glass": Models.WINDOW_LIT, "window": Models.WINDOW,
-		"lens": Models.lamp_glass(GlowBuilder.LED)}
+	var paint := {
+		"hull": TUG_HULLS[variant % TUG_HULLS.size()],
+		"house": TUG_HOUSES[variant % TUG_HOUSES.size()],
+		"stack": TUG_STACKS[variant % TUG_STACKS.size()],
+		"glass": Models.WINDOW_LIT,
+		"window": Models.WINDOW,
+		"lens": Models.lamp_glass(GlowBuilder.LED)
+	}
 	for part: String in paint:
 		var p := ModelParts.merge_named(ASSET, [part])
 		mb.verts.append_array(p.verts)
@@ -52,15 +61,32 @@ static func _authored_hull(variant: int) -> MeshBuilder:
 			mb.colors.append(paint[part])
 	Models.add_lantern(mb, MID_TUG_MAST, GlowBuilder.LED, TUG_LANTERN)
 	for sx: float in [-1.0, 1.0]:
-		Models.add_sidelight(mb, Vector3(sx * MID_TUG_SIDELIGHT.x, MID_TUG_SIDELIGHT.y, MID_TUG_SIDELIGHT.z), sx, 1.0,
-			MID_TUG_SIDELIGHT_SCALE)
+		Models.add_sidelight(
+			mb,
+			Vector3(sx * MID_TUG_SIDELIGHT.x, MID_TUG_SIDELIGHT.y, MID_TUG_SIDELIGHT.z),
+			sx,
+			1.0,
+			MID_TUG_SIDELIGHT_SCALE
+		)
 	return mb
 
 
 static func _tug_outline(grow := 0.0) -> PackedVector2Array:
-	var pts := PackedVector2Array([Vector2(-2.2, -7), Vector2(2.2, -7), Vector2(2.5, -5.5), Vector2(2.5, 2.0),
-		Vector2(2.2, 4.5), Vector2(1.4, 6.3), Vector2(0, 7), Vector2(-1.4, 6.3), Vector2(-2.2, 4.5),
-		Vector2(-2.5, 2.0), Vector2(-2.5, -5.5)])
+	var pts := PackedVector2Array(
+		[
+			Vector2(-2.2, -7),
+			Vector2(2.2, -7),
+			Vector2(2.5, -5.5),
+			Vector2(2.5, 2.0),
+			Vector2(2.2, 4.5),
+			Vector2(1.4, 6.3),
+			Vector2(0, 7),
+			Vector2(-1.4, 6.3),
+			Vector2(-2.2, 4.5),
+			Vector2(-2.5, 2.0),
+			Vector2(-2.5, -5.5)
+		]
+	)
 	if grow != 0.0:
 		for i in pts.size():
 			pts[i] = pts[i] * Vector2((2.5 + grow) / 2.5, (7.0 + grow) / 7.0)
@@ -100,7 +126,11 @@ static func hull(variant: int) -> ArrayMesh:
 		var sl := Vector3(x * TUG_SIDELIGHT.x, TUG_SIDELIGHT.y, TUG_SIDELIGHT.z)
 		mb.box(sl + Vector3(0, 0, -0.25), Vector3(0.3, 0.34, 0.06), Models.LAMP_DARK)
 		mb.box(sl, Vector3(0.12, 0.24, 0.3), Models.LENS_RED if x > 0.0 else Models.LENS_GREEN)
-	mb.box(Vector3(0, (5.42 + TUG_MAST.y) * 0.5, TUG_MAST.z), Vector3(0.16, TUG_MAST.y - 5.42, 0.16), house)
+	mb.box(
+		Vector3(0, (5.42 + TUG_MAST.y) * 0.5, TUG_MAST.z),
+		Vector3(0.16, TUG_MAST.y - 5.42, 0.16),
+		house
+	)
 	mb.box(Vector3(0, 6.3, TUG_MAST.z), Vector3(2.4, 0.1, 0.3), house)
 	mb.box(Vector3(0, 6.45, TUG_MAST.z), Vector3(1.2, 0.06, 0.1), Color(0.2, 0.2, 0.22))
 	Models.add_lantern(mb, TUG_MAST, GlowBuilder.LED, TUG_LANTERN)
@@ -115,7 +145,11 @@ static func hull(variant: int) -> ArrayMesh:
 		mb.box(Vector3(x * 1.9, 2.4, -5.8), Vector3(0.3, 2.2, 0.3), stack)
 		mb.cylinder(Vector3(x * 1.4, 1.3, -6.3), 0.2, 0.2, 0.5, 8, steel)
 	mb.box(Vector3(0, 3.5, -5.8), Vector3(4.1, 0.3, 0.3), stack)
-	mb.box(TUG_STERN_LIGHT + Vector3(0, 0, 0.06), Vector3(0.18, 0.14, 0.04), Models.lamp_glass(GlowBuilder.LED))
+	mb.box(
+		TUG_STERN_LIGHT + Vector3(0, 0, 0.06),
+		Vector3(0.18, 0.14, 0.04),
+		Models.lamp_glass(GlowBuilder.LED)
+	)
 	return mb.commit()
 
 
@@ -140,8 +174,19 @@ static func navigation_lights() -> ArrayMesh:
 	var sl := _tug_sidelight()
 	if not authored:
 		sl.z += 0.1
-	gb.glow(Vector3(sl.x, sl.y, sl.z), GlowBuilder.RED, 0.18, 6.0, true, 0.0, Vector3(1, 0, 0.8), 0.0)
-	gb.glow(Vector3(-sl.x, sl.y, sl.z), GlowBuilder.GREEN, 0.18, 6.0, true, 0.0, Vector3(-1, 0, 0.8), 0.0)
+	gb.glow(
+		Vector3(sl.x, sl.y, sl.z), GlowBuilder.RED, 0.18, 6.0, true, 0.0, Vector3(1, 0, 0.8), 0.0
+	)
+	gb.glow(
+		Vector3(-sl.x, sl.y, sl.z),
+		GlowBuilder.GREEN,
+		0.18,
+		6.0,
+		true,
+		0.0,
+		Vector3(-1, 0, 0.8),
+		0.0
+	)
 	gb.glow(_tug_stern_light(), GlowBuilder.LED, 0.12, 4.0, true, 0.0, Vector3(0, 0, -1), 0.0)
 	return gb.commit()
 
@@ -149,5 +194,14 @@ static func navigation_lights() -> ArrayMesh:
 ## The masthead light, shown under way.
 static func mast_light() -> ArrayMesh:
 	var gb := GlowBuilder.new()
-	gb.glow(Models.lantern_glow_at(_tug_mast(), TUG_LANTERN), GlowBuilder.LED, 0.2, 7.0, true, 0.0, Vector3.ZERO, 0.0)
+	gb.glow(
+		Models.lantern_glow_at(_tug_mast(), TUG_LANTERN),
+		GlowBuilder.LED,
+		0.2,
+		7.0,
+		true,
+		0.0,
+		Vector3.ZERO,
+		0.0
+	)
 	return gb.commit()
