@@ -6,6 +6,8 @@
 
 **Verified scope.** The ledger, an ordinary two-stop ferry and a terminal’s settled holding lot have separate round-trip checks. A restored rig completes its paid boarding through the live callback. A purchased holding lane finishes paving with its original charge, and queued vehicles and walk-ons keep their order and destinations. The company snapshot still needs to coordinate these records with the clock, other active traffic and terminal upgrades, then restore through the player-facing save flow and verify reopening on device. [Ledger](../tests/rules/company_ledger_snapshot_test.gd) · [Voyage](../tests/session/ferry_crossing_snapshot_test.gd) · [Holding lot](../tests/session/terminal_holding_snapshot_test.gd)
 
+**Background traffic and wildlife.** On reopening a company, regenerate ambient marine traffic and wildlife for the region. Ferry service, vehicles aboard, and passengers and vehicles using terminals belong to the company snapshot. [Save policy](https://linear.app/tideways/issue/TID-312) · [iPad reopen acceptance](https://linear.app/tideways/issue/TID-239)
+
 **Purchased berth sites.** Restore the first added working slip or tie-up at the purchased offset before applying fitted berth sizes. The original survey recreates necessary dredging. The crane resumes its saved phase and opens outstanding work once. The ledger restores the original payment. Multiple successive berth purchases and route reassignment still need coverage. [New berth and dredging checks](../tests/session/terminal_berth_purchase_snapshot_test.gd)
 
 ## Where editable art lives
