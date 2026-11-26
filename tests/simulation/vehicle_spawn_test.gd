@@ -17,15 +17,22 @@ func _initialize() -> void:
 
 func run() -> void:
 	check_injected_spawner()
-	var original_mode := Models.mid_cars
+	var original_mode := RoadVehicleModel.authored
 	for authored: bool in [true, false]:
-		Models.mid_cars = authored
+		RoadVehicleModel.authored = authored
 		check_spawned_traffic(authored)
+		# A saved vehicle keeps its selected parts even if the launch option changed.
+		var restored := VehicleFactory.from_parts(false, "" if authored else "sedan_compact", 2)
+		expect(restored != null, "Both saved vehicle families load with either launch option")
+		if restored != null:
+			expect(restored.model.is_empty() == authored, "Restore preserves the saved model ID")
+			expect(restored.body_paint == 2, "Restore preserves the saved paint index")
+			restored.free()
 	check_invalid_parts()
 	check_queue_parking()
 	check_boarding_approaches()
 	check_world_isolation()
-	Models.mid_cars = original_mode
+	RoadVehicleModel.authored = original_mode
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
@@ -132,7 +139,7 @@ func check_reconstructed_vehicle(car: Vehicle, mesh: Mesh) -> void:
 
 func check_invalid_parts() -> void:
 	expect(
-		VehicleFactory.from_parts(false, "", Models.CAR_COLORS.size()) == null,
+		VehicleFactory.from_parts(false, "", RoadVehicleModel.CAR_COLORS.size()) == null,
 		"Reject classic paint outside its palette"
 	)
 	expect(VehicleFactory.from_parts(true, "tractor_day", 0) == null, "Reject incomplete rigs")
@@ -184,7 +191,7 @@ func check_world_isolation() -> void:
 func check_queue_parking() -> void:
 	var sim := make_world()
 	var rig := Vehicle.new()
-	rig.setup(Node3D.new(), true, "tractor_classic", Models.VEHICLE_SCALE)
+	rig.setup(Node3D.new(), true, "tractor_classic", Units.VEHICLE_MODEL_SCALE)
 	rig.attach_trailer("trailer_van", Node3D.new())
 	sim.traffic.add_child(rig)
 	var terminal := Terminal.new()
@@ -227,7 +234,7 @@ func check_boarding_approaches() -> void:
 	var car := Vehicle.new()
 	var widest := 0.0
 	for data: Dictionary in VehicleData.VARIANTS.values():
-		widest = maxf(widest, data.size.x * Models.VEHICLE_SCALE)
+		widest = maxf(widest, data.size.x * Units.VEHICLE_MODEL_SCALE)
 	for mid: bool in [false, true]:
 		if mid:
 			var ramp := SlipRamp.new(slip)
