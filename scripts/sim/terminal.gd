@@ -832,7 +832,7 @@ func _spawn_car() -> void:
 
 func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> void:
 	if not changing_lanes:
-		car.lot_arrival = sim.minutes
+		car.lot_arrival = sim.abs_minutes()
 	# A ferry can cast off while overflow traffic is still driving to this lot.
 	if lane not in lanes.get(car.dest, []):
 		for key in lanes:
@@ -871,7 +871,7 @@ func prefill() -> void:
 				car.straighten()
 				car.lane_v = lane.v
 				car.dest = rid
-				car.lot_arrival = sim.minutes - sim.rng.randf_range(0.0, 20.0)
+				car.lot_arrival = sim.abs_minutes() - sim.rng.randf_range(0.0, 20.0)
 				lane.enqueue(car.get_instance_id(), car.slots)
 				k += car.slots
 	_prefill_passengers()
@@ -932,7 +932,7 @@ func _spawn_passenger() -> void:
 		. append(
 			{
 				"dest": dest,
-				"arrival": sim.minutes,
+				"arrival": sim.abs_minutes(),
 				"variant": variant,
 				"node": node,
 			}
@@ -955,7 +955,7 @@ func _prefill_passengers() -> void:
 			. append(
 				{
 					"dest": dest,
-					"arrival": sim.minutes - sim.rng.randf_range(0.0, 15.0),
+					"arrival": sim.abs_minutes() - sim.rng.randf_range(0.0, 15.0),
 					"variant": variant,
 					"node": node,
 				}
@@ -980,7 +980,7 @@ func board_next_passenger(serves: Array[int]) -> Dictionary:
 		if passenger_queue[i]["dest"] in serves:
 			var pax := passenger_queue[i]
 			passenger_queue.remove_at(i)
-			avg_wait = lerpf(avg_wait, maxf(0.0, sim.minutes - float(pax["arrival"])), 0.05)
+			avg_wait = lerpf(avg_wait, maxf(0.0, sim.abs_minutes() - float(pax["arrival"])), 0.05)
 			passengers_served_today += 1
 			_close_up_passengers()
 			return pax
@@ -1080,7 +1080,7 @@ func _dispatch(best: Lane) -> Vehicle:
 	var car := instance_from_id(best.take_front()) as Vehicle
 	_boarding_from[car.get_instance_id()] = best
 	_close_up(best)
-	avg_wait = lerpf(avg_wait, sim.minutes - car.lot_arrival, 0.1)
+	avg_wait = lerpf(avg_wait, sim.abs_minutes() - car.lot_arrival, 0.1)
 	served_today += 1
 	_queue_changed()
 	return car

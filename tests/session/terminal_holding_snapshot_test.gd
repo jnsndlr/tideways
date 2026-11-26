@@ -40,7 +40,61 @@ func _run() -> void:
 	live.free()
 	_compare(paving, open, expected, true)
 	_compare(open, open, expected, false)
+	_check_overnight_wait()
 	finish()
+
+
+func _check_overnight_wait() -> void:
+	var live := _world()
+	var port: Terminal = live.terminals[0]
+	var dest := port.lane_keys()[0]
+	var lane: TerminalLane = port.lanes[dest][0]
+	while not lane.queue.is_empty():
+		instance_from_id(lane.take_front()).free()
+	for pax in port.passenger_queue:
+		if pax.node:
+			pax.node.free()
+	port.passenger_queue.clear()
+	live.minutes = 1439
+	var car := live.make_vehicle()
+	car.dest = dest
+	car.position = port.queue_position(lane.v, 0, car)
+	lane.enroute += car.slots
+	port._on_car_reached_lot(car, lane)
+	port._spawn_passenger()
+	var walker: Passenger = port.passenger_queue.front().node
+	for frame in 300:
+		car._process(0.1)
+		walker._process(0.1)
+		if car.path.is_empty() and walker.path.is_empty():
+			break
+	var holding := _record(port).holding as Dictionary
+	var fresh := _world()
+	fresh.day = live.day
+	fresh.minutes = live.minutes
+	var restored: Terminal = fresh.terminals[0]
+	check(
+		TerminalHoldingSnapshot.restore(holding, restored, VehicleFactory.from_parts),
+		"Restore late-night vehicle and walk-on queues"
+	)
+	for term in [port, restored] as Array[Terminal]:
+		term.sim._process(1442.0 / Units.game_minutes(1.0))
+		var dispatch := term._dispatch(term.lanes[dest][0])
+		term.finish_boarding(dispatch)
+		dispatch.free()
+		var after_vehicle := lerpf(6, 1442, 0.1)
+		check(
+			is_equal_approx(term.avg_wait, after_vehicle),
+			"Vehicle wait includes midnight and the full following day"
+		)
+		var serves: Array[int] = [dest]
+		term.board_next_passenger(serves)
+		check(
+			is_equal_approx(term.avg_wait, lerpf(after_vehicle, 1442, 0.05)),
+			"Walk-on wait includes both calendar boundaries"
+		)
+	live.free()
+	fresh.free()
 
 
 func _record(port: Terminal) -> Dictionary:

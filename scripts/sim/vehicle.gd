@@ -37,7 +37,8 @@ var is_truck := false
 var is_tall := false       # wants a ferry lane with headroom: trucks and high-roof vans
 var model := ""            # VehicleData key ("" for the code-built car and truck)
 var lane_v := 0.0          # lateral lane position while queued at a terminal
-var lot_arrival := 0.0     # sim minutes when it joined the queue
+## Absolute game minute when this vehicle joined the queue.
+var lot_arrival := 0.0
 var length := 0.0          # bumper to bumper, rig included (game units)
 var slots := 1             # queue / deck slots it takes
 var dest := -1             # island id it is travelling to (-1: not set)
