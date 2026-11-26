@@ -59,6 +59,7 @@ check authored-ferry-nets test --script tests/world/ferry_net_model_test.gd
 check classic-ferry-nets test --script tests/world/ferry_net_model_test.gd -- --classic-net
 check ferry-view test --script tests/world/ferry_view_test.gd
 check fare-and-deck test --script tests/simulation/fare_deck_test.gd
+check company-ledger-snapshot test --script tests/rules/company_ledger_snapshot_test.gd
 check vehicle-spawn test --script tests/simulation/vehicle_spawn_test.gd
 check simulation-rules test --script tests/simulation/simulation_rules_test.gd
 check motor-yacht-anchor test --script tests/world/motor_yacht_anchor_test.gd

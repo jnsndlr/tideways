@@ -136,3 +136,7 @@ func start_day() -> void:
 	cars_today = 0
 	passengers_yesterday = passengers_today
 	passengers_today = 0
+
+
+func snapshot(routes: Array[MapData.Route]) -> Dictionary:
+	return CompanyLedgerSnapshot.capture(self, _fares, routes)
