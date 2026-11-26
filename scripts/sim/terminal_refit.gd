@@ -50,6 +50,15 @@ func advance(delta: float, slip_clear: bool) -> void:
 		_set_stage(Stage.NONE)
 
 
+## The widening payment and any enlargement at LEAVING already belong to the save.
+func resume_widening(index: int, saved_stage: Stage, saved_remaining: float) -> void:
+	slip = index
+	work = WORK
+	new_slip = false
+	remaining = saved_remaining
+	_set_stage(saved_stage)
+
+
 func occupies(index: int) -> bool:
 	return stage != Stage.NONE and index == slip
 
