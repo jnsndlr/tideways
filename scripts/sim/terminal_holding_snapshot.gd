@@ -101,8 +101,9 @@ static func _valid_header(r: Variant, term: Terminal) -> bool:
 		and r.served >= 0
 		and _integer(r.get("passengers_served"))
 		and r.passengers_served >= 0
-		and r.vehicle_demand < 1
-		and r.passenger_demand < 1
+		# JSON may round the highest subunit accumulator up to exactly one.
+		and r.vehicle_demand <= 1
+		and r.passenger_demand <= 1
 		and r.get("stage") is String
 		and Terminal.WorkStage.has(r.stage)
 		and r.get("lanes") is Dictionary
@@ -204,12 +205,12 @@ static func _valid_remaining(stage: Terminal.WorkStage, remaining: float) -> boo
 			return remaining == Terminal.BUILD_MINUTES
 		Terminal.WorkStage.ARRIVING:
 			return (
-				remaining > Terminal.BUILD_MINUTES - Terminal.ARRIVAL_MINUTES
+				remaining >= Terminal.BUILD_MINUTES - Terminal.ARRIVAL_MINUTES
 				and remaining <= Terminal.BUILD_MINUTES
 			)
 		Terminal.WorkStage.PAVING:
 			return (
-				remaining > Terminal.DEPARTURE_MINUTES
+				remaining >= Terminal.DEPARTURE_MINUTES
 				and remaining <= Terminal.BUILD_MINUTES - Terminal.ARRIVAL_MINUTES
 			)
 		Terminal.WorkStage.LEAVING:

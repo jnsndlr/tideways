@@ -41,9 +41,34 @@ func _run() -> void:
 	live.free()
 	_compare(paving, open, expected, true)
 	_compare(open, open, expected, false)
+	_check_json_boundaries()
 	_check_staging()
 	_check_overnight_wait()
 	finish()
+
+
+func _check_json_boundaries() -> void:
+	var live := _world()
+	var port: Terminal = live.terminals[0]
+	port.buy_holding_lane()
+	port._advance_construction(1.0)
+	port._spawn_acc = 1.0 - pow(2.0, -53)
+	port._pax_spawn_acc = port._spawn_acc
+	port.build_remaining = Terminal.BUILD_MINUTES - Terminal.ARRIVAL_MINUTES + pow(2.0, -46)
+	for stage in [Terminal.WorkStage.ARRIVING, Terminal.WorkStage.PAVING]:
+		var saved := _record(port).holding as Dictionary
+		var fresh := _world()
+		var target: Terminal = fresh.terminals[0]
+		check(
+			TerminalHoldingSnapshot.restore(saved, target, VehicleFactory.from_parts),
+			"Accept phase and demand boundaries after JSON rounding"
+		)
+		check(target.work_stage == stage, "Keep the construction phase until its next advance")
+		fresh.free()
+		if stage == Terminal.WorkStage.ARRIVING:
+			port._advance_construction(1.0)
+			port.build_remaining = Terminal.DEPARTURE_MINUTES + pow(2.0, -48)
+	live.free()
 
 
 func _check_staging() -> void:
