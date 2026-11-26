@@ -11,6 +11,8 @@ func run() -> void:
 	var path := "user://quick-save-ui-%d.json" % OS.get_process_id()
 	SaveGame._path = path
 	var passed := await exercise_slot(path)
+	if passed:
+		passed = await check_long_company()
 	SaveGame._path = SaveGame.PATH
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	change_scene_to_file(Scenes.MENU)
@@ -23,9 +25,8 @@ func run() -> void:
 func exercise_slot(path: String) -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
-	for button: Button in current_scene.find_children("*", "Button", true, false):
-		if button.text == "Load saved game" and not button.disabled:
-			return fail("Load should be disabled for an empty slot")
+	if not await check_empty_board():
+		return false
 	if not await enter_game("Mission sandbox", Scenes.MAIN_MAP):
 		return false
 	var session: WorldSession = current_scene
@@ -47,6 +48,51 @@ func exercise_slot(path: String) -> bool:
 	if not check_slot(session):
 		return false
 	return await try_failed_save(session, menu, path)
+
+
+func check_empty_board() -> bool:
+	root.size = Vector2i(900, 900)
+	await process_frame
+	await process_frame
+	for button: Button in current_scene.find_children("*", "Button", true, false):
+		if button.text == "Continue" and button.is_visible_in_tree():
+			return fail("Continue should be hidden for an empty slot")
+		if (
+			button.is_visible_in_tree()
+			and not root.get_visible_rect().encloses(button.get_global_rect())
+		):
+			return fail("The square window cropped the %s control" % button.text)
+	root.size = Vector2i(1366, 1024)
+	return true
+
+
+func check_long_company() -> bool:
+	var name_text := "W".repeat(32)
+	if not SaveGame.save(Scenario.OPENING, false, 123, 480, name_text):
+		return fail("Could not prepare the long-name save")
+	change_scene_to_file(Scenes.MENU)
+	await scene_changed
+	var ink: Label = current_scene.get_node("Board")._ink[2]
+	if not ink.text.begins_with("Day 123") or not ink.text.ends_with(name_text):
+		return fail("The end ellipsis must preserve the day for a maximum-width name")
+	var opener: Button = current_scene.get_node("Board/Rows/Departures/NewCompany")
+	opener.grab_focus()
+	if not await press("New company"):
+		return false
+	var dialog: Control = current_scene._name_dialog
+	for step in 4:
+		var event := InputEventAction.new()
+		event.action = &"ui_focus_next"
+		event.pressed = true
+		root.push_input(event)
+		await process_frame
+		var focused := root.gui_get_focus_owner()
+		if not focused or not dialog.is_ancestor_of(focused):
+			return fail("Tab navigation left the open company naming panel")
+	if not await press("Cancel"):
+		return false
+	await process_frame
+	return root.gui_get_focus_owner() == opener or fail("Cancel should return focus to New company")
 
 
 func check_slot(session: WorldSession) -> bool:
@@ -83,7 +129,17 @@ func try_failed_save(session: WorldSession, menu: PopupMenu, path: String) -> bo
 
 
 func reopen_slot() -> bool:
-	if not await enter_game("Load saved game", Scenes.MAIN_MAP):
+	var company_line := false
+	for label: Label in current_scene.find_children("*", "Label", true, false):
+		if (
+			label.is_visible_in_tree()
+			and label.text.contains("Island Ferries")
+			and label.text.contains("Day 23")
+		):
+			company_line = true
+	if not company_line:
+		return fail("The departure board did not display the saved company and day")
+	if not await enter_game("Continue", Scenes.MAIN_MAP):
 		return false
 	var loaded: WorldSession = current_scene
 	if loaded.sim.day != 23 or absf(loaded.sim.minutes - 721.5) > 2.0:

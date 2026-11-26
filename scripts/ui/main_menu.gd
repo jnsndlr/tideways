@@ -1,18 +1,16 @@
 extends Control
-## Title screen: Play (the main mission), Mission sandbox (the main mission with
-## unlimited money, for quick testing), Sandbox (the procedural test map) or Quit.
-##
-## Debug args after `--` skip the menu so the existing command-line workflow keeps
-## working: `--main` opens the main map, any other arg (e.g. --seed=123) the sandbox.
+## Launch Tideways from the ferry terminal's departure board.
 
-const BG := Color(0.05, 0.09, 0.11)
-const TEXT := Color(0.9, 0.94, 0.95)
-const MUTED := Color(0.58, 0.66, 0.68)
-const ACCENT := Color(0.47, 0.86, 0.6)
+const TEXT := Color(0.98, 0.91, 0.75)
 
+const DepartureBoard := preload("res://scripts/ui/departure_board.gd")
 const MainMapScript := preload("res://scripts/main_map.gd")
-var _load_error: Label
 var _name_dialog: ColorRect
+
+@onready var _board: DepartureBoard = $Board
+@onready var _departures: Control = $Board/Rows/Departures
+@onready var _sandboxes: Control = $Board/Rows/Sandboxes
+@onready var _load_error: Label = $LoadError
 
 
 func _ready() -> void:
@@ -26,68 +24,93 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-	var bg := ColorRect.new()
-	bg.color = BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
-	center.add_child(col)
-
-	var bold := SystemFont.new()
-	bold.font_weight = 700
-	var title := Label.new()
-	title.text = "TIDEWAYS"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_override("font", bold)
-	title.add_theme_font_size_override("font_size", 72)
-	title.add_theme_color_override("font_color", TEXT)
-	col.add_child(title)
-	var sub := Label.new()
-	sub.text = "Run the ferries that keep the islands moving."
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.add_theme_color_override("font_color", MUTED)
-	col.add_child(sub)
-	var gap := Control.new()
-	gap.custom_minimum_size.y = 28
-	col.add_child(gap)
-
-	var play := _button(col, "Play", func(): _ask_name(func(n): _play("", n)))
-	var load_btn := _button(col, "Load saved game", _load_saved)
 	var save := SaveGame.read()
-	load_btn.disabled = save.is_empty()
-	if not save.is_empty():
-		load_btn.tooltip_text = (
-			"%s · %s · day %d · saved %s"
-			% [
-				save.get("company", ""),
-				str(save.get("scenario", "")).get_file().get_basename(),
-				int(save.get("day", 0)),
-				save.get("saved_at", "")
-			]
+	var resume: Button = _departures.get_node("Continue")
+	var company: Label = _departures.get_node("Company")
+	var new_company: Button = _departures.get_node("NewCompany")
+	resume.visible = not save.is_empty()
+	company.visible = resume.visible
+	if resume.visible:
+		var name_text := str(save.get("company", "")).strip_edges()
+		var day_text := "Day %d" % int(save.day)
+		company.text = _board.company_caption(name_text, day_text)
+		company.tooltip_text = company.text
+	var primary := resume if resume.visible else new_company
+	if resume.visible:
+		resume.tooltip_text = (
+			"%s · %s · saved %s"
+			% [company.text, str(save.scenario).get_file().get_basename(), save.get("saved_at", "")]
 		)
-	_button(
-		col,
-		"Mission sandbox",
+	_board.place_action(primary, 1)
+	_board.place_action(company, 2)
+	if resume.visible:
+		_board.place_action(new_company, 3)
+	_board.place_action(_departures.get_node("Sandboxes"), 4 if resume.visible else 3)
+	_board.place_action(_departures.get_node("Settings"), 5 if resume.visible else 4)
+	_board.place_action(_sandboxes.get_node("Mission"), 1)
+	_board.place_action(_sandboxes.get_node("Procedural"), 3)
+	_board.place_action(_sandboxes.get_node("Back"), 5)
+	resume.pressed.connect(_load_saved)
+	new_company.pressed.connect(func(): _ask_name(func(n): _play("", n)))
+	_departures.get_node("Sandboxes").pressed.connect(_show_sandboxes.bind(true))
+	_departures.get_node("Settings").pressed.connect(_open_settings)
+	var quit_button: Button = $Quit
+	quit_button.visible = not OS.has_feature("mobile")
+	quit_button.pressed.connect(get_tree().quit)
+	_sandboxes.get_node("Back").pressed.connect(_show_sandboxes.bind(false))
+	_sandboxes.get_node("Mission").pressed.connect(
 		func(): _ask_name(func(n): _play("", n, "Setting out with an open purse", true))
 	)
-	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
-	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
-	_button(col, "Quit", func(): get_tree().quit())
-	_load_error = Label.new()
-	_load_error.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_load_error.hide()
-	col.add_child(_load_error)
-	play.grab_focus()
+	_sandboxes.get_node("Procedural").pressed.connect(
+		func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox")
+	)
+	_display_departures(true)
+	primary.grab_focus()
 	Music.set_mood(get_tree(), Music.Mood.FULL)
 	RadioChatter.on_menu(get_tree())
 	UiSounds.install(get_tree())
+
+
+func _display_departures(turn_title: bool) -> void:
+	var company: Label = _departures.get_node("Company")
+	if company.visible:
+		_board.display(
+			["TIDEWAYS", "Continue", company.text, "New company", "Sandboxes", "Settings"],
+			turn_title
+		)
+	else:
+		_board.display(["TIDEWAYS", "New company", "", "Sandboxes", "Settings", ""], turn_title)
+
+
+func _show_sandboxes(show_choices: bool) -> void:
+	_departures.visible = not show_choices
+	_sandboxes.visible = show_choices
+	if show_choices:
+		_board.display(["TIDEWAYS", "Mission sandbox", "", "Sandbox", "", "Back"], false)
+		_sandboxes.get_node("Mission").grab_focus()
+	else:
+		_display_departures(false)
+		_departures.get_node("Sandboxes").grab_focus()
+
+
+func _open_settings() -> void:
+	var settings_button: Button = _departures.get_node("Settings")
+	_keep_focus_in(SettingsPanel.open(get_tree()), settings_button)
+
+
+## Keep keyboard navigation on the open panel and return it to the invoking action.
+func _keep_focus_in(panel: Node, opener: Control) -> void:
+	focus_behavior_recursive = Control.FOCUS_BEHAVIOR_DISABLED
+	panel.tree_exited.connect(
+		func():
+			focus_behavior_recursive = Control.FOCUS_BEHAVIOR_INHERITED
+			if (
+				is_instance_valid(opener)
+				and opener.is_inside_tree()
+				and opener.is_visible_in_tree()
+			):
+				opener.grab_focus()
+	)
 
 
 ## Asks for the company name, then calls `on_done` with it.
@@ -96,6 +119,9 @@ func _ask_name(on_done: Callable) -> void:
 		return
 	var dim := ColorRect.new()
 	_name_dialog = dim
+	var opener := get_viewport().gui_get_focus_owner()
+	dim.focus_behavior_recursive = Control.FOCUS_BEHAVIOR_ENABLED
+	_keep_focus_in(dim, opener)
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
@@ -170,16 +196,3 @@ func _on_load_failed(message: String) -> void:
 	_load_error.text = message
 	_load_error.show()
 	RadioChatter.on_menu(get_tree())
-
-
-func _button(parent: Control, text: String, on_press: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(280, 52)
-	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	b.add_theme_font_size_override("font_size", 22)
-	b.add_theme_color_override("font_hover_color", ACCENT)
-	b.add_theme_color_override("font_focus_color", ACCENT)
-	b.pressed.connect(on_press)
-	parent.add_child(b)
-	return b

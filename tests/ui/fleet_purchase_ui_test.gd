@@ -18,7 +18,7 @@ func run() -> void:
 
 
 func exercise() -> bool:
-	if not await enter_game("Play", Scenes.MAIN_MAP):
+	if not await enter_game("New company", Scenes.MAIN_MAP):
 		return false
 	if not await press("Pause") or not await press("FLEET") or not await press("Buy a boat"):
 		return false
