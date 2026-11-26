@@ -23,7 +23,7 @@ fi
 check import smoke --editor --import
 if [[ $suite == traffic ]]; then
   check captain-crossings test --fixed-fps 30 --script tests/traffic/captain_crossing_test.gd -- --seed=123 --ferry=1 --rounds=1
-  check road-traffic test --fixed-fps 30 --script tests/traffic/vehicle_overlap_test.gd -- --verify --seed=123 --frames=6000
+  GODOT_BIN="$engine" python3 tools/check_road_traffic.py -- --seed=123 --frames=6000
   check shared-slip test --fixed-fps 30 --script tests/traffic/shared_slip_test.gd -- --scenario=shared_slip
   check same-route-pass test --fixed-fps 30 --script tests/traffic/same_route_pass_test.gd -- --scenario=shared_slip
   check manual-move test --fixed-fps 30 --script tests/traffic/manual_move_test.gd -- --scenario=tie_up_pier

@@ -6,8 +6,10 @@ Run `bash tools/fast_ci.sh` at the repository root with Godot 4.7.2 on PATH, or 
 
 For changes to boarding or navigation, run the relevant diagnostics on the same commit and seed.
 
-    godot --headless --path . --fixed-fps 30 --script tests/traffic/vehicle_overlap_test.gd -- --seed=123 --frames=6000
+    python3 tools/check_road_traffic.py -- --seed=123 --frames=6000
     godot --headless --path . --fixed-fps 30 --script tests/traffic/vessel_soak_test.gd -- --seed=123 --frames=20000
+
+The road check allows ten minutes and 8 MiB per log. Use its `--script PATH` option for a comparison probe that prints the same test pass marker.
 
 Record overlap, grounding and stall results and compare with main. For touch, frame pacing or device-specific changes, record the physical iPad, build and observed behavior on the PR. See the [team workflow](workflow.md) for merge decisions.
 
