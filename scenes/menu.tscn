@@ -2,6 +2,12 @@
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/departure_board.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/ui/harbor_window.gd" id="3"]
+[ext_resource type="Shader" path="res://scripts/ui/harbor_glass.gdshader" id="4"]
+
+[sub_resource type="ShaderMaterial" id="HarborGlass"]
+resource_local_to_scene = true
+shader = ExtResource("4")
 
 [sub_resource type="SystemFont" id="FaceFont"]
 font_names = PackedStringArray("Avenir Next", "Helvetica Neue", "DejaVu Sans")
@@ -38,6 +44,13 @@ script = ExtResource("1")
 [node name="Terminal" type="TextureRect" parent="."]
 mouse_filter = 2
 expand_mode = 1
+
+[node name="Harbor" type="VideoStreamPlayer" parent="Terminal"]
+material = SubResource("HarborGlass")
+mouse_filter = 2
+expand = true
+loop = true
+script = ExtResource("3")
 
 [node name="Board" type="Control" parent="."]
 mouse_filter = 2
