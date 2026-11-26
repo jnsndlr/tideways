@@ -29,38 +29,11 @@ static func start_session(path: String, unlimited := false, company := "") -> vo
 	RegionEntryState.editor_restore.clear()
 	RegionEntryState.unlimited_cash = unlimited
 	RegionEntryState.company_name = company
-	RegionEntryState.saved_date.clear()
-
-
-static func load_session(data: Dictionary) -> void:
-	start_session(data.scenario, data.unlimited, data.get("company", ""))
-	RegionEntryState.saved_date = {"day": data.day, "minutes": data.minutes}
+	RegionEntryState.pending_save.clear()
 
 
 func can_quick_save() -> bool:
-	return scenario != null
-
-
-func quick_save() -> void:
-	var path := _played_scenario
-	if SaveGame.save(
-		path, RegionEntryState.unlimited_cash, sim.day, sim.minutes, RegionEntryState.company_name
-	):
-		hud.show_toast(
-			"GAME SAVED",
-			(
-				"%s · %s · day %d, %s"
-				% [
-					RegionEntryState.company_name,
-					path.get_file().get_basename(),
-					sim.day,
-					sim.clock_text(sim.minutes)
-				]
-			),
-			3.0
-		)
-	else:
-		hud.show_toast("SAVE FAILED", "Couldn't write the save file.", 3.0)
+	return scenario != null and not unsaved
 
 
 func _ready() -> void:
@@ -88,8 +61,7 @@ func _ready() -> void:
 	var route_cache_path := ""
 	if not unsaved:
 		route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
-	starting_date = RegionEntryState.saved_date.duplicate()
-	RegionEntryState.saved_date.clear()
+	save_scenario = _played_scenario
 	await start_authored(layout, opening, route_cache_path)
 	if not built:
 		return
