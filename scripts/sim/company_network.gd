@@ -32,6 +32,10 @@ static func _route_record(map: MapData, route: MapData.Route, legacy := false) -
 
 
 static func capture(sim: Simulation) -> String:
+	return JSON.stringify(record(sim))
+
+
+static func record(sim: Simulation) -> Dictionary:
 	var map := sim.map
 	var towns := []
 	var routes := []
@@ -44,12 +48,11 @@ static func capture(sim: Simulation) -> String:
 		ferries.append({"key": ferry.fleet_key, "route": ferry.route.key,
 			"name": ferry.ferry_name, "size": ferry.fc.size})
 	# JSON numbers are parsed as doubles. Keep the entire int64 seed.
-	return JSON.stringify({"seed": str(map.map_seed), "towns": towns,
-		"routes": routes, "ferries": ferries})
+	return {"seed": str(map.map_seed), "towns": towns, "routes": routes, "ferries": ferries}
 
 
-func read(saved_json: String, map: MapData) -> String:
-	var saved = JSON.parse_string(saved_json)
+func read(data: Variant, map: MapData) -> String:
+	var saved: Variant = JSON.parse_string(data) if data is String else data
 	if not saved is Dictionary or saved.get("seed") != str(map.map_seed):
 		return "Invalid company network or wrong region seed"
 	# Older generated-company records identify one terminal by its island. Validate
@@ -93,7 +96,7 @@ func read(saved_json: String, map: MapData) -> String:
 		if not _valid_key(record.get("route")) or not route_by_key.has(record.route):
 			return "Ferry %s references an unknown route" % record.key
 		var size = record.get("size")
-		if not record.get("name") is String or not size is float or size != floor(size) or size < 1 or size > FerryClass.MAX_SIZE:
+		if not record.get("name") is String or not _valid_size(size):
 			return "Invalid name or size for ferry %s" % record.key
 		var hull := Assignment.new()
 		hull.key = record.key
@@ -104,6 +107,15 @@ func read(saved_json: String, map: MapData) -> String:
 		seen[hull.key] = true
 	fleet = restored
 	return ""
+
+
+static func _valid_size(size: Variant) -> bool:
+	return (
+		(size is int or size is float)
+		and size == floor(size)
+		and size >= 1
+		and size <= FerryClass.MAX_SIZE
+	)
 
 
 static func _valid_key(value: Variant) -> bool:
