@@ -10,6 +10,10 @@ class Island:
 	var id := 0
 	var name := ""
 	var center := Vector2.ZERO      # x, z
+	var airstrip := false           # an authored, graded airstrip (see MapLayout.IslandSpec)
+	var airstrip_at := Vector3.ZERO # runway centre, y = its graded height
+	var airstrip_dir := Vector3.RIGHT   # along the runway
+	var airstrip_slope := 0.0       # its grade: height gained per metre along airstrip_dir
 	var radius := 120.0
 	var strength := 1.0             # elevation multiplier
 	var inhabited := true

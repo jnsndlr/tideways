@@ -71,7 +71,12 @@
 					"tier": "small",
 					"town": "Cattle Head Point"
 				}
-			]
+			],
+			"airstrip": {
+				"x": 560.0,
+				"z": -20.0,
+				"heading": 27.0
+			}
 		},
 		{
 			"name": "Cypress Island",
@@ -158,7 +163,12 @@
 					"tier": "standard",
 					"town": "Driftwood"
 				}
-			]
+			],
+			"airstrip": {
+				"x": -1245.0,
+				"z": 1940.0,
+				"heading": 90.0
+			}
 		},
 		{
 			"name": "Kestrel Island",

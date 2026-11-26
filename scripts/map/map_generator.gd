@@ -177,6 +177,10 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 	isl.ferry = spec.ferry
 	isl.community_type = spec.community_type if spec.community_type in MapLayout.IslandSpec.COMMUNITY_TYPES else "residential"
 	isl.radio_tower_built = isl.name == "Madrona Island"
+	isl.airstrip = spec.airstrip
+	isl.airstrip_at = Vector3(spec.airstrip_x, 0.0, spec.airstrip_z)
+	var hd := deg_to_rad(spec.airstrip_heading)
+	isl.airstrip_dir = Vector3(cos(hd), 0.0, sin(hd))
 	isl.dock_sites.clear()
 	for d in spec.docks:
 		var site := MapData.DockSite.new()
@@ -1424,8 +1428,52 @@ func _carve_landings() -> void:
 			LANDING_LOW, LANDING_GRADE, LANDING_FADE)
 
 
+## Runway half length and the graded ground round it: the strip's gravel bed, the
+## taxiway exit and hangar apron on its -Z side (see the airport_runway model).
+const AIRSTRIP_HALF := 250.0
+const AIRSTRIP_SIDE := 18.0
+const AIRSTRIP_APRON := 80.0
+const AIRSTRIP_BLEND := 110.0
+
+
+const AIRSTRIP_MAX_GRADE := 0.02
+
+
+## Grade the authored airstrips: a straight line fitted to the ground along each
+## (no steeper than AIRSTRIP_MAX_GRADE), so the strip follows the land's fall and
+## eases out into it instead of standing on a level shelf.
+func _grade_airstrips() -> void:
+	for isl in map.islands:
+		if not isl.airstrip:
+			continue
+		var n := 41
+		var su := 0.0
+		var sh := 0.0
+		var suu := 0.0
+		var suh := 0.0
+		for k in n:
+			var u := lerpf(-AIRSTRIP_HALF, AIRSTRIP_HALF, float(k) / (n - 1))
+			var h := 0.0
+			for v: float in [-AIRSTRIP_SIDE, AIRSTRIP_APRON * 0.5]:
+				h += terrain.height_v(isl.airstrip_at + isl.airstrip_dir * u + Vector3.UP.cross(isl.airstrip_dir) * v) * 0.5
+			su += u
+			sh += h
+			suu += u * u
+			suh += u * h
+		var slope := (n * suh - su * sh) / (n * suu - su * su)
+		slope = clampf(slope, -AIRSTRIP_MAX_GRADE, AIRSTRIP_MAX_GRADE)
+		var y := maxf((sh - slope * su) / n, 4.0 + absf(slope) * AIRSTRIP_HALF)
+		isl.airstrip_at.y = y
+		isl.airstrip_slope = slope
+		# Terrain flats run u along `dir` and v along UP x dir; the apron side is
+		# the runway model's -Z, which is +v here.
+		terrain.add_flat(Vector3(isl.airstrip_at.x, 0.0, isl.airstrip_at.z), isl.airstrip_dir,
+			-AIRSTRIP_HALF, AIRSTRIP_HALF, -AIRSTRIP_SIDE, AIRSTRIP_APRON, y, AIRSTRIP_BLEND, slope)
+
+
 func _flatten_terminals() -> void:
 	_carve_landings()
+	_grade_airstrips()
 	_fit_approaches()
 	for isl in map.towns:
 		if not isl.has_dock:

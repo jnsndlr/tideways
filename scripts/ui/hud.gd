@@ -30,6 +30,7 @@ var selected_island: MapData.Island:
 	get: return map.island_of(selected_town) if selected_town else null
 var selected_ferry: Ferry
 var selected_vessel: Vessel   # anything afloat but a ferry
+var selected_plane: AirTraffic.Craft
 
 var root: Control
 var _label_layer: Control
@@ -469,6 +470,12 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 		if not wildlife.photograph(visit):
 			show_toast(visit.species.plural.to_upper(), "Already photographed this %s." % _group_word(visit), 3.0)
 		return
+	var air := main.get_node_or_null("AirTraffic") as AirTraffic
+	if air:
+		var plane := air.pick(screen_pos, cam, clampf(9000.0 / rig.distance, 24.0, 120.0))
+		if plane:
+			select_plane(plane)
+			return
 	var best: Vessel = null
 	var best_d := clampf(9000.0 / rig.distance, 24.0, 220.0)
 	for v in sim.marine.vessels:
@@ -563,6 +570,16 @@ func select_vessel(v: Vessel) -> void:
 	_refresh_panels()
 
 
+## A light plane: shows its panel and follows it.
+func select_plane(c: AirTraffic.Craft) -> void:
+	_reset_selection()
+	selected_plane = c
+	rig.follow = c.node
+	if rig.target_dist > 400.0:
+		rig.target_dist = 220.0
+	_refresh_panels()
+
+
 func clear_selection() -> void:
 	_reset_selection()
 	_refresh_panels()
@@ -572,6 +589,7 @@ func _reset_selection() -> void:
 	selected_town = null
 	selected_ferry = null
 	selected_vessel = null
+	selected_plane = null
 	rig.follow = null
 
 
@@ -877,6 +895,8 @@ func _on_info_button() -> void:
 		rig.follow = null if rig.follow == selected_ferry else selected_ferry
 	elif selected_vessel:
 		rig.follow = null if rig.follow == selected_vessel else selected_vessel
+	elif selected_plane:
+		rig.follow = null if rig.follow == selected_plane.node else selected_plane.node
 	elif selected_town:
 		rig.focus_on(selected_town.town_center, 390.0)
 	_refresh_panels()
@@ -905,10 +925,13 @@ func _refresh_panels() -> void:
 	# Cargo ships leave the map.
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
+	# Planes that fly off the map are gone.
+	if selected_plane and not is_instance_valid(selected_plane.node):
+		selected_plane = null
 	var offer_dock := false
 	var offer_upgrades := false
 	_ferry_panel.visible = selected_ferry != null
-	_info_panel.visible = selected_ferry == null and (selected_town != null or selected_vessel != null)
+	_info_panel.visible = selected_ferry == null and (selected_town != null or selected_vessel != null or selected_plane != null)
 	_terminal_bar.visible = selected_town != null and sim.terminals.has(selected_town.id)
 	_help.visible = not _terminal_bar.visible
 	_captain_box.visible = false
@@ -957,6 +980,15 @@ func _refresh_panels() -> void:
 					rows.append(["Escort", esc])
 		_set_rows(rows)
 		_info_button.text = "Stop following" if rig.follow == v else "Follow"
+	elif selected_plane:
+		var c := selected_plane
+		_info_title.text = c.tail
+		_info_sub.text = "Cessna 172 · light aircraft"
+		var rows := [["Status", c.status_text()], ["Speed", "%d kn" % roundi(Units.knots(c.speed))]]
+		if c.airborne:
+			rows.append(["Altitude", "%d ft" % roundi(maxf(c.node.global_position.y, 0.0) * 3.28)])
+		_set_rows(rows)
+		_info_button.text = "Stop following" if rig.follow == c.node else "Follow"
 	elif selected_town:
 		var isl := selected_town
 		var island := map.island_of(isl)

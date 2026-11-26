@@ -191,6 +191,10 @@ func _setup_simulation(charts: MarineCharts) -> void:
 			if g:
 				g.add_perches(builder.gull_perches, builder.eagle_perches)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
+	var air := AirTraffic.new()
+	air.name = "AirTraffic"
+	add_child(air)
+	air.setup(builder.airfields)
 	if not await _setup_frames.can_continue():
 		return
 	var separation := SeparationBuoys.new()

@@ -82,6 +82,7 @@ var _landmark_meshes := {}
 
 ## Places seagulls can sit (where the feet go, in world space).
 var gull_perches: Array[Seagulls.Perch] = []
+var airfields: Array[AirTraffic.Field] = []
 ## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
 var tree_shadows: Array[MultiMeshInstance3D] = []
 ## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
@@ -125,7 +126,7 @@ func build(frame: Signal = Signal()) -> Node3D:
 	root = Node3D.new()
 	root.name = "World"
 	# Towns grade their lots before terrain tiles read the heights.
-	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_quays,
+	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_airstrips, _build_quays,
 			_build_roads, _build_towns, _build_radio_towers, _build_terrain, _build_lighthouses, _build_nav_aids, _build_haul_outs,
 			_build_vegetation, _build_shore_rocks, _build_route_overlay, _clear_grass_where_blocked]:
 		if not await _frames.can_continue():
@@ -2452,6 +2453,189 @@ func _marina_restaurant(m: MapData.Marina) -> void:
 	var mesh := Models._cached(path, func(): return ModelParts.baked(path).commit())
 	var dining := _add_mesh(mesh, model + "_" + str(m.id))
 	dining.transform = m.xform() * Transform3D(Basis.IDENTITY, center)
+
+
+const RUNWAY := "res://assets/models/airport_runway.glb"
+const HANGAR := "res://assets/models/airplane_hangar.glb"
+const HANGAR_AT := Vector3(-141.0, 0.0, -67.0)   # at the head of the taxiway, door onto the apron
+const AIRFIELD := "res://assets/models/airfield_buildings/%s.glb"
+const WINDSOCK := "res://assets/models/windsock.glb"
+const CHAIN_LINK := "res://assets/models/home_gardens/fences/chain_link.tscn"
+## Runway-model space: x along the runway, -z off to the apron side.
+const APRON_X := Vector2(-212.0, -66.0)
+const APRON_Z := Vector2(-56.0, -32.4)
+## [model, x, z, yaw]: the row of airfield buildings facing the apron.
+const AIRFIELD_ROW := [
+	["control_tower", -201.0, -62.0, 0.0],
+	["flight_office", -176.0, -61.0, 0.0],
+	["open_gable_hangar", -110.0, -64.0, 0.0],
+	["sawtooth_workshop_hangar", -85.0, -63.5, 0.0],
+]
+## Parking stands on the apron (x), planes nose-in toward the runway at z = STAND_Z.
+const STANDS := [-196.0, -178.0, -110.0, -92.0]
+const STAND_Z := -38.0
+## Where the access road leaves the apron (its east end) for town.
+const GATE := Vector2(-66.0, -44.0)
+## Everything on the strip sits a touch proud of the graded ground, so the
+## terrain's triangles don't poke through the verges.
+const STRIP_LIFT := 0.12
+const FENCE_Z := -80.0
+const APRON_COLOR := Color(0.32, 0.36, 0.37)   # matches the runway asphalt
+const APRON_LINE := Color(0.95, 0.59, 0.055)
+
+
+## The authored airstrips: the runway on its graded strip (MapGenerator._grade_airstrips),
+## an apron at the head of its taxiway exit lined with the airfield kit (tower, flight
+## office, hangars), planes parked on it, a windsock and a chain-link fence round the
+## back. The runway's edge lights glow at night. Trees and houses keep off.
+func _build_airstrips() -> void:
+	for isl in map.islands:
+		if not isl.airstrip:
+			continue
+		var d := isl.airstrip_dir
+		var xf := Transform3D(Basis(d, Vector3.UP, d.cross(Vector3.UP)), isl.airstrip_at)
+		# Tipped to the strip's grade, as a shear so it stays plumb.
+		var tilted := xf
+		tilted.basis.x = d + Vector3.UP * isl.airstrip_slope
+		tilted.origin += Vector3.UP * STRIP_LIFT
+		var slope := isl.airstrip_slope
+		var on_strip := func(x: float, z: float, yaw := 0.0) -> Transform3D:
+			return xf * Transform3D(Basis(Vector3.UP, yaw), Vector3(x, slope * x + STRIP_LIFT, z))
+		var runway := Models._cached(RUNWAY, func(): return ModelParts.baked(RUNWAY).commit())
+		_add_mesh(runway, isl.name + " Runway", false).transform = tilted
+		# The apron: asphalt from the taxiway mouth to the building row, a yellow lead-in line.
+		var mb := MeshBuilder.new()
+		mb.xform = tilted
+		var ac := Vector3((APRON_X.x + APRON_X.y) * 0.5, 0.035, (APRON_Z.x + APRON_Z.y) * 0.5)
+		mb.box(ac, Vector3(APRON_X.y - APRON_X.x, 0.07, APRON_Z.y - APRON_Z.x), APRON_COLOR)
+		mb.box(Vector3(ac.x, -0.41, ac.z), Vector3(APRON_X.y - APRON_X.x + 3.0, 0.8, APRON_Z.y - APRON_Z.x + 3.0),
+			Color(0.28, 0.27, 0.215))
+		mb.box(Vector3(-141.0, 0.07, -44.0), Vector3(0.25, 0.02, 24.0), APRON_LINE)
+		mb.box(Vector3(ac.x, 0.07, -50.0), Vector3(APRON_X.y - APRON_X.x - 8.0, 0.02, 0.25), APRON_LINE)
+		for px: float in STANDS:
+			mb.box(Vector3(px, 0.07, STAND_Z), Vector3(0.25, 0.02, 10.0), APRON_LINE)
+		_add_mesh(mb.commit(), isl.name + " Apron", false)
+		var hangar := Models._cached(HANGAR, func(): return ModelParts.baked(HANGAR).commit())
+		var hxf: Transform3D = on_strip.call(HANGAR_AT.x, HANGAR_AT.z)
+		_add_mesh(hangar, isl.name + " Hangar").transform = hxf
+		_entry_light(hxf, Vector3(0.0, 9.2, 7.8), Vector3(0.0, 0.3, 9.0), false)
+		for b: Array in AIRFIELD_ROW:
+			var path: String = AIRFIELD % b[0]
+			var m := Models._cached(path, func(): return ModelParts.baked(path).commit())
+			var bxf: Transform3D = on_strip.call(b[1], b[2], b[3])
+			_add_mesh(m, "%s %s" % [isl.name, b[0]]).transform = bxf
+			_entry_light(bxf, Vector3(0.0, 3.2, 5.0), Vector3(0.0, 0.1, 6.0), false)
+		# Planes are AirTraffic's: it parks, lands and launches them (see air_traffic.gd).
+		airfields.append(AirTraffic.Field.new(isl.name, xf, slope, STRIP_LIFT, STANDS, STAND_Z))
+		_airfield_road(isl, on_strip)
+		_airfield_windsock(on_strip.call(-56.0, -27.0), isl.name)
+		_airfield_fence(on_strip, isl.name)
+		# Edge lights (runway model: every 46 m, 11.8 m off the centreline).
+		glows.xform = tilted
+		var lx := -230.0
+		while lx <= 230.0:
+			for side: float in [-11.8, 11.8]:
+				glows.glow(Vector3(lx, 0.45, side), GlowBuilder.WARM, 0.9, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			lx += 46.0
+		for end: float in [-241.0, 241.0]:
+			for side: float in [-9.0, -4.5, 0.0, 4.5, 9.0]:
+				glows.glow(Vector3(end, 0.3, side), GlowBuilder.GREEN, 0.8, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var u := -250.0
+		while u <= 250.0:
+			for v: float in [-30.0, -18.0, -6.0, 6.0, 18.0, 30.0]:
+				_block(xf * Vector3(u, 0, v), 9.0)
+			u += 9.0
+		var bu := APRON_X.x - 6.0
+		while bu <= APRON_X.y + 6.0:
+			for v: float in [36.0, 48.0, 60.0, 72.0, 82.0]:
+				_block(xf * Vector3(bu, 0, -v), 9.0)
+			bu += 9.0
+
+
+## A road from the apron's gate to the nearest street of a town on the same island:
+## out along the apron's line, then straight across the land. None if it would
+## have to cross water or run too far.
+func _airfield_road(isl: MapData.Island, on_strip: Callable) -> void:
+	var gate: Vector3 = (on_strip.call(GATE.x, GATE.y) as Transform3D).origin
+	var out: Vector3 = (on_strip.call(GATE.x + 30.0, GATE.y) as Transform3D).origin
+	var best := Vector3.ZERO
+	var best_d := INF
+	for t in map.towns:
+		if t.island != map.islands.find(isl):
+			continue
+		var lines: Array[PackedVector3Array] = [t.road_main_a, t.road_main_b]
+		lines.append_array(t.road_cross)
+		lines.append_array(t.road_lanes)
+		for line in lines:
+			for q in line:
+				var dd := Vector2(q.x - out.x, q.z - out.z).length()
+				if dd < best_d:
+					best_d = dd
+					best = q
+	if best_d > 1600.0:
+		print("airport road: no town street near ", isl.name)
+		return
+	var pts := PackedVector3Array([gate])
+	var n := maxi(2, ceili(best_d / 6.0))
+	for i in range(0, n + 1):
+		var q := out.lerp(best, float(i) / n)
+		var h := terrain.height_at(q.x, q.z)
+		if h < 0.6:
+			print("airport road: water in the way on ", isl.name)
+			return
+		pts.append(Vector3(q.x, h + 0.15, q.z) if i < n else best)
+	pts[1].y = out.y
+	var mb := MeshBuilder.new()
+	RoadMesh.strip(mb, pts, ROAD, RoadMesh.Style.DASHED, func(_s: float) -> float: return 1.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = load(ROAD_SHADER)
+	_add_mesh(mb.commit(mat), isl.name + " AirportRoad", false)
+	for i in range(0, pts.size(), 2):
+		_block_road(pts[i], 9.0)
+
+
+## The windsock, its streaming animation looped.
+func _airfield_windsock(at: Transform3D, isl_name: String) -> void:
+	var scene := load(WINDSOCK) as PackedScene
+	if scene == null:
+		return
+	var ws := scene.instantiate() as Node3D
+	ws.name = isl_name + " Windsock"
+	ws.transform = at
+	root.add_child(ws)
+	var anim := ws.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if anim != null and not anim.get_animation_list().is_empty():
+		var a := anim.get_animation(anim.get_animation_list()[0])
+		a.loop_mode = Animation.LOOP_LINEAR
+		anim.play(anim.get_animation_list()[0])
+
+
+## Chain-link fence round the back of the airfield: along FENCE_Z behind the
+## building row and down both sides to the runway's shoulder.
+func _airfield_fence(on_strip: Callable, isl_name: String) -> void:
+	var scene := load(CHAIN_LINK) as PackedScene
+	if scene == null:
+		return
+	var fence := Node3D.new()
+	fence.name = isl_name + " AirfieldFence"
+	root.add_child(fence)
+	var span := 2.4
+	var x0 := APRON_X.x - 6.0
+	var x1 := APRON_X.y + 6.0
+	var runs := [[Vector2(x0, FENCE_Z), Vector2(x1, FENCE_Z)],
+		[Vector2(x0, -22.0), Vector2(x0, FENCE_Z)], [Vector2(x1, FENCE_Z), Vector2(x1, GATE.y - 6.0)],
+		[Vector2(x1, GATE.y + 6.0), Vector2(x1, -22.0)]]
+	for r: Array in runs:
+		var a: Vector2 = r[0]
+		var b: Vector2 = r[1]
+		var n := ceili(a.distance_to(b) / span)
+		var dir := (b - a).normalized()
+		var yaw := atan2(-dir.y, dir.x)
+		for i in n:
+			var p := a + dir * span * i
+			var f := scene.instantiate() as Node3D
+			f.transform = on_strip.call(p.x, p.y, yaw)
+			fence.add_child(f)
 
 
 ## A wooden pier out to a T-head float with berths along its seaward face (the
