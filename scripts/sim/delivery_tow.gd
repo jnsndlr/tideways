@@ -321,20 +321,19 @@ func _leave() -> void:
 ## Once detached from a delivered, working ferry the tug only sails out of the
 ## region and unregisters itself. Company restore may regenerate this background traffic.
 func delivery_complete() -> bool:
+	if phase != Phase.LEAVING or outbound or waiting or committed or consort != null:
+		return false
+	# The owner may sell the delivered hull while her original tug sails away.
+	if not is_instance_valid(ferry) or (is_instance_valid(ferry.tow) and ferry.tow.outbound):
+		return true
 	return (
-		phase == Phase.LEAVING
-		and not outbound
-		and not waiting
-		and not committed
-		and consort == null
-		and is_instance_valid(ferry)
-		and ferry.purchased
+		ferry.purchased
+		and ferry.tow == null
+		and ferry.consort == null
 		and (
 			ferry.berth == Ferry.Berth.WORKING
 			or (ferry.berth == Ferry.Berth.TIED_UP and not ferry.assigned and ferry.trips == 0)
 		)
-		and ferry.tow == null
-		and ferry.consort == null
 	)
 
 

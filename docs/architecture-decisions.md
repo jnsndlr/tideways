@@ -10,6 +10,8 @@
 
 **Inbound delivery.** A paid ferry under tow keeps its target berth and the tug’s saved path, progress and speed. Continue reconstructs the moving pair before the first simulation frame. The ordinary arrival callback hands the ferry over once. Saving again after that handoff records the unassigned ferry at its berth, so the next Continue resumes it alongside. The shipyard remains the only place that charges the purchase. [TID-333](https://linear.app/tideways/issue/TID-333)
 
+**Outbound sale.** Selling a purchased ferry credits its resale value and removes it from the company fleet immediately. While the tug collects it and takes it out to sea, the save records the departing vessels separately from the owned fleet. Continue restores the tow at its saved position. After the hull leaves the region, subsequent saves keep the sale in the ledger and the ferry stays gone. [TID-333](https://linear.app/tideways/issue/TID-333)
+
 **Purchased berth sites.** Restore the first added working slip or tie-up at the purchased offset before applying fitted berth sizes. The original survey recreates necessary dredging. The crane resumes its saved phase and opens outstanding work once. The ledger restores the original payment. Multiple successive berth purchases and route reassignment still need coverage. [New berth and dredging checks](../tests/session/terminal_berth_purchase_snapshot_test.gd)
 
 ## Where editable art lives

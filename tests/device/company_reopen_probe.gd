@@ -200,18 +200,25 @@ func _working_with_cars(boat: Ferry) -> bool:
 
 
 func _buy_ferry_from_catalogue(session: WorldSession) -> bool:
+	var bought := await _purchase_from_catalogue(session)
+	if bought == null:
+		return false
+	return _start_inbound(session, bought) if _inbound else await _assign_purchased(session, bought)
+
+
+func _purchase_from_catalogue(session: WorldSession) -> Ferry:
 	var sim := session.sim
 	session.hud.set_speed(0)
 	if sim.ferries.size() != 1 or sim.ledger.cash >= CompanyLedger.UNLIMITED_CASH:
-		return false
+		return null
 	for caption in ["FLEET", "Buy a boat", "Size 1"]:
 		if not await press(caption, caption == "Size 1"):
-			return false
+			return null
 	const PRICE := 30000
 	var before := sim.ledger.cash
 	var purchases_before: float = sim.ledger.today.purchases
 	if not await press("Buy for $30,000") or sim.ferries.size() != 2:
-		return false
+		return null
 	var bought := sim.ferries.back() as Ferry
 	_report.purchase = {
 		"price": PRICE,
@@ -223,8 +230,8 @@ func _buy_ferry_from_catalogue(session: WorldSession) -> bool:
 		"original_hull": sim.ferries[0].fleet_key,
 	}
 	if before - sim.ledger.cash != PRICE or sim.ledger.today.purchases - purchases_before != PRICE:
-		return false
-	return _start_inbound(session, bought) if _inbound else await _assign_purchased(session, bought)
+		return null
+	return bought
 
 
 func _start_inbound(session: WorldSession, bought: Ferry) -> bool:

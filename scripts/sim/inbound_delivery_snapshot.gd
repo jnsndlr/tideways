@@ -59,15 +59,12 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"light_seed": ferry.room_seed,
 	}
 	if not delivered:
-		var path := []
-		for point in tow.path.pts:
-			path.append([point.x, point.y])
 		(
 			delivery
 			. merge(
 				{
 					"tug": tow.vessel_name,
-					"path": path,
+					"path": DeliveryChannelSnapshot.capture(tow.path),
 					"distance": tow.s,
 					"speed": tow.speed,
 					"committed": tow.committed,
@@ -126,26 +123,8 @@ static func restore(row: Dictionary, ferry: Ferry, stops: Array[int], delivered:
 static func _restore_tow(row: Dictionary, ferry: Ferry, target: Vector3) -> bool:
 	if not _valid_tow(row):
 		return false
-	var path := PackedVector2Array()
-	var bound := (
-		ferry.sim.map.half_size
-		+ DeliveryTow.EDGE_OUT
-		+ DeliveryTow.RUN_IN
-		+ DeliveryTow.APPROACH_FAR
-	)
-	for point in row.path:
-		if (
-			not point is Array
-			or point.size() != 2
-			or not _finite(point[0])
-			or not _finite(point[1])
-		):
-			return false
-		var p := Vector2(point[0], point[1])
-		if not p.is_finite() or absf(p.x) > bound or absf(p.y) > bound:
-			return false
-		path.append(p)
-	if not _matches_channel(path, ferry, target):
+	var path := DeliveryChannelSnapshot.read(row.path, ferry, target)
+	if path.is_empty():
 		return false
 	var tow := DeliveryTow.new()
 	ferry.sim.add_child(tow)
@@ -176,23 +155,6 @@ static func _restore_tow(row: Dictionary, ferry: Ferry, target: Vector3) -> bool
 	tow._place(0.0)
 	ferry.sim.tows.append(tow)
 	ferry.sim.marine.register(tow, MarineTraffic.RANK_FERRY)
-	return true
-
-
-## Replan against the rebuilt chart. A corrupt interior waypoint must not send a
-## tow through land even when its endpoints still match the booked berth.
-static func _matches_channel(path: PackedVector2Array, ferry: Ferry, target: Vector3) -> bool:
-	if path[-1].distance_to(Vector2(target.x, target.z)) > 0.5:
-		return false
-	var endpoint := Vector3(path[-1].x, 0.0, path[-1].y)
-	var expected := DeliveryTow.plan(
-		ferry.sim, endpoint, ferry.here().town.dock_dir, ferry.fc.half_beam
-	)
-	if expected.size() != path.size():
-		return false
-	for index in expected.size():
-		if expected[index].distance_to(path[index]) > 0.1:
-			return false
 	return true
 
 

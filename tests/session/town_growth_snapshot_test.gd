@@ -113,6 +113,7 @@ func _run() -> void:
 	)
 	var older := saved.duplicate(true)
 	older.version = 2
+	older.erase("sale_tows")
 	older.erase("progression")
 	var legacy := CompanySnapshot.restore(older, _with_lots, VehicleFactory.from_parts)
 	check(legacy != null, "Older snapshots load their regenerated town defaults")

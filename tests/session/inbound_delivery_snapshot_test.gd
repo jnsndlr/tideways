@@ -12,6 +12,7 @@ func _run() -> void:
 	slot.remember_region(sim)
 	var old := _save(sim)
 	old.version = 4
+	old.erase("sale_tows")
 	var older := _restore(old)
 	if older:
 		older.free()
@@ -212,6 +213,7 @@ func _check_corruption(saved: Dictionary, ferry: Ferry) -> void:
 	)
 	var older := saved.duplicate(true)
 	older.version = 4
+	older.erase("sale_tows")
 	check(
 		CompanySnapshot.restore(older, _world, VehicleFactory.from_parts) == null,
 		"Reject a delivery row in an older format"
