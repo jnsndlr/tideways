@@ -18,7 +18,7 @@ func run() -> void:
 func play_opening() -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
-	if not await enter_game("Play", Scenes.MAIN_MAP):
+	if not await enter_game("New company", Scenes.MAIN_MAP):
 		return false
 	var sim: Simulation = current_scene.sim
 	var hud: Hud = current_scene.hud

@@ -1,18 +1,16 @@
 extends Control
-## Title screen: Play (the main mission), Mission sandbox (the main mission with
-## unlimited money, for quick testing), Sandbox (the procedural test map) or Quit.
-##
-## Debug args after `--` skip the menu so the existing command-line workflow keeps
-## working: `--main` opens the main map, any other arg (e.g. --seed=123) the sandbox.
+## Launch Tideways from the ferry terminal's departure board.
 
-const BG := Color(0.05, 0.09, 0.11)
-const TEXT := Color(0.9, 0.94, 0.95)
-const MUTED := Color(0.58, 0.66, 0.68)
-const ACCENT := Color(0.47, 0.86, 0.6)
+const TEXT := Color(0.98, 0.91, 0.75)
 
 const MainMapScript := preload("res://scripts/main_map.gd")
-var _load_error: Label
 var _name_dialog: ColorRect
+
+@onready var _terminal: TextureRect = $Terminal
+@onready var _board: PanelContainer = $Board
+@onready var _departures: VBoxContainer = $Board/Rows/Departures
+@onready var _sandboxes: VBoxContainer = $Board/Rows/Sandboxes
+@onready var _load_error: Label = $Board/Rows/LoadError
 
 
 func _ready() -> void:
@@ -26,68 +24,112 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-	var bg := ColorRect.new()
-	bg.color = BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	var title: HBoxContainer = $Board/Rows/Title
+	for letter in "TIDEWAYS":
+		var flap := Label.new()
+		flap.text = letter
+		flap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		flap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		flap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		flap.custom_minimum_size.y = 126
+		flap.add_theme_font_size_override("font_size", 88)
+		flap.add_theme_stylebox_override("normal", _board.get_theme_stylebox("normal", "Button"))
+		title.add_child(flap)
+		var seam := ColorRect.new()
+		seam.color = Color(0.035, 0.03, 0.025, 0.75)
+		seam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		flap.add_child(seam)
+		seam.set_anchors_and_offsets_preset(Control.PRESET_HCENTER_WIDE)
+		seam.offset_bottom = 2
 
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
-	center.add_child(col)
+	for group: VBoxContainer in [_departures, _sandboxes]:
+		for child in group.get_children():
+			if child is Button:
+				child.draw.connect(_draw_flap.bind(child))
 
-	var bold := SystemFont.new()
-	bold.font_weight = 700
-	var title := Label.new()
-	title.text = "TIDEWAYS"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_override("font", bold)
-	title.add_theme_font_size_override("font_size", 72)
-	title.add_theme_color_override("font_color", TEXT)
-	col.add_child(title)
-	var sub := Label.new()
-	sub.text = "Run the ferries that keep the islands moving."
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.add_theme_color_override("font_color", MUTED)
-	col.add_child(sub)
-	var gap := Control.new()
-	gap.custom_minimum_size.y = 28
-	col.add_child(gap)
-
-	var play := _button(col, "Play", func(): _ask_name(func(n): _play("", n)))
-	var load_btn := _button(col, "Load saved game", _load_saved)
 	var save := SaveGame.read()
-	load_btn.disabled = save.is_empty()
-	if not save.is_empty():
-		load_btn.tooltip_text = (
-			"%s · %s · day %d · saved %s"
-			% [
-				save.get("company", ""),
-				str(save.get("scenario", "")).get_file().get_basename(),
-				int(save.get("day", 0)),
-				save.get("saved_at", "")
-			]
-		)
-	_button(
-		col,
-		"Mission sandbox",
+	var resume: Button = _departures.get_node("Continue")
+	var company: Label = _departures.get_node("Company")
+	var new_company: Button = _departures.get_node("NewCompany")
+	resume.visible = not save.is_empty()
+	company.visible = resume.visible
+	if resume.visible:
+		var name_text := str(save.get("company", "")).strip_edges()
+		var day_text := "Day %d" % int(save.day)
+		company.text = day_text if name_text.is_empty() else "%s  ·  %s" % [name_text, day_text]
+		company.tooltip_text = company.text
+	var primary := resume if resume.visible else new_company
+	primary.add_theme_font_size_override("font_size", 48)
+	primary.add_theme_stylebox_override("normal", _board.get_theme_stylebox("pressed", "Button"))
+	primary.custom_minimum_size.y = 98
+	resume.pressed.connect(_load_saved)
+	new_company.pressed.connect(func(): _ask_name(func(n): _play("", n)))
+	_departures.get_node("Sandboxes").pressed.connect(_show_sandboxes.bind(true))
+	_departures.get_node("Settings").pressed.connect(_open_settings)
+	var quit_button: Button = _departures.get_node("Quit")
+	quit_button.visible = not OS.has_feature("mobile")
+	quit_button.pressed.connect(get_tree().quit)
+	_sandboxes.get_node("Back").pressed.connect(_show_sandboxes.bind(false))
+	_sandboxes.get_node("Mission").pressed.connect(
 		func(): _ask_name(func(n): _play("", n, "Setting out with an open purse", true))
 	)
-	_button(col, "Sandbox", func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox"))
-	_button(col, "Settings", func(): SettingsPanel.open(get_tree()).tree_exited.connect(play.grab_focus))
-	_button(col, "Quit", func(): get_tree().quit())
-	_load_error = Label.new()
-	_load_error.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_load_error.hide()
-	col.add_child(_load_error)
-	play.grab_focus()
+	_sandboxes.get_node("Procedural").pressed.connect(
+		func(): _start(Scenes.SANDBOX, "Rolling a fresh sandbox")
+	)
+	resized.connect(_layout_terminal)
+	_layout_terminal()
+	primary.grab_focus()
 	Music.set_mood(get_tree(), Music.Mood.FULL)
 	RadioChatter.on_menu(get_tree())
 	UiSounds.install(get_tree())
+
+
+## Draw the split and its pivot pins on each working row of the board.
+func _draw_flap(button: Button) -> void:
+	var y := floorf(button.size.y * 0.5)
+	button.draw_line(Vector2(5, y), Vector2(button.size.x - 5, y), Color(0.04, 0.03, 0.02, 0.32))
+	for x: float in [9.0, button.size.x - 9.0]:
+		button.draw_rect(Rect2(x - 3, y - 5, 6, 10), Color("#181511"))
+		button.draw_line(Vector2(x - 2, y - 4), Vector2(x + 2, y - 4), Color("#a28761"), 2)
+
+
+func _layout_terminal() -> void:
+	var art_size := _terminal.texture.get_size()
+	var art_scale := maxf(size.x / art_size.x, size.y / art_size.y)
+	_terminal.size = art_size * art_scale
+	_terminal.position = (size - _terminal.size) * 0.5
+	var portrait := size.y > size.x
+	if portrait:
+		# Keep the slip in the window above the board when the device rotates.
+		_terminal.position.x = size.x - _terminal.size.x
+	var width := size.x * (0.88 if portrait else 0.47)
+	var board_scale := minf(width / 720.0, size.y / 900.0)
+	_board.scale = Vector2.ONE * board_scale
+	_board.size = Vector2(720, 0)
+	_board.position = size * Vector2(0.035, 0.12)
+	if portrait:
+		_board.position = Vector2(
+			(size.x - _board.size.x * board_scale) * 0.5,
+			minf(size.y * 0.52, size.y * 0.96 - _board.size.y * board_scale)
+		)
+
+
+func _show_sandboxes(show_choices: bool) -> void:
+	_departures.visible = not show_choices
+	_sandboxes.visible = show_choices
+	_board.reset_size()
+	_layout_terminal()
+	var focus: Button
+	if show_choices:
+		focus = _sandboxes.get_node("Mission")
+	else:
+		focus = _departures.get_node("Sandboxes")
+	focus.grab_focus()
+
+
+func _open_settings() -> void:
+	var settings_button: Button = _departures.get_node("Settings")
+	SettingsPanel.open(get_tree()).tree_exited.connect(settings_button.grab_focus)
 
 
 ## Asks for the company name, then calls `on_done` with it.
@@ -96,6 +138,9 @@ func _ask_name(on_done: Callable) -> void:
 		return
 	var dim := ColorRect.new()
 	_name_dialog = dim
+	var opener := get_viewport().gui_get_focus_owner()
+	if opener:
+		dim.tree_exited.connect(opener.grab_focus)
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
@@ -170,16 +215,3 @@ func _on_load_failed(message: String) -> void:
 	_load_error.text = message
 	_load_error.show()
 	RadioChatter.on_menu(get_tree())
-
-
-func _button(parent: Control, text: String, on_press: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(280, 52)
-	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	b.add_theme_font_size_override("font_size", 22)
-	b.add_theme_color_override("font_hover_color", ACCENT)
-	b.add_theme_color_override("font_focus_color", ACCENT)
-	b.pressed.connect(on_press)
-	parent.add_child(b)
-	return b

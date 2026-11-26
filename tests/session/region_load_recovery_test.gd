@@ -57,13 +57,13 @@ func exercise() -> bool:
 func reopen_company() -> bool:
 	# Simulate a previous company's editor state.
 	RegionEntryState.editor_restore["editor_open"] = true
-	if not await press("Play") or not await press("Start"):
+	if not await press("New company") or not await press("Start"):
 		return false
 	if not RegionEntryState.editor_restore.is_empty():
 		return fail("Play inherited the previous editor state")
 	# A second activation may already be queued before the overlay takes input.
 	for button: Button in current_scene.find_children("*", "Button", true, false):
-		if button.text in ["Play", "Mission sandbox"]:
+		if button.text in ["New company", "Mission sandbox"]:
 			button.pressed.emit()
 	var overlays := 0
 	for layer in root.get_children():
@@ -79,7 +79,7 @@ func reopen_company() -> bool:
 	await scene_changed
 	# Exit while the fresh resource request is still owned by the overlay.
 	# The CI runner checks engine diagnostics after quit.
-	return await press("Play") and await press("Start")
+	return await press("New company") and await press("Start")
 
 
 func fails_in_menu(path: String) -> bool:

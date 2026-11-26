@@ -24,8 +24,8 @@ func exercise_slot(path: String) -> bool:
 	change_scene_to_file(Scenes.MENU)
 	await scene_changed
 	for button: Button in current_scene.find_children("*", "Button", true, false):
-		if button.text == "Load saved game" and not button.disabled:
-			return fail("Load should be disabled for an empty slot")
+		if button.text == "Continue" and button.is_visible_in_tree():
+			return fail("Continue should be hidden for an empty slot")
 	if not await enter_game("Mission sandbox", Scenes.MAIN_MAP):
 		return false
 	var session: WorldSession = current_scene
@@ -83,7 +83,17 @@ func try_failed_save(session: WorldSession, menu: PopupMenu, path: String) -> bo
 
 
 func reopen_slot() -> bool:
-	if not await enter_game("Load saved game", Scenes.MAIN_MAP):
+	var company_line := false
+	for label: Label in current_scene.find_children("*", "Label", true, false):
+		if (
+			label.is_visible_in_tree()
+			and label.text.contains("Island Ferries")
+			and label.text.contains("Day 23")
+		):
+			company_line = true
+	if not company_line:
+		return fail("The departure board did not display the saved company and day")
+	if not await enter_game("Continue", Scenes.MAIN_MAP):
 		return false
 	var loaded: WorldSession = current_scene
 	if loaded.sim.day != 23 or absf(loaded.sim.minutes - 721.5) > 2.0:
