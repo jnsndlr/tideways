@@ -54,6 +54,7 @@ var day := 12
 ## Whether working slips use an operated transfer span or a fixed landing.
 var uses_transfer_spans: bool
 var uses_slip_guides: bool
+var working_slips := WorkingSlipHistory.new()
 var terminals := {}  # town id -> Terminal
 ## Terminals being built: town id -> game minutes until they open.
 var docks_building := {}
@@ -176,6 +177,7 @@ func _start(m: MapData, t: Terrain, network: CompanyNetwork, charts: MarineChart
 		marine = MarineTraffic.new()
 	add_child(marine)
 	marine.setup(self, charts)
+	working_slips.remember(map)
 
 
 func _add_terminal(town: MapData.Town) -> Terminal:

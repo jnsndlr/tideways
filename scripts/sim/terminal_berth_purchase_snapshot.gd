@@ -39,7 +39,7 @@ static func restore(record: Variant, term: Terminal) -> bool:
 	if stage != TerminalRefit.Stage.NONE:
 		term._refit.resume_job(index, stage, record.remaining, work, true)
 	if stage in [TerminalRefit.Stage.LEAVING, TerminalRefit.Stage.NONE]:
-		term._open_slip(index)
+		term._open_slip(index, false)
 	return true
 
 

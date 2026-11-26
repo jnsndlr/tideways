@@ -408,7 +408,7 @@ func place_purchased_slip(u: TerminalUpgrade) -> int:
 
 ## A bought slip is built: it takes its ramp and guides and comes into use, and
 ## the routes boats sail from here spread over the working slips.
-func _open_slip(i: int) -> void:
+func _open_slip(i: int, plan_moves := true) -> void:
 	var slip := town.slips[i]
 	slip.building = false
 	var v := town.slip_offset(i)
@@ -420,7 +420,7 @@ func _open_slip(i: int) -> void:
 		add_child(slip_guides[i])
 		slip_guides[i].fit(MapData.Slip.LARGEST_BOAT[slip.size])
 	slip_built.emit(i)
-	if not slip.tie_up:
+	if plan_moves and not slip.tie_up:
 		spread_routes()
 
 
