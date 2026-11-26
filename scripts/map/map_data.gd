@@ -87,7 +87,10 @@ class Town:
 	var town_axis := Vector3.RIGHT
 	var road_main_a := PackedVector3Array()   # lot entrance → town centre
 	var road_main_b := PackedVector3Array()   # town centre → inland end
-	var road_cross: Array[PackedVector3Array] = []
+	var road_cross: Array[PackedVector3Array] = []   # from the square: the front street, each way
+	var road_lanes: Array[PackedVector3Array] = []   # lanes climbing off the front street (no traffic yet)
+	var street_plan: StreetPlan   # the planned street network (step 1: overlay only)
+	var town_lots: TownLots       # blocks + ranked frontage lots from street_plan
 	var label_pos := Vector3.ZERO
 
 	func lateral() -> Vector3:

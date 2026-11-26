@@ -68,10 +68,10 @@ func _process(_delta: float) -> bool:
 		if _assert_true(got == c[1], "Pop %d expected %d connections, got %d" % [c[0], c[1], got]):
 			return true
 
-	# 3. Verify 1 house / 100 pop and 1 commercial / 333 pop formulas.
-	if _assert_true(TownGrowth.target_houses_for(1250) == 12, "1250 pop -> 12 houses"):
+	# 3. Verify 1 house / 75 pop and 1 commercial / 250 pop formulas.
+	if _assert_true(TownGrowth.target_houses_for(1250) == 16, "1250 pop -> 16 houses"):
 		return true
-	if _assert_true(TownGrowth.target_commercial_for(1000) == 3, "1000 pop -> 3 commercial"):
+	if _assert_true(TownGrowth.target_commercial_for(1000) == 4, "1000 pop -> 4 commercial"):
 		return true
 
 	# 4. Spin up a 3-town TinyRegion simulation for live progression tests.
@@ -214,10 +214,10 @@ func _process(_delta: float) -> bool:
 
 	var houses_before := st_rur.built_houses
 	var comm_before := st_rur.built_commercial
-	st_rur.population_exact = 1350.0 # crosses +2 houses (11->13) and +1 commercial (3->4)
+	st_rur.population_exact = 1350.0 # crosses house and commercial thresholds
 	tg.step(1.0)
 	if _assert_true(MapData.TownLot.Kind.HOUSE in started_kinds or MapData.TownLot.Kind.COMMERCIAL in started_kinds,
-			"Crossing 100/333 pop thresholds must start construction jobs"):
+			"Crossing 75/250 pop thresholds must start construction jobs"):
 		return true
 	# Advance enough game minutes to finish queued house & commercial builds.
 	for _s in 60:

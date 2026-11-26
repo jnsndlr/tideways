@@ -91,6 +91,7 @@ const TREE_CELL := 64.0
 ## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
 var eagle_perches: Array[Eagles.Perch] = []
 var _blocked := {}
+var _road_cells := {}  # blocked cells that only a road blocks
 ## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
 ## in RGB and how much grass grows there in A (Grass reads it as a texture).
 var ground_rgba := PackedByteArray()
@@ -365,6 +366,7 @@ func _block(p: Vector3, radius: float) -> void:
 	for dz in range(-r, r + 1):
 		for dx in range(-r, r + 1):
 			_blocked[Vector2i(cx + dx, cz + dz)] = true
+			_road_cells.erase(Vector2i(cx + dx, cz + dz))
 
 
 ## A perch along a → b, `spread` either side of it (see Seagulls.Perch).
@@ -372,6 +374,25 @@ func _block(p: Vector3, radius: float) -> void:
 func _perch(a: Vector3, b: Vector3, spread: float, kind: int) -> void:
 	if root.visible:
 		gull_perches.append(Seagulls.Perch.new(a, b, spread, kind))
+
+
+## Road cells block trees and grid lots like anything else, but street-front lots
+## (which face the road) only check for blockers that aren't roads.
+func _block_road(p: Vector3, radius: float) -> void:
+	var r := ceili(radius / 6.0)
+	var cx := floori(p.x / 6.0)
+	var cz := floori(p.z / 6.0)
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var c := Vector2i(cx + dx, cz + dz)
+			if not _blocked.has(c):
+				_road_cells[c] = true
+			_blocked[c] = true
+
+
+func _is_blocked_off_road(x: float, z: float) -> bool:
+	var c := Vector2i(floori(x / 6.0), floori(z / 6.0))
+	return _blocked.has(c) and not _road_cells.has(c)
 
 
 func _is_blocked(x: float, z: float) -> bool:
@@ -1218,9 +1239,23 @@ func _build_roads() -> void:
 				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(0.0, 4.0, length - s)
 			RoadMesh.strip(mb, line, ROAD, RoadMesh.Style.DASHED, show, RoadMesh.HALF)
 			lines.append(line)
+		# Plan streets meet another street at both ends: fade out by both junctions
+		# so neither end's verge draws over the road it joins.
+		# road_lanes holds the plan's edges in order: each street's zone picks its look.
+		var plan := isl.street_plan
+		var by_plan := plan != null and plan.edges.size() == isl.road_lanes.size()
+		var zone_style := [RoadMesh.Style.CORE_WALK, RoadMesh.Style.DASHED, RoadMesh.Style.LANE, style]
+		for li in isl.road_lanes.size():
+			var line := isl.road_lanes[li]
+			var length := RoadMesh.length_of(line)
+			var show := func(s: float) -> float:
+				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, length - s)
+			var lane_style: RoadMesh.Style = zone_style[plan.edges[li].zone] if by_plan else RoadMesh.Style.DASHED
+			RoadMesh.strip(mb, line, ROAD, lane_style, show, RoadMesh.HALF)
+			lines.append(line)
 		for line in lines:
 			for i in range(0, line.size(), 3):
-				_block(line[i], 9.0)
+				_block_road(line[i], 9.0)
 			_street_lamps(lamps, line, isl.road_main_a[isl.road_main_a.size() - 1])
 	var mat := ShaderMaterial.new()
 	mat.shader = load(ROAD_SHADER)
@@ -1358,8 +1393,6 @@ func _build_towns() -> void:
 	var town_rng := RandomNumberGenerator.new()
 	town_rng.seed = map.map_seed * 41 + 19
 	const RESERVE_LANDMARKS := 4
-	const RESERVE_COMMERCIAL := 12
-	const RESERVE_HOUSES := 36
 
 	for isl in map.towns:
 		isl.growth_lots.clear()
@@ -1371,13 +1404,19 @@ func _build_towns() -> void:
 		if isl.has_dock:
 			inland = -isl.dock_dir
 		var spacing := 16.5
-		var candidates: Array[Dictionary] = []
-		for b in range(-10, 11):
+		var candidates: Array[Dictionary] = await _frontage_candidates(isl, town_rng)
+		var town_lines: Array[PackedVector3Array] = [isl.road_main_a, isl.road_main_b]
+		town_lines.append_array(isl.road_cross)
+		town_lines.append_array(isl.road_lanes)
+		# Frontage lots from the street plan, in reveal-rank order, replace the grid.
+		var plan_lots := isl.street_plan != null and USE_PLAN_LOTS
+		if plan_lots:
+			candidates = _plan_lot_candidates(isl)
+		var grid_n := 0 if plan_lots else 13
+		for b in range(1 - grid_n, grid_n):
 			if not await _frames.can_continue():
 				return
-			for a in range(-10, 11):
-				if isl.has_dock and (a == 0 or b == 0):
-					continue  # the streets
+			for a in range(-12, 13):
 				var p := tc + t * (a * spacing) + inland * (b * spacing)
 				p += Vector3(town_rng.randf_range(-2.2, 2.2), 0, town_rng.randf_range(-2.2, 2.2))
 				if isl.has_dock and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - isl.lot_shift() - 12.0:
@@ -1400,18 +1439,25 @@ func _build_towns() -> void:
 					front = -inland
 				var yaw := atan2(front.x, front.z) + town_rng.randf_range(-0.05, 0.05)
 				var r := Vector2(a, b).length() * spacing
+				if isl.has_dock and _near_candidate(candidates, p, 11.0):
+					continue  # a frontage lot already
+				if isl.has_dock and not _near_road(town_lines, p, GRID_REACH):
+					continue  # back lots stay within a short walk of a street
 				candidates.append({
 					"p": p,
 					"yaw": yaw,
 					"r": r,
-					"sort_r": r + town_rng.randf_range(-9.0, 9.0),
+					"sort_r": r + town_rng.randf_range(-9.0, 9.0) + (GRID_AFTER if isl.has_dock else 0.0),
 					"drop": hmax - hmin,
 					"h": h,
 				})
 		candidates.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return float(x["sort_r"]) < float(y["sort_r"]))
 
+		# Every lot the land gives is kept for growth: about one shop to three houses.
 		var want_houses := TownGrowth.target_houses_for(isl.population)
 		var want_commercial := TownGrowth.target_commercial_for(isl.population)
+		var RESERVE_COMMERCIAL := maxi(0, ceili(candidates.size() * 0.24) - want_commercial)
+		var RESERVE_HOUSES := candidates.size()
 		var has_city_hall := false
 		var placed_comm := 0
 		var placed_houses := 0
@@ -1548,6 +1594,135 @@ func _build_towns() -> void:
 		var xforms: Array[Transform3D] = per_variant[i]
 		var group_name: String = "Houses%d" % i if i < houses else shop_names[i - houses]
 		await _multimesh(variants[i], xforms, no_colors, group_name)
+
+
+## Place towns on TownLots (blocks + frontage lots from the StreetPlan) instead of the grid.
+const USE_PLAN_LOTS := true
+
+
+## One candidate per TownLots lot, set back from its street, facing it; sort_r is the
+## lot's reveal rank so towns fill out in rank order.
+func _plan_lot_candidates(isl: MapData.Town) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var tl := TownLots.build(isl.street_plan, terrain, isl.street_plan._sq)
+	isl.town_lots = tl
+	for lot in tl.lots:
+		var facing: Vector2 = lot.facing
+		var c: Vector2 = lot.front - facing * minf(lot.depth * 0.5, 7.0)
+		var p := Vector3(c.x, 0.0, c.y)
+		if _is_blocked_off_road(p.x, p.z):
+			continue
+		var h := terrain.height_v(p)
+		if h < 4.2 or h > 55.0:
+			continue
+		var hmin := h
+		var hmax := h
+		for o: Vector3 in [Vector3(4.8, 0, 0), Vector3(-4.8, 0, 0), Vector3(0, 0, 5.7), Vector3(0, 0, -5.7)]:
+			var hh := terrain.height_v(p + o)
+			hmin = minf(hmin, hh)
+			hmax = maxf(hmax, hh)
+		if hmax - hmin > 4.2 or hmin < 2.4:
+			continue
+		out.append({"p": p, "yaw": atan2(facing.x, facing.y), "r": float(lot.along),
+			"sort_r": float(lot.rank), "drop": hmax - hmin, "h": h})
+	return out
+
+
+## Grid lots fill in behind the streets only after every street-front lot.
+const GRID_AFTER := 400.0
+## Back lots stay within this of a street centreline (a second row behind the frontage).
+const GRID_REACH := 90.0
+## Street-front lots: centre this far from the road's centreline, and this far apart
+## along it (closer near the square, where shops and terraces go).
+const FRONTAGE_OFFSET := 13.0
+const FRONTAGE_CORE := 120.0
+
+
+## Lots facing each street both sides, ranked by how far along the streets they are
+## from the square, so a town fills out from its square along the front street,
+## then up the main street and the lanes.
+func _frontage_candidates(isl: MapData.Town, rng: RandomNumberGenerator) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if not isl.has_dock or isl.road_main_a.is_empty():
+		return out
+	var all_lines: Array[PackedVector3Array] = [isl.road_main_a]
+	var streets: Array = []  # [line, metres from the square at its start]
+	if isl.road_main_b.size() > 1:
+		streets.append([isl.road_main_b, 0.0])
+	for line in isl.road_cross:
+		streets.append([line, 0.0])
+	for line in isl.road_lanes:
+		# A lane starts where it leaves the front street: rank it by that distance.
+		var base := 0.0
+		for front in isl.road_cross:
+			for i in front.size():
+				if front[i].distance_to(line[0]) < 0.5:
+					base = i * MapGenerator.ROAD_STEP
+		streets.append([line, base + 40.0])
+	for st: Array in streets:
+		all_lines.append(st[0])
+	for st: Array in streets:
+		if not await _frames.can_continue():
+			return out
+		var line: PackedVector3Array = st[0]
+		var base: float = st[1]
+		var s := 10.0
+		var total := RoadMesh.length_of(line)
+		while s < total - 4.0:
+			var i := clampi(int(s / MapGenerator.ROAD_STEP), 1, line.size() - 2)
+			var d := line[i + 1] - line[i - 1]
+			d.y = 0.0
+			var lat := d.normalized().cross(Vector3.UP)
+			var core := base + s < FRONTAGE_CORE
+			for side: float in [-1.0, 1.0]:
+				var p := line[i] + lat * side * (FRONTAGE_OFFSET + rng.randf_range(-0.8, 1.2))
+				var away := lat * side
+				if _is_blocked_off_road(p.x + away.x * 6.0, p.z + away.z * 6.0) or _is_blocked_off_road(p.x, p.z):
+					continue
+				var h := terrain.height_v(p)
+				if h < 3.0 or h > 55.0:
+					continue
+				var hmin := h
+				var hmax := h
+				for o: Vector3 in [away * 5.0, -away * 4.0, d.normalized() * 4.8, -d.normalized() * 4.8]:
+					var hh := terrain.height_v(p + o)
+					hmin = minf(hmin, hh)
+					hmax = maxf(hmax, hh)
+				if hmax - hmin > 4.2 or hmin < 2.4:
+					continue
+				if _near_road(all_lines, p, FRONTAGE_OFFSET - 2.5) or _near_candidate(out, p, 9.0):
+					continue
+				var front := -away
+				var r := base + s
+				out.append({
+					"p": p,
+					"yaw": atan2(front.x, front.z) + rng.randf_range(-0.04, 0.04),
+					"r": r,
+					"sort_r": r + rng.randf_range(-6.0, 6.0),
+					"drop": hmax - hmin,
+					"h": h,
+				})
+			s += 10.0 if core else 14.0
+	return out
+
+
+static func _near_road(lines: Array[PackedVector3Array], p: Vector3, r: float) -> bool:
+	var r2 := r * r
+	for line in lines:
+		for i in range(0, line.size(), 2):
+			var q := line[i]
+			if (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z) < r2:
+				return true
+	return false
+
+
+static func _near_candidate(list: Array[Dictionary], p: Vector3, r: float) -> bool:
+	var r2 := r * r
+	for c in list:
+		var q: Vector3 = c["p"]
+		if (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z) < r2:
+			return true
+	return false
 
 
 ## Reserves a hilltop radio tower pad on each inhabited island and builds the

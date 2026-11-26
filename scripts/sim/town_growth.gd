@@ -11,8 +11,8 @@ signal construction_completed(job: BuildJob)
 signal milestone_unlocked(town: MapData.Town, milestone_id: String, title: String, detail: String)
 signal island_radio_tower_unlocked(island: MapData.Island)
 
-const PEOPLE_PER_HOUSE := 100
-const PEOPLE_PER_COMMERCIAL := 333
+const PEOPLE_PER_HOUSE := 75
+const PEOPLE_PER_COMMERCIAL := 250
 const MAX_CONCURRENT_BUILDS := 2
 const HOUSE_BUILD_MINUTES := 240.0       # 4 game hours
 const COMMERCIAL_BUILD_MINUTES := 420.0  # 7 game hours
@@ -25,6 +25,9 @@ const MAX_EXPECTED_CONNECTIONS := 6
 ## profile rates alone (5-50 people/day) meant a new house every few real hours.
 ## Raise it to speed every town up together.
 const GROWTH_SCALE := 1.0
+## Dev tuning (TownDevPanel): build-time multiplier and how many sites a town runs at once.
+var dev_build_speed := 1.0
+var dev_max_builds := MAX_CONCURRENT_BUILDS
 
 const PROFILES := {
 	"rural": {
@@ -677,7 +680,7 @@ func _advance_island_builds(dmin: float) -> void:
 
 
 func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
-	while st.active_builds.size() < MAX_CONCURRENT_BUILDS:
+	while st.active_builds.size() < dev_max_builds:
 		# 1. Priority: milestone landmarks.
 		if not st.pending_milestones.is_empty():
 			var lot := _claim_lot(town, MapData.TownLot.Kind.LANDMARK)
@@ -690,7 +693,7 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 				str(def["id"]), str(def["model"]))
 			continue
 
-		# 2. Commercial buildings: 1 per 333 people.
+		# 2. Commercial buildings: 1 per 250 people.
 		var pending_comm := _count_active(st, MapData.TownLot.Kind.COMMERCIAL)
 		if st.built_commercial + pending_comm < target_commercial_for(town.population):
 			var lot := _claim_lot(town, MapData.TownLot.Kind.COMMERCIAL)
@@ -698,7 +701,7 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 				_start_build(town, st, lot, MapData.TownLot.Kind.COMMERCIAL, COMMERCIAL_BUILD_MINUTES)
 				continue
 
-		# 3. Houses: 1 per 100 people.
+		# 3. Houses: 1 per 75 people.
 		var pending_houses := _count_active(st, MapData.TownLot.Kind.HOUSE)
 		if st.built_houses + pending_houses < target_houses_for(town.population):
 			var lot := _claim_lot(town, MapData.TownLot.Kind.HOUSE)
@@ -735,9 +738,23 @@ func _start_build(town: MapData.Town, st: TownState, lot: MapData.TownLot, kind:
 	job.kind = kind
 	job.milestone_id = milestone_id
 	job.landmark_model = landmark_model
-	job.duration = duration
+	job.duration = duration / dev_build_speed
 	st.active_builds.append(job)
 	construction_started.emit(job)
+
+
+## Dev: jumps a town to `pop` people (up only; towns never shrink) and queues its builds.
+func dev_set_population(town: MapData.Town, pop: int) -> void:
+	var st: TownState = states.get(town.id)
+	if st == null or pop <= town.population:
+		return
+	st.population_exact = float(pop)
+	town.population = pop
+	population_changed.emit(town, pop)
+	_check_town_milestones(town, st)
+	_sync_island_populations()
+	_check_island_radio_towers()
+	_queue_needed_builds(town, st)
 
 
 ## Next upcoming population milestone for HUD display (or empty Dictionary if all unlocked).

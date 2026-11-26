@@ -5,7 +5,7 @@ extends RefCounted
 ## UV.x is metres across from the centreline (+ right), UV.y metres along; UV2.x how
 ## strongly the markings show there, UV2.y the marking Style (road_detail.gdshaderinc).
 
-enum Style { NONE, DASHED, DASHED_EDGES, DOUBLE_EDGES }
+enum Style { NONE, DASHED, DASHED_EDGES, DOUBLE_EDGES, CORE_WALK, LANE }
 
 ## Half the asphalt's width (must match RD_ASPHALT_HALF in road_detail.gdshaderinc),
 ## and half the whole road's, shoulders and all.

@@ -21,6 +21,8 @@ const float RD_DASH_PERIOD = 12.0;
 uniform vec3 gravel_color : source_color = vec3(0.5, 0.47, 0.42);
 uniform vec3 yellow_line : source_color = vec3(0.86, 0.66, 0.16);
 uniform vec3 white_line : source_color = vec3(0.86, 0.86, 0.83);
+uniform vec3 sidewalk_color : source_color = vec3(0.62, 0.61, 0.58);
+uniform vec3 verge_color : source_color = vec3(0.55, 0.68, 0.25);
 
 // A line `hw` either side of 0, box-filtered over a pixel `fw` wide: its share of
 // the pixel, so a thin line far off fades to its average rather than sparkling.
@@ -58,22 +60,57 @@ void road_detail(vec3 wp, vec2 uv, vec2 uv2, vec2 fw, float mpp, inout vec3 albe
 	track *= 1.0 - shoulder;
 	asphalt *= 1.0 - 0.07 * track;
 
+	// Street types by marking style: 2/3 the main street (kerb and concrete sidewalk
+	// on the shoulders), 1 side streets and lanes (older, unmarked, paler asphalt
+	// crumbling into a gravel-and-grass verge), 0 anything else (plain gravel).
+	// 4: core street (kerb and sidewalk, no lines); 5: outer lane (narrow, gravelly).
+	bool main_st = style >= 2 && style <= 4;
+	bool side_st = style == 1 || style == 5;
+	float edge_n = gd_noise(p * 0.45) * 0.6 + gd_noise(p * 1.6) * 0.4;
+
+	if (side_st) {
+		// Faded, patchier tarmac; the edge eats in unevenly, so no ruler-straight line.
+		asphalt = mix(asphalt, asphalt * vec3(1.12, 1.1, 1.05), 0.6) * (1.0 + 0.1 * mottle);
+		float ragged = (style == 5 ? 2.7 : RD_ASPHALT_HALF) - 0.55 * edge_n;
+		shoulder = smoothstep(ragged - 0.12, ragged + 0.12, ax) * step(0.5, show);
+	}
+
 	vec3 gravel = gravel_color * (1.0 + 0.35 * grain + 0.12 * mottle);
-	albedo = mix(asphalt, gravel, shoulder);
-	rough = mix(mix(0.9, 0.8, track), 1.0, shoulder);
+	// Grass takes over the outer half of the verge, so the road blends into the ground.
+	float grass = smoothstep(3.9, 4.6, ax + 0.6 * (edge_n - 0.5));
+	vec3 verge = mix(gravel, verge_color * (1.0 + 0.3 * grain + 0.2 * mottle), grass);
+	float verge_rough = 1.0;
+
+	if (main_st) {
+		// Kerb: a light concrete line with a dark gutter on the road side, then a
+		// jointed sidewalk slab out to a narrow grass edge.
+		float kerb = smoothstep(3.7, 3.74, ax) * (1.0 - smoothstep(3.86, 3.9, ax));
+		float gutter = rd_band(ax - 3.62, 0.08, fw.x);
+		float joint = rd_band(mod(s, 1.5) - 0.75, 0.02, fw.y) * (1.0 - kerb);
+		vec3 walk = sidewalk_color * (1.0 + 0.1 * grain + 0.1 * mottle) * (1.0 - 0.35 * joint);
+		walk = mix(walk, sidewalk_color * 1.12, kerb);
+		float edge_grass = smoothstep(4.85, 5.05, ax);
+		verge = mix(walk, verge_color * (1.0 + 0.3 * grain), edge_grass);
+		verge_rough = 0.85;
+		asphalt *= 1.0 - 0.3 * gutter;
+	}
+
+	albedo = mix(asphalt, verge, shoulder);
+	rough = mix(mix(0.9, 0.8, track), verge_rough, shoulder);
+	if (!main_st) { track *= 0.5; }
 
 	// Markings, worn in places.
 	float wear = mix(0.5, 1.0, smoothstep(0.25, 0.6, gd_noise(p * 1.7 + vec2(s * 0.05, 0.0))));
 	wear *= mix(0.8, 1.0, gd_noise(p * 0.21));
 	float yellow = 0.0;
-	if (style == 1 || style == 2) {
+	if (style == 2) {
 		float along = mod(s, RD_DASH_PERIOD) - RD_DASH * 0.5;
 		yellow = rd_band(x, 0.07, fw.x) * rd_band(along, RD_DASH * 0.5, fw.y);
 	} else if (style == 3) {
 		yellow = rd_band(x - 0.16, 0.06, fw.x) + rd_band(x + 0.16, 0.06, fw.x);
 	}
 	float white = 0.0;
-	if (style >= 2) {
+	if (style == 2 || style == 3) {
 		white = rd_band(ax - RD_EDGE_LINE, 0.07, fw.x);
 	}
 	yellow *= show * wear;

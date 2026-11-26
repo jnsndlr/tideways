@@ -132,6 +132,10 @@ func _ready() -> void:
 	if _setup_frames.cancelled:
 		return
 	process_mode = previous_mode
+	var town_dev := TownDevPanel.new()
+	town_dev.name = "TownDevPanel"
+	add_child(town_dev)
+	town_dev.setup(sim, rig)
 	_apply_debug_args()
 	set_process(true)
 	build_from = 1.0
