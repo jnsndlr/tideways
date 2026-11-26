@@ -20,11 +20,9 @@ var new_slip := false
 
 
 func start(index: int, working_minutes: float, building: bool) -> void:
-	slip = index
-	work = working_minutes
-	new_slip = building
-	remaining = ARRIVAL + work + DEPARTURE
-	_set_stage(Stage.CLEARING)
+	resume_job(
+		index, Stage.CLEARING, ARRIVAL + working_minutes + DEPARTURE, working_minutes, building
+	)
 
 
 func advance(delta: float, slip_clear: bool) -> void:
@@ -50,11 +48,13 @@ func advance(delta: float, slip_clear: bool) -> void:
 		_set_stage(Stage.NONE)
 
 
-## The widening payment and any enlargement at LEAVING already belong to the save.
-func resume_widening(index: int, saved_stage: Stage, saved_remaining: float) -> void:
+## Restore the paid crane job without replaying its widening or opening signal.
+func resume_job(
+	index: int, saved_stage: Stage, saved_remaining: float, working_minutes: float, building: bool
+) -> void:
 	slip = index
-	work = WORK
-	new_slip = false
+	work = working_minutes
+	new_slip = building
 	remaining = saved_remaining
 	_set_stage(saved_stage)
 

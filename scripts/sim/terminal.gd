@@ -84,6 +84,8 @@ class QueueSummary:
 	var newest_inbound := 0
 
 
+## How many berths existed when this terminal opened in the rebuilt region.
+var original_slip_count := 0
 var _queue_summary: QueueSummary
 var sim: Simulation
 var town: MapData.Town
@@ -384,6 +386,12 @@ func buy_refit(i: int) -> bool:
 ## Lays out a bought slip where `u` says (hidden and closed while it is built) and
 ## brings the crane scow in to build it.
 func _start_slip(u: TerminalUpgrade) -> void:
+	var index := place_purchased_slip(u)
+	_refit.start(index, u.build_minutes - REFIT_ARRIVAL - REFIT_DEPARTURE, true)
+
+
+## Rebuild the physical site from its surveyed offer without charging or starting the crane.
+func place_purchased_slip(u: TerminalUpgrade) -> int:
 	if u.dredge_m3 > 0.0:
 		seabed_dredged.emit(site_survey.dredge(u.v, u.kind == TerminalUpgrade.Kind.SLIP))
 	town.freeze_slip_offsets()
@@ -395,7 +403,7 @@ func _start_slip(u: TerminalUpgrade) -> void:
 	slip_ramps.append(null)
 	slip_guides.append(null)
 	sim.slip_sites_changed.emit()
-	_refit.start(town.slips.size() - 1, u.build_minutes - REFIT_ARRIVAL - REFIT_DEPARTURE, true)
+	return town.slips.size() - 1
 
 
 ## A bought slip is built: it takes its ramp and guides and comes into use, and
@@ -491,6 +499,7 @@ func extension_offset() -> float:
 func setup(s: Simulation, isl: MapData.Town) -> void:
 	sim = s
 	town = isl
+	original_slip_count = isl.slips.size()
 	name = isl.name + " Terminal"
 	transform = isl.terminal_xform()
 	flood_side = 1.0 if hash(isl.key if isl.key != "" else str(isl.id)) % 2 == 0 else -1.0

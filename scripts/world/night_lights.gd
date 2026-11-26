@@ -86,7 +86,7 @@ func _car_lights(model: String) -> MultiMesh:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_custom_data = true
-	mm.mesh = Models.vehicle_lights(model)
+	mm.mesh = RoadVehicleModel.lights(model)
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.material_override = _car_mat

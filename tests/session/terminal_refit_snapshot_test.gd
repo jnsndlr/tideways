@@ -74,6 +74,10 @@ func _compare(saved: Dictionary, expected: Dictionary, index: int) -> void:
 	)
 	var shuffled: Dictionary = saved.harbour.duplicate(true)
 	shuffled.slips.reverse()
+	# The earlier widening record predates purchased berths.
+	shuffled.version = 1
+	for row: Dictionary in shuffled.slips:
+		row.erase("building")
 	var restored := TerminalRefitSnapshot.restore(shuffled, term)
 	check(
 		restored and _save(term) == saved,
