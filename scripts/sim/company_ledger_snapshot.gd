@@ -25,12 +25,19 @@ static func capture(
 		overrides[key] = prices
 	return {
 		"version": 1,
-		"cash": ledger.cash, "revenue_total": ledger.revenue_total,
-		"today": ledger.today.duplicate(), "yesterday": ledger.yesterday.duplicate(),
-		"cars_today": ledger.cars_today, "cars_yesterday": ledger.cars_yesterday, "cars_total": ledger.cars_total,
-		"passengers_today": ledger.passengers_today, "passengers_yesterday": ledger.passengers_yesterday,
-		"passengers_total": ledger.passengers_total, "vehicle_fare": ledger.vehicle_fare,
-		"passenger_fare": ledger.passenger_fare, "route_fares": overrides,
+		"cash": ledger.cash,
+		"revenue_total": ledger.revenue_total,
+		"today": ledger.today.duplicate(),
+		"yesterday": ledger.yesterday.duplicate(),
+		"cars_today": ledger.cars_today,
+		"cars_yesterday": ledger.cars_yesterday,
+		"cars_total": ledger.cars_total,
+		"passengers_today": ledger.passengers_today,
+		"passengers_yesterday": ledger.passengers_yesterday,
+		"passengers_total": ledger.passengers_total,
+		"vehicle_fare": ledger.vehicle_fare,
+		"passenger_fare": ledger.passenger_fare,
+		"route_fares": overrides,
 	}
 
 
@@ -85,7 +92,13 @@ static func _route_keys(routes: Array[MapData.Route]) -> Dictionary:
 	var keys := {}
 	var seen := {}
 	for route in routes:
-		if route == null or route.id < 0 or route.key.is_empty() or keys.has(route.id) or seen.has(route.key):
+		if (
+			route == null
+			or route.id < 0
+			or route.key.is_empty()
+			or keys.has(route.id)
+			or seen.has(route.key)
+		):
 			return {}
 		keys[route.id] = route.key
 		seen[route.key] = true
