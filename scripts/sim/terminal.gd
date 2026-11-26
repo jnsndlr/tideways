@@ -1201,6 +1201,24 @@ func take_car(rid: int, fits := Callable()) -> Vehicle:
 	return _dispatch(best)
 
 
+func boarding_lane_for(car: Vehicle) -> Lane:
+	return _boarding_from.get(car.get_instance_id())
+
+
+func lane_at_offset(offset: float) -> Lane:
+	for group in lanes.values():
+		for lane: Lane in group:
+			if lane.v == offset:
+				return lane
+	return null
+
+
+## Restore an existing dispatch. Traffic counters and wait times already include it.
+func resume_boarding(car: Vehicle, lane: Lane) -> void:
+	_boarding_from[car.get_instance_id()] = lane
+	car.lane_v = lane.v
+
+
 func finish_boarding(car: Vehicle) -> void:
 	_boarding_from.erase(car.get_instance_id())
 

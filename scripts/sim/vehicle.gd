@@ -185,6 +185,37 @@ func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0
 	_set_moving(not path.is_empty())
 
 
+## The drive path has already been rounded. Restoring its remaining points directly
+## avoids rounding a turn twice or firing the original dispatch a second time.
+func boarding_motion() -> Dictionary:
+	return {
+		"path": path,
+		"delay": delay,
+		"held": _held,
+		"creep": _creep,
+		"body_pitch": _body.rotation.x,
+		"axle": _trailer_axle,
+		"reach": _trailer_reach,
+		"trailer_yaw": trailer.rotation.y if trailer else 0.0,
+	}
+
+
+func restore_boarding_motion(motion: Dictionary) -> void:
+	path = motion.path
+	delay = motion.delay
+	_held = motion.held
+	_creep = motion.creep
+	_body.rotation.x = motion.body_pitch
+	if trailer:
+		_trailer_axle = motion.axle
+		_trailer_reach = motion.reach
+		trailer.rotation.y = motion.trailer_yaw
+
+
+func resume_boarding(on_arrive: Callable) -> void:
+	_on_arrive = on_arrive
+
+
 ## Tips the body to a steep `slope` (rise over run: a ferry's tween-deck ramp), level
 ## on anything gentler. Only the mesh turns, so the vehicle's frame stays level.
 func _tip(slope: float, delta: float) -> void:
