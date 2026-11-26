@@ -25,6 +25,11 @@ func _ready() -> void:
 
 func _build() -> void:
 	var save := SaveGame.read()
+	if not RegionEntryState.load_error.is_empty():
+		_on_load_failed(RegionEntryState.load_error)
+		RegionEntryState.load_error = ""
+	elif save.is_empty() and FileAccess.file_exists(SaveGame._path):
+		_on_load_failed(SaveGame.INVALID)
 	var resume: Button = _departures.get_node("Continue")
 	var company: Label = _departures.get_node("Company")
 	var new_company: Button = _departures.get_node("NewCompany")
@@ -39,7 +44,15 @@ func _build() -> void:
 	if resume.visible:
 		resume.tooltip_text = (
 			"%s · %s · saved %s"
-			% [company.text, str(save.scenario).get_file().get_basename(), save.get("saved_at", "")]
+			% [
+				company.text,
+				(
+					"Sandbox"
+					if save.get("region") == "generated"
+					else str(save.scenario).get_file().get_basename()
+				),
+				save.get("saved_at", "")
+			]
 		)
 	_board.place_action(primary, 1)
 	_board.place_action(company, 2)
@@ -177,9 +190,17 @@ func _play(
 func _load_saved() -> void:
 	var data := SaveGame.read()
 	if data.is_empty():
+		_on_load_failed(SaveGame.INVALID)
 		return
-	if _start(Scenes.MAIN_MAP, "Picking up where you left off"):
-		MainMapScript.load_session(data)
+	var generated: bool = data.get("region") == "generated"
+	if _start(Scenes.SANDBOX if generated else Scenes.MAIN_MAP, "Picking up where you left off"):
+		if generated:
+			RegionEntryState.sandbox_seed = data.snapshot.network.seed.to_int()
+		else:
+			RegionEntryState.layout = null
+			RegionEntryState.unsaved = false
+			MainMapScript.start_session(data.scenario, data.unlimited, data.get("company", ""))
+		RegionEntryState.pending_save = data
 
 
 func _start(path: String, caption: String) -> bool:
@@ -187,6 +208,7 @@ func _start(path: String, caption: String) -> bool:
 	var screen := LoadingScreen.open(get_tree(), path, caption)
 	if not screen:
 		return false
+	RegionEntryState.pending_save = {}
 	_load_error.hide()
 	screen.load_failed.connect(_on_load_failed, CONNECT_ONE_SHOT)
 	return true

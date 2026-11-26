@@ -3,7 +3,7 @@ extends RefCounted
 ## Compose verified company records over a freshly rebuilt network. The caller
 ## supplies a private simulation with its own map and terrain. Only a completely
 ## restored simulation is returned. No current game or save slot is replaced.
-const VERSION := 2
+const VERSION := 3
 
 
 static func capture(sim: Simulation) -> Dictionary:
@@ -41,6 +41,7 @@ static func capture(sim: Simulation) -> Dictionary:
 		"voyages": voyages,
 		"reservations": reservations,
 		"outbound": outbound,
+		"progression": TownGrowthSnapshot.capture(sim),
 	}
 
 
@@ -63,7 +64,7 @@ static func _terminal_record(term: Terminal) -> Dictionary:
 static func restore(
 	data: Variant, make_private_world: Callable, make_vehicle: Callable
 ) -> Simulation:
-	if not _supports(data) or not make_private_world.is_valid() or not make_vehicle.is_valid():
+	if not supports(data) or not make_private_world.is_valid() or not make_vehicle.is_valid():
 		return null
 	var sim := make_private_world.call() as Simulation
 	if sim == null:
@@ -74,12 +75,16 @@ static func restore(
 	return sim
 
 
-static func _supports(data: Variant) -> bool:
-	if not data is Dictionary or (data.get("version") != VERSION and data.get("version") != 1):
+static func supports(data: Variant) -> bool:
+	if not data is Dictionary or not _integer_in(data.get("version"), 1, VERSION):
 		return false
 	if data.version == 1 and data.has("outbound"):
 		return false
-	if data.version == VERSION and not data.get("outbound") is Array:
+	if data.version >= 2 and not data.get("outbound") is Array:
+		return false
+	if data.version == VERSION and not data.get("progression") is Dictionary:
+		return false
+	if data.version < VERSION and data.has("progression"):
 		return false
 	for section in ["network", "ledger", "clock", "docks", "terminals", "voyages", "reservations"]:
 		if not data.get(section) is Dictionary:
@@ -102,6 +107,8 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 	if not _install_fleet(data, sim, make_vehicle):
 		return false
 	if not OutboundTrafficSnapshot.restore(data.get("outbound", []), sim, make_vehicle):
+		return false
+	if data.has("progression") and not TownGrowthSnapshot.restore(data.progression, sim):
 		return false
 	# Initial demand and regenerated background traffic may use random draws.
 	return CompanyClockSnapshot.restore(data.clock, sim)

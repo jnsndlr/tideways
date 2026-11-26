@@ -39,7 +39,7 @@ func exercise_layout() -> bool:
 		return false
 	var hud: Hud = current_scene.hud
 	var boat: Ferry = current_scene.sim.ferries[0]
-	if not await sandbox_save_disabled(hud):
+	if not await sandbox_save_enabled(hud):
 		return false
 	if not exercise_shortcuts(hud):
 		return false
@@ -80,14 +80,14 @@ func exercise_layout() -> bool:
 	return true
 
 
-func sandbox_save_disabled(hud: Hud) -> bool:
+func sandbox_save_enabled(hud: Hud) -> bool:
 	if not await press("MENU"):
 		return false
 	var menu := hud._game_menu
 	var disabled := menu.is_item_disabled(menu.get_item_index(0))
 	menu.hide()
 	await process_frame
-	return disabled or fail("Save game should be disabled on a procedural map")
+	return not disabled or fail("The procedural Sandbox should offer Save game")
 
 
 ## Physical shortcuts survive layout changes. A held key and its release apply the command only once.
