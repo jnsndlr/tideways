@@ -69,6 +69,7 @@ var _cargo_named := 0
 var _convoy_timer := 0.0
 var _convoys := 0
 var convoy: Array[NavalVessel] = []
+var coast_guard: Array[CoastGuardBoat] = []
 
 
 ## Synchronous entry point for tools that prepare charts ahead of setup.
@@ -108,6 +109,7 @@ func setup(s: Simulation, charts: MarineCharts = null) -> void:
 	_spawn_sailboats()
 	_spawn_fishing_boats()
 	pilotage = Pilotage.new(self)
+	coast_guard = CoastGuardBoat.spawn_fleet(self)
 	_spawn_cargo(true)
 	_cargo_timer = rng.randf_range(CARGO_GAP.x, CARGO_GAP.y) * 0.5
 	_convoy_timer = rng.randf_range(CONVOY_GAP.x, CONVOY_GAP.y) * 0.3

@@ -129,7 +129,7 @@ func build(frame: Signal = Signal()) -> Node3D:
 	root = Node3D.new()
 	root.name = "World"
 	# Towns grade their lots before terrain tiles read the heights.
-	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_airstrips, _build_quays,
+	for part: Callable in [_build_water, _build_terminals, _build_marinas, _build_airstrips, _build_quays, _build_coast_guard,
 			_build_roads, _build_towns, _build_radio_towers, _build_terrain, _build_lighthouses, _build_nav_aids, _build_haul_outs,
 			_build_vegetation, _build_shore_rocks, _build_route_overlay, _clear_grass_where_blocked]:
 		if not await _frames.can_continue():
@@ -3155,6 +3155,10 @@ func _build_marinas() -> void:
 ## floodlights for working in the dark. A fish quay has a fish shed and stacked
 ## totes on it and a hoist over the water; the pilot station its pilot house,
 ## with a lookout and radar mast.
+func _build_coast_guard() -> void:
+	CoastGuardStation.build(self)
+
+
 func _build_quays() -> void:
 	var plank := Color(0.5, 0.42, 0.33)
 	var cap := Color(0.6, 0.6, 0.57)
