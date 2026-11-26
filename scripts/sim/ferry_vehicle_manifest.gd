@@ -28,17 +28,11 @@ static func capture(ferry: Ferry) -> Variant:
 			or car.dest >= ferry.sim.map.towns.size()
 		):
 			return null
-		var entry := {
-			"slot": slot,
-			"destination": ferry.sim.map.towns[car.dest].key,
-			"truck": car.is_truck,
-			"model": car.model,
-			"paint": car.body_paint,
-			"trailer": car.trailer_model,
-			"trailer_paint": car.trailer_paint,
-			"fare_paid": car.fare_paid,
-			"last_sent": car == ferry._last_sent,
-		}
+		var entry := VehiclePartsSnapshot.capture(car)
+		entry.slot = slot
+		entry.destination = ferry.sim.map.towns[car.dest].key
+		entry.fare_paid = car.fare_paid
+		entry.last_sent = car == ferry._last_sent
 		if ferry.aboard.has(car):
 			var park := ferry._park_xform(slot, car)
 			var yaw := park.basis.get_euler().y
@@ -114,9 +108,7 @@ func _prepare_car(
 ) -> bool:
 	if not _valid_entry(entry, towns):
 		return false
-	var car: Vehicle = build_vehicle.call(
-		entry.truck, entry.model, int(entry.paint), entry.trailer, int(entry.trailer_paint)
-	)
+	var car := VehiclePartsSnapshot.rebuild(entry, build_vehicle)
 	if car == null:
 		return false
 	_cars.append(car)
@@ -221,17 +213,6 @@ static func _valid_entry(data: Variant, towns: Dictionary) -> bool:
 		and _scalar(data.get("fare_paid"))
 		and data.fare_paid >= 0
 		and data.get("last_sent") is bool
-		and _valid_identity(data)
-	)
-
-
-static func _valid_identity(data: Dictionary) -> bool:
-	return (
-		data.get("truck") is bool
-		and data.get("model") is String
-		and data.get("trailer") is String
-		and _integer(data.get("paint"))
-		and _integer(data.get("trailer_paint"))
 	)
 
 

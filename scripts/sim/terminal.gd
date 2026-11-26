@@ -1208,7 +1208,7 @@ func boarding_lane_for(car: Vehicle) -> Lane:
 func lane_at_offset(offset: float) -> Lane:
 	for group in lanes.values():
 		for lane: Lane in group:
-			if lane.v == offset:
+			if is_equal_approx(lane.v, offset):
 				return lane
 	return null
 
