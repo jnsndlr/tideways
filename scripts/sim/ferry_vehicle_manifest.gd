@@ -37,15 +37,23 @@ static func capture(ferry: Ferry) -> Variant:
 			"trailer": car.trailer_model,
 			"trailer_paint": car.trailer_paint,
 			"fare_paid": car.fare_paid,
-			"position": _xyz(car.position),
-			"rotation": _xyz(car.rotation),
 			"last_sent": car == ferry._last_sent,
 		}
-		if not ferry.aboard.has(car):
+		if ferry.aboard.has(car):
+			var park := ferry._park_xform(slot, car)
+			var yaw := park.basis.get_euler().y
+			if (
+				not car.position.is_equal_approx(park.origin)
+				or not is_zero_approx(angle_difference(car.rotation.y, yaw))
+			):
+				return null
+		else:
 			var lane := ferry.here().boarding_lane_for(car)
 			if lane == null or car.path.is_empty():
 				return null
 			entry.boarding = car.boarding_motion()
+			entry.boarding.position = _xyz(car.position)
+			entry.boarding.rotation = _xyz(car.rotation)
 			var points := []
 			for point in car.path:
 				points.append(_xyz(point))
@@ -128,8 +136,6 @@ func _prepare_car(
 		_last = _cars.size() - 1
 	car.dest = towns[entry.destination]
 	car.fare_paid = entry.fare_paid
-	car.position = _vec(entry.position)
-	car.rotation = _vec(entry.rotation)
 	_slots.append(slot)
 	_leaders.append(-1)
 	_lanes.append(null)
@@ -145,6 +151,8 @@ func _prepare_boarding(data: Variant, departure: Terminal) -> bool:
 	var motion := _decode_motion(data)
 	if lane == null or motion.is_empty():
 		return false
+	_cars[-1].position = _vec(data.position)
+	_cars[-1].rotation = _vec(data.rotation)
 	_cars[-1].restore_boarding_motion(motion)
 	_lanes[-1] = lane
 	_leaders[-1] = int(data.leader)
@@ -155,7 +163,14 @@ static func _decode_motion(data: Dictionary) -> Dictionary:
 	for name in ["delay", "held", "creep", "body_pitch", "reach", "trailer_yaw"]:
 		if not _scalar(data.get(name)):
 			return {}
-	if not _point(data.get("axle")) or not data.get("path") is Array or data.path.is_empty():
+	if not _point(data.get("position")) or not _point(data.get("rotation")):
+		return {}
+	if (
+		not _point(data.get("axle"))
+		or data.reach < 0
+		or not data.get("path") is Array
+		or data.path.is_empty()
+	):
 		return {}
 	var points := PackedVector3Array()
 	for point in data.path:
@@ -175,7 +190,7 @@ func install(ferry: Ferry) -> void:
 		ferry._take_slots(_slots[i], car)
 		if _lanes[i] == null:
 			ferry.add_child(car)
-			car.straighten()
+			ferry._set_parked(car, ferry._park_xform(_slots[i], car))
 			ferry.aboard.append(car)
 		else:
 			var terminal := ferry.here()
@@ -202,8 +217,6 @@ static func _valid_entry(data: Variant, towns: Dictionary) -> bool:
 		return false
 	return (
 		towns.has(data.get("destination"))
-		and _point(data.get("position"))
-		and _point(data.get("rotation"))
 		and _integer(data.get("slot"))
 		and _scalar(data.get("fare_paid"))
 		and data.fare_paid >= 0
