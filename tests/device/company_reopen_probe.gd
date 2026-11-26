@@ -85,6 +85,7 @@ func _at_reopen(session: WorldSession) -> void:
 	# screen fades. SceneTree pause leaves the loading screen timer suspended;
 	# freezing just the simulation keeps the menu/loading path observable.
 	session.sim.process_mode = Node.PROCESS_MODE_DISABLED
+	session.hud.set_speed(2)
 	var ferry := _find_ferry(session.sim, _control.checkpoint.hull)
 	if ferry:
 		_restored = _checkpoint(ferry)
@@ -144,7 +145,8 @@ func _resume(session: WorldSession) -> void:
 				different.append(key)
 		_fail_review("Company changed before its first resumed frame: %s" % str(different))
 		return
-	session.hud.set_speed(2)
+	# The first resumed frame must have the same 8x delta as the control.
+	await process_frame
 	session.sim.process_mode = Node.PROCESS_MODE_INHERIT
 	var observed := await _follow_receipts(session.sim, _restored.ledger)
 	_finish(session, observed)
