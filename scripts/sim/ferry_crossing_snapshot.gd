@@ -4,7 +4,7 @@ extends RefCounted
 ## an empty hull after rebuilding the same network, timetable, captain and class.
 ## The company owns the clock, ledger and waiting queues separately. Restore the
 ## network's corridor reservations after installing every hull's position.
-const VERSION := 2
+const VERSION := 3
 const NUMBERS := [
 	"distance",
 	"speed",
@@ -39,6 +39,11 @@ static func capture(ferry: Ferry) -> Dictionary:
 	var walking := (
 		ferry.state == Ferry.State.LOADING and ferry._load_phase != Ferry.LoadPhase.VEHICLES
 	)
+	if (
+		ferry._casting_off
+		and (walking or ferry.state != Ferry.State.LOADING or ferry._boarding != 0)
+	):
+		return {}
 	if not walking and not ferry._pax_walkers.is_empty():
 		return {}
 	var vehicles = FerryVehicleManifest.capture(ferry)
@@ -94,6 +99,10 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"vehicles": vehicles,
 		"passengers": passengers,
 	}
+	if ferry._casting_off:
+		record.phase = "casting_off"
+		var ramp := ferry._ramp(ferry.here())
+		record.lifting_ramp = [ramp.span_fraction, ramp.apron_fraction] if ramp else null
 	if walking:
 		record.phase = "walk_ons"
 		record.walk_ons = FerryWalkOnSnapshot.capture(ferry)
@@ -106,7 +115,6 @@ static func _ordinary_service(ferry: Ferry) -> bool:
 		and not ferry.manual
 		and not ferry.holding
 		and not ferry._positioning
-		and not ferry._casting_off
 		and not ferry.lay_up_requested
 		and ferry.next_stops.is_empty()
 		and ferry.stops.size() == 2
@@ -151,16 +159,26 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 		return false
 	var at_a: bool = record.from == ferry.term_a.town.key
 	var sailing: bool = record.phase == "crossing"
+	var departure := ferry.term_a if at_a else ferry.term_b
+	var casting_off: bool = record.phase == "casting_off"
+	var ramp := ferry._ramp(departure)
+	if casting_off and not _valid_lift(record.get("lifting_ramp"), ramp):
+		return false
 	var manifest := FerryVehicleManifest.prepare(
 		record.get("vehicles"),
 		ferry,
 		at_a != record.reversed,
 		build_vehicle,
-		ferry.term_a if at_a else ferry.term_b,
-		sailing or walking
+		departure,
+		sailing or walking or casting_off
 	)
 	if manifest == null:
 		return false
+	ferry._casting_off = casting_off
+	if casting_off:
+		ferry._ramp_synced = true
+		if ramp:
+			ramp.resume_lift(record.lifting_ramp[0], record.lifting_ramp[1])
 	ferry.state = Ferry.State.SAILING if sailing else Ferry.State.LOADING
 	ferry.at_a = at_a
 	ferry._rev = record.reversed
@@ -220,9 +238,11 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 		not _integer(r.get("version"), VERSION)
 		or r.version < 1
 		or (r.has("walk_ons") != (r.get("phase") == "walk_ons"))
-		or (r.has("walk_ons") and r.version != VERSION)
+		or (r.has("walk_ons") and r.version < 2)
+		or (r.has("lifting_ramp") != (r.get("phase") == "casting_off"))
+		or (r.has("lifting_ramp") and r.version < 3)
 		or r.get("service") != _service(ferry)
-		or r.get("phase") not in ["boarding", "crossing", "walk_ons"]
+		or r.get("phase") not in ["boarding", "crossing", "walk_ons", "casting_off"]
 		or r.get("from") not in [ferry.term_a.town.key, ferry.term_b.town.key]
 		or not r.get("reversed") is bool
 		or not r.get("slip_chosen") is bool
@@ -249,6 +269,18 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 		and r.lane_fraction >= 0
 		and r.lane_fraction <= 1
 	)
+
+
+static func _valid_lift(pose: Variant, ramp: SlipRamp) -> bool:
+	if ramp == null:
+		return pose == null
+	if not pose is Array or pose.size() != 2:
+		return false
+	for fraction in pose:
+		if not _number(fraction) or fraction < 0 or fraction > 1:
+			return false
+	# The span cannot start rising before the apron finishes folding.
+	return pose[0] == 0 or pose[1] == 1
 
 
 static func _captain(id: String) -> Captain:
