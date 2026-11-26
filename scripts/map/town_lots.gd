@@ -34,6 +34,51 @@ var h := 0
 
 var _plan: StreetPlan
 var _claimed := PackedByteArray()
+var _edge_box: Array[Rect2] = []   # per edge, its points' XZ bounds
+
+
+## Bump when the lot rules change, so baked lots (maps/town_lots/) are recomputed.
+const VERSION := 2
+
+
+## build(), but from `cache` (key -> baked lots) when this town's street plan and
+## ground are unchanged. A miss builds and adds to the cache. Returns [lots, key, missed].
+static func build_cached(plan: StreetPlan, terrain: Terrain, square: Vector3, cache: Dictionary) -> Array:
+	var key := cache_key(plan, terrain, square)
+	var baked = cache.get(key)
+	if baked is Dictionary and baked.get("lots") is Array:
+		var tl := TownLots.new()
+		tl._plan = plan
+		tl.block_count = int(baked.get("block_count", 0))
+		for lot in baked.lots:
+			tl.lots.append(lot)
+		return [tl, key, false]
+	var tl := build(plan, terrain, square)
+	cache[key] = {"lots": tl.lots, "block_count": tl.block_count}
+	return [tl, key, true]
+
+
+## What the lots depend on: the street plan, the square, and the ground under the
+## raster (sampled every 6 m: town grading or terrain edits change it).
+static func cache_key(plan: StreetPlan, terrain: Terrain, square: Vector3) -> String:
+	var edges := []
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for e in plan.edges:
+		edges.append([e.a, e.b, e.zone, e.pts])
+		for p: Vector3 in e.pts:
+			lo = lo.min(Vector2(p.x, p.z))
+			hi = hi.max(Vector2(p.x, p.z))
+	var ground := PackedFloat32Array()
+	if not plan.edges.is_empty():
+		var y := lo.y - PAD
+		while y <= hi.y + PAD:
+			var x := lo.x - PAD
+			while x <= hi.x + PAD:
+				ground.append(snappedf(terrain.height_at(x, y), 0.01))
+				x += 6.0
+			y += 6.0
+	return str(hash(var_to_str([VERSION, plan.nodes, edges, square, ground])))
 
 
 static func build(plan: StreetPlan, terrain: Terrain, square: Vector3) -> TownLots:
@@ -61,6 +106,11 @@ func _raster(terrain: Terrain) -> void:
 		for p: Vector3 in e.pts:
 			lo = lo.min(Vector2(p.x, p.z))
 			hi = hi.max(Vector2(p.x, p.z))
+	for e in _plan.edges:
+		var box := Rect2(Vector2(e.pts[0].x, e.pts[0].z), Vector2.ZERO)
+		for p: Vector3 in e.pts:
+			box = box.expand(Vector2(p.x, p.z))
+		_edge_box.append(box)
 	origin = lo - Vector2(PAD, PAD)
 	w = ceili((hi.x - lo.x + 2 * PAD) / CELL)
 	h = ceili((hi.y - lo.y + 2 * PAD) / CELL)
@@ -119,10 +169,17 @@ func _raster(terrain: Terrain) -> void:
 				frontier.append(j)
 
 
+## Edges whose bounds are already farther than the best so far are skipped, which
+## leaves only the few streets around p to measure (same answer as a full search).
 func _nearest_edge(p: Vector2) -> int:
 	var best := -1
 	var bd := INF
 	for ei in _plan.edges.size():
+		var box := _edge_box[ei]
+		var gap := Vector2(maxf(0.0, maxf(box.position.x - p.x, p.x - box.end.x)),
+			maxf(0.0, maxf(box.position.y - p.y, p.y - box.end.y)))
+		if gap.length_squared() > bd:
+			continue
 		var pts: PackedVector3Array = _plan.edges[ei].pts
 		for i in pts.size() - 1:
 			var q := Geometry2D.get_closest_point_to_segment(p, Vector2(pts[i].x, pts[i].z), Vector2(pts[i + 1].x, pts[i + 1].z))
@@ -196,7 +253,9 @@ func _frontage() -> void:
 			var t := start
 			var first := true
 			while t + fw * 0.7 <= stop:
-				var lot_w := fw * (1.3 if first and corner_a else 1.0)
+				# Mixed frontages so a row isn't one model repeated: 0.9–1.7× the zone width.
+				var mix := 0.9 + 0.8 * fposmod(sin(ei * 12.9898 + t * 78.233 + side) * 43758.5453, 1.0)
+				var lot_w := fw * (1.3 if first and corner_a else mix)
 				var is_corner := first and corner_a
 				if t + lot_w > stop:
 					lot_w = stop - t

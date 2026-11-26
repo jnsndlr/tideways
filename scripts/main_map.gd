@@ -75,6 +75,7 @@ func _generation_job(gen: MapGenerator) -> Callable:
 	# Every dock site's routes are in them, so buying one plans nothing (TID-319).
 	if not unsaved:
 		gen.route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+		gen.town_lots_cache_path = "res://maps/town_lots/%s-%s.bin" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
 	return gen.generate_from.bind(layout, scenario)
 
 

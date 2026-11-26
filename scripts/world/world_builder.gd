@@ -91,6 +91,9 @@ const TREE_CELL := 64.0
 ## Eagles' lookouts: shoreline treetops, terminal dolphins, the tops of ramp lifts.
 var eagle_perches: Array[Eagles.Perch] = []
 var _blocked := {}
+var _lots_cache := {}          # TownLots key -> baked lots (map.town_lots_cache_path)
+var _lots_cache_dirty := false
+var _lots_used: Array[String] = []
 var _road_cells := {}  # blocked cells that only a road blocks
 ## Per terrain grid vertex (row-major, terrain.n + 1 a side): the ground's colour
 ## in RGB and how much grass grows there in A (Grass reads it as a texture).
@@ -1390,6 +1393,7 @@ func _build_towns() -> void:
 		var list: Array[Transform3D] = []
 		per_variant.append(list)
 
+	_load_lots_cache()
 	var town_rng := RandomNumberGenerator.new()
 	town_rng.seed = map.map_seed * 41 + 19
 	const RESERVE_LANDMARKS := 4
@@ -1498,6 +1502,10 @@ func _build_towns() -> void:
 			_block(p, 7.5)
 			reserved_landmarks += 1
 
+		var house_plans: Array[Rect2] = []
+		for kn in kit_names:
+			house_plans.append(Models.kit_footprint(kn))
+
 		# 2. Place initial commercial buildings (1 per 333 pop) and reserve commercial growth lots.
 		var shop_count := shop_names.size()
 		var regular_shop_count := maxi(shop_count - 1, 1)
@@ -1513,6 +1521,12 @@ func _build_towns() -> void:
 			var shop_idx := town_rng.randi_range(0, regular_shop_count - 1)
 			if placed_comm < want_commercial and not has_city_hall and isl.population >= 2500 and isl.community_type == "residential":
 				shop_idx = city_hall_variant - houses
+			var fit := _fit_lot(c, shop_plans, shop_idx, regular_shop_count, sc)
+			if fit.is_empty():
+				continue
+			shop_idx = fit[0]
+			sc = fit[1]
+			p = fit[2]
 			var vi := houses + shop_idx
 			var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
 			var plan: Rect2 = shop_plans[shop_idx]
@@ -1558,14 +1572,20 @@ func _build_towns() -> void:
 			var p: Vector3 = c["p"]
 			var yaw: float = float(c["yaw"])
 			var vi := town_rng.randi_range(0, houses - 1)
-			var basis := Basis(Vector3.UP, yaw)
+			var fit := _fit_lot(c, house_plans, vi, houses, 1.0)
+			if fit.is_empty():
+				continue
+			vi = fit[0]
+			var hsc: float = fit[1]
+			p = fit[2]
+			var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * hsc)
 			var plan: Rect2 = Models.kit_footprint(kit_names[vi])
 			var lot := _kit_lot_heights(p, basis, plan)
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
 			used_idx[idx] = true
 			if placed_houses < want_houses:
-				var pad := Rect2(plan.position, plan.size).grow(KIT_LOT_MARGIN)
+				var pad := Rect2(plan.position * hsc, plan.size * hsc).grow(KIT_LOT_MARGIN)
 				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
 					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
@@ -1577,7 +1597,7 @@ func _build_towns() -> void:
 				var hlot := MapData.TownLot.new()
 				hlot.pos = Vector3(p.x, lot.z, p.z)
 				hlot.yaw = yaw
-				hlot.scale = 1.0
+				hlot.scale = hsc
 				hlot.lot_y = lot.z
 				hlot.kind = MapData.TownLot.Kind.HOUSE
 				hlot.variant = vi
@@ -1589,6 +1609,7 @@ func _build_towns() -> void:
 		isl.initial_houses = placed_houses
 		isl.initial_commercial = placed_comm
 
+	_save_lots_cache()
 	var no_colors: Array[Color] = []
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
@@ -1600,11 +1621,51 @@ func _build_towns() -> void:
 const USE_PLAN_LOTS := true
 
 
+## Baked lots for the authored map: towns whose plan and ground haven't changed skip
+## TownLots' raster. Written from the editor only, like the route caches.
+func _load_lots_cache() -> void:
+	_lots_cache = {}
+	_lots_cache_dirty = false
+	_lots_used.clear()
+	var path := map.town_lots_cache_path
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	var data = f.get_var() if f else null
+	if data is Dictionary:
+		_lots_cache = data
+
+
+func _save_lots_cache() -> void:
+	var path := map.town_lots_cache_path
+	if path.is_empty() or not _lots_cache_dirty or not OS.has_feature("editor"):
+		return
+	# Keep only this build's towns, so stale plans don't pile up in the file.
+	var keep := {}
+	for k in _lots_used:
+		keep[k] = _lots_cache[k]
+	var target := ProjectSettings.globalize_path(path)
+	DirAccess.make_dir_recursive_absolute(target.get_base_dir())
+	var f := FileAccess.open_compressed(target, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		push_warning("Couldn't save town lots to " + path)
+		return
+	f.store_var(keep)
+	_lots_cache_dirty = false
+
+
 ## One candidate per TownLots lot, set back from its street, facing it; sort_r is the
 ## lot's reveal rank so towns fill out in rank order.
 func _plan_lot_candidates(isl: MapData.Town) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	var tl := TownLots.build(isl.street_plan, terrain, isl.street_plan._sq)
+	var tl: TownLots
+	if map.town_lots_cache_path.is_empty():
+		tl = TownLots.build(isl.street_plan, terrain, isl.street_plan._sq)
+	else:
+		var got := TownLots.build_cached(isl.street_plan, terrain, isl.street_plan._sq, _lots_cache)
+		tl = got[0]
+		_lots_used.append(got[1])
+		_lots_cache_dirty = _lots_cache_dirty or got[2]
 	isl.town_lots = tl
 	for lot in tl.lots:
 		var facing: Vector2 = lot.facing
@@ -1624,8 +1685,38 @@ func _plan_lot_candidates(isl: MapData.Town) -> Array[Dictionary]:
 		if hmax - hmin > 4.2 or hmin < 2.4:
 			continue
 		out.append({"p": p, "yaw": atan2(facing.x, facing.y), "r": float(lot.along),
+			"front": lot.front, "facing": facing, "lot_w": float(lot.width), "lot_d": float(lot.depth),
 			"sort_r": float(lot.rank), "drop": hmax - hmin, "h": h})
 	return out
+
+
+## For a TownLots candidate: the variant (preferring `want`, then the rest of the
+## first `count`) and scale whose footprint fits the lot's frontage and depth, and
+## where to put it so its front sits LOT_SETBACK behind the street face, centred.
+## Grid candidates (no lot size) pass straight through. Empty if nothing fits.
+const LOT_SETBACK := 1.0
+const LOT_SIDE_GAP := 0.6   # total, split between the two sides
+const LOT_MIN_SCALE := 0.8
+func _fit_lot(c: Dictionary, plans: Array[Rect2], want: int, count: int, sc: float) -> Array:
+	if not c.has("lot_w"):
+		return [want, sc, c["p"]]
+	var lot_w: float = c["lot_w"]
+	var lot_d: float = c["lot_d"]
+	var order: Array[int] = [want]
+	for i in count:
+		if i != want:
+			order.append((want + i) % count if (want + i) % count != want else i)
+	for vi in order:
+		var plan: Rect2 = plans[vi]
+		var s := minf(sc, minf((lot_w - LOT_SIDE_GAP) / plan.size.x, (lot_d - LOT_SETBACK) / plan.size.y))
+		if s < LOT_MIN_SCALE:
+			continue
+		var facing: Vector2 = c["facing"]
+		var front: Vector2 = c["front"]
+		var right := Vector2(facing.y, -facing.x)   # Basis(UP, yaw).x in XZ
+		var at := front - facing * (LOT_SETBACK + plan.end.y * s) - right * (plan.get_center().x * s)
+		return [vi, s, Vector3(at.x, 0.0, at.y)]
+	return []
 
 
 ## Grid lots fill in behind the streets only after every street-front lot.

@@ -24,6 +24,8 @@ var _locked := false
 ## unless its islands are moved, so Play loads its routes from here; a stale or
 ## missing file is planned afresh and rewritten on a desktop run.
 var route_cache_path := ""
+## Baked town lots for this layout (MapData.town_lots_cache_path).
+var town_lots_cache_path := ""
 var _planner: RoutePlanner
 var _memo := preload("res://scripts/map/route_memo.gd").new()
 var _cancel_mutex := Mutex.new()
@@ -93,6 +95,7 @@ func _build(layout: MapLayout, scenario: Scenario) -> void:
 	rng.seed = map_seed
 	map = MapData.new()
 	map.map_seed = map_seed
+	map.town_lots_cache_path = town_lots_cache_path
 	terrain = Terrain.new(map_seed, map.half_size)
 	var ports: Array[Vector2] = []
 	for spec in layout.islands:

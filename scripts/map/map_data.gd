@@ -396,6 +396,8 @@ class Route:
 
 
 var map_seed := 0
+## Where baked TownLots for an authored map live (WorldBuilder); empty = always build.
+var town_lots_cache_path := ""
 var half_size := 3300.0
 var islands: Array[Island] = []
 ## Every town, each with its dock (if any) and terminal (once built).
