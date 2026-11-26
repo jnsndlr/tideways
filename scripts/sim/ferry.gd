@@ -1123,9 +1123,8 @@ func _tick_sailing(delta: float) -> void:
 	# further (or less far) to go, at the same speed through the water.
 	voyage.advance(delta, speed / _lane_stretch(_route_s(traveled)), run_length())
 	_burn(traveled - was)
-	_place(_route_s(traveled))
 	_bob_time += delta
-	position.y = sin(_bob_time * 1.3) * 0.21
+	place_underway()
 	if voyage.has_arrived(run_length()):
 		_dock_corridors()
 		hold = INF
@@ -1453,6 +1452,12 @@ func path_left() -> float:
 
 
 ## Positions the ferry at distance s along the route curve. +Z always faces A → B.
+## Position the hull from its current route progress, including its heave phase.
+func place_underway() -> void:
+	_place(_route_s(traveled))
+	position.y = sin(_bob_time * 1.3) * 0.21
+
+
 func _place(s: float) -> void:
 	if state != State.SAILING and sim and sim.marine:
 		_lane_k = 1.0 if sim.marine.shared(route) else 0.0
