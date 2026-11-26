@@ -218,6 +218,7 @@ var _shift_yaw := 0.0         # how far she has turned from _shift_basis (eased)
 var _boarding := 0
 var _boarding_spaces := 0  # deck slots taken by cars still driving on
 var _pax_walkers: Array[Passenger] = []  # walk-ons still on their way aboard
+var _homeward_walkers: Array[Passenger] = []  # walk-ons still crossing the destination pier
 var _walk_ons_since := -1.0  # when walk-ons started boarding at this call
 var _walk_on_clear_since := 0.0
 var _pax_unload_per_tick := 1
@@ -560,8 +561,8 @@ func _slot_local(i: int) -> Vector3:
 ## Where `car` parks with its slots starting at `slot` (the far end of its run of
 ## rows): the run's middle, its tractor ahead of that for a rig. Cars face +Z boarding
 ## at A, -Z at B.
-func _park_local(slot: int, car: Vehicle) -> Vector3:
-	var fwd := 1.0 if _minus else -1.0
+func _park_local(slot: int, car: Vehicle, from_minus: bool) -> Vector3:
+	var fwd := 1.0 if from_minus else -1.0
 	var p := _slot_local(slot)
 	p.z -= fwd * (car.slots - 1) * 0.5 * FerryClass.ROW_SPACING
 	p.z -= fwd * car.center_offset
@@ -571,9 +572,13 @@ func _park_local(slot: int, car: Vehicle) -> Vector3:
 ## Where and which way `car` parks from `slot`: as _park_local, facing along the hull,
 ## or in an arcing lane laid along the arc between its two ends.
 func _park_xform(slot: int, car: Vehicle) -> Transform3D:
-	var fwd := 1.0 if _minus else -1.0
-	var p := _park_local(slot, car)
-	var yaw := 0.0 if _minus else PI
+	return parked_pose(slot, car, _minus)
+
+
+func parked_pose(slot: int, car: Vehicle, from_minus: bool) -> Transform3D:
+	var fwd := 1.0 if from_minus else -1.0
+	var p := _park_local(slot, car, from_minus)
+	var yaw := 0.0 if from_minus else PI
 	if fc.arcs(p.x):
 		var mid := p.z + fwd * car.center_offset
 		var front := _arc_point(p.x, mid + fwd * car.length * 0.5)
@@ -861,7 +866,13 @@ func _walk_off(variant: int, jitter := 0.0) -> void:
 	pax.position = start
 	var path := PackedVector3Array([_over_apron(Vector3(walk_x, Layout.DECK_Y, exit_z))])
 	path.append_array(here().passenger_exit_path(slip_at(here())))
-	pax.walk(path, func(w: Passenger): w.queue_free())
+	_homeward_walkers.append(pax)
+	pax.walk(path, _on_walker_home)
+
+
+func _on_walker_home(walker: Passenger) -> void:
+	_homeward_walkers.erase(walker)
+	walker.queue_free()
 
 
 func _walk_on(pax_data: Dictionary, term: Terminal) -> void:

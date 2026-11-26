@@ -5,8 +5,19 @@ extends RefCounted
 
 
 static func capture(ferry: Ferry) -> Dictionary:
+	return {
+		"clearing": ferry._load_phase == Ferry.LoadPhase.WALK_ON_CLEAR,
+		"started": ferry._walk_ons_since,
+		"clear_since": ferry._walk_on_clear_since,
+		"dispatch": ferry._pax_dispatch_timer,
+		"sent": ferry._pax_walkers_sent,
+		"walkers": capture_walkers(ferry._pax_walkers),
+	}
+
+
+static func capture_walkers(actors: Array[Passenger]) -> Array:
 	var walkers := []
-	for walker in ferry._pax_walkers:
+	for walker in actors:
 		var path := []
 		for point in walker.path:
 			path.append(SnapshotVector3.encode(point))
@@ -21,14 +32,7 @@ static func capture(ferry: Ferry) -> Dictionary:
 				}
 			)
 		)
-	return {
-		"clearing": ferry._load_phase == Ferry.LoadPhase.WALK_ON_CLEAR,
-		"started": ferry._walk_ons_since,
-		"clear_since": ferry._walk_on_clear_since,
-		"dispatch": ferry._pax_dispatch_timer,
-		"sent": ferry._pax_walkers_sent,
-		"walkers": walkers,
-	}
+	return walkers
 
 
 static func valid(data: Variant, passengers: Array[Dictionary]) -> bool:
@@ -49,7 +53,20 @@ static func valid(data: Variant, passengers: Array[Dictionary]) -> bool:
 	var counts := {}
 	for pax in passengers:
 		counts[pax.variant] = counts.get(pax.variant, 0) + 1
+	if not valid_walkers(data.walkers):
+		return false
 	for row in data.walkers:
+		var variant := int(row.variant)
+		if counts.get(variant, 0) == 0:
+			return false
+		counts[variant] -= 1
+	return true
+
+
+static func valid_walkers(walkers: Variant) -> bool:
+	if not walkers is Array:
+		return false
+	for row in walkers:
 		if not row is Dictionary or not SnapshotVector3.valid(row.get("position")):
 			return false
 		var variant: Variant = row.get("variant")
@@ -61,9 +78,6 @@ static func valid(data: Variant, passengers: Array[Dictionary]) -> bool:
 			or variant >= Passenger.VARIANT_COUNT
 		):
 			return false
-		if counts.get(int(variant), 0) == 0:
-			return false
-		counts[int(variant)] -= 1
 		var yaw: Variant = row.get("yaw")
 		if not (yaw is float or yaw is int) or not is_finite(yaw):
 			return false
@@ -82,12 +96,18 @@ static func install(data: Dictionary, ferry: Ferry) -> void:
 	ferry._walk_on_clear_since = data.clear_since
 	ferry._pax_dispatch_timer = data.dispatch
 	ferry._pax_walkers_sent = int(data.sent)
-	for row in data.walkers:
+	install_walkers(data.walkers, ferry, ferry._pax_walkers, ferry._on_walker_aboard)
+
+
+static func install_walkers(
+	rows: Array, ferry: Ferry, actors: Array[Passenger], arrived: Callable
+) -> void:
+	for row in rows:
 		var walker := ferry.sim.make_passenger(int(row.variant))
 		walker.position = SnapshotVector3.decode(row.position)
 		walker.rotation.y = row.yaw
 		var path := PackedVector3Array()
 		for point in row.path:
 			path.append(SnapshotVector3.decode(point))
-		ferry._pax_walkers.append(walker)
-		walker.walk(path, ferry._on_walker_aboard)
+		actors.append(walker)
+		walker.walk(path, arrived)
