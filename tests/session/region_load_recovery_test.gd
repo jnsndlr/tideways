@@ -57,7 +57,7 @@ func exercise() -> bool:
 func reopen_company() -> bool:
 	# Simulate a previous company's editor state.
 	RegionEntryState.editor_restore["editor_open"] = true
-	if not await press("New company") or not await press("Start"):
+	if not await press("New company") or not await start_named_company():
 		return false
 	if not RegionEntryState.editor_restore.is_empty():
 		return fail("Play inherited the previous editor state")
@@ -79,7 +79,7 @@ func reopen_company() -> bool:
 	await scene_changed
 	# Exit while the fresh resource request is still owned by the overlay.
 	# The CI runner checks engine diagnostics after quit.
-	return await press("New company") and await press("Start")
+	return await press("New company") and await start_named_company()
 
 
 func fails_in_menu(path: String) -> bool:

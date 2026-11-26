@@ -7,6 +7,7 @@ const STAMP_INK := Color("#376054")
 
 @onready var _card: PanelContainer = %Card
 @onready var _field: LineEdit = %NameField
+@onready var _start: Button = %Start
 @onready var _seal: Control = %FerrySeal
 @onready var _rule: Control = %Perforation
 
@@ -17,7 +18,7 @@ func _ready() -> void:
 	resized.connect(_fit_width)
 	_fit_width()
 	%Cancel.pressed.connect(queue_free)
-	%Start.pressed.connect(_confirm)
+	_start.pressed.connect(_confirm)
 	_field.text_submitted.connect(func(_value: String): _confirm())
 	_field.grab_focus()
 
@@ -26,12 +27,19 @@ func _fit_width() -> void:
 	_card.custom_minimum_size.x = minf(730.0, maxf(0.0, size.x - 48.0))
 
 
+func _process(_delta: float) -> void:
+	# Native text input can replace the field contents without emitting text_changed.
+	_start.disabled = _field.text.strip_edges().is_empty()
+
+
 func _confirm() -> void:
 	if is_queued_for_deletion():
 		return
 	var company_name := _field.text.strip_edges()
+	if company_name.is_empty():
+		return
 	queue_free()
-	name_chosen.emit(_field.placeholder_text if company_name.is_empty() else company_name)
+	name_chosen.emit(company_name)
 
 
 func _draw_ferry_seal() -> void:

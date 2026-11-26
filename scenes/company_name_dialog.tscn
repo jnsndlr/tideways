@@ -223,7 +223,7 @@ theme_override_colors/font_color = Color(0.0902, 0.2353, 0.1922, 1.0000)
 theme_override_constants/separation = 7
 
 [node name="FieldLabel" type="Label" parent="Center/Card/Stack/Entry"]
-text = "Company name"
+text = "Company name (required)"
 theme_override_fonts/font = SubResource("ActionFace")
 theme_override_font_sizes/font_size = 24
 theme_override_colors/font_color = Color(0.2627, 0.2902, 0.2353, 1.0000)
@@ -233,6 +233,7 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 76)
 placeholder_text = "Island Ferries"
 max_length = 32
+keep_editing_on_text_submit = true
 theme_override_fonts/font = SubResource("BodyFace")
 theme_override_font_sizes/font_size = 32
 theme_override_colors/font_color = Color(0.0863, 0.1804, 0.1608, 1.0000)
@@ -271,6 +272,7 @@ theme_override_styles/focus = SubResource("ButtonFocus")
 [node name="Start" type="Button" parent="Center/Card/Stack/Actions"]
 unique_name_in_owner = true
 text = "Start"
+disabled = true
 custom_minimum_size = Vector2(187, 72)
 theme_override_fonts/font = SubResource("ActionFace")
 theme_override_font_sizes/font_size = 28
@@ -279,6 +281,8 @@ theme_override_colors/font_focus_color = Color(1.0000, 0.9765, 0.9137, 1.0000)
 theme_override_colors/font_hover_color = Color(1.0000, 0.9765, 0.9137, 1.0000)
 theme_override_colors/font_pressed_color = Color(1.0000, 0.9765, 0.9137, 1.0000)
 theme_override_colors/font_hover_pressed_color = Color(1.0000, 0.9765, 0.9137, 1.0000)
+theme_override_colors/font_disabled_color = Color(0.40, 0.39, 0.34, 1)
+theme_override_styles/disabled = SubResource("CancelPressed")
 theme_override_styles/normal = SubResource("Start")
 theme_override_styles/hover = SubResource("StartHover")
 theme_override_styles/pressed = SubResource("StartPressed")

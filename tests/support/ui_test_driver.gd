@@ -39,6 +39,14 @@ func fail(message: String) -> bool:
 	return false
 
 
+func start_named_company() -> bool:
+	var field := root.gui_get_focus_owner() as LineEdit
+	if field == null:
+		return fail("Company name field did not receive focus")
+	root.push_text_input("Island Ferries")
+	return await press("Start")
+
+
 ## The loading screen is still over the game (it fades out once the world is built).
 func _loading() -> bool:
 	for c in root.get_children():
@@ -52,7 +60,7 @@ func enter_game(button_text: String, scene_path: String) -> bool:
 		return false
 	if not await press(button_text):
 		return false
-	if button_text in ["New company", "Mission sandbox"] and not await press("Start"):
+	if button_text in ["New company", "Mission sandbox"] and not await start_named_company():
 		return false
 	# The menu goes through the loading screen first. Bound the wait even if the
 	# control is disconnected.
