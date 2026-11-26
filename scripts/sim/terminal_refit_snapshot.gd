@@ -5,12 +5,12 @@ extends RefCounted
 
 
 static func capture(term: Terminal) -> Dictionary:
-	if term.refit_new or (term._assignments != null and term._assignments.has_moves()):
+	if term._assignments != null and term._assignments.has_moves():
 		return {}
 	var slips := []
 	for i in term.town.slips.size():
 		var slip := term.town.slips[i]
-		if slip.building:
+		if slip.building and (not term.refit_new or i != term.refit_slip):
 			return {}
 		(
 			slips
@@ -18,20 +18,21 @@ static func capture(term: Terminal) -> Dictionary:
 				{
 					"offset": term.town.slip_offset(i),
 					"tie_up": slip.tie_up,
+					"building": slip.building,
 					"routes": _route_keys(term, slip),
 					"size": slip.size,
 				}
 			)
 		)
 	var job := {}
-	if term.refit_stage != TerminalRefit.Stage.NONE:
+	if term.refit_stage != TerminalRefit.Stage.NONE and not term.refit_new:
 		job = {
 			"offset": term.town.slip_offset(term.refit_slip),
 			"stage": TerminalRefit.Stage.keys()[term.refit_stage],
 			"remaining": term.refit_remaining
 		}
 	return {
-		"version": 1,
+		"version": 2,
 		"seed": str(term.sim.map.map_seed),
 		"town": term.town.key,
 		"slips": slips,
@@ -50,7 +51,12 @@ static func _route_keys(term: Terminal, slip: MapData.Slip) -> Array[String]:
 ## Install into the same harbour topology. Validate every slip and the crane
 ## phase before fitting any guides or waking the project; restore never buys work.
 static func restore(record: Variant, term: Terminal) -> bool:
-	if not _matches_header(record, term) or term.refit_stage != TerminalRefit.Stage.NONE:
+	if not _matches_header(record, term):
+		return false
+	if (
+		term.refit_stage != TerminalRefit.Stage.NONE
+		and not (term.refit_new and record.job.is_empty())
+	):
 		return false
 	var sizes: Array[int] = []
 	sizes.resize(term.town.slips.size())
@@ -58,7 +64,7 @@ static func restore(record: Variant, term: Terminal) -> bool:
 		if not row is Dictionary:
 			return false
 		var i := _index(term, row.get("offset"))
-		if i < 0 or sizes[i] != 0 or not _matches_slip(row, term, i):
+		if i < 0 or sizes[i] != 0 or not _matches_slip(row, term, i, int(record.version)):
 			return false
 		sizes[i] = int(row.size)
 	var job: Dictionary = record.job
@@ -75,7 +81,7 @@ static func restore(record: Variant, term: Terminal) -> bool:
 		if sizes[i] != term.town.slips[i].size:
 			term.fit_slip(i, sizes[i])
 	if target >= 0:
-		term._refit.resume_widening(target, stage, job.remaining)
+		term._refit.resume_job(target, stage, job.remaining, TerminalRefit.WORK, false)
 	else:
 		term.refit_changed.emit()
 	return true
@@ -85,7 +91,7 @@ static func _matches_header(r: Variant, term: Terminal) -> bool:
 	return (
 		r is Dictionary
 		and _number(r.get("version"))
-		and r.version == 1
+		and (r.version == 1 or r.version == 2)
 		and r.get("town") == term.town.key
 		and r.get("seed") == str(term.sim.map.map_seed)
 		and r.get("job") is Dictionary
@@ -103,10 +109,15 @@ static func _index(term: Terminal, offset: Variant) -> int:
 	return -1
 
 
-static func _matches_slip(row: Dictionary, term: Terminal, index: int) -> bool:
+static func _matches_slip(row: Dictionary, term: Terminal, index: int, version: int) -> bool:
 	var slip := term.town.slips[index]
 	return (
-		not slip.building
+		(
+			not slip.building
+			if version == 1
+			else row.get("building") is bool and row.building == slip.building
+		)
+		and (not slip.building or row.get("size") == 1)
 		and row.get("tie_up") is bool
 		and row.tie_up == slip.tie_up
 		and row.get("routes") is Array
