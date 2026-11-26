@@ -10,13 +10,43 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	_midnight()
 	_run_case(false)
 	_run_case(true)
 	finish()
 
 
+func _midnight() -> void:
+	var live := Simulation.new(Callable())
+	var restored := Simulation.new(Callable())
+	live.rng.seed = 123
+	restored.rng.seed = 123
+	live.day = 19
+	live.minutes = 1439.875
+	live.rng.randi()
+	var record = JSON.parse_string(
+		JSON.stringify(CompanyClockSnapshot.capture(live), "", true, true)
+	)
+	check(CompanyClockSnapshot.restore(record, restored), "Read the minute before midnight")
+	var half_minute := 0.5 / Units.MINUTES_PER_SECOND
+	live._process(half_minute)
+	restored._process(half_minute)
+	check(live.day == 20 and restored.day == 20, "Both companies roll over exactly once")
+	check(
+		restored.minutes == 0.375 and restored.minutes == live.minutes,
+		"Midnight preserves the fractional remainder"
+	)
+	check(restored.rng.randi() == live.rng.randi(), "Same next random draw across midnight")
+	live.free()
+	restored.free()
+
+
 func _run_case(reverse: bool) -> void:
 	var live := _world()
+	# Move past the rebuilt region's initial calendar and random sequence.
+	live.day += 3
+	live.minutes += 0.375
+	live.rng.randi()
 	var ferry := live.ferries[0]
 	if reverse:
 		ferry.start_staggered(2)
@@ -130,8 +160,7 @@ func _save(ferry: Ferry) -> Dictionary:
 		"ledger": sim.ledger.snapshot(sim.map.routes),
 		"position": [ferry.position.x, ferry.position.y, ferry.position.z],
 		"heading": ferry.rotation.y,
-		"day": sim.day,
-		"minutes": sim.minutes,
+		"clock": CompanyClockSnapshot.capture(sim),
 	}
 	return JSON.parse_string(JSON.stringify(record, "", true, true))
 
@@ -140,8 +169,8 @@ func _compare_resume(saved: Dictionary, expected: Dictionary) -> void:
 	var sim := _world()
 	var ferry := sim.ferries[0]
 	sim.ledger = CompanyLedgerSnapshot.restore(saved.ledger, sim.map.routes)
-	sim.day = int(saved.day)
-	sim.minutes = saved.minutes
+	_check_clock_rejections(saved.clock, sim)
+	check(CompanyClockSnapshot.restore(saved.clock, sim), "Restore the company clock and RNG")
 	var wrong_call: Dictionary = saved.voyage.duplicate(true)
 	wrong_call.call = 1 - int(wrong_call.call)
 	check(
@@ -182,6 +211,23 @@ func _compare_resume(saved: Dictionary, expected: Dictionary) -> void:
 	sim.free()
 
 
+func _check_clock_rejections(record: Dictionary, sim: Simulation) -> void:
+	var before := CompanyClockSnapshot.capture(sim)
+	for change: Dictionary in [
+		{"day": -1},
+		{"minutes": 1440},
+		{"minutes": NAN},
+		{"version": 2},
+		{"seed": "wrong region"},
+		{"rng_state": 123.0},
+		{"rng_state": "9223372036854775808"}
+	]:
+		var damaged := record.duplicate()
+		damaged.merge(change, true)
+		check(not CompanyClockSnapshot.restore(damaged, sim), "Reject damaged clock %s" % change)
+		check(CompanyClockSnapshot.capture(sim) == before, "Failed restore preserves clock and RNG")
+
+
 func _arrive_and_board_again(ferry: Ferry) -> Dictionary:
 	# Place one new paying car at the far terminal to prove the next transaction.
 	var next := _enqueue(ferry.destination(), VehicleFactory.from_parts(false, "sedan_compact", 1))
@@ -206,6 +252,7 @@ func _arrive_and_board_again(ferry: Ferry) -> Dictionary:
 		"unloading": unloading,
 		"trips": ferry.trips,
 		"arrival_terminal": ferry.here().town.key,
+		"next_random_draw": ferry.sim.rng.randi(),
 		"last_crossing": ferry.last_crossing,
 		"last_fuel": ferry.last_crossing_fuel,
 	}
