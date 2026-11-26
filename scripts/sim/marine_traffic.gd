@@ -210,7 +210,9 @@ func _find_corridors() -> void:
 			if span1.x > span1.y or span2.x > span2.y:
 				continue
 			var c := Corridor.new()
-			c.key = "%d-%d" % [r1.id, r2.id]
+			var route_keys := [r1.key, r2.key]
+			route_keys.sort()
+			c.key = JSON.stringify(["crossing", route_keys])
 			c.span[r1.id] = span1
 			c.span[r2.id] = span2
 			c.docked[r1.id] = w1[1]
@@ -232,7 +234,7 @@ func _find_corridors() -> void:
 		)
 		for end_a in [true, false]:
 			var c := Corridor.new()
-			c.key = "%d%s" % [r.id, "a" if end_a else "b"]
+			c.key = JSON.stringify(["approach", r.key, sim.map.towns[r.a if end_a else r.b].key])
 			c.span[r.id] = Vector2(-60.0, reach) if end_a else Vector2(r.length - reach, r.length + 60.0)
 			c.docked[r.id] = Vector2i(1, 0) if end_a else Vector2i(0, 1)
 			c.boats = boats

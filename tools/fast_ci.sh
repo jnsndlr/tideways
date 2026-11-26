@@ -95,6 +95,7 @@ check terminal-holding-restore test --script tests/session/terminal_holding_snap
 check terminal-walking-queue-restore test --script tests/session/terminal_walking_queue_snapshot_test.gd
 check crossing-restore test --script tests/session/ferry_crossing_snapshot_test.gd
 check company-network test --script tests/session/company_network_test.gd
+check company-restore test --script tests/session/company_snapshot_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
 check town-growth test --fixed-fps 30 --script tests/simulation/town_growth_test.gd
 check coastal-town test --script tests/world/coastal_town_test.gd
