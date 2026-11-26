@@ -5,6 +5,7 @@ const PLATE := preload("res://assets/textures/menu/terminal_board.jpg")
 const PAINT := preload("res://assets/textures/menu/printed_flaps.jpg")
 const WALL := preload("res://assets/textures/menu/ferry_terminal.jpg")
 const PORTRAIT := preload("res://assets/textures/menu/terminal_portrait.jpg")
+const HarborWindow := preload("res://scripts/ui/harbor_window.gd")
 const FLIP := preload("res://scripts/ui/departure_flap.gdshader")
 # Left and right endpoints of each row's top, hinge, and bottom, in art pixels.
 const RAILS := [
@@ -22,6 +23,7 @@ var _ink: Array[Label] = []
 var _turns: Tween
 
 @onready var backdrop: TextureRect = $"../Terminal"
+@onready var harbor: HarborWindow = $"../Terminal/Harbor"
 @onready var cutout: Polygon2D = $PortraitBoard
 
 
@@ -151,6 +153,7 @@ func _layout() -> void:
 	var art_size := backdrop.texture.get_size()
 	var fill := maxf(view.x / art_size.x, view.y / art_size.y)
 	backdrop.size = art_size * fill
+	harbor.fit_art(portrait, fill)
 	backdrop.position = (view - backdrop.size) * 0.5
 	cutout.visible = detached
 	if detached:
