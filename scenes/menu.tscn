@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://scripts/ui/departure_board.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/ui/harbor_window.gd" id="3"]
 [ext_resource type="Shader" path="res://scripts/ui/harbor_glass.gdshader" id="4"]
+[ext_resource type="VideoStreamTheora" path="res://assets/textures/menu/harbor_cycle.ogv" id="5"]
 
 [sub_resource type="ShaderMaterial" id="HarborGlass"]
 resource_local_to_scene = true
@@ -48,6 +49,8 @@ expand_mode = 1
 [node name="Harbor" type="VideoStreamPlayer" parent="Terminal"]
 material = SubResource("HarborGlass")
 mouse_filter = 2
+stream = ExtResource("5")
+autoplay = true
 expand = true
 loop = true
 script = ExtResource("3")
