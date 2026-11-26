@@ -47,6 +47,10 @@ func _process(_delta: float) -> bool:
 		Scenes.go(self, Scenes.MENU)
 		_wait = SETTLE_FRAMES
 		return false
+	return _at_menu()
+
+
+func _at_menu() -> bool:
 	if current_scene == null or current_scene.scene_file_path != Scenes.MENU:
 		return _fail("The menu did not come back after visit %d." % _visit)
 	var menu_nodes := get_node_count()
@@ -58,8 +62,9 @@ func _process(_delta: float) -> bool:
 		if _regional_guide_cache.get_ref() != null:
 			return _fail("Visit %d retained its regional slip-guide mesh cache." % _visit)
 		if menu_nodes != _initial_menu_nodes or orphans > _initial_orphans:
-			return _fail("Menu after visit %d has %d nodes and %d orphans (initially %d and %d)." % [
-				_visit, menu_nodes, orphans, _initial_menu_nodes, _initial_orphans])
+			var counts := [_visit, menu_nodes, orphans, _initial_menu_nodes, _initial_orphans]
+			var message := "Visit %d has %d menu nodes and %d orphans (initially %d and %d)."
+			return _fail(message % counts)
 		var s := {
 			"objects": int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 			"resources": int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
