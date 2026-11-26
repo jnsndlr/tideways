@@ -46,6 +46,7 @@ if [[ $suite == traffic ]]; then
   check marine-traffic test --fixed-fps 30 --script tests/traffic/vessel_soak_test.gd -- --verify --seed=123 --frames=20000
   exit 0
 fi
+check vehicle-contact-samples test --script tests/traffic/vehicle_contact_samples_test.gd
 check session-launch-options test --script tests/session/session_launch_options_test.gd
 check persistence test --script tests/session/persistence_test.gd
 check ferry-assignment test --script tests/simulation/fast_ferry_test.gd
