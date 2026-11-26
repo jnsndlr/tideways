@@ -3003,11 +3003,13 @@ func _marina_cliff_stair(m: MapData.Marina, kit: Node3D) -> void:
 		var lane := face
 		for it in 3:
 			rp = maxi(1, ceili((t - DockKit.HIGH) / STAIR_RISE))
-			length = rp * DockKit.RUN + (ceili(float(rp) / STAIR_FLIGHT) - 1) * DockKit.MAIN_WIDTH
+			length = DockKit.RUN * (1 + mini(rp, STAIR_FLIGHT))
 			var g := 0.0
 			for du in range(2, 14, 2):
-				g = maxf(g, terrain.height_v(xf * Vector3(side * (v0 + length + DockKit.MAIN_WIDTH * 0.5), 0, face - du)))
-			t = maxf(g, DockKit.HIGH + STAIR_RISE)
+				g = maxf(g, terrain.height_v(xf * Vector3(side * (v0 + DockKit.RUN), 0, face - du)))
+			t = maxf(g, top)
+		rp = maxi(1, ceili((t - DockKit.HIGH) / STAIR_RISE))
+		length = DockKit.RUN * (1 + mini(rp, STAIR_FLIGHT))
 		var v := 0.0
 		while v <= length + DockKit.MAIN_WIDTH:
 			var uu := face + 12.0
@@ -3026,20 +3028,32 @@ func _marina_cliff_stair(m: MapData.Marina, kit: Node3D) -> void:
 	var mb := MeshBuilder.new()
 	mb.xform = xf
 	var post := Color(0.3, 0.25, 0.2)
-	var p := Vector3(sv * v0, DockKit.HIGH, su)
+	# Flights switch back toward the face, each lane LANE seaward of the next,
+	# so the last flight ends against the rock. A level deck off the pier keeps
+	# the returning flights and the deck in clear of the pier itself.
+	const LANE := 8.0
+	var lanes := ceili(float(ramps) / STAIR_FLIGHT)
+	var p: Vector3 = kit.add_deck(DockKit.Width.MAIN, Vector3(sv * v0, DockKit.HIGH, su + (lanes - 1) * LANE), Vector2(sv, 0), DockKit.Support.PILES)
+	var dir := sv
 	var done := 0
 	while true:
 		for k in mini(STAIR_FLIGHT, ramps - done):
-			p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(sv, 0), p.y + rise)
+			p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(dir, 0), p.y + rise)
 			done += 1
 			for e: float in [-1.0, 1.0]:
 				mb.box(Vector3(p.x, (p.y - 0.25) * 0.5 - 0.5, p.z + e * (DockKit.MAIN_WIDTH * 0.5 - 0.2)), Vector3(0.25, p.y + 0.75, 0.25), post)
 		if done >= ramps:
 			break
-		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(sv, 0), DockKit.Support.PILES)
-	# Deck in from the top of the run until it meets the clifftop.
-	var b := Vector3(p.x + sv * DockKit.MAIN_WIDTH * 0.5, p.y, su - DockKit.MAIN_WIDTH * 0.5)
-	for i in 5:
+		# A landing two decks long carries the turn shoreward to the next lane.
+		var l := Vector3(p.x + dir * DockKit.MAIN_WIDTH * 0.5, p.y, p.z + DockKit.MAIN_WIDTH * 0.5)
+		for i in 2:
+			l = kit.add_deck(DockKit.Width.MAIN, l, Vector2(0, -1), DockKit.Support.PILES)
+		p = Vector3(p.x, p.y, p.z - LANE)
+		dir = -dir
+	# Deck in from the top of the run until it meets the clifftop, starting
+	# level with the last ramp's far edge so the turn has no missing corner.
+	var b := Vector3(p.x + dir * DockKit.MAIN_WIDTH * 0.5, p.y, p.z + DockKit.MAIN_WIDTH * 0.5)
+	for i in 6:
 		if terrain.height_v(xf * Vector3(b.x, 0, b.z)) >= p.y - 0.6:
 			break
 		b = kit.add_deck(DockKit.Width.MAIN, b, Vector2(0, -1), DockKit.Support.PILES)
@@ -3145,6 +3159,8 @@ func _build_quays() -> void:
 			glows.pool(Vector3(fv * 0.85, deck + 0.15, (back + face) * 0.5 + 3.0), GlowBuilder.LED, 22.5, 0.22)
 			var top := mb.xform * (pole + Vector3(0, 21.6, 0.9))
 			_perch(top, top, 0.0, Seagulls.Kind.LAMP)
+		# The clifftop never drops below what stands behind the face: sampling
+		# the stair's far end can land off the island, in the sea.
 		_perch(mb.xform * Vector3(-hh + 3.0, deck + 0.48, face - 1.05), mb.xform * Vector3(hh - 3.0, deck + 0.48, face - 1.05),
 			0.0, Seagulls.Kind.DOLPHIN)
 		_add_mesh(mb.commit(), q.title(map).capitalize())
