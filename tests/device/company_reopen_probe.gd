@@ -8,11 +8,16 @@ extends "res://tests/support/ui_test_driver.gd"
 ## and set its main loop to a registered subclass of this probe. Once the
 ## record report passes, terminate the app and relaunch with phase resume.
 ## The reports and isolated slot share the user://reopen-<run>-<map> prefix.
+## On the recording launch, set TIDEWAYS_REOPEN_MIN_TRIPS=3 to wait for three
+## new fleet arrivals, or TIDEWAYS_REOPEN_EDIT_SERVICE=1 on the authored opening
+## to edit a departure and pace through the ferry's Schedule tab before saving.
 ## Production export presets exclude tests.
 
 var _phase := OS.get_environment("TIDEWAYS_REOPEN_PHASE")
 var _run_id := OS.get_environment("TIDEWAYS_REOPEN_RUN")
 var _map := OS.get_environment("TIDEWAYS_REOPEN_MAP")
+var _min_trips := OS.get_environment("TIDEWAYS_REOPEN_MIN_TRIPS").to_int()
+var _edit_service := OS.get_environment("TIDEWAYS_REOPEN_EDIT_SERVICE") == "1"
 var _prefix: String
 var _control := {}
 var _report := {}
@@ -93,10 +98,13 @@ func _at_reopen(session: WorldSession) -> void:
 
 func _record(session: WorldSession) -> void:
 	session.hud.set_speed(2)
+	var started := _fleet_trips(session.sim)
 	var ferry: Ferry
 	var deadline := Time.get_ticks_msec() + 240000
 	while Time.get_ticks_msec() < deadline and ferry == null:
 		await process_frame
+		if _fleet_trips(session.sim) - started < _min_trips:
+			continue
 		for boat in session.sim.ferries:
 			if (
 				boat.state == Ferry.State.SAILING
@@ -109,6 +117,12 @@ func _record(session: WorldSession) -> void:
 	if ferry == null:
 		_fail_review("No paid occupied ferry reached the middle of its crossing")
 		return
+	_report.fleet_trips_at_start = started
+	_report.new_fleet_trips = _fleet_trips(session.sim) - started
+	if _edit_service:
+		if not await _edit_opening_service(session, ferry):
+			_fail_review("Could not apply the edited departure and pace through the Schedule tab")
+			return
 	if not await press("MENU"):
 		_fail_review("Cannot reach the HUD menu")
 		return
@@ -133,6 +147,62 @@ func _record(session: WorldSession) -> void:
 	_write_report()
 	var observed := await _follow_receipts(session.sim, before.ledger)
 	_finish(session, observed)
+
+
+func _fleet_trips(sim: Simulation) -> int:
+	var total := 0
+	for ferry in sim.ferries:
+		total += ferry.trips
+	return total
+
+
+func _service(ferry: Ferry) -> Dictionary:
+	return {
+		"departures": ferry.timetable.duplicate(),
+		"pace": ferry.pace,
+		"captain": ferry.captain.id,
+		"next_captain": ferry.next_captain.id,
+	}
+
+
+func _edit_opening_service(session: WorldSession, ferry: Ferry) -> bool:
+	if _map != "opening" or not ferry.timetable.is_empty():
+		return false
+	var prior := _service(ferry)
+	session.hud.set_speed(0)
+	session.hud.select_ferry(ferry)
+	var panel: FerryPanel = session.hud._ferry_panel
+	var tab := panel._tab_buttons[FerryPanel.TAB_NAMES.find("Schedule")]
+	if not await _press_panel_button(panel, tab):
+		return false
+	var editor := panel._schedule_editor
+	if not await _press_panel_button(panel, editor._mode_timed):
+		return false
+	var step := editor._sailings.find_child("Step+15", true, false) as Button
+	if not await _press_panel_button(panel, step) or editor._times != [375]:
+		return false
+	for button in [editor._pace_buttons[FerryPace.ECONOMY], editor._apply]:
+		if not await _press_panel_button(panel, button):
+			return false
+	session.hud.clear_selection()
+	session.hud.set_speed(2)
+	_report.service_before_edit = prior
+	return ferry.timetable == [375] and ferry.pace == FerryPace.ECONOMY
+
+
+func _press_panel_button(panel: FerryPanel, button: Button) -> bool:
+	if button == null or button.disabled:
+		return false
+	await process_frame
+	await process_frame
+	panel._scroll.ensure_control_visible(button)
+	await process_frame
+	await process_frame
+	if not button.is_visible_in_tree():
+		return false
+	var clicked := click_control(button, button.size * 0.5, button.text)
+	await process_frame
+	return clicked
 
 
 func _resume(session: WorldSession) -> void:
@@ -168,6 +238,8 @@ func _checkpoint(ferry: Ferry) -> Dictionary:
 		{
 			"hull": ferry.fleet_key,
 			"seed": str(sim.map.map_seed),
+			"service": _service(ferry),
+			"fleet_trips": _fleet_trips(sim),
 			"origin": ferry.here().town.key,
 			"destination": ferry.destination().town.key,
 			"state": ferry.state,
