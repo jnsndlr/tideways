@@ -10,7 +10,7 @@ static func rebuild(
 	var opening := {}
 	for ferry in sim.ferries:
 		opening[ferry.fleet_key] = ferry
-	var added := false
+	var service_changed := false
 	for hull in fleet:
 		if not hull.purchased:
 			if not opening.erase(hull.key):
@@ -18,10 +18,19 @@ static func rebuild(
 			continue
 		if version < 4 or not _restore_hull(hull, voyages.get(hull.key), sim, version):
 			return false
-		added = true
+		service_changed = true
 	if not opening.is_empty():
 		return false
-	if added:
+	for ferry in sim.ferries:
+		var voyage = voyages.get(ferry.fleet_key)
+		if voyage is Dictionary and voyage.has("lay_up"):
+			if (
+				voyage.get("phase") in ["delivery", "delivered"]
+				or not FerryLayUpSnapshot.prepare(voyage.lay_up, voyage.get("service"), ferry)
+			):
+				return false
+			service_changed = true
+	if service_changed:
 		for term: Terminal in sim.terminals.values():
 			var destinations := sim._lane_destinations(term)
 			var keys: Array[int] = destinations.duplicate()

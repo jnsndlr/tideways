@@ -22,7 +22,9 @@ static func _fleet_service(sim: Simulation) -> Dictionary:
 	var service := {}
 	for ferry in sim.ferries:
 		if not ferry.purchased:
-			service[ferry.fleet_key] = [ferry.route.key, ferry.fc.size, ferry.stops.duplicate()]
+			service[ferry.fleet_key] = [
+				ferry.route.key, ferry.fc.size, ferry.itinerary.service_stops().duplicate()
+			]
 	return service
 
 

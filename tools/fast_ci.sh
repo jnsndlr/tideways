@@ -101,6 +101,7 @@ check company-restore test --script tests/session/company_snapshot_test.gd
 check purchased-fleet-restore test --script tests/session/purchased_fleet_snapshot_test.gd
 check inbound-delivery-restore test --script tests/session/inbound_delivery_snapshot_test.gd
 check sale-tow-restore test --script tests/session/sale_tow_snapshot_test.gd
+check lay-up-restore test --script tests/session/ferry_lay_up_snapshot_test.gd
 check outbound-traffic-restore test --script tests/session/outbound_traffic_snapshot_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
 check town-growth test --fixed-fps 30 --script tests/simulation/town_growth_test.gd
