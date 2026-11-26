@@ -1,7 +1,14 @@
 extends "res://tests/support/ui_test_driver.gd"
 ## Two separate process launches. The recording follows the uninterrupted game
 ## past Save Game. The second launch reopens that same slot through Continue.
-## Review exports include this script and the UI driver. Retail exports exclude tests.
+## Set TIDEWAYS_REOPEN_MAP to sandbox, opening or mission, TIDEWAYS_REOPEN_RUN
+## to a fresh identifier, and TIDEWAYS_REOPEN_PHASE to record. On desktop, use
+## godot --headless --fixed-fps 30 --script res://tests/device/company_reopen_probe.gd.
+## For a physical iPad, include the probe and UI driver in a review-only export
+## and set its main loop to a registered subclass of this probe. Once the
+## record report passes, terminate the app and relaunch with phase resume.
+## The reports and isolated slot share the user://reopen-<run>-<map> prefix.
+## Production export presets exclude tests.
 
 var _phase := OS.get_environment("TIDEWAYS_REOPEN_PHASE")
 var _run_id := OS.get_environment("TIDEWAYS_REOPEN_RUN")
