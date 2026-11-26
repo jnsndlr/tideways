@@ -290,11 +290,13 @@ func _room_to(o: Vehicle) -> float:
 	if minf(absf(rel.dot(right)), absf(mid.dot(right))) > FOLLOW_WIDTH:
 		return INF
 	# Ahead of it, and (side by side at a merge, each might look ahead of the other)
-	# not also behind it as `o` sees it, or else the older one goes first.
+	# not also behind it as `o` sees it. In a tie the assigned leader goes first,
+	# then creation order decides between unrelated vehicles.
 	if mid.dot(_g_fwd) <= 0.0:
 		return INF
-	if mid.dot(o._g_fwd) <= 0.0 and o.get_instance_id() > get_instance_id():
-		return INF
+	if mid.dot(o._g_fwd) <= 0.0 and o != leader:
+		if o.leader == self or o.get_instance_id() > get_instance_id():
+			return INF
 	return maxf(0.0, rel.dot(_g_fwd) - FOLLOW_GAP)
 
 

@@ -32,6 +32,7 @@ func run() -> void:
 	check_queue_parking()
 	check_parking_trailer_clearance()
 	check_boarding_approaches()
+	check_merge_priority()
 	check_world_isolation()
 	RoadVehicleModel.authored = original_mode
 	if failures == 0:
@@ -187,6 +188,26 @@ func check_world_isolation() -> void:
 	first.free()
 	expect(second.moving_vehicles == [other_world_car], "Closing one world changed the other world's traffic")
 	second.free()
+
+
+## The two cars see each other ahead as their lanes converge. The older car can
+## have been sent second by the ferry.
+func check_merge_priority() -> void:
+	var sim := make_world()
+	var follower := moving_car(sim, 0.0)
+	var lead := moving_car(sim, 0.2)
+	for car in [follower, lead]:
+		car.center_offset = 0
+		car.length = 4
+	lead.position.x = 2.0
+	lead.rotation.y = -0.6
+	lead._cache_ends()
+	follower._cache_ends()
+	expect(is_inf(follower._room_ahead()), "Unassigned merging cars use creation order")
+	follower.leader = lead
+	expect(is_zero_approx(follower._room_ahead()), "Wait for the assigned leader at the merge")
+	expect(is_inf(lead._room_ahead()), "The leader must be free to clear that merge")
+	sim.free()
 
 
 func check_queue_parking() -> void:
