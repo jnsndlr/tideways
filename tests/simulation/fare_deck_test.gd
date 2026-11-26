@@ -9,6 +9,7 @@ func check(condition: bool, message: String) -> void:
 
 
 func _initialize() -> void:
+	_check_wing_passages()
 	_check_fare_settings()
 	_check_pace()
 	_check_operating_rates()
@@ -165,6 +166,27 @@ func _initialize() -> void:
 	if failures == 0:
 		print("TEST PASSED")
 	quit(1 if failures else 0)
+
+
+func _check_wing_passages() -> void:
+	for size: int in [4, 5]:
+		var hull := FerryClass.of(size)
+		for lane in hull.lanes:
+			if hull.upper.has(lane):
+				continue
+			var wing := not hull.wing_via.is_empty() and hull.low.has(lane)
+			check(
+				hull.uses_wing_passage(hull.cols[lane]) == wing,
+				"Only under-ramp wing lanes take the wing passage on %s" % hull.label
+			)
+	var jumbo := FerryClass.of(5)
+	if not jumbo.jumbo:
+		return
+	var outer_tunnel := jumbo.cols[jumbo.tall[0]]
+	check(
+		absf(outer_tunnel) > jumbo.throat_x and not jumbo.uses_wing_passage(outer_tunnel),
+		"The outer through lane narrows at the apron without driving back under a ramp"
+	)
 
 
 func _check_fare_settings() -> void:

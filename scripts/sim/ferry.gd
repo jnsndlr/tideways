@@ -807,7 +807,7 @@ func _drive_off(car: Vehicle) -> void:
 		# Off a tween deck: along its lane to the ramp's top, down it, and in to the end.
 		path.append_array(_ramp_path(x, signf(exit_z), true))
 		x = clampf(x, -fc.throat_x, fc.throat_x)
-	elif fc.wing_out_z > 0.0 and absf(x) > fc.throat_x:
+	elif fc.uses_wing_passage(x):
 		# Out of a wing under a tween deck: along it, then in past the ramp's foot.
 		path.append_array(_wing_path(x, signf(exit_z), true))
 		x = clampf(x, -fc.throat_x, fc.throat_x)
@@ -1059,7 +1059,7 @@ func _drive_on(car: Vehicle, term: Terminal) -> void:
 		# Up to a tween deck: in over the end, up the ramp on its side, along to the slot.
 		path.append(_over_apron(Vector3(clampf(local.x, -fc.throat_x, fc.throat_x), Layout.DECK_Y, entry_z)))
 		path.append_array(_ramp_path(local.x, signf(entry_z), false))
-	elif fc.wing_out_z > 0.0 and absf(local.x) > fc.throat_x:
+	elif fc.uses_wing_passage(local.x):
 		# Into a wing under a tween deck: in past the ramp's foot, then along it.
 		path.append(_over_apron(Vector3(clampf(local.x, -fc.throat_x, fc.throat_x), Layout.DECK_Y, entry_z)))
 		path.append_array(_wing_path(local.x, signf(entry_z), false))

@@ -1,20 +1,22 @@
 extends SceneTree
 ## Headless check for vehicles driving into each other: runs a map at 4x and counts
 ## pairs of vehicles (bumper-to-tail capsules a car wide) that overlap, printing a NEW
-## line the first time each pair of models does, those that stay overlapped for 4+
-## checks, and any vehicle under way held still for 150 checks (STALL, with what
-## blocks it).
+## line for each model pair, consecutive contacts for actual vehicles, and any vehicle
+## held still for 150 checks. Add --mesh-contacts to probe rendered surfaces.
 ##
 ##   godot --headless --path . --fixed-fps 30 \
 ##     --script tests/traffic/vehicle_overlap_test.gd -- --seed=123 --frames=6000
 
+const ContactSamples := preload("res://tests/traffic/vehicle_contact_samples.gd")
 const HALF_W := 0.9
 
 var main: Node
 var frames := 0
 var max_frames := 6000
 var pairs := {}
-var hits := 0
+var proximity := ContactSamples.new()
+var surfaces := ContactSamples.new()
+var check_surfaces := false
 var worst := 0.0
 var vehicles_seen := 0
 var _last_pos := {}
@@ -23,6 +25,7 @@ var stalls := 0
 
 
 func _initialize() -> void:
+	check_surfaces = "--mesh-contacts" in OS.get_cmdline_user_args()
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--frames="):
 			max_frames = int(a.substr(9))
@@ -44,13 +47,21 @@ func _process(_delta: float) -> bool:
 		Engine.time_scale = 4.0
 	if frames >= max_frames:
 		print("stalls %d" % stalls)
-		print("vehicles max %d, overlapping pairs %d, pair-frames %d, worst depth %.2f" % [vehicles_seen, pairs.size(), hits, worst])
+		print(
+			(
+				"vehicles max %d, overlapping pairs %d, pair-frames %d, worst depth %.2f"
+				% [vehicles_seen, pairs.size(), proximity.observations, worst]
+			)
+		)
 		var lasting := 0
 		for p in pairs.keys():
 			if pairs[p] >= 4:
 				lasting += 1
 				print("  ", p, " x", pairs[p])
-		print("lasting (>= 4 checks) %d" % lasting)
+		print("model-pair labels with >= 4 observations %d" % lasting)
+		_report_episodes("proximity", proximity)
+		if check_surfaces:
+			_report_episodes("mesh surface", surfaces)
 		if "--verify" in OS.get_cmdline_user_args():
 			if stalls > 0 or vehicles_seen == 0:
 				push_error("Expected traffic to run without stalled vehicles")
@@ -60,6 +71,9 @@ func _process(_delta: float) -> bool:
 		return true
 	if frames % 5 != 0:
 		return false
+	proximity.begin_sample()
+	if check_surfaces:
+		surfaces.begin_sample()
 	var vs: Array = []
 	_collect(main.sim, vs)
 	vehicles_seen = maxi(vehicles_seen, vs.size())
@@ -104,6 +118,31 @@ func _process(_delta: float) -> bool:
 					print("NEW %s  in %s/%s  along %.1f lat %.1f  len %.1f/%.1f  slots %d/%d  leader %s  path %d/%d" % [key, a.get_parent().name, b.get_parent().name,
 						rel.dot(fa), rel.cross(fa), a.length, b.length, a.slots, b.slots, a.leader == b or b.leader == a, a.path.size(), b.path.size()])
 				pairs[key] = pairs.get(key, 0) + 1
-				hits += 1
+				var a_id := a.get_instance_id()
+				var b_id := b.get_instance_id()
+				if proximity.record(a_id, b_id) == ContactSamples.LASTING:
+					print("SUSTAINED frame %d %s ids %d/%d" % [frames, key, a_id, b_id])
+				if check_surfaces:
+					var hit := ContactSamples.surfaces_intersect(a, b)
+					if hit:
+						surfaces.record(a_id, b_id)
+					print(
+						"SURFACES frame %d %s ids %d/%d contact %s" % [frames, key, a_id, b_id, hit]
+					)
 				worst = maxf(worst, 2.0 * HALF_W - d)
 	return false
+
+
+func _report_episodes(label: String, samples: ContactSamples) -> void:
+	print(
+		(
+			"%s observations %d, episodes >= %d consecutive samples %d, longest %d"
+			% [
+				label,
+				samples.observations,
+				ContactSamples.LASTING,
+				samples.lasting_episodes,
+				samples.longest
+			]
+		)
+	)
