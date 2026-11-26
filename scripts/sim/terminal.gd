@@ -820,7 +820,7 @@ func _spawn_car() -> void:
 		turned_recent += 1.0
 		car.queue_free()
 		return
-	lane.enroute += car.slots
+	lane.reserve_arrival(car.get_instance_id(), car.slots, false)
 	if lane == extra_lane:
 		_queue_changed()
 	var path := _inbound[sim.rng.randi() % _inbound.size()].duplicate()
@@ -835,6 +835,7 @@ func _spawn_car() -> void:
 
 
 func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> void:
+	lane.approaching.erase(car.get_instance_id())
 	if not changing_lanes:
 		car.lot_arrival = sim.abs_minutes()
 	# A ferry can cast off while overflow traffic is still driving to this lot.
@@ -1161,7 +1162,7 @@ func _redirect_guest(car: Vehicle) -> void:
 	car.leader = null
 	var own := _pick_lane(car.dest, car.slots)
 	if own != null:
-		own.enroute += car.slots
+		own.reserve_arrival(car.get_instance_id(), car.slots, true)
 		car.drive(_lot_path(car.lane_v, own.v), _on_car_reached_lot.bind(own, true))
 	else:
 		turned_recent += 1.0

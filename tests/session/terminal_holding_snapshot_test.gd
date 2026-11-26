@@ -43,6 +43,9 @@ func _run() -> void:
 	_compare(open, open, expected, false)
 	_check_json_boundaries()
 	_check_staging()
+	_check_version_one()
+	_check_moving_traffic()
+	_check_two_arrivals()
 	_check_overnight_wait()
 	finish()
 
@@ -98,6 +101,178 @@ func _check_staging() -> void:
 	check(_record(target).holding == draining, "Keep the crew's actual physical staging position")
 	fresh.free()
 	live.free()
+
+
+func _check_version_one() -> void:
+	var live := _world()
+	var port: Terminal = live.terminals[0]
+	var snapshot := _record(port).holding as Dictionary
+	snapshot.version = 1
+	for group: Array in snapshot.lanes.values():
+		for row: Dictionary in group:
+			row.erase("approaching")
+	var fresh := _world()
+	check(
+		TerminalHoldingSnapshot.restore(snapshot, fresh.terminals[0], VehicleFactory.from_parts),
+		"Version-one settled lots restore without moving traffic fields"
+	)
+	fresh.free()
+	live.free()
+
+
+func _check_moving_traffic() -> void:
+	var live := _world()
+	var port: Terminal = live.terminals[0]
+	port._spawn_car()
+	check(live.moving_vehicles.size() == 1, "A road arrival reserves a real lane")
+	if live.moving_vehicles.is_empty():
+		live.free()
+		return
+	var car: Vehicle = live.moving_vehicles.front()
+	for transfer in [false, true]:
+		if transfer:
+			var previous := car.lot_arrival
+			var source := port.lane_at_offset(car.lane_v)
+			source.queue.erase(source.queue.back())
+			port._redirect_guest(car)
+			check(car.lot_arrival == previous, "Changing lanes keeps the original arrival")
+		car._process(0.05)
+		for parking in [false, true]:
+			_compare_moving(port, car, parking)
+			if not parking:
+				for frame in 4000:
+					if _reserved_lane(port, car) == null:
+						break
+					car._process(0.05)
+		for frame in 4000:
+			if car.path.is_empty():
+				break
+			car._process(0.05)
+		check(car.path.is_empty(), "Uninterrupted vehicle finishes parking")
+	live.free()
+
+
+func _check_two_arrivals() -> void:
+	var live := _world()
+	var port: Terminal = live.terminals[0]
+	for group: Array in port.lanes.values():
+		for lane: TerminalLane in group:
+			while not lane.queue.is_empty():
+				instance_from_id(lane.take_front()).free()
+	for i in 2:
+		port._spawn_car()
+	check(live.moving_vehicles.size() == 2, "Two road arrivals are in flight")
+	if live.moving_vehicles.size() != 2:
+		live.free()
+		return
+	var fresh := _world(true)
+	var target: Terminal = fresh.terminals[fresh.map.town_by_key(port.town.key).id]
+	check(
+		TerminalHoldingSnapshot.restore(_record(port).holding, target, VehicleFactory.from_parts),
+		"Restore two active vehicles across physical lanes"
+	)
+	var original: Array[Vehicle] = live.moving_vehicles.duplicate()
+	var copy: Array[Vehicle] = fresh.moving_vehicles.duplicate()
+	if copy.size() == 2:
+		for frame in 4000:
+			for i in 2:
+				if not original[i].path.is_empty():
+					original[i]._process(0.05)
+				if not copy[i].path.is_empty():
+					copy[i]._process(0.05)
+			if live.moving_vehicles.is_empty() and fresh.moving_vehicles.is_empty():
+				break
+		for i in 2:
+			check(original[i].path.is_empty() and copy[i].path.is_empty(), "Both arrivals complete")
+			check(
+				(
+					original[i].model == copy[i].model
+					and original[i].position.is_equal_approx(copy[i].position)
+				),
+				"Keep vehicle processing order and final parking position"
+			)
+		check(
+			_record(target).holding == _record(port).holding,
+			"Both runs end with the same lane reservations, wait times and queue order"
+		)
+	else:
+		check(false, "Restore both arrivals")
+	fresh.free()
+	live.free()
+
+
+func _compare_moving(port: Terminal, car: Vehicle, parking: bool) -> void:
+	var saved: Dictionary = _record(port).holding
+	var fresh := _world(true)
+	fresh.minutes = port.sim.minutes
+	var target: Terminal = fresh.terminals[fresh.map.town_by_key(port.town.key).id]
+	var saved_cash := fresh.ledger.cash
+	var damaged := saved.duplicate(true)
+	for group: Array in damaged.lanes.values():
+		for row: Dictionary in group:
+			for entry: Dictionary in row.vehicles + row.approaching:
+				if entry.has("motion"):
+					entry.motion.order = 3
+	check(
+		not TerminalHoldingSnapshot.restore(damaged, target, VehicleFactory.from_parts),
+		"Reject broken motion order before replacing the holding lot"
+	)
+	check(
+		TerminalHoldingSnapshot.restore(saved, target, VehicleFactory.from_parts),
+		"Restore a moving terminal vehicle into a renumbered region"
+	)
+	if fresh.moving_vehicles.size() != 1:
+		check(false, "Exactly one restored car is moving")
+		fresh.free()
+		return
+	var restored: Vehicle = fresh.moving_vehicles.front()
+	var lane := (
+		target.lane_at_offset(restored.lane_v) if parking else _reserved_lane(target, restored)
+	)
+	check(lane != null, "Keep the physical lane assignment")
+	if lane != null:
+		check(
+			lane.enroute == (0 if parking else car.slots),
+			"An approach reserves its exact slots once"
+		)
+	check(
+		restored.position.is_equal_approx(car.position) and restored.path == car.path,
+		"Resume at the saved point on the already-rounded path"
+	)
+	# Drive the reconstructed car on until settled; compare with the uninterrupted
+	# car's next road step, then leave the live car at that step for the next checkpoint.
+	car._process(0.025)
+	restored._process(0.025)
+	check(
+		restored.position.is_equal_approx(car.position),
+		"The next driving step matches live traffic"
+	)
+	for frame in 4000:
+		if restored.path.is_empty():
+			break
+		restored._process(0.05)
+	check(
+		restored.path.is_empty() and lane != null and lane.enroute == 0,
+		"The original arrival callback consumes the reservation once and parks"
+	)
+	if lane != null:
+		check(
+			(
+				lane.queue.filter(func(w): return w.vehicle_id == restored.get_instance_id()).size()
+				== 1
+			),
+			"Arrival appends the restored vehicle to the queue once"
+		)
+	check(fresh.ledger.cash == saved_cash, "Road and parking callbacks collect no fare")
+	fresh.free()
+
+
+func _reserved_lane(port: Terminal, car: Vehicle) -> TerminalLane:
+	for group: Array in port.lanes.values():
+		for lane: TerminalLane in group:
+			if lane.approaching.has(car.get_instance_id()):
+				return lane
+	return null
 
 
 func _check_overnight_wait() -> void:

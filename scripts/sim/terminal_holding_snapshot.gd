@@ -1,11 +1,12 @@
 class_name TerminalHoldingSnapshot
 extends RefCounted
-## A terminal's settled holding lot, walk-on queue and lane construction job.
+## A terminal's holding lot, walk-on queue and lane construction job.
 ## Rebuild the same region and service before restoring. The company owns the
-## clock and ledger. Approaching vehicles, moving queues and slips are separate.
+## clock and ledger. Ferry deck, departing road traffic and slips are separate.
 
 var _lanes := {}
 var _vehicles: Array[Vehicle] = []
+var _moving := {}
 var _paved: Array[float] = []
 var _passengers: Array[Dictionary] = []
 var _remaining_sites: Array[float] = []
@@ -15,22 +16,42 @@ var _staging: Array[TerminalLane] = []
 
 static func capture(term: Terminal) -> Dictionary:
 	var groups := {}
+	var motions: Array[Dictionary] = []
 	for dest: int in term.lanes:
 		var rows := []
 		for lane: TerminalLane in term.lanes[dest]:
 			var cars := []
-			if lane.enroute:
-				return {}
 			for waiting in lane.queue:
 				var car := instance_from_id(waiting.vehicle_id) as Vehicle
-				if car == null or not car.path.is_empty() or car.dest < 0:
+				if car == null or car.dest < 0:
 					return {}
-				var record := VehiclePartsSnapshot.capture(car)
-				record.destination = term.sim.map.towns[car.dest].key
-				record.arrival = car.lot_arrival
+				var record := _vehicle_record(car, term)
+				if not car.path.is_empty():
+					_save_motion(record, car, motions)
+					record.follows_previous = (
+						is_instance_valid(car.leader) and car.leader.is_processing()
+					)
 				cars.append(record)
-			rows.append({"offset": lane.v, "vehicles": cars})
+			var inbound := []
+			var reserved := 0
+			for id: int in lane.approaching:
+				var car := instance_from_id(id) as Vehicle
+				if car == null or car.path.is_empty() or car.dest < 0:
+					return {}
+				var record := _vehicle_record(car, term)
+				_save_motion(record, car, motions)
+				record.transfer = lane.approaching[id]
+				record.source_offset = car.lane_v
+				inbound.append(record)
+				reserved += car.slots
+			if reserved != lane.enroute:
+				return {}
+			rows.append({"offset": lane.v, "vehicles": cars, "approaching": inbound})
 		groups[_key(term, dest)] = rows
+	# Vehicles evaluate following distance in scene order, even across lane groups.
+	motions.sort_custom(func(a: Dictionary, b: Dictionary): return a.order < b.order)
+	for i in motions.size():
+		motions[i].order = i
 	var passengers := []
 	for pax in term.passenger_queue:
 		var node: Passenger = pax.node
@@ -45,7 +66,7 @@ static func capture(term: Terminal) -> Dictionary:
 			}
 		)
 	return {
-		"version": 1,
+		"version": 2,
 		"seed": str(term.sim.map.map_seed),
 		"town": term.town.key,
 		"slots_per_lane": term.slots_per_lane,
@@ -62,6 +83,19 @@ static func capture(term: Terminal) -> Dictionary:
 		"vehicle_demand": term._spawn_acc,
 		"passenger_demand": term._pax_spawn_acc
 	}
+
+
+static func _vehicle_record(car: Vehicle, term: Terminal) -> Dictionary:
+	var record := VehiclePartsSnapshot.capture(car)
+	record.destination = _key(term, car.dest)
+	record.arrival = car.lot_arrival
+	return record
+
+
+static func _save_motion(record: Dictionary, car: Vehicle, motions: Array[Dictionary]) -> void:
+	record.motion = VehicleMotionSnapshot.capture(car)
+	record.motion.order = car.get_index()
+	motions.append(record.motion)
 
 
 static func _key(term: Terminal, dest: int) -> String:
@@ -84,7 +118,7 @@ static func restore(record: Variant, term: Terminal, make_vehicle: Callable) -> 
 
 
 static func _valid_header(r: Variant, term: Terminal) -> bool:
-	if not r is Dictionary or not _integer(r.get("version")) or r.version != 1:
+	if not r is Dictionary or not _integer(r.get("version")) or int(r.version) not in [1, 2]:
 		return false
 	if (
 		r.get("seed") != str(term.sim.map.map_seed)
@@ -133,12 +167,28 @@ func _prepare(r: Dictionary, term: Terminal, make_vehicle: Callable) -> bool:
 			if index == -1:
 				return false
 			var lane := TerminalLane.new(offsets.pop_at(index))
-			if not _read_cars(row.get("vehicles"), lane, term, make_vehicle):
+			var approaching = [] if r.version == 1 else row.get("approaching")
+			if not (
+				_read_cars(row.get("vehicles"), lane, term, make_vehicle, false)
+				and _read_cars(approaching, lane, term, make_vehicle, true)
+			):
 				return false
 			lanes.append(lane)
 		_lanes[dest] = lanes
 	_stage = Terminal.WorkStage[r.stage]
-	return offsets.is_empty() and _valid_job(r, term) and _read_passengers(r.passengers, term)
+	return (
+		offsets.is_empty()
+		and _complete_motion_order()
+		and _valid_job(r, term)
+		and _read_passengers(r.passengers, term)
+	)
+
+
+func _complete_motion_order() -> bool:
+	for order in _moving.size():
+		if not _moving.has(order):
+			return false
+	return true
 
 
 func _read_paved(paved: Array, term: Terminal, offsets: Array[float]) -> bool:
@@ -191,7 +241,10 @@ func _add_staging_lane(v: Variant) -> bool:
 			if is_equal_approx(lane.v, v):
 				if (
 					lane in _staging
-					or (_stage != Terminal.WorkStage.DRAINING and not lane.queue.is_empty())
+					or (
+						_stage != Terminal.WorkStage.DRAINING
+						and (not lane.queue.is_empty() or lane.enroute > 0)
+					)
 				):
 					return false
 				_staging.append(lane)
@@ -218,24 +271,71 @@ static func _valid_remaining(stage: Terminal.WorkStage, remaining: float) -> boo
 	return false
 
 
-func _read_cars(rows: Variant, lane: TerminalLane, term: Terminal, make_vehicle: Callable) -> bool:
+func _read_cars(
+	rows: Variant, lane: TerminalLane, term: Terminal, make_vehicle: Callable, approaching: bool
+) -> bool:
 	if not rows is Array or rows.size() > term.slots_per_lane:
 		return false
 	for row in rows:
-		if not _valid_waiter(row, term):
+		if not _read_car(row, lane, term, make_vehicle, approaching):
 			return false
-		var car := VehiclePartsSnapshot.rebuild(row, make_vehicle)
-		if car == null:
+	return lane.queued_slots() + lane.enroute <= term.slots_per_lane
+
+
+func _read_car(
+	row: Variant, lane: TerminalLane, term: Terminal, make_vehicle: Callable, approaching: bool
+) -> bool:
+	if not _valid_waiter(row, term):
+		return false
+	var car := VehiclePartsSnapshot.rebuild(row, make_vehicle)
+	if car == null:
+		return false
+	_vehicles.append(car)
+	car.dest = term.sim.map.town_by_key(row.destination).id
+	car.lot_arrival = row.arrival
+	if row.has("motion") and not _read_motion(row.motion, car):
+		return false
+	if approaching:
+		if (
+			not row.has("motion")
+			or not row.get("transfer") is bool
+			or not _number(row.get("source_offset"))
+		):
 			return false
-		_vehicles.append(car)
-		car.dest = term.sim.map.town_by_key(row.destination).id
-		car.lot_arrival = row.arrival
-		car.lane_v = lane.v
-		car.position = term.queue_position(lane.v, lane.queued_slots(), car)
-		car.rotation.y = atan2(term.town.dock_dir.x, term.town.dock_dir.z)
+		car.lane_v = row.source_offset
+		lane.reserve_arrival(car.get_instance_id(), car.slots, row.transfer)
+		car.resume_drive(term._on_car_reached_lot.bind(lane, row.transfer))
+		return true
+	return _place_in_queue(row, car, term, lane)
+
+
+func _read_motion(motion: Variant, car: Vehicle) -> bool:
+	if not VehicleMotionSnapshot.restore(motion, car):
+		return false
+	if not _integer(motion.get("order")) or motion.order < 0 or _moving.has(int(motion.order)):
+		return false
+	_moving[int(motion.order)] = car
+	return true
+
+
+func _place_in_queue(row: Dictionary, car: Vehicle, term: Terminal, lane: TerminalLane) -> bool:
+	car.lane_v = lane.v
+	var heading := atan2(term.town.dock_dir.x, term.town.dock_dir.z)
+	var spot := term.queue_position(lane.v, lane.queued_slots(), car)
+	if car.path.is_empty():
+		car.position = spot
+		car.rotation.y = heading
 		car.straighten()
-		lane.enqueue(car.get_instance_id(), car.slots)
-	return lane.queued_slots() <= term.slots_per_lane
+	else:
+		if not row.get("follows_previous") is bool or not car.path[-1].is_equal_approx(spot):
+			return false
+		car.resume_parking(heading)
+		if row.follows_previous:
+			if lane.queue.is_empty():
+				return false
+			car.leader = instance_from_id(lane.queue.back().vehicle_id) as Vehicle
+	lane.enqueue(car.get_instance_id(), car.slots)
+	return true
 
 
 func _read_passengers(rows: Array, term: Terminal) -> bool:
@@ -277,6 +377,8 @@ static func _valid_waiter(row: Variant, term: Terminal) -> bool:
 func _install(r: Dictionary, term: Terminal) -> void:
 	for group: Array in term.lanes.values():
 		for lane: TerminalLane in group:
+			for id: int in lane.approaching:
+				instance_from_id(id).free()
 			for waiting in lane.queue:
 				instance_from_id(waiting.vehicle_id).free()
 	for pax in term.passenger_queue:
@@ -290,7 +392,13 @@ func _install(r: Dictionary, term: Terminal) -> void:
 	term.staging_lanes = _staging
 	term.work_stage = _stage
 	term.build_remaining = r.remaining
+	var ordered: Array[Vehicle] = []
 	for car in _vehicles:
+		if car.path.is_empty():
+			ordered.append(car)
+	for i in _moving.size():
+		ordered.append(_moving[i])
+	for car in ordered:
 		car.moving_traffic = term.sim.moving_vehicles
 		term.sim.traffic.add_child(car)
 	_vehicles.clear()
