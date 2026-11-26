@@ -11,13 +11,19 @@ extends "res://tests/support/ui_test_driver.gd"
 ## On the recording launch, set TIDEWAYS_REOPEN_MIN_TRIPS=3 to wait for three
 ## new fleet arrivals, or TIDEWAYS_REOPEN_EDIT_SERVICE=1 on the authored opening
 ## to edit a departure and pace through the ferry's Schedule tab before saving.
-## Production export presets exclude tests.
+## Set TIDEWAYS_REOPEN_BUY_FERRY=1 on an opening recording to confirm a $30,000
+## size 1 delivery using the normal company balance. Apply her schedule in the
+## player inspector, then save with two occupied boats. To repeat the check after
+## the departing tug has left the map, also set TIDEWAYS_REOPEN_WAIT_TUG=1.
+## Production exports exclude tests.
 
 var _phase := OS.get_environment("TIDEWAYS_REOPEN_PHASE")
 var _run_id := OS.get_environment("TIDEWAYS_REOPEN_RUN")
 var _map := OS.get_environment("TIDEWAYS_REOPEN_MAP")
 var _min_trips := OS.get_environment("TIDEWAYS_REOPEN_MIN_TRIPS").to_int()
 var _edit_service := OS.get_environment("TIDEWAYS_REOPEN_EDIT_SERVICE") == "1"
+var _buy_ferry := OS.get_environment("TIDEWAYS_REOPEN_BUY_FERRY") == "1"
+var _wait_tug := OS.get_environment("TIDEWAYS_REOPEN_WAIT_TUG") == "1"
 var _prefix: String
 var _control := {}
 var _report := {}
@@ -98,11 +104,19 @@ func _at_reopen(session: WorldSession) -> void:
 
 func _record(session: WorldSession) -> void:
 	session.hud.set_speed(2)
+	if _buy_ferry:
+		if _map != "opening" or not await _buy_and_assign(session):
+			_fail_review("Could not purchase and assign the second boat with the opening balance")
+			return
 	var started := _fleet_trips(session.sim)
 	var ferry: Ferry
 	var deadline := Time.get_ticks_msec() + 240000
 	while Time.get_ticks_msec() < deadline and ferry == null:
 		await process_frame
+		if _buy_ferry and not session.sim.ferries.all(_working_with_cars):
+			continue
+		if _wait_tug and not session.sim.tows.is_empty():
+			continue
 		if _fleet_trips(session.sim) - started < _min_trips:
 			continue
 		for boat in session.sim.ferries:
@@ -131,7 +145,12 @@ func _record(session: WorldSession) -> void:
 	if not menu.visible or item < 0 or menu.is_item_disabled(item):
 		_fail_review("Save game is unavailable in this session")
 		return
+	if _buy_ferry:
+		_report.delivery_tug_phases = session.sim.tows.map(
+			func(tug: DeliveryTow): return DeliveryTow.Phase.keys()[tug.phase]
+		)
 	var before := _checkpoint(ferry)
+	_report.checkpoint = before
 	# Native menu windows consume physical input outside the scene viewport.
 	# Activate the visible Save item through the same signal as a native selection.
 	menu.id_pressed.emit(menu.get_item_id(item))
@@ -142,11 +161,55 @@ func _record(session: WorldSession) -> void:
 			"The HUD did not persist a company snapshot: %s" % session.hud._toast_title.text
 		)
 		return
-	_report.checkpoint = before
 	_report.status = "saved"
 	_write_report()
 	var observed := await _follow_receipts(session.sim, before.ledger)
 	_finish(session, observed)
+
+
+func _working_with_cars(boat: Ferry) -> bool:
+	return boat.berth == Ferry.Berth.WORKING and not boat.aboard.is_empty()
+
+
+func _buy_and_assign(session: WorldSession) -> bool:
+	var sim := session.sim
+	session.hud.set_speed(0)
+	if sim.ferries.size() != 1 or sim.ledger.cash >= CompanyLedger.UNLIMITED_CASH:
+		return false
+	for caption in ["FLEET", "Buy a boat", "Size 1"]:
+		if not await press(caption, caption == "Size 1"):
+			return false
+	const PRICE := 30000
+	var before := sim.ledger.cash
+	var purchases_before: float = sim.ledger.today.purchases
+	if not await press("Buy for $30,000") or sim.ferries.size() != 2:
+		return false
+	var bought := sim.ferries.back() as Ferry
+	_report.purchase = {
+		"price": PRICE,
+		"cash_before": before,
+		"cash_after": sim.ledger.cash,
+		"purchases_before": purchases_before,
+		"purchases_after": sim.ledger.today.purchases,
+		"new_hull": bought.fleet_key,
+		"original_hull": sim.ferries[0].fleet_key,
+	}
+	if before - sim.ledger.cash != PRICE or sim.ledger.today.purchases - purchases_before != PRICE:
+		return false
+	var panel: FerryPanel = session.hud._ferry_panel
+	var tab := panel._tab_buttons[FerryPanel.TAB_NAMES.find("Schedule")]
+	if (
+		not await _press_panel_button(panel, tab)
+		or not await _press_panel_button(panel, panel._schedule_editor._apply)
+	):
+		return false
+	session.hud.clear_selection()
+	session.hud.set_speed(2)
+	var assigned := bought.assigned and bought.fleet_key != sim.ferries[0].fleet_key
+	if assigned:
+		_report.status = "assigned"
+		_write_report()
+	return assigned
 
 
 func _fleet_trips(sim: Simulation) -> int:
@@ -224,6 +287,29 @@ func _resume(session: WorldSession) -> void:
 
 func _checkpoint(ferry: Ferry) -> Dictionary:
 	var sim := ferry.sim
+	var record := _hull_state(ferry)
+	(
+		record
+		. merge(
+			{
+				"seed": str(sim.map.map_seed),
+				"fleet_trips": _fleet_trips(sim),
+				"day": sim.day,
+				"minutes": sim.minutes,
+				"ledger": sim.ledger.snapshot(sim.map.routes),
+			}
+		)
+	)
+	if _buy_ferry or _control.has("purchase"):
+		var hulls := {}
+		for boat in sim.ferries:
+			hulls[boat.fleet_key] = _hull_state(boat)
+		record.fleet = hulls
+	return _json_form(record)
+
+
+func _hull_state(ferry: Ferry) -> Dictionary:
+	var sim := ferry.sim
 	var vehicles := []
 	for car in ferry.aboard:
 		var row := VehiclePartsSnapshot.capture(car)
@@ -234,25 +320,26 @@ func _checkpoint(ferry: Ferry) -> Dictionary:
 			if ferry.deck.occupants[cell] == car.get_instance_id():
 				row.cells.append(cell)
 		vehicles.append(row)
-	return _json_form(
-		{
-			"hull": ferry.fleet_key,
-			"seed": str(sim.map.map_seed),
-			"service": _service(ferry),
-			"fleet_trips": _fleet_trips(sim),
-			"origin": ferry.here().town.key,
-			"destination": ferry.destination().town.key,
-			"state": ferry.state,
-			"distance": ferry.traveled,
-			"position": SnapshotVector3.encode(ferry.position),
-			"heading": ferry.rotation.y,
-			"vehicles": vehicles,
-			"passengers": ferry.passengers_aboard,
-			"day": sim.day,
-			"minutes": sim.minutes,
-			"ledger": sim.ledger.snapshot(sim.map.routes)
-		}
-	)
+	return {
+		"hull": ferry.fleet_key,
+		"service": _service(ferry),
+		"name": ferry.ferry_name,
+		"purchased": ferry.purchased,
+		"assigned": ferry.assigned,
+		"class": ferry.fc.size,
+		"trips": ferry.trips,
+		"route": ferry.route.key,
+		"stops": ferry.stops.map(func(id: int): return sim.map.towns[id].key),
+		"origin": ferry.here().town.key,
+		"destination": ferry.destination().town.key,
+		"state": ferry.state,
+		"distance": ferry.traveled,
+		"position": SnapshotVector3.encode(ferry.position),
+		"heading": ferry.rotation.y,
+		"vehicles": vehicles,
+		"passengers": ferry.passengers_aboard,
+		"paid_manifest": FerryVehicleManifest.capture(ferry),
+	}
 
 
 func _find_ferry(sim: Simulation, key: String) -> Ferry:

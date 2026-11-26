@@ -107,6 +107,7 @@ func buy_ferry(size: int) -> Ferry:
 		display_name = "Hull %d" % n
 	sim._spawn_ferry(key, route, display_name, size)
 	var f := sim.ferries[-1]
+	f.purchased = true
 	f.start_delivery(term, slip)
 	var pts := DeliveryTow.plan(sim, f.global_position, term.town.dock_dir, f.fc.half_beam)
 	if pts.size() < 2:

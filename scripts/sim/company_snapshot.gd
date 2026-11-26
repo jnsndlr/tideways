@@ -3,11 +3,14 @@ extends RefCounted
 ## Compose verified company records over a freshly rebuilt network. The caller
 ## supplies a private simulation with its own map and terrain. Only a completely
 ## restored simulation is returned. No current game or save slot is replaced.
-const VERSION := 3
+const VERSION := 4
 
 
 static func capture(sim: Simulation) -> Dictionary:
-	if not sim.tows.is_empty() or not _accounts_for_traffic(sim):
+	for tow in sim.tows:
+		if not tow.delivery_complete():
+			return {}
+	if not _accounts_for_traffic(sim):
 		return {}
 	var terminals := {}
 	for term: Terminal in sim.terminals.values():
@@ -82,9 +85,9 @@ static func supports(data: Variant) -> bool:
 		return false
 	if data.version >= 2 and not data.get("outbound") is Array:
 		return false
-	if data.version == VERSION and not data.get("progression") is Dictionary:
+	if data.version >= 3 and not data.get("progression") is Dictionary:
 		return false
-	if data.version < VERSION and data.has("progression"):
+	if data.version < 3 and data.has("progression"):
 		return false
 	for section in ["network", "ledger", "clock", "docks", "terminals", "voyages", "reservations"]:
 		if not data.get(section) is Dictionary:
@@ -98,13 +101,22 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 		or not DockSiteSnapshot.restore(data.docks, sim)
 	):
 		return false
-	if not _install_terminals(data.terminals, sim, make_vehicle):
+	if not _install_berths(data.terminals, sim):
 		return false
+	var network := CompanyNetwork.new()
+	if not network.read(data.network, sim.map).is_empty():
+		return false
+	if not PurchasedFleetSnapshot.rebuild(network.fleet, data.voyages, sim, data.version >= 4):
+		return false
+	for term: Terminal in sim.terminals.values():
+		var site: Dictionary = data.terminals[term.town.key]
+		if not TerminalHoldingSnapshot.restore(site.get("holding"), term, make_vehicle):
+			return false
 	var ledger := CompanyLedgerSnapshot.restore(data.ledger, sim.map.routes)
 	if ledger == null:
 		return false
 	sim.ledger = ledger
-	if not _install_fleet(data, sim, make_vehicle):
+	if not _install_fleet(network, data, sim, make_vehicle):
 		return false
 	if not OutboundTrafficSnapshot.restore(data.get("outbound", []), sim, make_vehicle):
 		return false
@@ -114,9 +126,7 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 	return CompanyClockSnapshot.restore(data.clock, sim)
 
 
-static func _install_terminals(
-	records: Dictionary, sim: Simulation, make_vehicle: Callable
-) -> bool:
+static func _install_berths(records: Dictionary, sim: Simulation) -> bool:
 	if records.size() != sim.terminals.size():
 		return false
 	for term: Terminal in sim.terminals.values():
@@ -130,15 +140,12 @@ static func _install_terminals(
 			return false
 		if not TerminalRefitSnapshot.restore(record.get("refit"), term):
 			return false
-		if not TerminalHoldingSnapshot.restore(record.get("holding"), term, make_vehicle):
-			return false
 	return true
 
 
-static func _install_fleet(data: Dictionary, sim: Simulation, make_vehicle: Callable) -> bool:
-	var network := CompanyNetwork.new()
-	if not network.read(data.network, sim.map).is_empty():
-		return false
+static func _install_fleet(
+	network: CompanyNetwork, data: Dictionary, sim: Simulation, make_vehicle: Callable
+) -> bool:
 	var ferries := {}
 	for ferry in sim.ferries:
 		ferries[ferry.fleet_key] = ferry

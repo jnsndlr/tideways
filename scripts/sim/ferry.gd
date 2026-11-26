@@ -78,6 +78,8 @@ static var _lane_w := -1.0
 
 ## Walk-on passengers currently aboard: {dest: int, variant: int}.
 var deck: FerryDeck
+## Hulls bought through the fleet market must be reconstructed on Continue.
+var purchased := false
 ## The island ids she calls at in turn, round and round, and the route of each
 ## leg: legs[i] runs from stops[i] to the next stop. A shuttle has two of each.
 var itinerary := FerryItinerary.new()
