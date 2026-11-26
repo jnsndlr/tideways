@@ -86,6 +86,7 @@ check route-memo test --script tests/world/route_memo_test.gd
 check region-contract test --script tests/world/region_contract_test.gd
 check road-grade test --script tests/world/road_grade_test.gd
 check terminal-holding-restore test --script tests/session/terminal_holding_snapshot_test.gd
+check terminal-walking-queue-restore test --script tests/session/terminal_walking_queue_snapshot_test.gd
 check crossing-restore test --script tests/session/ferry_crossing_snapshot_test.gd
 check company-network test --script tests/session/company_network_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd

@@ -55,18 +55,23 @@ static func capture(term: Terminal) -> Dictionary:
 	var passengers := []
 	for pax in term.passenger_queue:
 		var node: Passenger = pax.node
-		if node != null and not node.path.is_empty():
-			return {}
-		passengers.append(
-			{
-				"destination": _key(term, pax.dest),
-				"variant": pax.variant,
-				"arrival": pax.arrival,
-				"visible": node != null
-			}
-		)
+		var record := {
+			"destination": _key(term, pax.dest),
+			"variant": pax.variant,
+			"arrival": pax.arrival,
+			"visible": node != null
+		}
+		if node != null:
+			record.position = SnapshotVector3.encode(node.position)
+			record.yaw = node.rotation.y
+			if not node.path.is_empty():
+				# The terminal gives each waiting person one destination and no callback.
+				if node.path.size() != 1 or node.delay > 0:
+					return {}
+				record.walking_to = SnapshotVector3.encode(node.path[0])
+		passengers.append(record)
 	return {
-		"version": 2,
+		"version": 3,
 		"seed": str(term.sim.map.map_seed),
 		"town": term.town.key,
 		"slots_per_lane": term.slots_per_lane,
@@ -118,7 +123,7 @@ static func restore(record: Variant, term: Terminal, make_vehicle: Callable) -> 
 
 
 static func _valid_header(r: Variant, term: Terminal) -> bool:
-	if not r is Dictionary or not _integer(r.get("version")) or int(r.version) not in [1, 2]:
+	if not r is Dictionary or not _integer(r.get("version")) or int(r.version) not in [1, 2, 3]:
 		return false
 	if (
 		r.get("seed") != str(term.sim.map.map_seed)
@@ -180,7 +185,7 @@ func _prepare(r: Dictionary, term: Terminal, make_vehicle: Callable) -> bool:
 		offsets.is_empty()
 		and _complete_motion_order()
 		and _valid_job(r, term)
-		and _read_passengers(r.passengers, term)
+		and _read_passengers(r.passengers, term, int(r.version))
 	)
 
 
@@ -225,7 +230,7 @@ func _valid_job(r: Dictionary, term: Terminal) -> bool:
 	if not _remaining_sites.is_empty():
 		return r.staging.is_empty()
 	var count := term.town.construction_staging_lanes
-	if not _paved.is_empty() or count not in [1, 2] or r.staging.size() != count:
+	if not _paved.is_empty() or count not in [1, 2, 3] or r.staging.size() != count:
 		return false
 	for v in r.staging:
 		if not _add_staging_lane(v):
@@ -338,7 +343,7 @@ func _place_in_queue(row: Dictionary, car: Vehicle, term: Terminal, lane: Termin
 	return true
 
 
-func _read_passengers(rows: Array, term: Terminal) -> bool:
+func _read_passengers(rows: Array, term: Terminal, version: int) -> bool:
 	if rows.size() > Terminal.PASSENGER_CAPACITY:
 		return false
 	var visible := 0
@@ -352,15 +357,36 @@ func _read_passengers(rows: Array, term: Terminal) -> bool:
 		):
 			return false
 		visible += int(row.visible)
-		_passengers.append(
-			{
-				"dest": term.sim.map.town_by_key(row.destination).id,
-				"arrival": row.arrival,
-				"variant": int(row.variant),
-				"visible": row.visible
-			}
-		)
+		var pax := {
+			"dest": term.sim.map.town_by_key(row.destination).id,
+			"arrival": row.arrival,
+			"variant": int(row.variant),
+			"visible": row.visible
+		}
+		if version >= 3:
+			if not _read_passenger_pose(row, pax, term):
+				return false
+		_passengers.append(pax)
 	return visible <= Terminal.MAX_VISIBLE_PASSENGERS
+
+
+static func _read_passenger_pose(row: Dictionary, pax: Dictionary, term: Terminal) -> bool:
+	if not row.visible:
+		return not row.has("position") and not row.has("walking_to") and not row.has("yaw")
+	if not SnapshotVector3.valid(row.get("position")) or not _number(row.get("yaw")):
+		return false
+	pax.position = SnapshotVector3.decode(row.position)
+	pax.yaw = row.yaw
+	if row.has("walking_to"):
+		if not SnapshotVector3.valid(row.walking_to):
+			return false
+		var spot := SnapshotVector3.decode(row.walking_to)
+		for i in Terminal.MAX_VISIBLE_PASSENGERS:
+			if spot.is_equal_approx(term._waiting_spot(i)):
+				pax.walking_to = spot
+				return true
+		return false
+	return true
 
 
 static func _valid_waiter(row: Variant, term: Terminal) -> bool:
@@ -407,9 +433,16 @@ func _install(r: Dictionary, term: Terminal) -> void:
 		var node: Passenger = null
 		if pax.visible:
 			node = term.sim.make_passenger(pax.variant)
-			node.stand_at(
-				term._waiting_spot(visible), atan2(term.town.dock_dir.x, term.town.dock_dir.z)
-			)
+			var face := atan2(term.town.dock_dir.x, term.town.dock_dir.z)
+			if pax.has("position"):
+				node.stand_facing(pax.position, pax.yaw)
+				pax.erase("position")
+				pax.erase("yaw")
+				if pax.has("walking_to"):
+					node.walk(PackedVector3Array([pax.walking_to]), Callable(), 0.0, face)
+					pax.erase("walking_to")
+			else:
+				node.stand_at(term._waiting_spot(visible), face)
 			visible += 1
 		pax.erase("visible")
 		pax.node = node
