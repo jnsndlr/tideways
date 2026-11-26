@@ -6,11 +6,11 @@ const Measurement = preload("res://tests/support/ferry_waterline_measurement.gd"
 
 func _initialize() -> void:
 	var hulls := [
-		[FerryClass.SMALL_GLB, FerryClass.SMALL_CAR_DECK],
-		[FerryClass.HIYU_GLB, FerryClass.HIYU_CAR_DECK],
-		[FerryClass.MID_GLB, FerryClass.MID_CAR_DECK],
-		[FerryClass.ISQ_GLB, FerryClass.ISQ_CAR_DECK],
-		[FerryClass.JUMBO_GLB, FerryClass.ISQ_CAR_DECK],
+		[FerryHullAssets.SMALL_GLB, FerryClass.SMALL_CAR_DECK],
+		[FerryHullAssets.HIYU_GLB, FerryClass.HIYU_CAR_DECK],
+		[FerryHullAssets.MID_GLB, FerryClass.MID_CAR_DECK],
+		[FerryHullAssets.ISQ_GLB, FerryClass.ISQ_CAR_DECK],
+		[FerryHullAssets.JUMBO_GLB, FerryClass.ISQ_CAR_DECK],
 	]
 	for index in hulls.size():
 		var path: String = hulls[index][0]

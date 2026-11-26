@@ -7,7 +7,7 @@ project=$(mktemp -d)
 trap 'rm -rf "$project"' EXIT
 mkdir -p "$project/scripts/map" "$project/scripts/sim"
 cp scripts/map/*.gd "$project/scripts/map/"
-cp scripts/saved_text.gd scripts/units.gd "$project/scripts/"
+cp scripts/ferry_hull_assets.gd scripts/saved_text.gd scripts/units.gd "$project/scripts/"
 cp scripts/sim/{economy_config,ferry_class,ferry_deck,ferry_operating_costs,ferry_voyage,ferry_waterline_profiles,hull_waterline,slip_guides,slip_ramp,vessel_spec,vessel_types,wake_trail}.gd "$project/scripts/sim/"
 cp tests/world/art_free_region_test.gd "$project/"
 echo 'config_version=5' > "$project/project.godot"

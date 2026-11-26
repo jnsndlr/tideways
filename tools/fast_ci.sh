@@ -63,6 +63,8 @@ check authored-ferry-nets test --script tests/world/ferry_net_model_test.gd
 check classic-ferry-nets test --script tests/world/ferry_net_model_test.gd -- --classic-net
 check authored-slip-model test --script tests/world/slip_model_test.gd
 check classic-slip-model test --script tests/world/slip_model_test.gd -- --classic-slip
+check authored-ferry-hull test --script tests/world/ferry_hull_model_test.gd
+check classic-ferry-hull test --script tests/world/ferry_hull_model_test.gd -- --classic-ferry
 check ferry-view test --script tests/world/ferry_view_test.gd
 check ferry-walk-on-restore test --script tests/session/ferry_walk_on_snapshot_test.gd
 check fare-and-deck test --script tests/simulation/fare_deck_test.gd

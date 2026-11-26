@@ -39,7 +39,6 @@ const SIDELIGHT_Y := 20.94
 # so she matches the game's cars and trucks, dropped MID_DROP so her car deck
 # (2.85 m up in the model) lies at Layout.DECK_Y. `--classic-ferry` or a missing model keeps
 # the code-built size 3.
-const MID_GLB := "res://assets/models/ferry_mid.glb"
 const MID_SCALE := FerryHullDimensions.MID_SCALE
 const MID_CAR_DECK := 2.85  # her car deck above the waterline (art/ferry_mid.py CAR_DECK)
 const MID_DROP := MID_CAR_DECK * MID_SCALE - Layout.DECK_Y
@@ -57,26 +56,20 @@ const PASSENGER_CAPACITY := {
 const HIYU_WING_INSET := 1.6
 const HIYU_NET_Z := 22.6  # the apron line, where the bulwarks stop (hiyu_mid.py NET_Z)
 
-static var mid := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(MID_GLB)
 
 # The mid-poly M/V Guemes (size 1), shown and dropped like the Evergreen State; her
 # model's freeboard is raised so her car deck meets DECK_Y (MID_SCALE x 2.5 = 3.15).
-const SMALL_GLB := "res://assets/models/guemes_mid.glb"
 const SMALL_CAR_DECK := 2.5  # art/guemes_mid.py CAR_DECK
 const SMALL_DROP := SMALL_CAR_DECK * MID_SCALE - Layout.DECK_Y
-static var small := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(SMALL_GLB)
 
 # The mid-poly M/V Hiyu (size 2), shown and dropped the same way, her freeboard
 # raised to match.
-const HIYU_GLB := "res://assets/models/hiyu_mid.glb"
 const HIYU_CAR_DECK := 2.5  # art/hiyu_mid.py CAR_DECK
 const HIYU_DROP := HIYU_CAR_DECK * MID_SCALE - Layout.DECK_Y
-static var hiyu_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(HIYU_GLB)
 
 # The mid-poly Issaquah (size 4), shown and dropped like the Evergreen State (her car
 # deck's at the same height). Her tween decks (MEZ_TOP up) hold two lanes a side over
 # |z| < ISQ_MEZ_Z, their outer lane ramping down to the main deck at ISQ_RAMP_Z.
-const ISQ_GLB := "res://assets/models/issaquah_mid.glb"
 const ISQ_CAR_DECK := 2.85     # art/issaquah_mid.py CAR_DECK
 const ISQ_DROP := ISQ_CAR_DECK * MID_SCALE - Layout.DECK_Y
 const ISQ_LIFT := 1.4          # her upper works over the Evergreen's (issaquah_mid.py LIFT)
@@ -88,22 +81,18 @@ const ISQ_RAMP_TOP_X := 9.9    # the ramp lane's centre at its top, and at its f
 const ISQ_RAMP_FOOT_X := 7.15
 const ISQ_RAMP_EDGE := Vector2(8.25, 5.65)  # its inner edge at its top and at its foot
 const ISQ_APRON_Z := 45.1 + ISQ_STRETCH_Z  # GREEN_Z - 0.3
-static var issaquah_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(ISQ_GLB)
 
 # The mid-poly Jumbo Mk II (size 5), shown and dropped like the Evergreen State. Her
 # model is the real boat stretched JUMBO_STRETCH in length and beam so her tunnel
 # takes four lanes of the game's oversized cars (art/jumbo_mk_ii.py STRETCH);
 # _jumbo() takes points on the real boat's plans into the hull's frame.
-const JUMBO_GLB := "res://assets/models/jumbo_mk_ii.glb"
 const JUMBO_STRETCH := FerryHullDimensions.JUMBO_STRETCH
 const MAX_SIZE := 5
-static var jumbo_model := not "--classic-ferry" in OS.get_cmdline_user_args() and ResourceLoader.exists(JUMBO_GLB)
 
 # The rescue boat (art/rib_mid.py -> RIB_GLB), a sub model shared by the mid-poly
-# ferries: Models._mid_ferry sets it in her cradle, sling hooked on her davit's fall.
+# ferries: FerryHullModel sets it in her cradle, sling hooked on her davit's fall.
 # Each entry is [origin in the ferry model's metres, yaw about +Y]; keep them in step
 # with RIB_AT / RIB_YAW in the ferry's script (art/ferry_mid.py, art/hiyu_mid.py).
-const RIB_GLB := "res://assets/models/rib_mid.glb"
 const MID_RIBS := [[Vector3(7.2, 7.3 + 0.78, -34.6), 0.0]]
 const HIYU_RIBS := [[Vector3(6.6, 8.1 + 0.78, -4.0), PI]]
 const ISQ_RIBS := [[Vector3(5.85, 7.3 + 1.4 + 0.78, -37.0 - ISQ_STRETCH_Z), 0.0]]
@@ -153,12 +142,13 @@ var crew := 9
 var burn := 11.0                   # gallons per nautical mile at service speed (RUNNING)
 var open_deck := false
 var portal := false
-var evergreen := false             # the mid-poly Evergreen State (size 3, `mid`)
-var guemes := false                # the mid-poly M/V Guemes (size 1, `small`)
-var hiyu := false                  # the mid-poly M/V Hiyu (size 2, `hiyu_model`)
-var issaquah := false              # the mid-poly Issaquah class (size 4, `issaquah_model`)
-var jumbo := false                 # the mid-poly Jumbo Mk II class (size 5, `jumbo_model`)
-var ribs: Array = []               # her rescue boats ([model-metre origin, yaw], see MID_RIBS)
+var authored_hull := false
+var evergreen := false  # the mid-poly Evergreen State (size 3)
+var guemes := false  # the mid-poly M/V Guemes (size 1)
+var hiyu := false  # the mid-poly M/V Hiyu (size 2)
+var issaquah := false  # the mid-poly Issaquah class (size 4)
+var jumbo := false  # the mid-poly Jumbo Mk II class (size 5)
+var ribs: Array = []  # her rescue boats ([model-metre origin, yaw], see MID_RIBS)
 # Slots no car may take (index row * lanes + lane): the Guemes' engine room box.
 var blocked := PackedInt32Array()
 # Lanes outboard of throat_x can't run straight out over the end: they turn in to it
@@ -284,13 +274,14 @@ func _init(s: int) -> void:
 	burn = RUNNING[s][1]
 	capacity = lanes * rows
 	passenger_capacity = PASSENGER_CAPACITY[s]
-	guemes = s == 1 and small
+	authored_hull = FerryHullAssets.available(s)
+	guemes = s == 1 and authored_hull
 	open_deck = s == 1 and not guemes
-	hiyu = s == 2 and hiyu_model
+	hiyu = s == 2 and authored_hull
 	portal = s == 2 and not hiyu
-	evergreen = s == 3 and mid
-	issaquah = s == 4 and issaquah_model
-	jumbo = s == 5 and jumbo_model
+	evergreen = s == 3 and authored_hull
+	issaquah = s == 4 and authored_hull
+	jumbo = s == 5 and authored_hull
 	if jumbo:
 		lanes = 12
 		rows = 25
