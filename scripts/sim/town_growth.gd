@@ -129,6 +129,7 @@ class TownState:
 
 var sim: Simulation
 var states := {}  # town_id -> TownState
+var completed_builds: Array[BuildJob] = []  # one finished structure per occupied runtime site
 var island_builds := {}  # island_id -> BuildJob (radio tower)
 var observatory_claimed_town := -1
 var _next_job_id := 1
@@ -161,6 +162,9 @@ static func target_commercial_for(population: int) -> int:
 func setup(simulation: Simulation) -> void:
 	sim = simulation
 	states.clear()
+	completed_builds.clear()
+	_next_job_id = 1
+	_metrics_acc = 0.0
 	island_builds.clear()
 	observatory_claimed_town = -1
 	if sim == null or sim.map == null:
@@ -839,6 +843,7 @@ func _advance_town_builds(st: TownState, dmin: float) -> void:
 				st.built_houses += 1
 			elif job.kind == MapData.TownLot.Kind.COMMERCIAL:
 				st.built_commercial += 1
+			completed_builds.append(job)
 			construction_completed.emit(job)
 
 
@@ -848,6 +853,7 @@ func _advance_island_builds(dmin: float) -> void:
 		job.elapsed += dmin
 		if job.elapsed >= job.duration:
 			island_builds.erase(isl_id)
+			completed_builds.append(job)
 			construction_completed.emit(job)
 
 

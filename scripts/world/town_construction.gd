@@ -48,6 +48,15 @@ func setup(simulation: Simulation, world_builder: WorldBuilder) -> void:
 			sim.town_growth.construction_started.connect(_on_construction_started)
 		if not sim.town_growth.construction_completed.is_connected(_on_construction_completed):
 			sim.town_growth.construction_completed.connect(_on_construction_completed)
+			# A restored company already owns its sites when the world attaches this view.
+			for job in sim.town_growth.completed_builds:
+				_level_job(job)
+				_spawn_finished_building(job)
+			for town in sim.map.towns:
+				for job in sim.town_growth.state_for_town(town).active_builds:
+					_on_construction_started(job)
+			for job: TownGrowth.BuildJob in sim.town_growth.island_builds.values():
+				_on_construction_started(job)
 
 
 func _on_construction_started(job: TownGrowth.BuildJob) -> void:
@@ -55,13 +64,7 @@ func _on_construction_started(job: TownGrowth.BuildJob) -> void:
 		return
 	var lot := job.lot
 	var is_house := job.kind == MapData.TownLot.Kind.HOUSE
-	var half_w := 7.0 if is_house else 11.5
-	var half_d := 5.5 if is_house else 8.5
-	if job.landmark_model == "airplane_hangar_low":
-		half_w = 13.0
-		half_d = 12.0
-	if builder != null:
-		_level_lot_runtime(lot.pos, lot.yaw, half_w, half_d, lot.lot_y)
+	_level_job(job)
 
 	var scene: PackedScene = _house_site_scene if is_house else _commercial_site_scene
 	if scene == null:
@@ -424,6 +427,19 @@ func _spawn_windsock(hangar_xf: Transform3D) -> void:
 
 
 ## Levels a single building lot in play and updates the affected builder.terrain tile(s).
+func _level_job(job: TownGrowth.BuildJob) -> void:
+	if builder == null:
+		return
+	var lot := job.lot
+	var is_house := job.kind == MapData.TownLot.Kind.HOUSE
+	var half_w := 7.0 if is_house else 11.5
+	var half_d := 5.5 if is_house else 8.5
+	if job.landmark_model == "airplane_hangar_low":
+		half_w = 13.0
+		half_d = 12.0
+	_level_lot_runtime(lot.pos, lot.yaw, half_w, half_d, lot.lot_y)
+
+
 func _level_lot_runtime(
 	pos: Vector3, yaw: float, half_w: float, half_d: float, target_y: float
 ) -> void:
