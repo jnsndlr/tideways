@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "cash": 49903.5,
+  "revenue_total": 53.5,
+  "today": {"fares": 0, "sales": 0, "fuel": 0, "crew": 0, "purchases": 150},
+  "yesterday": {"fares": 53.5, "sales": 0, "fuel": 0, "crew": 0, "purchases": 0},
+  "cars_today": 0,
+  "cars_yesterday": 2,
+  "cars_total": 2,
+  "passengers_today": 0,
+  "passengers_yesterday": 1,
+  "passengers_total": 1,
+  "vehicle_fare": 18,
+  "passenger_fare": 6,
+  "route_fares": {"north": {"vehicle": 23.75}}
+}
