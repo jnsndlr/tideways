@@ -1,10 +1,9 @@
 extends Control
 ## Launch Tideways from the ferry terminal's departure board.
 
-const TEXT := Color(0.98, 0.91, 0.75)
 
 const DepartureBoard := preload("res://scripts/ui/departure_board.gd")
-const KeyboardAwareCenter := preload("res://scripts/ui/keyboard_aware_center.gd")
+const CompanyNameDialog := preload("res://scenes/company_name_dialog.tscn")
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _name_dialog: ColorRect
 
@@ -131,63 +130,13 @@ func _keep_focus_in(panel: Node, opener: Control) -> void:
 func _ask_name(on_done: Callable) -> void:
 	if is_instance_valid(_name_dialog) or get_tree().root.has_node(LoadingScreen.LAYER_NAME):
 		return
-	var dim := ColorRect.new()
-	_name_dialog = dim
 	var opener := get_viewport().gui_get_focus_owner()
-	dim.focus_behavior_recursive = Control.FOCUS_BEHAVIOR_ENABLED
-	_keep_focus_in(dim, opener)
-	dim.color = Color(0, 0, 0, 0.6)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(dim)
-	var center := KeyboardAwareCenter.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.add_child(center)
-	var form_scale := 1.6 if OS.has_feature("mobile") else 1.0
-	var panel := PanelContainer.new()
-	var background := StyleBoxFlat.new()
-	background.bg_color = Color(0.12, 0.10, 0.09, 0.97)
-	background.set_corner_radius_all(10)
-	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
-		background.set_content_margin(side, 14 * form_scale)
-	panel.add_theme_stylebox_override("panel", background)
-	var form_theme := Theme.new()
-	form_theme.default_font_size = roundi(16 * form_scale)
-	panel.theme = form_theme
-	center.add_child(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", roundi(12 * form_scale))
-	panel.add_child(box)
-	var label := Label.new()
-	label.text = "Name your ferry company"
-	label.add_theme_font_size_override("font_size", roundi(22 * form_scale))
-	label.add_theme_color_override("font_color", TEXT)
-	box.add_child(label)
-	var field := LineEdit.new()
-	field.placeholder_text = "Island Ferries"
-	field.max_length = 32
-	field.custom_minimum_size = Vector2(360, 48) * form_scale
-	field.add_theme_font_size_override("font_size", roundi(20 * form_scale))
-	box.add_child(field)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_END
-	row.add_theme_constant_override("separation", roundi(10 * form_scale))
-	box.add_child(row)
-	var go := func():
-		var n := field.text.strip_edges()
-		dim.queue_free()
-		on_done.call(n if n != "" else field.placeholder_text)
-	var cancel := Button.new()
-	cancel.text = "Cancel"
-	cancel.custom_minimum_size = Vector2(110, 44) * form_scale
-	cancel.pressed.connect(dim.queue_free)
-	row.add_child(cancel)
-	var start := Button.new()
-	start.text = "Start"
-	start.custom_minimum_size = Vector2(110, 44) * form_scale
-	start.pressed.connect(go)
-	row.add_child(start)
-	field.text_submitted.connect(func(_t): go.call())
-	field.grab_focus()
+	var dialog := CompanyNameDialog.instantiate()
+	_name_dialog = dialog
+	_keep_focus_in(dialog, opener)
+	dialog.name_chosen.connect(on_done, CONNECT_ONE_SHOT)
+	add_child(dialog)
+
 
 
 ## Play the main map from `scenario` ("" for the opening).
