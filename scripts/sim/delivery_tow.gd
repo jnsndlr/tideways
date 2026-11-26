@@ -18,6 +18,7 @@ enum Phase { TOWING, LEAVING, FETCHING, TURNING, PULLING }
 
 ## Tow speed as a share of the tug's cruise.
 const TOW_PACE := 0.8
+const NAMES := ["Tug Comox", "Tug Skookum", "Tug Tillicum", "Tug Swiftsure"]
 ## Hawser: this much water between the tug's stern and her bow.
 const HAWSER := 40.0
 ## Approach: the last legs run straight in along the terminal's axis from this far out.
@@ -109,7 +110,7 @@ func setup(s: Simulation, f: Ferry, pts: PackedVector2Array, away := false) -> v
 	sim = s
 	ferry = f
 	outbound = away
-	vessel_name = "Tug " + ["Comox", "Skookum", "Tillicum", "Swiftsure"][(s.ferries.size() + s.tows.size()) % 4]
+	vessel_name = NAMES[(s.ferries.size() + s.tows.size()) % NAMES.size()]
 	name = vessel_name
 	apply_spec(VesselTypes.tugs()[0], 0)
 	path = NavPath.new(pts)
@@ -328,7 +329,10 @@ func delivery_complete() -> bool:
 		and consort == null
 		and is_instance_valid(ferry)
 		and ferry.purchased
-		and ferry.berth == Ferry.Berth.WORKING
+		and (
+			ferry.berth == Ferry.Berth.WORKING
+			or (ferry.berth == Ferry.Berth.TIED_UP and not ferry.assigned and ferry.trips == 0)
+		)
 		and ferry.tow == null
 		and ferry.consort == null
 	)

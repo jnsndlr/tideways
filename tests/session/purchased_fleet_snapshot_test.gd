@@ -23,7 +23,9 @@ func _run() -> void:
 		sim.free()
 		finish()
 		return
-	check(CompanySnapshot.capture(sim).is_empty(), "A purchase under tow keeps the previous slot")
+	check(
+		not CompanySnapshot.capture(sim).is_empty(), "A purchased inbound ferry can be checkpointed"
+	)
 	var town := bought.here()
 	var stops: Array[int] = [town.town.id, bought.destination().town.id]
 	check(sim.reschedule(bought, stops), "Assign the bought ferry to two-stop service")

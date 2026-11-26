@@ -3,12 +3,12 @@ extends RefCounted
 ## Compose verified company records over a freshly rebuilt network. The caller
 ## supplies a private simulation with its own map and terrain. Only a completely
 ## restored simulation is returned. No current game or save slot is replaced.
-const VERSION := 4
+const VERSION := 5
 
 
 static func capture(sim: Simulation) -> Dictionary:
 	for tow in sim.tows:
-		if not tow.delivery_complete():
+		if not tow.delivery_complete() and not InboundDeliverySnapshot.attached(tow, sim):
 			return {}
 	if not _accounts_for_traffic(sim):
 		return {}
@@ -20,7 +20,11 @@ static func capture(sim: Simulation) -> Dictionary:
 		terminals[term.town.key] = site
 	var voyages := {}
 	for ferry in sim.ferries:
-		var voyage := FerryCrossingSnapshot.capture(ferry)
+		var voyage := (
+			InboundDeliverySnapshot.capture(ferry)
+			if ferry.purchased and ferry.berth in [Ferry.Berth.DELIVERING, Ferry.Berth.TIED_UP]
+			else FerryCrossingSnapshot.capture(ferry)
+		)
 		if voyage.is_empty() or ferry.fleet_key.is_empty() or voyages.has(ferry.fleet_key):
 			return {}
 		voyages[ferry.fleet_key] = voyage
@@ -106,7 +110,7 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 	var network := CompanyNetwork.new()
 	if not network.read(data.network, sim.map).is_empty():
 		return false
-	if not PurchasedFleetSnapshot.rebuild(network.fleet, data.voyages, sim, data.version >= 4):
+	if not PurchasedFleetSnapshot.rebuild(network.fleet, data.voyages, sim, int(data.version)):
 		return false
 	for term: Terminal in sim.terminals.values():
 		var site: Dictionary = data.terminals[term.town.key]
@@ -164,7 +168,14 @@ static func _install_fleet(
 			car.free()
 		ferry.aboard.clear()
 		ferry.passengers_aboard.clear()
-		if not FerryCrossingSnapshot.restore(voyage, ferry, make_vehicle):
+		if voyage.get("phase") in ["delivery", "delivered"]:
+			if (
+				not ferry.purchased
+				or ferry.berth not in [Ferry.Berth.DELIVERING, Ferry.Berth.TIED_UP]
+				or voyage.service != FerryCrossingSnapshot.service_record(ferry)
+			):
+				return false
+		elif not FerryCrossingSnapshot.restore(voyage, ferry, make_vehicle):
 			return false
 		ferry.ferry_name = hull.display_name
 		ferry.vessel_name = hull.display_name

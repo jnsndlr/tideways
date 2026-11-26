@@ -11,9 +11,55 @@ func _initialize() -> void:
 
 func _run() -> void:
 	_midnight()
+	_castaway_pose()
 	_run_case(false)
 	_run_case(true)
 	finish()
+
+
+func _castaway_pose() -> void:
+	var live := _world()
+	var hull := live.ferries[0]
+	hull.state = Ferry.State.SAILING
+	hull.itinerary.call = 1
+	hull.traveled = 30
+	hull._lie = 0.018
+	hull.place_underway()
+	var visible := hull.global_transform
+	hull._update_lie(DT)
+	check(
+		hull._lie < 0.018 and hull.global_transform == visible,
+		"Landing angle eases after the visible castaway pose is applied"
+	)
+	var copy := _world()
+	var record := FerryCrossingSnapshot.capture(hull)
+	check(
+		FerryCrossingSnapshot.restore(record, copy.ferries[0], VehicleFactory.from_parts),
+		"Restore the first sailing pose"
+	)
+	check(
+		(
+			copy.ferries[0].global_transform.is_equal_approx(visible)
+			and copy.ferries[0]._lie == hull._lie
+		),
+		"Restore both the displayed pose and the angle for the next frame"
+	)
+	_step(hull)
+	_step(copy.ferries[0])
+	check(
+		copy.ferries[0].global_transform.is_equal_approx(hull.global_transform),
+		"The next sailing frame stays in step"
+	)
+	var older := _world()
+	record.version = 4
+	record.erase("sailing_pose")
+	check(
+		FerryCrossingSnapshot.restore(record, older.ferries[0], VehicleFactory.from_parts),
+		"Read a previous crossing without an applied pose"
+	)
+	older.free()
+	copy.free()
+	live.free()
 
 
 func _midnight() -> void:
