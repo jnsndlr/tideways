@@ -4,6 +4,7 @@ extends Control
 const TEXT := Color(0.98, 0.91, 0.75)
 
 const DepartureBoard := preload("res://scripts/ui/departure_board.gd")
+const KeyboardAwareCenter := preload("res://scripts/ui/keyboard_aware_center.gd")
 const MainMapScript := preload("res://scripts/main_map.gd")
 var _name_dialog: ColorRect
 
@@ -138,7 +139,7 @@ func _ask_name(on_done: Callable) -> void:
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
-	var center := CenterContainer.new()
+	var center := KeyboardAwareCenter.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.add_child(center)
 	var panel := PanelContainer.new()
