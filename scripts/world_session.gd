@@ -94,8 +94,8 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 	# Tree stand-ins read imported mesh surfaces. Populate their shared cache
 	# before assembling the world and backdrop.
 	if async_build:
-		Models.tree_variants(false)
-		Models.tree_variants(true)
+		TreeModel.variants(false)
+		TreeModel.variants(true)
 	builder = WorldBuilder.new(map, terrain)
 	build_from = build_to
 	build_to = 0.71
