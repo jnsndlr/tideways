@@ -3,7 +3,7 @@ extends RefCounted
 ## Compose verified company records over a freshly rebuilt network. The caller
 ## supplies a private simulation with its own map and terrain. Only a completely
 ## restored simulation is returned. No current game or save slot is replaced.
-const VERSION := 1
+const VERSION := 2
 
 
 static func capture(sim: Simulation) -> Dictionary:
@@ -24,6 +24,9 @@ static func capture(sim: Simulation) -> Dictionary:
 	var ledger := sim.ledger.snapshot(sim.map.routes)
 	if ledger.is_empty():
 		return {}
+	var outbound = OutboundTrafficSnapshot.capture(sim)
+	if outbound == null:
+		return {}
 	var reservations := {}
 	for corridor: MarineTraffic.Corridor in _corridors(sim).values():
 		if corridor.owner != null:
@@ -37,6 +40,7 @@ static func capture(sim: Simulation) -> Dictionary:
 		"terminals": terminals,
 		"voyages": voyages,
 		"reservations": reservations,
+		"outbound": outbound,
 	}
 
 
@@ -71,7 +75,11 @@ static func restore(
 
 
 static func _supports(data: Variant) -> bool:
-	if not data is Dictionary or data.get("version") != VERSION:
+	if not data is Dictionary or (data.get("version") != VERSION and data.get("version") != 1):
+		return false
+	if data.version == 1 and data.has("outbound"):
+		return false
+	if data.version == VERSION and not data.get("outbound") is Array:
 		return false
 	for section in ["network", "ledger", "clock", "docks", "terminals", "voyages", "reservations"]:
 		if not data.get(section) is Dictionary:
@@ -92,6 +100,8 @@ static func _install(data: Dictionary, sim: Simulation, make_vehicle: Callable) 
 		return false
 	sim.ledger = ledger
 	if not _install_fleet(data, sim, make_vehicle):
+		return false
+	if not OutboundTrafficSnapshot.restore(data.get("outbound", []), sim, make_vehicle):
 		return false
 	# Initial demand and regenerated background traffic may use random draws.
 	return CompanyClockSnapshot.restore(data.clock, sim)
@@ -206,7 +216,7 @@ static func _install_reservations(
 	return true
 
 
-## Departing road traffic and walkers headed home have no terminal record yet.
+## A passenger headed home still has no terminal record.
 ## Never silently omit a company passenger or vehicle when capturing this format.
 static func _accounts_for_traffic(sim: Simulation) -> bool:
 	var owned := {}
@@ -227,6 +237,8 @@ static func _accounts_for_traffic(sim: Simulation) -> bool:
 				return false
 			owned[walker.get_instance_id()] = true
 	for node in sim.traffic.get_children() + sim.passengers.get_children():
+		if node is Vehicle and node.is_leaving_terminal():
+			continue
 		if not node.is_queued_for_deletion() and not owned.has(node.get_instance_id()):
 			return false
 	return true
