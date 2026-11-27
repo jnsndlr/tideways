@@ -23,6 +23,7 @@ static var _last_opening_phase := -1.0
 
 
 func _ready() -> void:
+	set_process(false)
 	finished.connect(_next_sailing)
 	stream = TRAFFIC_SETS.pick_random()
 	play()
@@ -35,8 +36,17 @@ func _ready() -> void:
 
 
 func _next_sailing() -> void:
+	# Keep the empty harbor on the glass while the next decoder supplies its first frame.
+	$SeamFrame.texture = get_video_texture()
+	set_process(true)
 	stream = TRAFFIC_SETS[1] if stream == TRAFFIC_SETS[0] else TRAFFIC_SETS[0]
 	play()
+
+
+func _process(_delta: float) -> void:
+	if stream_position > 0.0:
+		$SeamFrame.texture = null
+		set_process(false)
 
 
 func fit_art(portrait: bool, art_scale: float) -> void:
