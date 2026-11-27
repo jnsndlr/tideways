@@ -9,6 +9,8 @@ var main: Node
 var frames := 0
 var off := ""
 var zoom := 0.0
+## `--hide=A,B`: node name patterns to hide (find_children), e.g. "Pines*_lod1".
+var hide_pat := ""
 var t0 := 0
 var n := 0
 var gpu := 0.0
@@ -17,6 +19,8 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--off="):
 			off = a.substr(6)
+		elif a.begins_with("--hide="):
+			hide_pat = a.substr(7)
 		elif a.begins_with("--zoom="):
 			zoom = float(a.substr(7))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -28,6 +32,8 @@ func _initialize() -> void:
 	Engine.max_fps = 0
 
 func _apply() -> void:
+	for p in hide_pat.split(",", false):
+		_hide(main, p)
 	var env: Environment = main.env
 	for o in off.split(","):
 		match o:
@@ -56,9 +62,12 @@ func _apply() -> void:
 				for nm in ["Pines*", "RoundTrees*", "MainlandPines*", "TreeCards*"]:
 					_hide(main, nm)
 			"treeshadow":
+				# The shadow-only copies are hidden (switching their casting off would draw them).
+				_hide(main, "*_shadow")
 				for nm in ["Pines*", "RoundTrees*", "MainlandPines*"]:
 					for c in main.find_children(nm, "GeometryInstance3D", true, false):
-						c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						if c.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
+							c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			"cards": _hide(main, "TreeCards*")
 			"mland": _hide(main, "Mainland")
 			"cumulus": _hide(main, "Cumulus")
@@ -103,6 +112,8 @@ func _process(_d: float) -> bool:
 		if zoom > 0.0:
 			_frame_grass()
 		_apply()
+		if "lodcount" in off:
+			_lodcount()
 		if "census" in off:
 			_census()
 	if frames == 180:
@@ -112,6 +123,8 @@ func _process(_d: float) -> bool:
 		gpu += RenderingServer.viewport_get_measured_render_time_gpu(root.get_viewport_rid())
 	if "shadow" in off.split(","):
 		main.sun.shadow_enabled = false
+	if frames == 600 and OS.has_environment("PP_SHOT"):
+		root.get_texture().get_image().save_png(OS.get_environment("PP_SHOT"))
 	if frames == 600:
 		var rs := RenderingServer
 		print("PROBE %-12s frame %.2f ms | gpu %.2f ms | px %s | prims %d | draws %d" % [off if off != "" else "baseline",
@@ -157,3 +170,39 @@ func _census() -> void:
 	ks.sort_custom(func(a, b): return rows[a][1] > rows[b][1])
 	for k in ks.slice(0, 30):
 		print("CENSUS %-30s n=%4d tris=%8d shadowtris=%8d" % [k, rows[k][0], rows[k][1], rows[k][2]])
+
+## Per tree group and level: triangles the tiles in range submit, against those of the
+## trees the shader keeps (each tree's own distance inside its level's band).
+func _lodcount() -> void:
+	var cam := root.get_camera_3d().global_position
+	var rows := {}
+	for g in ["Pines*", "RoundTrees*", "MainlandPines*"]:
+		for n: MultiMeshInstance3D in main.find_children(g, "MultiMeshInstance3D", true, false):
+			if not n.is_visible_in_tree() or n.multimesh == null:
+				continue
+			var d := cam.distance_to(n.global_transform * n.get_aabb().get_center())
+			var rb := n.visibility_range_begin
+			var re := n.visibility_range_end
+			if d < rb or (re > 0.0 and d > re):
+				continue
+			var mm := n.multimesh
+			var tris := _tris(mm.mesh)
+			var mat := n.material_override as ShaderMaterial
+			if mat == null and mm.mesh is QuadMesh:
+				mat = (mm.mesh as QuadMesh).material as ShaderMaterial
+			var lb := 0.0
+			var le := 0.0
+			if mat and mat.shader and "tree" in mat.shader.resource_path:
+				lb = mat.get_shader_parameter("lod_begin"); le = mat.get_shader_parameter("lod_end")
+			var f := TreeLod.lod_fade * 0.5
+			var kept := 0
+			for i in mm.instance_count:
+				var td := cam.distance_to(n.global_transform * mm.get_instance_transform(i).origin)
+				if (lb <= 0.0 or td >= lb - f) and (le <= 0.0 or td <= le + f):
+					kept += 1
+			var k := String(n.name).split("_")[0] + ("_shadow" if String(n.name).ends_with("_shadow") else (String(n.name).right(5) if "_lod" in String(n.name) else "_lod0"))
+			if not rows.has(k): rows[k] = [0, 0, 0]
+			rows[k][0] += 1; rows[k][1] += tris * mm.instance_count; rows[k][2] += tris * (mm.instance_count if n.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY else kept)
+	var ks := rows.keys(); ks.sort()
+	for k in ks:
+		print("LOD %-24s tiles %4d submitted %9d kept %9d" % [k, rows[k][0], rows[k][1], rows[k][2]])
