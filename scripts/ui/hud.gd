@@ -4,21 +4,24 @@ extends CanvasLayer
 ## selection panel, terminal status bar, fleet list, wildlife sightings, toasts,
 ## a minimap and the map controls at the screen edge.
 
+## Emitted for the authored map to show the selected site or clear its pins.
+signal dock_site_selected(town: MapData.Town)
+
+# Speed IDs are also used by launch options and device probes.
+enum Speed { PAUSED, NORMAL, FAST, FASTER, MAXIMUM, REAL_TIME }
+
 const PANEL_BG := Color(0.07, 0.11, 0.13, 0.9)
 # By path, so the editor resolves it even before its class list catches up.
 const RefitCrew := preload("res://scripts/world/slip_refit_crew.gd")
 const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
-# Speed IDs are also used by launch options and device probes.
-enum Speed { PAUSED, NORMAL, FAST, FASTER, MAXIMUM, REAL_TIME }
-const SLIDER_SPEEDS := [Speed.PAUSED, Speed.REAL_TIME, Speed.NORMAL, Speed.FAST, Speed.FASTER, Speed.MAXIMUM]
+const SLIDER_SPEEDS := [
+	Speed.PAUSED, Speed.REAL_TIME, Speed.NORMAL, Speed.FAST, Speed.FASTER, Speed.MAXIMUM
+]
 const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0, 1.0 / (60.0 * Units.MINUTES_PER_SECOND)]
 const SPEED_LABELS := ["Paused", "1x", "8x", "16x", "32x", "Real time"]
 const WILD := Color(0.98, 0.78, 0.42)
-
-## Emitted for the authored map to show the selected site or clear its pins.
-signal dock_site_selected(town: MapData.Town)
 
 var _game_menu: PopupMenu
 var _menu_button: Button
@@ -51,8 +54,8 @@ var _queue_total_dirty := true
 var _terminal_rows: TerminalInspectorRows
 var _speed_slider: HSlider
 var _speed_label: Label
-var _speed_index := 1
-var _last_running_speed := 1
+var _speed_index: int = Speed.NORMAL
+var _last_running_speed: int = Speed.NORMAL
 var _info_panel: PanelContainer
 var _ferry_panel: FerryPanel
 var _info_scroll: ScrollContainer
@@ -139,7 +142,7 @@ func setup(session: WorldSession, offers_dock_sites := false) -> void:
 	sim.running_costs_posted.connect(_on_running_costs)
 	sim.ferry_delivered.connect(_on_ferry_delivered)
 	sim.ferry_removed.connect(_on_ferry_removed)
-	set_speed(1)
+	set_speed(Speed.NORMAL)
 	var intro := session.intro(_labels.size())
 	show_toast(intro[0], intro[1])
 
@@ -266,7 +269,9 @@ func _build_top_bar() -> void:
 	_speed_slider.focus_mode = Control.FOCUS_NONE
 	_speed_slider.custom_minimum_size = Vector2(158, 40)
 	_speed_slider.tooltip_text = "Game speed"
-	_speed_slider.value_changed.connect(func(stop: float) -> void: set_speed(SLIDER_SPEEDS[int(stop)]))
+	_speed_slider.value_changed.connect(
+		func(stop: float) -> void: set_speed(SLIDER_SPEEDS[int(stop)])
+	)
 	speeds.add_child(_speed_slider)
 	_speed_label = _label("", 13, ACCENT, true)
 	_speed_label.custom_minimum_size.x = 60
@@ -560,15 +565,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_pressed() or event.is_echo():
 		return
 	if event.is_action(&"hud_toggle_pause"):
-		set_speed(0 if _speed_index > 0 else _last_running_speed)
+		set_speed(_last_running_speed if _speed_index == Speed.PAUSED else Speed.PAUSED)
 	elif event.is_action(&"hud_speed_normal"):
-		set_speed(1)
+		set_speed(Speed.NORMAL)
 	elif event.is_action(&"hud_speed_fast"):
-		set_speed(2)
+		set_speed(Speed.FAST)
 	elif event.is_action(&"hud_speed_fastest"):
-		set_speed(3)
+		set_speed(Speed.FASTER)
 	elif event.is_action(&"hud_speed_max"):
-		set_speed(4)
+		set_speed(Speed.MAXIMUM)
 	elif event.is_action(&"hud_clear_selection"):
 		clear_selection()
 	elif event.is_action(&"hud_next_ferry"):
