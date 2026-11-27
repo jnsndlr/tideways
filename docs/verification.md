@@ -28,6 +28,10 @@ Run `python3 -B -m unittest discover -s tests/tooling` for the dependency checke
 
 The vehicle-overlap diagnostic samples every five frames. Pair-frames and model-pair totals support comparisons with earlier runs. An episode identifies the same two vehicle instances for at least four consecutive samples. Use `--mesh-contacts` to test actual visible mesh surfaces at each proximity alert, including a trailer in its current pose. This optional check tests triangle edges against the other mesh; inspect suspect events from the player camera. Compare changed traffic on seed 123 for 6,000 frames, including crossings, boarded vehicles, walk-ons and stalls. The earlier proximity baseline reported 615 pair-frames and zero stalls. The separate 20,000-frame marine baseline completed 145 ferry trips with zero reported vessel overlaps or groundings.
 
+## Terminal shadows in motion
+
+Run [the terminal shadow sequence](../tools/terminal_shadow_sequence.gd) at the same resolution, renderer and shadow settings on main and the candidate. It captures 24 frames panning across the opening terminal at 6:52 AM with the simulation paused, followed by 72 frames at normal speed with the camera fixed. During the pan, check both exposed concrete strips beside the gravel. With the camera fixed, compare pole, railing and tree shadow edges against stationary objects. On a device, measure frame time separately with image capture disabled. Record the device and build with the comparison.
+
 ## Check GDScript lint and formatting
 
 From a feature checkout with uv installed, run `uv run --locked --script tools/check_gdscript.py`. This uses the same gdtoolkit 4.5.0 linter, 100-column formatter and dependency lock as CI. The command compares your working tree (including new scripts) with the common ancestor of HEAD and `origin/main`. Use `--base REV` for another baseline. CI checks the PR against its target or the push against the previous revision. Run `bash tests/tooling/test_gdscript_style.sh` for the passing and failing fixtures.
