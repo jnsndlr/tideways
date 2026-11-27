@@ -33,7 +33,7 @@ var switched_off: Array = []
 
 
 func _initialize() -> void:
-	main = load(Scenes.SANDBOX).instantiate()
+	main = load("res://scenes/main_map.tscn" if OS.has_environment("FC_MAIN") else Scenes.SANDBOX).instantiate()
 	root.add_child(main)
 
 
