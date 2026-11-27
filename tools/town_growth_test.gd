@@ -5,7 +5,7 @@ extends SceneTree
 ## - 4-factor accessibility (frequency, affordability, reliability/schedule stability, connectivity)
 ## - Three-part attractiveness (residents -> affordability, industry -> stability, tourism -> wildlife photos)
 ## - Organic (5/8/10/day), ferry-driven (up to 5x), and milestone growth
-## - 1 house / 100 pop and 1 commercial / 333 pop construction triggers & TownConstruction lifecycle
+## - 1 house / 75 pop and 1 commercial / 250 pop construction triggers & TownConstruction lifecycle
 ## - 4,000 pop Hangar + Windsock, unique first-rural-only Observatory, and Madrona + 6,000 island Radio Tower
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tools/town_growth_test.gd
@@ -200,7 +200,7 @@ func _process(_delta: float) -> bool:
 			"Higher tourism attractiveness must raise passenger demand multiplier"):
 		return true
 
-	# Verify 1 house/100 pop and 1 commercial/333 pop trigger construction jobs & complete cleanly.
+	# Verify 1 house/75 pop and 1 commercial/250 pop trigger construction jobs & complete cleanly.
 	var started_kinds: Array[int] = []
 	var completed_models: Array[String] = []
 	tg.construction_started.connect(func(job: TownGrowth.BuildJob): started_kinds.append(job.kind))
