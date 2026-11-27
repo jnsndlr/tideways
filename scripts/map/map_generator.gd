@@ -134,6 +134,7 @@ func _build(layout: MapLayout, plan: RegionPlan) -> void:
 	_place_beaches(map_seed)
 	_name_islands()
 	_layout_towns()
+	_grade_coast_guard_road()
 	_roll_wildlife_appeal(map_seed)
 	_place_haul_outs(map_seed)
 	_route_samples.clear()
@@ -2056,6 +2057,119 @@ func _grade_plan(isl: MapData.Town) -> void:
 		graded.append(e)
 		isl.road_lanes.append(g)
 	plan.edges = graded
+
+
+## The coast guard station's road (CoastGuardStation.ROAD, its corners rounded)
+## on to the nearest town street clear of a street's end, with a smoothed profile
+## the ground is graded to, as for the town's own streets.
+func _grade_coast_guard_road() -> void:
+	var isl_i := -1
+	for i in map.islands.size():
+		if map.islands[i].name == CoastGuardStation.ISLAND:
+			isl_i = i
+	if isl_i < 0:
+		return
+	# Level the yard east of the road first, at its mean height, so the road grades onto it.
+	var yd := CoastGuardStation.YARD
+	var sum := 0.0
+	var n_yard := 0
+	var x := yd.x
+	while x <= yd.y:
+		var z := yd.z
+		while z <= yd.w:
+			sum += _h(Vector3(x, 0.0, z))
+			n_yard += 1
+			z += 6.0
+		x += 6.0
+	var mid := Vector3((yd.x + yd.y) * 0.5, 0.0, (yd.z + yd.w) * 0.5)
+	# u along +x, v along UP x +x = -z.
+	terrain.add_flat(mid, Vector3.RIGHT, yd.x - mid.x, yd.y - mid.x, mid.z - yd.w, mid.z - yd.z,
+		sum / n_yard, 18.0)
+	terrain._apply_flat(terrain.flats[terrain.flats.size() - 1])
+	var out: Vector2 = CoastGuardStation.ROAD[CoastGuardStation.ROAD.size() - 1]
+	var best := Vector3.INF
+	var best_d := INF
+	var best_town: MapData.Town = null
+	var best_lane := -1
+	var clear_end := RoadMesh.HALF + 6.0
+	for t in map.towns:
+		if t.island != isl_i:
+			continue
+		var lines: Array[PackedVector3Array] = [t.road_main_a, t.road_main_b]
+		lines.append_array(t.road_cross)
+		lines.append_array(t.road_lanes)
+		for li in lines.size():
+			var line := lines[li]
+			if line.size() < 2:
+				continue
+			for q in line:
+				if q.distance_to(line[0]) < clear_end or q.distance_to(line[line.size() - 1]) < clear_end:
+					continue
+				var dd := Vector2(q.x - out.x, q.z - out.y).length()
+				if dd < best_d:
+					best_d = dd
+					best = q
+					best_town = t
+					best_lane = li - (lines.size() - t.road_lanes.size())
+	if best_town == null:
+		return
+	var flat: Array[Vector2] = []
+	for q: Vector2 in CoastGuardStation.ROAD:
+		flat.append(q)
+	flat.append(Vector2(best.x, best.z))
+	# Round the corners (Chaikin), keeping both ends.
+	for pass_i in 3:
+		var r: Array[Vector2] = [flat[0]]
+		for i in flat.size() - 1:
+			r.append(flat[i].lerp(flat[i + 1], 0.25))
+			r.append(flat[i].lerp(flat[i + 1], 0.75))
+		r.append(flat[flat.size() - 1])
+		flat = r
+	var raw := PackedVector3Array()
+	for q in flat:
+		raw.append(Vector3(q.x, 0.0, q.y))
+	var g := _resample(raw, ROAD_STEP)
+	var ground := PackedFloat32Array()
+	for p in g:
+		var h := _h(p)
+		if h < 0.6:
+			print("coast guard road: water in the way at ", p)
+			return
+		ground.append(h)
+	# A rolling profile, not every bump of the ground: a running mean over ~24 m.
+	for pass_i in 3:
+		var sm := PackedFloat32Array(ground)
+		for i in g.size():
+			var acc := 0.0
+			var cnt := 0
+			for k in range(maxi(0, i - 6), mini(g.size(), i + 7)):
+				acc += ground[k]
+				cnt += 1
+			sm[i] = acc / cnt
+		ground = sm
+	for i in g.size():
+		g[i].y = ground[i]
+	var miss := best.y - g[g.size() - 1].y
+	for i in g.size():
+		g[i].y += miss * float(i) / (g.size() - 1)
+	_slope_limit(g, ROAD_GRADE_STEEP * 0.97)
+	g[g.size() - 1].y = best.y
+	terrain.add_roads([g] as Array[PackedVector3Array], 5.0, 4.0)
+	map.islands[isl_i].service_road = g
+	# The cliff ramp: from the pier deck to the clifftop, the ground cut clear beneath it.
+	var foot := Vector3(CoastGuardStation.RAMP_FOOT.x, CoastGuardStation.DECK, CoastGuardStation.RAMP_FOOT.z)
+	var rt := CoastGuardStation.RAMP_TOP
+	# It lands level with the road's end, which it meets.
+	var top := Vector3(rt.x, g[0].y, rt.y)
+	var run := Vector3(top.x - foot.x, 0.0, top.z - foot.z)
+	var span := run.length()
+	var under := func(u: float) -> float: return lerpf(foot.y, top.y, clampf(u / span, 0.0, 1.0)) - 0.5
+	# Stops short of the top and blends tight, so it doesn't dig under the road.
+	terrain.add_cut(Vector3(foot.x, 0.0, foot.z), run / span, 0.0, span - 3.0, -2.6, 2.6, under, 2.0)
+	terrain._apply_flat(terrain.flats[terrain.flats.size() - 1])
+	map.islands[isl_i].service_ramp = PackedVector3Array([foot, top])
+	if best_lane >= 0:
+		best_town.street_pinned[best_lane] = true
 
 
 ## Ease a line pinned at both ends to no steeper than `steepest` where it can;

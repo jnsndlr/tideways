@@ -8,13 +8,15 @@ extends RefCounted
 ## --grid and the clifftop heights (the cliff edge runs along x ~ 2530).
 
 const ISLAND := "Port Rosario"
+const DockKit := preload("res://scripts/world/dock_kit.gd")
 const KIT := "res://assets/models/coast_guard_station/%s.glb"
 const WEST := -PI * 0.5   # yaw that turns a model's +z front (or a boat's bow) to the sea
-## [model, x, z, yaw] on the clifftop, fronts to the road and the sea.
+## [model, x, z, yaw, front] on the clifftop, fronts to the road and the sea;
+## front is how far the front wall stands out from the model's centre (its door light).
 const BUILDINGS := [
-	["watch_tower", 2556.0, -782.0, WEST],
-	["station_house", 2566.0, -712.0, WEST],
-	["equipment_garage", 2566.0, -660.0, WEST],
+	["watch_tower", 2537.0, -784.0, 0.0, 2.05],      # at the road's end, facing it
+	["station_house", 2560.6, -712.0, WEST, 6.0],     # fronts 1.5 m off the road's edge
+	["equipment_garage", 2558.1, -660.0, WEST, 3.5],
 ]
 ## The pier: out from the cliff foot, then north along the shore.
 const ROOT := Vector2(2530.0, -692.0)
@@ -25,7 +27,7 @@ const SHORE_A := Vector2(2521.0, -692.0)
 const SHORE_B := Vector2(2521.0, -626.0)
 const SHEDS := [Vector2(2506.0, -673.0), Vector2(2506.0, -645.0)]
 ## The ramp climbs north up the cliff face from the root to the clifftop.
-const RAMP_FOOT := Vector3(2519.0, 0.0, -697.0)
+const RAMP_FOOT := Vector3(2519.0, 0.0, -694.0)
 const RAMP_TOP := Vector2(2530.0, -772.0)
 ## The road: along the clifftop in front of the buildings, then off toward town.
 const ROAD := [Vector2(2534.0, -772.0), Vector2(2548.0, -760.0), Vector2(2548.0, -600.0), Vector2(2565.0, -545.0)]
@@ -33,16 +35,19 @@ const LIGHT_AT := Vector2(2545.0, -798.0)
 const RADAR_AT := Vector2(2539.0, -735.0)
 const RADAR_SCANNER_Y := 14.45
 const RADAR_SPIN_RAD_S := 2.4
-const DECK := 2.4
-const WIDTH := 6.0
-## [model, x, z, yaw]: the cutter alongside the pier, the boats in the lifeboat houses.
+## A level yard east of the road (x0, x1, z0, z1), graded at map generation.
+const YARD := Vector4(2552.0, 2605.0, -770.0, -600.0)
+const DECK := 1.98   # DockKit.HIGH: the kit's fixed deck height
+## [model, berths]: each berth is [x, z, yaw], yaw the way the bow points once in
+## (vessels come in bow first and back out). The cutter lies on the west side of the
+## pier head, bow north or south (the east side is too tight to the shore); the boats
+## lie in the lifeboat houses.
 const MOORED := [
-	["national_security_cutter", 2482.6, -790.0, PI],
-	["motor_lifeboat_47", 2506.0, -673.0, WEST],
-	["response_boat_small", 2506.0, -645.0, WEST],
+	["national_security_cutter", [[2480.6, -790.0, 0.0], [2480.6, -790.0, PI]]],
+	["motor_lifeboat_47", [[2506.0, -673.0, -WEST]]],
+	["response_boat_small", [[2506.0, -645.0, -WEST]]],
 ]
 
-const PLANK := Color(0.5, 0.42, 0.33)
 const PILE := Color(0.3, 0.26, 0.22)
 
 
@@ -56,14 +61,10 @@ static func build(wb: WorldBuilder) -> void:
 	for b: Array in BUILDINGS:
 		var xf := Transform3D(Basis(Vector3.UP, b[3]), _ground(wb, b[1], b[2]))
 		wb._add_mesh(_model(KIT % b[0]), "Coast Guard " + str(b[0])).transform = xf
-		wb._entry_light(xf, Vector3(0.0, 3.2, 7.0), Vector3(0.0, 0.1, 8.0), false)
+		var front: float = b[4]
+		wb._entry_light(xf, Vector3(0.0, 3.2, front + 0.2), Vector3(0.0, 0.1, front + 1.2), false)
 		_clear(wb, Vector2(b[1], b[2]), 14.0)
-	var mb := MeshBuilder.new()
-	_deck(mb, ELBOW, ROOT)
-	_deck(mb, HEAD, ELBOW + Vector2(0, WIDTH * 0.5))
-	_deck(mb, SHORE_A, SHORE_B)
-	_ramp(wb, mb)
-	wb._add_mesh(mb.commit(), "Coast Guard Pier")
+	_docks(wb)
 	for s: Vector2 in SHEDS:
 		wb._add_mesh(_model(KIT % "lifeboat_house"), "Coast Guard lifeboat_house").transform = \
 			Transform3D(Basis(Vector3.UP, WEST), Vector3(s.x, 0.4, s.y))
@@ -78,86 +79,80 @@ static func _model(path: String) -> Mesh:
 	return Models._cached(path, func(): return ModelParts.baked(path).commit())
 
 
-## A plank deck on piles from a to b (axis-aligned), down to the seabed.
-static func _deck(mb: MeshBuilder, a: Vector2, b: Vector2) -> void:
-	var c := (a + b) * 0.5
-	var size := (b - a).abs() + Vector2(WIDTH, WIDTH)
-	mb.box(Vector3(c.x, DECK, c.y), Vector3(size.x, 0.35, size.y), PLANK)
-	var along := (b - a).normalized()
-	var side := Vector2(-along.y, along.x)
-	var t := 0.0
-	var n := (b - a).length()
-	while t <= n:
-		for s: float in [-1.0, 1.0]:
-			var q := a + along * t + side * s * (WIDTH * 0.5 - 0.3)
-			mb.box(Vector3(q.x, DECK - 9.0, q.y), Vector3(0.45, 18.0, 0.45), PILE)
-		t += 6.0
+## The pier from the dock kit, fixed main deck on piles: out from the cliff foot
+## (ROOT) to the elbow, north to the head (then a ramp down to a float), and the shore deck south past the
+## lifeboat houses. Each run is a whole number of DockKit.RUN sections.
+static func _docks(wb: WorldBuilder) -> void:
+	if not DockKit.available():
+		return
+	var kit := DockKit.new()
+	kit.name = "Coast Guard Pier"
+	wb.root.add_child(kit)
+	var half := DockKit.MAIN_WIDTH * 0.5
+	# West from the cliff foot to the elbow's far edge, so the corner is covered.
+	var west := int(roundf((ROOT.x + 4.0 - (ELBOW.x - half)) / DockKit.RUN))
+	var p := Vector3(ELBOW.x - half + west * DockKit.RUN, DECK, ROOT.y)
+	for k in west:
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(-1, 0), DockKit.Support.PILES)
+	# North from the elbow's north edge to the head.
+	p = Vector3(ELBOW.x, DECK, ELBOW.y - half)
+	for k in int(roundf((ELBOW.y - half - HEAD.y) / DockKit.RUN)):
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, -1), DockKit.Support.PILES)
+	# Off the head, a ramp down to a float landing for the small boats.
+	p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(0, -1), DockKit.LOW)
+	for k in 2:
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, -1), DockKit.Support.FLOATS)
+	# South along the cliff foot from the elbow run's south edge.
+	p = Vector3(SHORE_A.x, DECK, SHORE_A.y + half)
+	for k in int(roundf((SHORE_B.y - SHORE_A.y - half) / DockKit.RUN)):
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.PILES)
+	_ramp(wb, kit)
+	kit.bake()
 
 
-## A timber ramp on trestles up the cliff face, with a rail on its sea side.
-static func _ramp(wb: WorldBuilder, mb: MeshBuilder) -> void:
-	var foot := Vector3(RAMP_FOOT.x, DECK, RAMP_FOOT.z)
-	var top := _ground(wb, RAMP_TOP.x, RAMP_TOP.y)
-	var n := 14
+## The way up the cliff: dock kit ramp sections chained from the elbow run's north
+## edge (RAMP_FOOT) to the clifftop, on timber posts down to the rock.
+static func _ramp(wb: WorldBuilder, kit: Node3D) -> void:
+	var isl_i := -1
+	for i in wb.map.islands.size():
+		if wb.map.islands[i].name == ISLAND:
+			isl_i = i
+	var ends: PackedVector3Array = wb.map.islands[isl_i].service_ramp
+	if ends.size() < 2:
+		return
+	var foot := ends[0]
+	var top := ends[1]
+	var flat := Vector2(top.x - foot.x, top.z - foot.z)
+	var n := maxi(1, roundi(flat.length() / DockKit.RUN))
+	var dir := flat.normalized()
+	var mb := MeshBuilder.new()
+	var p := foot
 	for i in n:
-		var a := foot.lerp(top, float(i) / n)
-		var b := foot.lerp(top, float(i + 1) / n)
-		var mid := (a + b) * 0.5
-		var run := b - a
-		mb.xform = Transform3D(Basis.looking_at(run.normalized()), mid)
-		mb.box(Vector3.ZERO, Vector3(4.0, 0.3, run.length() + 0.1), PLANK)
-		mb.box(Vector3(-1.9, 1.0, 0.0), Vector3(0.12, 0.12, run.length() + 0.1), PILE)
-		mb.xform = Transform3D.IDENTITY
-		mb.box(Vector3(a.x - 1.8, a.y - 6.0, a.z), Vector3(0.4, 12.0, 0.4), PILE)
-	mb.xform = Transform3D.IDENTITY
+		var next_y := lerpf(foot.y, top.y + 0.05, float(i + 1) / n)
+		p = kit.add_ramp(DockKit.Width.MAIN, p, dir, next_y)
+		var g := wb.terrain.height_at(p.x, p.z)
+		if i < n - 1 and p.y - g > 0.5:
+			for side: float in [-1.0, 1.0]:
+				var q := p + Vector3(-dir.y, 0.0, dir.x) * side * (DockKit.MAIN_WIDTH * 0.5 - 0.3)
+				var low := minf(g, wb.terrain.height_at(q.x, q.z)) - 1.0
+				mb.box(Vector3(q.x, (p.y - 0.25 + low) * 0.5, q.z), Vector3(0.32, p.y - 0.25 - low, 0.32), PILE)
+	wb._add_mesh(mb.commit(), "Coast Guard Ramp Posts")
 
 
-## The station's road: along the clifftop, then to the nearest street of
-## Port Rosario, which it joins paved.
+## The station's road, graded at map generation (MapGenerator._grade_coast_guard_road)
+## on to the nearest street of Port Rosario, which it joins paved.
 static func _road(wb: WorldBuilder, isl_i: int) -> void:
-	var pts := PackedVector3Array()
-	for i in ROAD.size() - 1:
-		var a: Vector2 = ROAD[i]
-		var b: Vector2 = ROAD[i + 1]
-		var n := maxi(2, ceili(a.distance_to(b) / 3.0))
-		for k in n:
-			var q := a.lerp(b, float(k) / n)
-			pts.append(Vector3(q.x, wb.terrain.height_at(q.x, q.y) + 0.45, q.y))
-	var out: Vector2 = ROAD[ROAD.size() - 1]
-	var best := Vector3.ZERO
-	var best_d := INF
-	var best_town: MapData.Town = null
-	var best_lane := -1
-	for t in wb.map.towns:
-		if t.island != isl_i:
-			continue
-		var lines: Array[PackedVector3Array] = [t.road_main_a, t.road_main_b]
-		lines.append_array(t.road_cross)
-		lines.append_array(t.road_lanes)
-		for li in lines.size():
-			for q in lines[li]:
-				var dd := Vector2(q.x - out.x, q.z - out.y).length()
-				if dd < best_d:
-					best_d = dd
-					best = q
-					best_town = t
-					best_lane = li - (lines.size() - t.road_lanes.size())
-	var n := maxi(2, ceili(best_d / 3.0))
-	for k in range(0, n + 1):
-		var q := Vector3(out.x, 0, out.y).lerp(best, float(k) / n)
-		var h := wb.terrain.height_at(q.x, q.z)
-		if h < 0.6:
-			print("coast guard road: water in the way at ", q)
-			break
-		pts.append(Vector3(q.x, h + 0.45, q.z) if k < n else best)
-	if best_town != null and best_lane >= 0:
-		best_town.street_pinned[best_lane] = true
+	var pts := PackedVector3Array(wb.map.islands[isl_i].service_road)
+	if pts.size() < 2:
+		return
+	# Tuck its end just under the street it runs on to, so the two don't flicker.
+	pts[pts.size() - 1].y -= 0.03
 	var mb := MeshBuilder.new()
 	RoadMesh.strip(mb, pts, WorldBuilder.ROAD, RoadMesh.Style.DASHED, func(_s: float) -> float: return 1.0)
 	var mat := ShaderMaterial.new()
 	mat.shader = load(WorldBuilder.ROAD_SHADER)
 	wb._add_mesh(mb.commit(mat), "Coast Guard Road", false)
-	for i in range(0, pts.size(), 2):
+	for i in range(0, pts.size(), 3):
 		wb._block_road(pts[i], 9.0)
 
 

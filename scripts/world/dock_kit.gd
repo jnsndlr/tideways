@@ -64,7 +64,23 @@ static func available() -> bool:
 func _piece(path: String) -> Node3D:
 	if not _pieces.has(path):
 		_pieces[path] = load(path)
-	return (_pieces[path] as PackedScene).instantiate()
+	var n := (_pieces[path] as PackedScene).instantiate() as Node3D
+	_use_vertex_colour(n)
+	return n
+
+
+## The deck, stringer and rub-strip colours are painted in vertex colours on one
+## white material ("Dock vertex colour"), which the glTF import leaves switched off.
+static func _use_vertex_colour(n: Node) -> void:
+	for mi: MeshInstance3D in n.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null:
+			continue
+		for s in mi.mesh.get_surface_count():
+			var mat := mi.mesh.surface_get_material(s) as BaseMaterial3D
+			if mat != null and mat.resource_name.begins_with("Dock vertex colour"):
+				mat.vertex_color_use_as_albedo = true
+				# Linear, as authored (the old per-board materials' colours); not sRGB.
+				mat.vertex_color_is_srgb = false
 
 
 func add_deck(width: Width, start: Vector3, direction: Vector2, support: Support) -> Vector3:

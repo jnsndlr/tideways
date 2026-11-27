@@ -520,11 +520,11 @@ func _update_dof() -> void:
 func _dress_vessel(vessel: Vessel, lights: NightLights) -> void:
 	if vessel.spec == null:
 		return
+	if vessel is CoastGuardBoat:
+		return  # (it carries its own art: CoastGuardBoat.setup_berth; check before NavalVessel, its base)
 	if vessel is NavalVessel:
 		NavalVesselView.fit(vessel)
 		return
-	if vessel is CoastGuardBoat:
-		return  # (it carries its own art: CoastGuardBoat.setup_berth)
 	var hull := VesselHullView.new(vessel)
 	vessel.add_child(hull)
 	var lamps := lights.fit_vessel(vessel)

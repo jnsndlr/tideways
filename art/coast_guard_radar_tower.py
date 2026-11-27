@@ -206,7 +206,7 @@ def radar_tower():
     # Tall lightning/VHF mast on a cantilevered outrigger beam off the upper deck corner
     mx, my = 2.35, 2.35
     beam('Antenna outrigger', (1.72, 1.72, 12.45), (mx, my, 12.45), 0.11, white)
-    beam('Antenna brace', (1.62, 1.62, 11.85), (mx, my, 12.42), 0.08, white)
+    beam('Antenna brace', (1.45, 1.45, 11.93), (mx, my, 12.44), 0.08, white)
     cyl('Antenna mount', (mx, my, 12.48), 0.11, 0.14, navy, verts=12)
     cyl('Antenna mast', (mx, my, 14.95), 0.055, 4.8, white, verts=10)
     cyl('Antenna mast band', (mx, my, 16.2), 0.06, 0.7, orange, verts=10)

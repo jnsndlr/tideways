@@ -14,6 +14,8 @@ class Island:
 	var airstrip_at := Vector3.ZERO # runway centre, y = its graded height
 	var airstrip_dir := Vector3.RIGHT   # along the runway
 	var airstrip_slope := 0.0       # its grade: height gained per metre along airstrip_dir
+	var service_road := PackedVector3Array()
+	var service_ramp := PackedVector3Array()  # [foot, top] of the coast guard cliff ramp, ground cut clear of it  # graded road to a site off the town (the coast guard station)
 	var radius := 120.0
 	var strength := 1.0             # elevation multiplier
 	var inhabited := true
