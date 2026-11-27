@@ -250,6 +250,18 @@ func check_parking_trailer_clearance() -> void:
 	rig.position = follower._g_front + Vector3(8, 0, 6)
 	rig.rotation.y = PI / 2.0
 	rig.straighten()
+	var crossing := PackedVector3Array([rig.position + Vector3.RIGHT * 40.0])
+	rig.drive(crossing)
+	rig.entering_lot = true
+	follower.drive(PackedVector3Array([Vector3(0, 0, 30), Vector3(12, 0, 35)]))
+	expect(is_inf(follower._room_ahead()), "Traffic outside the booth approach keeps its route")
+	follower.entering_lot = true
+	expect(
+		is_equal_approx(follower._room_ahead(), 6.0 - Vehicle.FOLLOW_GAP),
+		"A booth arrival yields to a crossing trailer before the rig starts parking"
+	)
+	follower.path = PackedVector3Array([follower.path[-1]])
+	expect(is_inf(follower._room_ahead()), "A vehicle already crossing can clear the booths")
 	rig.park_in_lane(rig.position + Vector3.RIGHT * 40.0, rig.rotation.y)
 	expect(
 		is_equal_approx(follower._room_ahead(), 6.0 - Vehicle.FOLLOW_GAP),
