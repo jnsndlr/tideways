@@ -639,6 +639,6 @@ func _refresh_move_note(f: Ferry) -> void:
 		return
 	var short := f.manual_strands(_move_targets[i][0])
 	if short == Vector2i.ZERO:
-		_move_note.text = "Everyone aboard is bound there. Right-click a dock to send her, open water to pull her aside."
+		_move_note.text = "Everyone aboard is bound there. Right-click a dock to send her there, open water to sail her straight to that spot."
 	else:
 		_move_note.text = "%d vehicles and %d walk-ons get off short: fares refunded, their towns unhappy." % [short.x, short.y]

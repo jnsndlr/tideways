@@ -292,7 +292,7 @@ func occupant(term: Terminal, slip: int, except: Ferry) -> Ferry:
 
 
 static func _occupies(boat: Ferry, term: Terminal, slip: int, except: Ferry) -> bool:
-	if not is_instance_valid(boat) or boat == except or boat.berth == Ferry.Berth.WORKING:
+	if not is_instance_valid(boat) or boat == except or boat.berth == Ferry.Berth.WORKING or boat.berth == Ferry.Berth.FREE:
 		return false
 	if boat.tie_up != slip or boat.here() != term:
 		return false
