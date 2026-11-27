@@ -770,7 +770,7 @@ func _terminal_for(isl: MapData.Town) -> void:
 	var hw := isl.lot_half_width
 	var ly := Layout.LOT_Y
 	var mid_u := (Layout.LOT_FRONT + Layout.LOT_BACK) * 0.5
-	mb.box(Vector3(0, ly - 1.35, mid_u), Vector3(hw * 2.0 + 3.6, 2.4, Layout.LOT_LENGTH + 3.6), CONCRETE)
+	_build_lot_foundation(mb, hw)
 	var open := Layout.open_lanes(hw, isl.open_lanes)
 	if isl.open_lanes > 0:
 		# Only the lanes in use are paved; the rest of the site is graded gravel.
@@ -1066,6 +1066,24 @@ func _build_nav_aids() -> void:
 					Models.LAMP_ON_AT
 				)
 				_block(w, 10.0)
+
+
+## The concrete rim meets the gravel 10 cm above the graded ground. Leave its
+## center open: the gravel and asphalt already supply the surface there.
+static func _build_lot_foundation(mb: MeshBuilder, half_width: float) -> void:
+	var center := Vector3(0, Layout.LOT_Y - 0.05, (Layout.LOT_FRONT + Layout.LOT_BACK) * 0.5)
+	var inner := PackedVector3Array()
+	var outer := PackedVector3Array()
+	for corner in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(1, 0, 1), Vector3(-1, 0, 1)]:
+		var offset: Vector3 = corner * Vector3(half_width, 0, Layout.LOT_LENGTH * 0.5)
+		inner.append(center + offset)
+		outer.append(center + offset + corner * 1.8)
+	var down := Vector3.DOWN * 2.5
+	for i in 4:
+		var j := (i + 1) % 4
+		mb.quad(inner[i], inner[j], outer[j], outer[i], CONCRETE, Vector3.UP)
+		var outward := (outer[i] + outer[j]) * 0.5 - center
+		mb.quad(outer[i], outer[j], outer[j] + down, outer[i] + down, CONCRETE, outward)
 
 
 ## When the authored deck is unavailable, the concrete deck still follows the

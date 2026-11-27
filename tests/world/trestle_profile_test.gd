@@ -22,6 +22,23 @@ func _initialize() -> void:
 			samples += 1
 	if samples < 6 or not Vector3(7.5, island.lot_y, front) in deck.verts:
 		return _fail("Missing driveable deck at the raised lot edge")
+	var foundation := MeshBuilder.new()
+	foundation.xform = island.lot_offset()
+	WorldBuilder._build_lot_foundation(foundation, 40)
+	var rim_area := 0.0
+	for i in range(0, foundation.verts.size(), 3):
+		if foundation.normals[i].y < 0.99:
+			continue
+		var a := foundation.verts[i]
+		var b := foundation.verts[i + 1]
+		var c := foundation.verts[i + 2]
+		for vertex in [a, b, c]:
+			if not is_equal_approx(vertex.y, island.lot_y - 0.05):
+				return _fail("The raised foundation rim must meet the gravel above the terrain")
+		rim_area += (b - a).cross(c - a).length() * 0.5
+	var expected := (80.0 + 3.6) * (Layout.LOT_LENGTH + 3.6) - 80.0 * Layout.LOT_LENGTH
+	if not is_equal_approx(rim_area, expected):
+		return _fail("Only the perimeter outside the paved and gravel lot should be capped")
 	print("TEST PASSED")
 	quit(0)
 
