@@ -422,12 +422,9 @@ func _near_other(q: Vector3, own: PackedVector3Array, gap: float) -> bool:
 	return false
 
 
-## Drives for cars: from the square out along the streets to up to `count` junctions
-## spread through the town (farthest first), each as one polyline of street points.
-func drives_from_square(count := 10) -> Array[PackedVector3Array]:
-	var out: Array[PackedVector3Array] = []
-	if nodes.is_empty() or edges.is_empty():
-		return out
+## Shortest street paths from the square: [start node, dist, prev_e] where
+## prev_e[n] is the edge used to reach n.
+func _square_tree() -> Array:
 	var start := 0
 	for i in nodes.size():
 		if nodes[i].distance_to(_sq) < nodes[start].distance_to(_sq):
@@ -458,6 +455,40 @@ func drives_from_square(count := 10) -> Array[PackedVector3Array]:
 				dist[m] = d
 				prev_e[m] = ei
 				open.append(m)
+	return [start, dist, prev_e]
+
+
+## The street points from the square to node `n` (empty if unreachable).
+func path_to_node(n: int) -> PackedVector3Array:
+	var tree := _square_tree()
+	var start: int = tree[0]
+	var prev_e: PackedInt32Array = tree[2]
+	if n != start and prev_e[n] < 0:
+		return PackedVector3Array()
+	var path := PackedVector3Array([nodes[start]])
+	while n != start:
+		var e: Dictionary = edges[prev_e[n]]
+		var pts: PackedVector3Array = e.pts.duplicate()
+		var from: int = e.a if e.b == n else e.b
+		if e.a == n:
+			pts.reverse()
+		if path.size() > 1:
+			pts.append_array(path.slice(1))
+		path = pts
+		n = from
+	return path
+
+
+## Drives for cars: from the square out along the streets to up to `count` junctions
+## spread through the town (farthest first), each as one polyline of street points.
+func drives_from_square(count := 10) -> Array[PackedVector3Array]:
+	var out: Array[PackedVector3Array] = []
+	if nodes.is_empty() or edges.is_empty():
+		return out
+	var tree := _square_tree()
+	var start: int = tree[0]
+	var dist: PackedFloat32Array = tree[1]
+	var prev_e: PackedInt32Array = tree[2]
 	var reach: Array[int] = []
 	for i in nodes.size():
 		if i != start and dist[i] < INF:

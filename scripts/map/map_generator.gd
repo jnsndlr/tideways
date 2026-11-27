@@ -96,6 +96,8 @@ func _build(layout: MapLayout, scenario: Scenario) -> void:
 	map = MapData.new()
 	map.map_seed = map_seed
 	map.town_lots_cache_path = town_lots_cache_path
+	if town_lots_cache_path.contains("main_story"):
+		map.shipping_channels = ShippingLanes.MAIN_CHANNELS
 	terrain = Terrain.new(map_seed, map.half_size)
 	var ports: Array[Vector2] = []
 	for spec in layout.islands:
@@ -1170,33 +1172,40 @@ func _place_islets() -> void:
 			placed += 1
 
 
-## A small-boat marina on most inhabited islands: a stretch of shore with land
-## behind, deep water out past the T-head and its approach, and well clear of the
-## ferry terminals, their lanes and each other. Its own RNG, so the rest of the
-## map stays the same for a given seed.
+## A small-boat marina for every town: the fitting stretch of its island's shore
+## nearest the town (land behind, deep water out past the T-head and its approach,
+## clear of the ferry terminals, their lanes and the other marinas). Its own RNG,
+## so the rest of the map stays the same for a given seed.
+const MARINA_TOWN_REACH := 520.0
 func _place_marinas(map_seed: int) -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = map_seed * 17 + 3
-	for isl in _main_islands():
+	for town in map.towns:
 		if _should_stop():
 			return
-		if r.randf() > 0.85:
+		var isl := map.islands[town.island]
+		if isl.is_mainland:
 			continue
-		var sites: Array = []
+		var anchor: Vector3 = town.shore if town.has_dock else Vector3(town.center.x, 0.0, town.center.y)
+		var best: Variant = null
+		var best_d := MARINA_TOWN_REACH
 		var start := r.randf() * TAU
-		for k in 32:
-			var ang := start + TAU * k / 32.0
+		for k in 96:
+			var ang := start + TAU * k / 96.0
 			var site: Variant = _marina_site(isl, Vector3(cos(ang), 0.0, sin(ang)))
-			if site != null:
-				sites.append(site)
-		if sites.is_empty():
+			if site == null:
+				continue
+			var d := Vector2(site[0].x - anchor.x, site[0].z - anchor.z).length()
+			if d < best_d:
+				best_d = d
+				best = site
+		if best == null:
 			continue
-		var pick: Array = sites[r.randi_range(0, sites.size() - 1)]
 		var m := MapData.Marina.new()
 		m.id = map.marinas.size()
 		m.island = isl.id
-		m.shore = pick[0]
-		m.dir = pick[1]
+		m.shore = best[0]
+		m.dir = best[1]
 		map.marinas.append(m)
 
 
@@ -1226,10 +1235,10 @@ func _marina_site(isl: MapData.Island, n3: Vector3) -> Variant:
 	var reach := s3 + n3 * Layout.MARINA_APPROACH_U
 	for o in map.islands:
 		for sp in _dock_spots(o):
-			if s3.distance_to(sp[0]) < 240.0 or reach.distance_to(sp[0] + sp[1] * 120.0) < 240.0:
+			if s3.distance_to(sp[0]) < 130.0 or reach.distance_to(sp[0] + sp[1] * 120.0) < 150.0:
 				return null
 	for m in map.marinas:
-		if s3.distance_to(m.shore) < 180.0:
+		if s3.distance_to(m.shore) < 200.0:
 			return null
 	for u: float in [0.0, 45.0, 90.0, 135.0]:
 		var q := s3 + n3 * u

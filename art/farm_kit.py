@@ -261,6 +261,70 @@ def tractor(color):
 
 
 
+
+def windmill():
+    def strut(a, b, width, color):
+        a, b = Vector(a), Vector(b)
+        direction = b - a
+        box((a+b)/2, (width,width,direction.length), color,
+            direction.to_track_quat('Z','Y').to_euler())
+
+    # Four tapered legs with crossed braces on every face.
+    corners = [(-1,-1),(1,-1),(1,1),(-1,1)]
+    levels = [(0,1.35),(2.6,1.03),(5.2,.71),(7.8,.39)]
+    for i,(sx,sy) in enumerate(corners):
+        nx,ny = corners[(i+1)%4]
+        box((sx*1.35,sy*1.35,.13),(.45,.45,.26),"rim")
+        strut((sx*1.35,sy*1.35,0),(sx*.39,sy*.39,7.8),.16,"wood")
+        for (low,w),(high,v) in zip(levels,levels[1:]):
+            strut((sx*w,sy*w,low),(nx*v,ny*v,high),.085,"cedar")
+            strut((nx*w,ny*w,low),(sx*v,sy*v,high),.085,"cedar")
+            strut((sx*v,sy*v,high),(nx*v,ny*v,high),.12,"wood")
+    box((0,0,7.83),(1.45,1.45,.18),"cedar")
+    cylinder((0,0,8.31),.19,.19,.84,"roof")
+    tower = finish("WindmillTower")
+
+    box((0,-.29,0),(.4,1.0,.39),"roof")
+    cylinder((0,0,1.53),.067,.052,3.1,"roof")
+    # Feathered arrow and a cut-metal rooster in profile, seen above the wheel.
+    def cutout(profile,color):
+        count = len(profile)
+        add([(x,y,z) for y in (-.055,.055) for x,z in profile],
+            [tuple(range(count)),tuple(reversed(range(count,2*count)))] +
+            [(i,i+count,(i+1)%count+count,(i+1)%count) for i in range(count)],color)
+
+    box((0,0,2.9),(2.91,.13,.105),"gold")
+    cutout([(-1.88,2.90),(-1.17,2.59),(-1.17,3.21)],"gold")
+    cutout([(.77,2.9),(1.14,2.61),(1.68,2.61),(1.43,2.9),
+            (1.68,3.19),(1.14,3.19)],"gold")
+    cutout([(-.47,3.02),(-.22,3.02),(-.16,3.21),(.08,3.17),
+            (.36,3.29),(.65,3.19),(.5,3.48),(.73,3.41),(.57,3.70),
+            (.31,3.78),(.44,3.54),(.16,3.58),(-.03,3.53),(-.21,3.86),
+            (-.23,4.00),(-.34,3.92),(-.42,4.04),(-.50,3.89),
+            (-.70,3.76),(-.48,3.72),(-.55,3.58),(-.45,3.59),
+            (-.42,3.37),(-.28,3.21)],"batten")
+    head = finish("VaneHead",(0,0,8.72))
+    head.parent = tower
+
+    # Shallow folded sails flare towards their tips around a pair of steel hoops.
+    for i in range(14):
+        a = tau*i/14
+        def point(r,angle,depth):
+            return (r*cos(angle),depth,r*sin(angle))
+        strut((0,0,0),point(1.98,a,0),.062,"rim")
+        for r in (1.05,1.98):
+            strut(point(r,a,0),point(r,a+tau/14,0),.047,"rim")
+        for inner,outer,color in ((.92,1.86,"metal"),(1.86,2.12,"batten")):
+            face = [point(inner,a-.14,.09),point(outer,a-.14,.09),
+                    point(outer,a+.17,-.12),point(inner,a+.17,-.12)]
+            add(face + [(x,y+.045,z) for x,y,z in face],
+                [(0,1,2,3),(7,6,5,4),(0,4,5,1),(1,5,6,2),(2,6,7,3),(3,7,4,0)],color)
+    box((0,-.04,0),(.39,.32,.39),"gold")
+    rotor = finish("WindWheel",(0,-.85,0))
+    rotor.parent = head
+    return [tower,head,rotor]
+
+
 def asset(name, build, x, y):
     objects = build() or [finish(name)]
     bpy.ops.object.select_all(action='DESELECT')
@@ -271,6 +335,7 @@ def asset(name, build, x, y):
     return objects[0]
 
 
+asset("farm_windmill",windmill,-3.0,14)
 asset("red_barn",barn,-9,9)
 asset("horse_barn",stable,3,8)
 asset("farmhouse",lambda: house(True),14,11)

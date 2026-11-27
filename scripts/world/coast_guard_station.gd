@@ -188,7 +188,7 @@ static func _radar_tower(wb: WorldBuilder) -> void:
 	# Red aviation obstruction beacons (top mast + 4 upper deck corners)
 	var red := Color(1.0, 0.22, 0.16)
 	wb.glows.xform = xf
-	wb.glows.glow(Vector3(1.25, 17.45, -1.15), red, 0.45, 14.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+	wb.glows.glow(Vector3(2.35, 17.45, -2.35), red, 0.45, 14.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
 	for sx: float in [-1.82, 1.82]:
 		for sz: float in [-1.82, 1.82]:
 			wb.glows.glow(Vector3(sx, 13.78, sz), red, 0.22, 6.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)

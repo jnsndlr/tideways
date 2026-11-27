@@ -210,7 +210,7 @@ class DockSite:
 ## WorldBuilder places initial buildings up to the starting ratios and reserves
 ## the remaining lots clear of trees so growth can construct into them cleanly.
 class TownLot:
-	enum Kind { HOUSE, COMMERCIAL, LANDMARK, RADIO_TOWER }
+	enum Kind { HOUSE, COMMERCIAL, LANDMARK, RADIO_TOWER, BIG_BOX }
 	var pos := Vector3.ZERO
 	var yaw := 0.0
 	var scale := 1.0
@@ -219,7 +219,11 @@ class TownLot:
 	var variant := 0
 	var occupied := false
 	var waterfront := false
+	var yard_half := 0.0              # see WorldBuilder._yard_extent; yard_back 0 = no yard
+	var yard_back := 0.0
 	var street := -1                 # StreetPlan edge it fronts (-1: a grid lot)
+	var model := ""                  # BIG_BOX: store model (WorldBuilder.BIG_BOXES)
+	var need_pop := 0                # BIG_BOX: town population it's built at
 
 
 ## Somewhere boats tie up along a shore. Its frame is like a terminal's: origin
@@ -407,6 +411,9 @@ var map_seed := 0
 ## Where baked TownLots for an authored map live (WorldBuilder); empty = always build.
 var town_lots_cache_path := ""
 var half_size := 3300.0
+## Cargo shipping channels (ShippingLanes): name -> where each crosses the middle
+## row of the passage. Empty: cargo ships find their own way through.
+var shipping_channels := {}
 var islands: Array[Island] = []
 ## Every town, each with its dock (if any) and terminal (once built).
 var towns: Array[Town] = []

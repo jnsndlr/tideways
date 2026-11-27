@@ -202,6 +202,8 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	separation.name = "Separation Buoys"
 	separation.setup(sim, builder.night_lights)
 	add_child(separation)
+	if _args.has("lanes-png") and sim.marine.lanes != null:
+		sim.marine.lanes.save_debug(terrain, map.half_size, str(_args["lanes-png"]))
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"
 	ambience.setup(rig, gulls, day_cycle, builder)

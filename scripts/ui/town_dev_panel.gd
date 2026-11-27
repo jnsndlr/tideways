@@ -203,7 +203,7 @@ func _draw_overlay() -> void:
 		im.surface_set_color(col)
 		im.surface_add_vertex(p + Vector3.UP * 12.0)
 		var label := Label3D.new()
-		label.text = "%s%d" % ["HCLR"[lot.kind], n]
+		label.text = "%s%d" % ["HCLRB"[lot.kind], n]
 		label.modulate = col
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		label.no_depth_test = true

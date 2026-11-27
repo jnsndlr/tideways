@@ -203,8 +203,11 @@ def radar_tower():
     sphere('Weather radome', (-1.18, 1.05, 13.65), 0.58, white, segs=20, rings=12)
     cyl('Radome band', (-1.18, 1.05, 13.65), 0.59, 0.07, navy, verts=20)
 
-    # Tall lightning/VHF mast with top beacon on the opposite corner
-    mx, my = 1.25, 1.15
+    # Tall lightning/VHF mast on a cantilevered outrigger beam off the upper deck corner
+    mx, my = 2.35, 2.35
+    beam('Antenna outrigger', (1.72, 1.72, 12.45), (mx, my, 12.45), 0.11, white)
+    beam('Antenna brace', (1.62, 1.62, 11.85), (mx, my, 12.42), 0.08, white)
+    cyl('Antenna mount', (mx, my, 12.48), 0.11, 0.14, navy, verts=12)
     cyl('Antenna mast', (mx, my, 14.95), 0.055, 4.8, white, verts=10)
     cyl('Antenna mast band', (mx, my, 16.2), 0.06, 0.7, orange, verts=10)
     sphere('Top beacon', (mx, my, 17.45), 0.13, beacon_red, segs=14, rings=10)
@@ -221,10 +224,10 @@ def radar_scanner():
     """Rotating gearbox + open-array slotted waveguide radar bar, centered at origin."""
     box('Radar gearbox', (0, 0, 0.27), (0.92, 0.68, 0.56), navy)
     box('Gearbox cap', (0, 0, 0.59), (0.76, 0.56, 0.12), white)
-    box('Radar array main', (0, 0, 0.87), (4.4, 0.38, 0.36), white)
-    box('Radar array slot', (0, 0, 0.87), (4.1, 0.42, 0.14), navy)
+    box('Radar array main', (0, 0, 0.87), (3.9, 0.36, 0.34), white)
+    box('Radar array slot', (0, 0, 0.87), (3.6, 0.40, 0.13), navy)
     for s in (-1, 1):
-        box('Radar tip', (s * 2.18, 0, 0.87), (0.34, 0.42, 0.40), orange)
+        box('Radar tip', (s * 1.95, 0, 0.87), (0.32, 0.40, 0.38), orange)
 
 
 def build(name, make, pivot_z=0.0, preview_yaw=0.0):

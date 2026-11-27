@@ -692,11 +692,18 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 			var lot := _claim_lot(town, MapData.TownLot.Kind.LANDMARK)
 			if lot == null:
 				lot = _claim_lot(town, MapData.TownLot.Kind.COMMERCIAL)
-			if lot == null:
-				break  # (keep it pending until a lot frees up)
-			var def: Dictionary = st.pending_milestones.pop_front()
-			_start_build(town, st, lot, MapData.TownLot.Kind.LANDMARK, LANDMARK_BUILD_MINUTES,
-				str(def["id"]), str(def["model"]))
+			# No room for it yet: keep it pending, but don't let it hold up the
+			# shops and houses behind it (that stalled towns at their first milestone).
+			if lot != null:
+				var def: Dictionary = st.pending_milestones.pop_front()
+				_start_build(town, st, lot, MapData.TownLot.Kind.LANDMARK, LANDMARK_BUILD_MINUTES,
+					str(def["id"]), str(def["model"]))
+				continue
+
+		# 1b. Big-box stores, each once the town reaches its population.
+		var big := _claim_big_box(town)
+		if big != null:
+			_start_build(town, st, big, MapData.TownLot.Kind.BIG_BOX, BigBoxes.BUILD_MINUTES)
 			continue
 
 		# 2. Commercial buildings: 1 per 250 people.
@@ -723,6 +730,14 @@ func _count_active(st: TownState, kind: int) -> int:
 		if job.kind == kind:
 			n += 1
 	return n
+
+
+func _claim_big_box(town: MapData.Town) -> MapData.TownLot:
+	for lot in town.growth_lots:
+		if lot.kind == MapData.TownLot.Kind.BIG_BOX and not lot.occupied and town.population >= lot.need_pop:
+			lot.occupied = true
+			return lot
+	return null
 
 
 func _claim_lot(town: MapData.Town, kind: int) -> MapData.TownLot:

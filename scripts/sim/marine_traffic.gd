@@ -65,6 +65,7 @@ var vessels: Array[Vessel] = []
 var sailboats: Array[Sailboat] = []
 var motor_yachts: Array[MotorYacht] = []
 var cargo_ships: Array[CargoShip] = []
+var lanes: ShippingLanes   # the cargo channels, if the map has any
 var fishing_boats: Array[FishingBoat] = []
 var grounds: Array[FishingGround] = []
 var anchorages: Array[Anchorage] = []
@@ -122,6 +123,8 @@ func setup(s: Simulation, charts: MarineCharts = null) -> void:
 	_spawn_fishing_boats()
 	pilotage = Pilotage.new(self)
 	coast_guard = CoastGuardBoat.spawn_fleet(self)
+	if not s.map.shipping_channels.is_empty():
+		lanes = ShippingLanes.trace(s.terrain, s.map.half_size, s.terrain.mainland.axis, s.map.shipping_channels)
 	_spawn_cargo(true)
 	_cargo_timer = rng.randf_range(CARGO_GAP.x, CARGO_GAP.y) * 0.5
 	_convoy_timer = rng.randf_range(CONVOY_GAP.x, CONVOY_GAP.y) * 0.3
@@ -560,6 +563,9 @@ func release_spot(sp: Anchorage.Spot, boat: Vessel) -> void:
 # --- Cargo ships --------------------------------------------------------------------
 
 func _spawn_cargo(midway := false) -> void:
+	if lanes != null and not lanes.centrelines.is_empty():
+		_spawn_cargo_in_lane(midway)
+		return
 	var hs := sim.map.half_size
 	for attempt in 8:
 		# Ships use the passage: in at one open end of the channel, out at the other.
@@ -587,6 +593,28 @@ func _spawn_cargo(midway := false) -> void:
 		var path := NavPath.new(pts)
 		var s0 := path.length * rng.randf_range(0.3, 0.55) if midway else 0.0
 		if not is_clear(path.sample(s0), 270.0) or _meets_head_on(path):
+			continue
+		var ship := CargoShip.new()
+		sim.add_child(ship)
+		ship.setup(self, CARGO_NAMES[(sim.map.map_seed + _cargo_named) % CARGO_NAMES.size()], sp, path, s0,
+				rng.randi_range(0, sp.variants - 1))
+		_cargo_named += 1
+		cargo_ships.append(ship)
+		_register(ship, RANK_CARGO)
+		return
+
+
+## A cargo ship up or down one of the shipping channels, on her own lane right
+## of the buoyed centreline, from far beyond one end of the map to far beyond the other.
+func _spawn_cargo_in_lane(midway: bool) -> void:
+	for attempt in 8:
+		var i := rng.randi_range(0, lanes.centrelines.size() - 1)
+		var pts := lanes.track(i, rng.randf() < 0.5)
+		var sp := VesselTypes.pick(VesselTypes.cargo_ships(), rng)
+		pts = nav.smooth(pts, 2, 30.0)
+		var path := NavPath.new(pts)
+		var s0 := path.length * rng.randf_range(0.3, 0.6) if midway else 0.0
+		if not is_clear(path.sample(s0), 270.0):
 			continue
 		var ship := CargoShip.new()
 		sim.add_child(ship)

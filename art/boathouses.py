@@ -1,8 +1,16 @@
 """Rebuild both dock-kit shelters with Blender -b -P art/boathouses.py."""
 from pathlib import Path
 import math
+import random
+import sys
 import bpy
 from mathutils import Vector
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pier_wood import BOARD_COLORS, TIMBER_COLOR, grain
+
+wood_rng = random.Random(413)
+
 
 OUT = Path(__file__).resolve().parents[1] / "assets/models/dock_kit"
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -19,7 +27,7 @@ def material(name, color, metal=0):
     return mat
 
 
-fir = material("Salt-worn fir", (.30, .195, .107))
+fir = material("Salt-worn fir", TIMBER_COLOR)
 zinc = material("Galvanized sheet", (.56, .62, .63), .35)
 flashing = material("Folded zinc trim", (.73, .76, .71), .4)
 cedar = material("Faded harbour blue", (.15, .28, .31))
@@ -35,6 +43,8 @@ def box(name, center, size, mat):
     obj.dimensions = size
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     obj.data.materials.append(mat)
+    if mat == fir:
+        grain(obj, wood_rng)
     return obj
 
 
