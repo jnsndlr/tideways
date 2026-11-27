@@ -194,7 +194,8 @@ func _setup_simulation(charts: MarineCharts) -> void:
 	var air := AirTraffic.new()
 	air.name = "AirTraffic"
 	add_child(air)
-	air.setup(builder.airfields)
+	air.day_cycle = day_cycle
+	air.setup(builder.airfields, builder.seaplane_docks)
 	if not await _setup_frames.can_continue():
 		return
 	var separation := SeparationBuoys.new()

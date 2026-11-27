@@ -83,6 +83,7 @@ var _landmark_meshes := {}
 ## Places seagulls can sit (where the feet go, in world space).
 var gull_perches: Array[Seagulls.Perch] = []
 var airfields: Array[AirTraffic.Field] = []
+var seaplane_docks: Array[AirTraffic.WaterDock] = []
 ## The shadow-only tree copies; the sandbox sets how far they reach by zoom.
 var tree_shadows: Array[MultiMeshInstance3D] = []
 ## Every tree's foot, bucketed by TREE_CELL square, for how near the camera is to one.
@@ -2904,7 +2905,7 @@ func _marina_plan(m: MapData.Marina) -> Array[Dictionary]:
 	for side in 2:
 		plan.append({
 			shift = 6.0 * r.randi_range(1, 2),
-			pitch = 34.0 + 2.0 * r.randi_range(0, 2),
+			pitch = 50.0 + 2.0 * r.randi_range(0, 2),   # fingers + hulls both sides leave a ~22 m fairway
 			count = r.randi_range(maxi(most - 1, 1), most),
 			seed = r.randi(),
 		})
@@ -2921,6 +2922,7 @@ func _marina_branches(m: MapData.Marina, kit: Node3D, plan: Array[Dictionary], e
 	var mb := MeshBuilder.new()
 	mb.xform = xf
 	glows.xform = xf
+	var outer: Array = []   # [bv, side, runs] of each side's outermost seaward arm
 	for si in 2:
 		var side := -1.0 if si == 0 else 1.0
 		var sp: Dictionary = plan[si]
@@ -2930,15 +2932,18 @@ func _marina_branches(m: MapData.Marina, kit: Node3D, plan: Array[Dictionary], e
 			var bv: float = side * (21.0 + sp.shift + sp.pitch * (k + 0.5))
 			var sea: int = 5 + r.randi_range(0, 4) + sp.count
 			var land := r.randi_range(1, 4)
-			_marina_branch(kit, xf, r, bv, edge, 1.0, sea, side, mb)
+			var reach_n := _marina_branch(kit, xf, r, bv, edge, 1.0, sea, side, mb)
 			_marina_branch(kit, xf, r, bv, back, -1.0, land, side, mb)
+			if k == sp.count - 1 and reach_n > 0:
+				outer.append([bv, side, reach_n])
+	_marina_seaplane_dock(m, kit, outer, edge, mb)
 	if not mb.is_empty():
 		_add_mesh(mb.commit(), map.islands[m.island].name + " MarinaFurniture")
 
 
 ## One arm of a branch from the head's face at `u0`, `runs` long toward `dir`
 ## (+1 seaward), cut short of shallow water.
-func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: float, u0: float, dir: float, runs: int, side: float, mb: MeshBuilder) -> void:
+func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: float, u0: float, dir: float, runs: int, side: float, mb: MeshBuilder) -> int:
 	var n := 0
 	while n < runs:
 		var ok := true
@@ -2949,7 +2954,7 @@ func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: 
 			break
 		n += 1
 	if n < 2:
-		return
+		return 0
 	var p := Vector3(bv, DockKit.LOW, u0)
 	for i in n:
 		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, dir), DockKit.Support.FLOATS)
@@ -2986,6 +2991,50 @@ func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: 
 			for e: float in [-1.0, 1.0]:
 				for along: float in [4.0, 8.5]:
 					_marina_prop(kit, MARINA_FENDER, Vector3(x0 + fs * along, DockKit.LOW, su + e * (DockKit.RUN - DockKit.FINGER_WIDTH) * 0.5), 0.0 if e < 0 else PI)
+	return n
+
+
+## A seaplane float: the outermost seaward arm on one side runs on past its last
+## finger as plain dock, and a floatplane ties up along its open outer face,
+## nose in. Needs deep water beside it and a clear run out to sea for take-off.
+const SEAPLANE_EXT := 4      # plain runs past the last finger
+const SEAPLANE_RUN := 520.0  # open water needed ahead of the float for a take-off
+func _marina_seaplane_dock(m: MapData.Marina, kit: Node3D, outer: Array, edge: float, mb: MeshBuilder) -> void:
+	var xf := m.xform()
+	var order := outer.duplicate()
+	if order.size() == 2 and (m.id % 2) == 1:
+		order.reverse()
+	for o: Array in order:
+		var bv: float = o[0]
+		var side: float = o[1]
+		var u_end: float = edge + DockKit.RUN * o[2]
+		var moor_v := bv + side * (DockKit.MAIN_WIDTH * 0.5 + 3.2)
+		var ok := true
+		for i in SEAPLANE_EXT + 1:
+			for dv: float in [0.0, side * 12.0]:
+				if terrain.height_v(xf * Vector3(bv + dv, 0, u_end + DockKit.RUN * (i + 0.5))) > -2.0:
+					ok = false
+		var d := 0.0
+		while ok and d < SEAPLANE_RUN:
+			for dv: float in [-10.0, 10.0]:
+				if terrain.height_v(xf * Vector3(moor_v + side * 14.0 + dv, 0, u_end + d)) > -2.0:
+					ok = false
+			d += 20.0
+		if not ok:
+			continue
+		var p := Vector3(bv, DockKit.LOW, u_end)
+		for i in SEAPLANE_EXT:
+			p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.FLOATS)
+		for along: float in [3.0, 9.0, 15.0, 21.0]:
+			_marina_prop(kit, MARINA_FENDER, Vector3(bv + side * DockKit.MAIN_WIDTH * 0.5, DockKit.LOW, u_end + along), PI * 0.5 * side)
+		# A windsock-orange post at the end, lit at night.
+		var tip := Vector3(bv, DockKit.LOW, p.z - 0.8)
+		mb.box(tip + Vector3(0, 1.5, 0), Vector3(0.2, 3.0, 0.2), Color(0.95, 0.45, 0.1))
+		glows.glow(tip + Vector3(0, 3.1, 0), GlowBuilder.RED, 0.18, 2.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		# Moored nose in, so it heads back out to sea when it leaves.
+		var moor := xf * Vector3(moor_v, 0.0, u_end + DockKit.RUN * SEAPLANE_EXT * 0.5 + 1.0)
+		seaplane_docks.append(AirTraffic.WaterDock.new(map.islands[m.island].name + " Marina", moor, m.dir, m.lateral() * side))
+		return
 
 
 const MARINA_PEDESTAL := "res://assets/models/dock_kit/power_pedestal.glb"
