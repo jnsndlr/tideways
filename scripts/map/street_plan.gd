@@ -33,7 +33,6 @@ var edges: Array[Dictionary] = []
 
 var _t: Terrain
 var _others: Array[Vector3] = []   # other towns: each keeps to the land nearer itself
-var _isl: MapData.Town
 var _sq: Vector3
 
 
@@ -41,9 +40,11 @@ static func build(isl: MapData.Town, terrain: Terrain, square: Vector3, others: 
 	var plan := StreetPlan.new()
 	plan._others = others
 	plan._t = terrain
-	plan._isl = isl
 	plan._sq = square
 	plan._lay_out(isl, square)
+	# Published plans need only the finished graph and the square.
+	plan._t = null
+	plan._others = []
 	return plan
 
 
@@ -153,7 +154,7 @@ func _lay_out(isl: MapData.Town, sq: Vector3) -> void:
 					end = n
 					break
 			if end >= 0:
-				_contour_street(end, u * side)
+				_contour_street(isl, end, u * side)
 	# Main road: up the grid street nearest the square, then winding on inland from
 	# its top; straight from the square where no grid street leads inland.
 	var start := square
@@ -163,7 +164,7 @@ func _lay_out(isl: MapData.Town, sq: Vector3) -> void:
 			key += Vector2i(0, 1)
 		if key.y > 0:
 			start = grid[key]
-	_main_road(start, v)
+	_main_road(isl, start, v)
 
 
 static func _outward(n: int) -> Array[int]:
@@ -307,7 +308,7 @@ func _connected(n: int) -> bool:
 
 ## Runs on from a grid end holding its height, bending with the ground; ends in a
 ## turning circle (dead end) where the land runs out or it nears other streets.
-func _contour_street(from: int, dir: Vector3) -> void:
+func _contour_street(isl: MapData.Town, from: int, dir: Vector3) -> void:
 	var start := nodes[from]
 	var pts := PackedVector3Array([start])
 	var p := start
@@ -319,7 +320,7 @@ func _contour_street(from: int, dir: Vector3) -> void:
 		for deg: float in [-24.0, -12.0, 0.0, 12.0, 24.0]:
 			var d := heading.rotated(Vector3.UP, deg_to_rad(deg))
 			var q := _ground(p + d * STEP)
-			if q.y < LAND_H or _on_lot(_isl, _sq, q):
+			if q.y < LAND_H or _on_lot(isl, _sq, q):
 				continue
 			var cost := absf(q.y - start.y) + absf(deg) * 0.02
 			if cost < best_cost:
@@ -344,7 +345,7 @@ func _contour_street(from: int, dir: Vector3) -> void:
 ## of land it turns back on itself (a switchback) a little higher up.
 const MAIN_GRADE := 0.11
 const CUT := 2.5   # how far the main road may cut into or build up from the ground
-func _main_road(from: int, v: Vector3) -> void:
+func _main_road(isl: MapData.Town, from: int, v: Vector3) -> void:
 	var p := nodes[from]
 	var pts := PackedVector3Array([p])
 	var length := 0.0
@@ -359,7 +360,7 @@ func _main_road(from: int, v: Vector3) -> void:
 			for deg: float in fan:
 				var d := heading.rotated(Vector3.UP, deg_to_rad(deg))
 				var q := _ground(p + d * STEP)
-				if q.y < LAND_H or _on_lot(_isl, _sq, q) or _near_own(q, pts, 26.0):
+				if q.y < LAND_H or _on_lot(isl, _sq, q) or _near_own(q, pts, 26.0):
 					continue
 				var ny := clampf(q.y, y - MAIN_GRADE * STEP, y + MAIN_GRADE * STEP)
 				var cut := absf(q.y - ny)
