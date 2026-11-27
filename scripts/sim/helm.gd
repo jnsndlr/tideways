@@ -149,6 +149,15 @@ class Threat:
 	var a := PackedVector2Array()   # its hull (or centre) at each sample time
 	var b := PackedVector2Array()
 	var fwd := PackedVector2Array()
+	var centre := Vector2.ZERO       # a circle round every sample of its hull (a cheap clear-of test)
+	var bound := 0.0
+
+	func seal() -> void:
+		var box := Rect2(a[0], Vector2.ZERO)
+		for k in a.size():
+			box = box.expand(a[k]).expand(b[k])
+		centre = box.get_center()
+		bound = box.size.length() * 0.5
 
 
 func _decide() -> void:
@@ -176,6 +185,15 @@ func _decide() -> void:
 		var o := angle_difference(base_yaw, h)
 		if absf(o) > 1.0:
 			cands.append([h, 2.0 + absf(o) * 0.5, o])
+	# Nothing it could reach on any of them, whatever it does, needs weighing.
+	var max_top := 0.0
+	for c: Array in cands:
+		max_top = maxf(max_top, v.helm_speed(c[0]))
+	var near: Array[Threat] = []
+	for t: Threat in threats:
+		if p.distance_to(t.centre) <= max_top * HORIZON + _clear_of(t, my_r):
+			near.append(t)
+	threats = near
 	# Hard up against another hull, it can only go where the hull check lets it
 	# (MarineTraffic: no nearer than it is); and if that one is waiting for it to
 	# get out of the way, sitting still settles nothing.
@@ -273,6 +291,19 @@ func _threats(p: Vector2) -> Array[Threat]:
 		# stopped (waiting for this one to get out of its way, perhaps).
 		var moving := o.wants_to_move()
 		var osp := maxf(o.speed, o.cruise * 0.4)
+		if not moving:
+			# Lying still: the same hull at every sample time.
+			var n := int(HORIZON / STEP_T) + 1
+			var f0 := o.heading2()
+			t.a.resize(n)
+			t.a.fill(q - f0 * o.half_seg)
+			t.b.resize(n)
+			t.b.fill(q + f0 * o.half_seg)
+			t.fwd.resize(n)
+			t.fwd.fill(f0)
+			t.seal()
+			out.append(t)
+			continue
 		for k in range(0, int(HORIZON / STEP_T) + 1):
 			var d := osp * k * STEP_T if moving else 0.0
 			var c := o.ahead(d) if moving else q
@@ -284,6 +315,7 @@ func _threats(p: Vector2) -> Array[Threat]:
 			t.a.append(c - f * o.half_seg)
 			t.b.append(c + f * o.half_seg)
 			t.fwd.append(f)
+		t.seal()
 		out.append(t)
 	if traffic.sim.wildlife:
 		for w: Wildlife.Visit in traffic.sim.wildlife.active_visits():
@@ -302,6 +334,7 @@ func _threats(p: Vector2) -> Array[Threat]:
 				t.a.append(c)
 				t.b.append(c)
 				t.fwd.append(f)
+			t.seal()
 			out.append(t)
 	return out
 
@@ -314,6 +347,13 @@ func _pass_cost(p: Vector2, yaw: float, h: float, sp: float, my_r: float, t: Thr
 	var d0 := Vector2(sin(yaw), cos(yaw))
 	var d1 := Vector2(sin(h), cos(h))
 	var stand_on := t.why == ""
+	# Every pose it reckons on lies along the two legs below; a threat that stays
+	# further than any keep from both legs costs nothing (most boats in a marina).
+	var early_end := p + d0 * sp * minf(HORIZON, turn_t * 0.5)
+	var clear := _clear_of(t, my_r)
+	if Geometry2D.get_closest_point_to_segment(t.centre, p, early_end).distance_to(t.centre) > clear \
+			and Geometry2D.get_closest_point_to_segment(t.centre, early_end, early_end + d1 * sp * HORIZON).distance_to(t.centre) > clear:
+		return 0.0
 	var worst := 0.0
 	var total := 0.0
 	# (Now is the same whichever way it turns, so it doesn't count towards the
@@ -337,6 +377,11 @@ func _pass_cost(p: Vector2, yaw: float, h: float, sp: float, my_r: float, t: Thr
 			if k > 0:
 				worst = maxf(worst, pen)
 	return worst + total / t.a.size()
+
+
+## Further than this from every pose it reckons on, `t` costs nothing.
+static func _clear_of(t: Threat, my_r: float) -> float:
+	return t.bound + t.radius + my_r + maxf(t.keep, STAND_ON_KEEP) + t.ahead_keep
 
 
 ## How much land (or the edge of the map) closes the way ahead on heading `h`.

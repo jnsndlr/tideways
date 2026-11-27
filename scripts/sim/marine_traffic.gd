@@ -77,6 +77,14 @@ var berths := {}            # marina id -> Array of the MarinaBoat holding each 
 var corridors := {}         # route id -> Array of the Corridors along it
 var _shared := {}           # route id -> true if two or more boats sail it (each keeps to her own lane)
 var _lock := {}             # harbour -> the vessel manoeuvring there
+# Rebuilt each frame before the vessels move (_update_clearances): the vessels
+# under way, and the still ones (at a berth, at anchor) bucketed by where they lie,
+# so a check against hulls nearby needn't look at every boat in every marina.
+const STILL_CELL := 64.0
+var _movers: Array[Vessel] = []
+var _still := {}            # Vector2i cell -> Array[Vessel] lying (partly) in it
+var _still_reach := 0.0     # the most any still hull reaches from its centre
+var _grid_built := false
 var _queue := {}            # harbour -> the vessels waiting to go in, in the order they got there
 var _wait_spots := {}       # harbour -> where boats wait to go in (see wait_spot)
 var _cargo_timer := 0.0
@@ -774,11 +782,13 @@ func hull_gap(v: Vessel, p: Vector2, h: Vector2) -> float:
 	var a := p - h * v.half_seg
 	var b := p + h * v.half_seg
 	var best := INF
-	for o in vessels:
-		if o == v or Vessel.paired(v, o):
+	var look := v.half_seg + v.hull_radius + 6.0
+	var near: Array = vessels if not _grid_built else _movers + _still_in(Rect2(p, Vector2.ZERO).grow(look + _still_reach + 8.0))
+	for o: Vessel in near:
+		if o == v or not is_instance_valid(o) or Vessel.paired(v, o):
 			continue
 		var q := o.pos2()
-		var r := v.half_seg + o.half_seg + v.hull_radius + o.hull_radius + 6.0
+		var r := look + o.half_seg + o.hull_radius
 		if absf(q.x - p.x) > r or absf(q.y - p.y) > r:
 			continue
 		var oh := o.heading2() * o.half_seg
@@ -932,6 +942,7 @@ func _update_clearances() -> void:
 				shown[v] = Claim.new(v, sl)
 		else:
 			hulls[v] = Claim.new(v, 0.0)
+	_bucket(hulls, own)
 	var dt := get_process_delta_time()
 	for v in vessels:
 		v.clear = INF
@@ -953,7 +964,10 @@ func _update_clearances() -> void:
 			v.stuck_t = 0.0
 		var asserting := v.go_t > 0.0
 		var mine: Claim = own[v]
-		for o in vessels:
+		# Still hulls only count through the hull check, so only those near enough
+		# to touch need looking at; every one under way may cross its path.
+		var others: Array = _movers + _still_in(mine.box.grow(v.hull_radius + _still_reach + MARGIN))
+		for o: Vessel in others:
 			if o == v or Vessel.paired(v, o):
 				continue
 			var thr := v.hull_radius + o.hull_radius + MARGIN
@@ -977,6 +991,40 @@ func _update_clearances() -> void:
 					var k2 := _first_hit(mine, theirs.a[j], theirs.b[j], thr + 1.5, false)
 					if k2 > 0:
 						_limit(v, o, mine.ds[k2 - 1], false)
+
+
+func _bucket(hulls: Dictionary, own: Dictionary) -> void:
+	_movers.clear()
+	_still.clear()
+	_still_reach = 0.0
+	for v in vessels:
+		if own.has(v):
+			_movers.append(v)
+			continue
+		_still_reach = maxf(_still_reach, v.half_seg + v.hull_radius)
+		var box: Rect2 = (hulls[v] as Claim).box
+		var c0 := Vector2i((box.position / STILL_CELL).floor())
+		var c1 := Vector2i((box.end / STILL_CELL).floor())
+		for x in range(c0.x, c1.x + 1):
+			for y in range(c0.y, c1.y + 1):
+				var k := Vector2i(x, y)
+				if not _still.has(k):
+					_still[k] = []
+				_still[k].append(v)
+	_grid_built = true
+
+
+## The still vessels lying in the cells `box` touches (one may come up twice).
+func _still_in(box: Rect2) -> Array:
+	var out := []
+	var c0 := Vector2i((box.position / STILL_CELL).floor())
+	var c1 := Vector2i((box.end / STILL_CELL).floor())
+	for x in range(c0.x, c1.x + 1):
+		for y in range(c0.y, c1.y + 1):
+			var k := Vector2i(x, y)
+			if _still.has(k):
+				out.append_array(_still[k])
+	return out
 
 
 ## Its velocity as a radar would read it; one wanting to get going is reckoned
