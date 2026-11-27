@@ -449,7 +449,9 @@ def hull():
         a = (math.pi / 2) * k / n
         rings.append(oval(lerp(FLARE_Y, y_top, math.sin(a)), HB - HULL_IN * math.cos(a), HZ - HULL_IN_Z * math.cos(a)))
     rings += [oval(CAR_DECK - 0.55), oval(CAR_DECK)]
-    loft(rings, lambda i, j, c: "antifoul" if c.y < -0.05 else ("green" if c.y > CAR_DECK - 0.55 else "hull"), cap_key="hull")
+    # car_deck() supplies the upper cap in bare steel, including the exposed aprons.
+    loft(rings, lambda i, j, c: "antifoul" if c.y < -0.05 else ("green" if c.y > CAR_DECK - 0.55 else "hull"), caps=False)
+    hface(rings[0], "hull", up=False)
     y0, y1 = y_top, y_top + 0.25
     r = lambda y, o: oval(y, HB + o, HZ + o)
     loft([r(y0, 0), r(y0 + 0.05, 0.16), r(y1, 0.16), r(y1, 0)], "rub", caps=False)
