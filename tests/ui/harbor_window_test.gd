@@ -44,6 +44,7 @@ func exercise_playback(menu: Control, harbor: VideoStreamPlayer) -> void:
 	)
 	for sailing in range(2):
 		var before := harbor.stream
+		var outgoing := harbor.get_video_texture()
 		harbor.stream_position = harbor.get_stream_length() - 0.2
 		for frame in range(60):
 			await process_frame
@@ -53,4 +54,14 @@ func exercise_playback(menu: Control, harbor: VideoStreamPlayer) -> void:
 			harbor.stream != before and harbor.is_playing() and harbor.stream_position < 1.0,
 			"The next sailing must play from the beginning"
 		)
+		var seam: TextureRect = harbor.get_node("SeamFrame")
+		check(
+			outgoing != null and seam.texture == outgoing and seam.use_parent_material,
+			"The masked outgoing frame must cover the glass during the stream switch"
+		)
+		for frame in range(60):
+			await process_frame
+			if seam.texture == null:
+				break
+		check(seam.texture == null, "Release the outgoing frame once the new sailing advances")
 	check(harbor.stream == first, "Both traffic sets must repeat in order")

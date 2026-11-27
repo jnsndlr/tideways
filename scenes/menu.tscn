@@ -54,6 +54,14 @@ mouse_filter = 2
 expand = true
 script = ExtResource("3")
 
+[node name="SeamFrame" type="TextureRect" parent="Terminal/Harbor"]
+show_behind_parent = true
+use_parent_material = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+expand_mode = 1
+
 [node name="Gull" type="Node" parent="Terminal/Harbor"]
 script = ExtResource("5")
 
