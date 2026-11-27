@@ -91,7 +91,7 @@ void vertex() {
 		v.xz += wind_dir * (0.08 + wind_strength * 0.5) * sway * tip * tip * h;
 		VERTEX = vec3(p.x, (cap > 0.0 ? cap * 255.0 / 4.0 - 4.0 : ground_height(p)) - 0.04, p.y) + v;
 		vec3 base = cap > 0.0 ? gr.rgb : srgb_to_linear(gr.rgb);
-		tint = gd_soil(p, 0.0, base) * mix(0.9, 1.1, jitter.x);
+		tint = gd_soil(p, 0.0, base, 1.0) * mix(0.9, 1.1, jitter.x);
 	}
 	NORMAL = vec3(0.0, 1.0, 0.0);
 	// The node sits at the origin with identity instances: local is world.

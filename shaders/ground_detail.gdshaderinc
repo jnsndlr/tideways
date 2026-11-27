@@ -157,7 +157,7 @@ vec3 gd_painted(vec2 uv, float mpp, inout vec2 tilt) {
 
 // Grass and forest floor: big damp and dry patches, tufts, and a fine grain. Grass
 // blades (grass.gdshader) take the same patches, so they match the ground below.
-vec3 gd_soil(vec2 p, float mpp, vec3 albedo) {
+vec3 gd_soil(vec2 p, float mpp, vec3 albedo, float grass) {
 	float patches = gd_octave(p + 31.0, 1.0 / 22.0, mpp) + 0.5 * gd_octave(p, 1.0 / 9.0, mpp);
 	float tufts = gd_octave(p, 1.0 / 2.6, mpp) + 0.6 * gd_octave(p + 7.0, 1.0 / 1.1, mpp);
 	float grain = gd_octave(p, 1.0 / 0.45, mpp);
@@ -167,7 +167,9 @@ vec3 gd_soil(vec2 p, float mpp, vec3 albedo) {
 	vec3 dry = albedo * vec3(1.1, 1.05, 0.86);
 	vec3 lush = albedo * vec3(0.74, 0.92, 0.84);
 	vec3 c = mix(lush, dry, clamp(0.42 + patches * 1.6 * (1.0 - wood * 0.6), 0.0, 1.0));
-	return c * (1.0 + tufts * mix(0.55, 0.8, wood) + grain * 0.35);
+	// Bare sand keeps its own colour and has subtler ripples and grain.
+	vec3 sand = albedo * (1.0 + tufts * 0.18 + grain * 0.24);
+	return mix(sand, c * (1.0 + tufts * mix(0.55, 0.8, wood) + grain * 0.35), grass);
 }
 
 // Cliff faces: crags projected on whichever wall they face most, the colour pulled
@@ -224,7 +226,7 @@ vec3 gd_land_rock(vec3 wp, vec3 wn, float mpp, float rock, float rim, float top,
 vec3 rock_detail(vec3 wp, vec3 wn, float mpp, inout vec3 albedo) {
 	float side = 1.0 - smoothstep(0.72, 0.86, wn.y);
 	vec3 n = wn;
-	vec3 cap = gd_soil(wp.xz, mpp, albedo);
+	vec3 cap = gd_soil(wp.xz, mpp, albedo, 1.0);
 	if (side > 0.0) {
 		vec3 a = albedo;
 		// The inland rock's painted stone, drawn a little smaller: these are a few
@@ -260,13 +262,17 @@ vec3 ground_detail(vec3 wp, vec3 wn, float mpp, inout vec3 albedo) {
 	float in_m = (0.76 - t) * mpp / max(fwidth(t), 1e-5);
 	float rock = smoothstep(-0.5, 0.5, in_m / max(mpp, 0.02));
 	float rim = rock * (1.0 - smoothstep(max(0.35, mpp), max(0.8, mpp * 2.0), in_m));
-	float land = smoothstep(3.2, 4.2, wp.y);
+	// Low dock pads can carry the same grass colour as upland fields.
+	// Follow the painted sand/grass blend there, and fade at the waterline.
+	float land = smoothstep(0.0, 1.0, wp.y);
 	vec3 n = wn;
 
 	// Grass and forest floor.
 	float soil = land * (1.0 - rock);
 	if (soil > 0.0) {
-		albedo = mix(albedo, gd_soil(wp.xz, mpp, albedo), soil);
+		float grass = max(smoothstep(3.2, 4.2, wp.y),
+			smoothstep(-0.04, 0.035, albedo.g - albedo.r));
+		albedo = mix(albedo, gd_soil(wp.xz, mpp, albedo, grass), soil);
 	}
 
 	if (rock > 0.0) {
