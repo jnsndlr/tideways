@@ -2351,7 +2351,8 @@ func _pilot_station_props(mb: MeshBuilder, q: MapData.Wharf, _r: RandomNumberGen
 	mb.box(sc + Vector3(0, 3.6, 0), Vector3(sz.x - 2.4, 3.3, sz.z + 0.12), Models.WINDOW_LIT)
 	for wv: float in [-7.8, 7.8]:
 		mb.box(sc + Vector3(wv, -3.6, sz.z * 0.5 + 0.03), Vector3(4.2, 2.7, 0.12), Models.WINDOW)
-	mb.box(sc + Vector3(0, -5.25, sz.z * 0.5 + 0.03), Vector3(3.3, 6.3, 0.12), band.darkened(0.45))
+	# Seat the door on the projecting ground-floor band.
+	mb.box(sc + Vector3(0, -5.25, sz.z * 0.5 + 0.15), Vector3(3.3, 6.3, 0.12), band.darkened(0.45))
 	# A flat roof with a rail, the mast on it.
 	var ry := deck + sz.y
 	mb.box(Vector3(sc.x, ry + 0.24, sc.z), Vector3(sz.x + 1.5, 0.48, sz.z + 1.5), roof)
