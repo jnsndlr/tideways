@@ -461,6 +461,8 @@ func _process(_delta: float) -> void:
 	sun.directional_shadow_split_1 = near
 	sun.directional_shadow_split_2 = lerpf(0.2, near * 2.0, close)
 	sun.directional_shadow_split_3 = lerpf(0.5, maxf(0.5, near * 3.5), close)
+	if day_cycle:
+		day_cycle.shadow_grid.focus(sun, rig, sim.terminals)
 	# Tree shadows reach as far as the cascades do, so they fade out with the sun's
 	# shadow (directional_shadow_fade_start) instead of popping tile by tile as the
 	# camera pans.
