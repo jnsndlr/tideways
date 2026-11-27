@@ -75,6 +75,8 @@ func setup(t: MarineTraffic, nm: String, sp: VesselSpec, m: MapData.Marina, b: i
 		l.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		l.layers = NightLights.LAYER
 		lights.add_child(l)
+		if sp.scale < 2.0:
+			l.mesh = null   # (laid out for the flybridge cruiser's hull)
 	_rode = MeshInstance3D.new()
 	_rode.mesh = Models.motor_yacht_rode()
 	_rode.visible = false
@@ -282,7 +284,7 @@ func _begin_berthing() -> void:
 
 
 func _berthed() -> void:
-	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y)
+	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y) * dwell_scale
 	_moor()
 
 

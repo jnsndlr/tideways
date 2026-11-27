@@ -117,7 +117,7 @@ func setup(s: Simulation, charts: MarineCharts = null) -> void:
 		_register(f, RANK_FERRY)
 	for m in s.map.marinas:
 		var row := []
-		row.resize(Layout.MARINA_BERTHS)
+		row.resize(Layout.MARINA_BERTHS + m.slips.size())
 		berths[m.id] = row
 	_spawn_sailboats()
 	_spawn_fishing_boats()
@@ -400,6 +400,7 @@ func _spawn_sailboats() -> void:
 			sailboats.append(boat)
 			_register(boat, RANK_SAIL)
 			k += 1
+	_spawn_slip_boats(names, yacht_names)
 	# A few already out sailing, so the water isn't empty at first light.
 	for boat in sailboats:
 		if rng.randf() < 0.3:
@@ -410,15 +411,48 @@ func _spawn_sailboats() -> void:
 			y.start_at_anchor()
 
 
+## Boats kept in the finger slips along the marinas' branch docks (as WorldBuilder
+## laid them out): the same sailboats and motor boats as the rest, but they go
+## out about a fifth as often, and always come back to their own slip.
+const SLIP_DWELL_SCALE := 5.0
+func _spawn_slip_boats(names: Array, yacht_names: Array) -> void:
+	var sail_types := VesselTypes.sailboats().filter(func(t: VesselSpec) -> bool: return t.id != "cruiser")
+	for m in sim.map.marinas:
+		for i in m.slips.size():
+			var slip: Dictionary = m.slips[i]
+			var b := Layout.MARINA_BERTHS + i
+			var first := rng.randf_range(30.0, 1440.0 * 2.0)
+			var boat: MarinaBoat
+			if slip.sail:
+				var sb := Sailboat.new()
+				sim.add_child(sb)
+				sb.dwell_scale = SLIP_DWELL_SCALE
+				sb.setup(self, names[sailboats.size() % names.size()], VesselTypes.pick(sail_types, rng), m, b, first)
+				sailboats.append(sb)
+				_register(sb, RANK_SAIL)
+				boat = sb
+			else:
+				var y := MotorYacht.new()
+				sim.add_child(y)
+				y.dwell_scale = SLIP_DWELL_SCALE
+				y.setup(self, yacht_names[motor_yachts.size() % yacht_names.size()], VesselTypes.slip_powerboat(slip.model), m, b, 0, first)
+				motor_yachts.append(y)
+				_register(y, RANK_POWER)
+				boat = y
+			berths[m.id][b] = boat
+
+
 ## Picks a free berth for `boat` to sail to (another marina if there is one,
 ## otherwise back home) and reserves it. Returns [marina, berth] or [].
 func reserve_berth(boat: MarinaBoat) -> Array:
+	if boat.berth >= Layout.MARINA_BERTHS:
+		return [boat.marina, boat.berth]   # slip boats go out and come home
 	var options: Array = []
 	for m in sim.map.marinas:
 		if m == boat.marina and sim.map.marinas.size() > 1 and rng.randf() < 0.85:
 			continue
 		var row: Array = berths[m.id]
-		for b in row.size():
+		for b in Layout.MARINA_BERTHS:
 			if row[b] == null or row[b] == boat:
 				options.append([m, b])
 	if options.is_empty():

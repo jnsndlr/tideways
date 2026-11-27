@@ -2985,6 +2985,10 @@ func _marina_docks(m: MapData.Marina) -> void:
 	_marina_cliff_stair(m, kit)
 
 
+static func _xz(p: Vector3) -> Vector2:
+	return Vector2(p.x, p.z)
+
+
 const MARINA_SLIP_BOATS := [
 	"res://assets/models/powerboats/cuddy_runabout.glb", "res://assets/models/powerboats/picnic_launch.glb",
 	"res://assets/models/powerboats/downeast_cruiser.glb", "res://assets/models/powerboats/alloy_pilothouse.glb",
@@ -3046,8 +3050,8 @@ func _marina_branches(m: MapData.Marina, kit: Node3D, plan: Array[Dictionary], e
 			var bv: float = side * (21.0 + sp.shift + sp.pitch * (k + 0.5))
 			var sea: int = 5 + r.randi_range(0, 4) + sp.count
 			var land := r.randi_range(1, 4)
-			var reach_n := _marina_branch(kit, xf, r, bv, edge, 1.0, sea, side, mb)
-			_marina_branch(kit, xf, r, bv, back, -1.0, land, side, mb)
+			var reach_n := _marina_branch(m, kit, xf, r, bv, edge, 1.0, sea, side, mb, sp.pitch)
+			_marina_branch(m, kit, xf, r, bv, back, -1.0, land, side, mb, sp.pitch)
 			if k == sp.count - 1 and reach_n > 0:
 				outer.append([bv, side, reach_n])
 	_marina_seaplane_dock(m, kit, outer, edge, mb)
@@ -3057,7 +3061,9 @@ func _marina_branches(m: MapData.Marina, kit: Node3D, plan: Array[Dictionary], e
 
 ## One arm of a branch from the head's face at `u0`, `runs` long toward `dir`
 ## (+1 seaward), cut short of shallow water.
-func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: float, u0: float, dir: float, runs: int, side: float, mb: MeshBuilder) -> int:
+## Boats in the seaward arms' slips are real vessels (MarineTraffic spawns them
+## from m.slips); the shoreward arms, boxed in by the head, keep still props.
+func _marina_branch(m: MapData.Marina, kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: float, u0: float, dir: float, runs: int, side: float, mb: MeshBuilder, pitch: float) -> int:
 	var n := 0
 	while n < runs:
 		var ok := true
@@ -3090,17 +3096,30 @@ func _marina_branch(kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: 
 					Vector3(x0, DockKit.LOW, su), Vector2(fs, 0))
 			if r.randf() < (0.3 if is_cov else 0.12):
 				continue
-			var boat: Node3D
-			if not is_cov and r.randf() < 0.35:
-				var mi := MeshInstance3D.new()
-				mi.mesh = Models.sailboat_furled()
-				mi.scale = Vector3.ONE * VesselTypes.MODEL_SCALE
-				boat = mi
-			else:
-				boat = (load(MARINA_SLIP_BOATS[r.randi() % MARINA_SLIP_BOATS.size()]) as PackedScene).instantiate() as Node3D
-			kit.add_child(boat)
+			var sail := not is_cov and r.randf() < 0.35
+			var model: String = "" if sail else MARINA_SLIP_BOATS[r.randi() % MARINA_SLIP_BOATS.size()]
 			var yaw := 0.0 if r.randf() < 0.5 else PI
-			boat.transform = Transform3D(Basis(Vector3.UP, fs * PI * 0.5 + yaw), Vector3(x0 + fs * 6.5, 0.0, su))
+			if dir > 0.0:
+				var fair := bv + fs * pitch * 0.5
+				var bow := m.lateral() * -fs
+				m.slips.append({
+					at = _xz(m.at(su, x0 + fs * 6.5)), out = _xz(m.at(su, fair)),
+					mouth = _xz(m.at(u0 + dir * (DockKit.RUN * n + 24.0), fair)),
+					yaw = atan2(bow.x, bow.z), sail = sail, model = model,
+				})
+			else:
+				var boat: Node3D
+				if sail:
+					var mi := MeshInstance3D.new()
+					mi.mesh = Models.sailboat_furled()
+					boat = mi
+				else:
+					boat = (load(model) as PackedScene).instantiate() as Node3D
+				kit.add_child(boat)
+				boat.transform = Transform3D(Basis(Vector3.UP, fs * PI * 0.5 + yaw), Vector3(x0 + fs * 6.5, 0.0, su))
+				if sail:
+					# (After the transform, which would reset it: the sloop is built a third size.)
+					boat.scale = Vector3.ONE * VesselTypes.MODEL_SCALE
 			# Fenders over the finger edges either side of the hull.
 			for e: float in [-1.0, 1.0]:
 				for along: float in [4.0, 8.5]:

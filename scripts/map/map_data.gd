@@ -270,6 +270,11 @@ class Harbour:
 
 ## A small-boat pier with a T-head (see Layout's marina frame).
 class Marina extends Harbour:
+	## Finger slips out along the branch docks (filled in by WorldBuilder): each
+	## {at, out, mouth: Vector2, yaw: float, sail: bool, model: String}. Boats kept
+	## there are berth numbers Layout.MARINA_BERTHS + i (see MarinaBoat).
+	var slips: Array = []
+
 	func berth_v(i: int) -> float:
 		return (i - (Layout.MARINA_BERTHS - 1) * 0.5) * Layout.MARINA_BERTH_SPACING
 

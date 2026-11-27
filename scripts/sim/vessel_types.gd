@@ -175,6 +175,28 @@ static func _trawler() -> VesselSpec:
 	return s
 
 
+## A motor boat from the marina's finger slips, drawn from its real-size model
+## (assets/models/powerboats), sized and handled like a small motor yacht.
+static var _slip_specs := {}
+static func slip_powerboat(path: String) -> VesselSpec:
+	if _slip_specs.has(path):
+		return _slip_specs[path]
+	var mesh := ModelParts.baked(path).commit()
+	var box := mesh.get_aabb()
+	var s := _motor_yacht()
+	s.id = "slip_" + path.get_file().get_basename()
+	s.type_name = path.get_file().get_basename().capitalize()
+	var f := maxf(-box.position.z, box.end.z) / s.half_length
+	s = s.scaled(f, s.id, s.type_name)
+	s.half_beam = box.size.x * 0.5
+	s.scale = 1.0
+	s.variants = 1
+	s.model = func(_v: int) -> ArrayMesh: return mesh
+	s.lights = func(_v: int) -> ArrayMesh: return Models.sailboat_lights()
+	_slip_specs[path] = s
+	return s
+
+
 ## A flybridge motor yacht of the sailboats' scale. `cruise` is its speed on the
 ## plane; `motor_speed` its no-wake speed, in harbour and among anchored boats.
 static func _motor_yacht() -> VesselSpec:
