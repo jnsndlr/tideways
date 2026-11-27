@@ -3117,6 +3117,8 @@ func _marina_docks(m: MapData.Marina) -> void:
 		kit.add_deck(DockKit.Width.FINGER, fp, Vector2(0, 1), DockKit.Support.FLOATS)
 	_marina_branches(m, kit, plan, edge)
 	_marina_cliff_stair(m, kit)
+	if not OS.has_environment("TW_NO_DOCK_BAKE"):
+		kit.bake()
 
 
 static func _xz(p: Vector3) -> Vector2:

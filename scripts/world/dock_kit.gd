@@ -138,3 +138,53 @@ func _place(width: Width, start: Vector3, direction: Vector2, end_height: float,
 				cleat.position = Vector3(side * (half_width - 0.16), 0, -along)
 	_sections.append(section)
 	return section.end
+
+
+## Merge every placed piece into one mesh per material so a whole assembly costs a
+## handful of draw calls instead of one per deck, float and cleat. Call once the
+## assembly is finished; colliders and other non-mesh nodes stay as they are.
+func bake() -> void:
+	var tools := {}      # key -> SurfaceTool
+	var looks := {}      # key -> [material, cast_shadow]
+	var inv := global_transform.affine_inverse() if is_inside_tree() else Transform3D.IDENTITY
+	var merged: Array[MeshInstance3D] = []
+	for mi: MeshInstance3D in find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var xf := inv * mi.global_transform if is_inside_tree() else _local_xform(mi)
+		for s in mi.mesh.get_surface_count():
+			var mat: Material = mi.get_active_material(s)
+			var key := "%d:%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow]
+			if not tools.has(key):
+				var st := SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				tools[key] = st
+				looks[key] = [mat, mi.cast_shadow]
+			(tools[key] as SurfaceTool).append_from(mi.mesh, s, xf)
+		merged.append(mi)
+	if merged.is_empty():
+		return
+	var shadow_on := ArrayMesh.new()
+	var shadow_off := ArrayMesh.new()
+	for key: String in tools:
+		var target := shadow_off if looks[key][1] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF else shadow_on
+		(tools[key] as SurfaceTool).commit(target)
+		target.surface_set_material(target.get_surface_count() - 1, looks[key][0])
+	for mi in merged:
+		mi.free()
+	for pair in [[shadow_on, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "DockDecks"], [shadow_off, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "DockDecksNoShadow"]]:
+		if (pair[0] as ArrayMesh).get_surface_count() == 0:
+			continue
+		var out := MeshInstance3D.new()
+		out.name = pair[2]
+		out.mesh = pair[0]
+		out.cast_shadow = pair[1]
+		add_child(out)
+
+
+func _local_xform(n: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	while n != null and n != self:
+		xf = n.transform * xf
+		n = n.get_parent() as Node3D
+	return xf
