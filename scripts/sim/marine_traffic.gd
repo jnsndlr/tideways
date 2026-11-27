@@ -45,6 +45,18 @@ const MARGIN := 1.2
 # and three metres over.
 const CORRIDOR_CLEAR := 5.7
 const POSE_STEP := 6.0
+# Radar-style give way (path-following vessels): any higher-ranked vessel within
+# CPA_RANGE whose closest point of approach comes inside CPA_KEEP (plus both hulls)
+# within CPA_HORIZON seconds makes the lower one slow, letting it pass ahead (so
+# it passes astern of it), down to a stop if it has to.
+const CPA_RANGE := 400.0
+const CPA_HORIZON := 90.0
+const CPA_KEEP := 40.0
+const CPA_FACTORS := [1.0, 0.7, 0.45, 0.25, 0.1, 0.0]
+# Held up this long without making way, a vessel stops giving way to paths and
+# CPAs (only hulls still count) for STUCK_GO seconds and works its own way out.
+const STUCK_AFTER := 8.0
+const STUCK_GO := 10.0
 
 var sim: Simulation
 var nav: NavGrid
@@ -832,12 +844,26 @@ func _update_clearances() -> void:
 				shown[v] = Claim.new(v, sl)
 		else:
 			hulls[v] = Claim.new(v, 0.0)
+	var dt := get_process_delta_time()
 	for v in vessels:
 		v.clear = INF
+		v.cpa_cap = INF
 		v.blocker = null
 		v.blocked_by_hull = false
 		if not own.has(v):
+			v.stuck_t = 0.0
 			continue
+		# Stuck breaker: barely moving while it wants to, for long enough.
+		if v.go_t > 0.0:
+			v.go_t -= dt
+		elif v.speed < 0.4 and not v.resting() and v.path_left() > 20.0 and v.hold > 20.0:
+			v.stuck_t += dt
+			if v.stuck_t > STUCK_AFTER:
+				v.stuck_t = 0.0
+				v.go_t = STUCK_GO
+		else:
+			v.stuck_t = 0.0
+		var asserting := v.go_t > 0.0
 		var mine: Claim = own[v]
 		for o in vessels:
 			if o == v or Vessel.paired(v, o):
@@ -851,6 +877,10 @@ func _update_clearances() -> void:
 					_limit(v, o, mine.ds[k - 1], true)
 			# Never wait on one that is waiting on you: get out of its way instead.
 			# (A vessel steering its own way keeps out of others' paths itself.)
+			if asserting:
+				continue
+			if o.rank > v.rank and not v.free_nav and o.wants_to_move() and not o.waits_for(v):
+				_cpa_give_way(v, o)
 			if o.rank > v.rank and not v.free_nav and shown.has(o) and not o.waits_for(v):
 				var theirs: Claim = shown[o]
 				if not reach.grow(1.5).intersects(theirs.box) or _touches(mine.a[0], mine.b[0], theirs, thr):
@@ -859,6 +889,49 @@ func _update_clearances() -> void:
 					var k2 := _first_hit(mine, theirs.a[j], theirs.b[j], thr + 1.5, false)
 					if k2 > 0:
 						_limit(v, o, mine.ds[k2 - 1], false)
+
+
+## Its velocity as a radar would read it; one wanting to get going is reckoned
+## to be about to, along its path.
+static func _vel(v: Vessel, sp: float) -> Vector2:
+	var d := v.ahead(6.0) - v.pos2()
+	var h := d.normalized() if d.length_squared() > 1e-4 else v.heading2()
+	return h * sp
+
+
+## Closest point of approach of two tracks: [time, distance].
+static func cpa(p: Vector2, vp: Vector2, q: Vector2, vq: Vector2) -> Vector2:
+	var r := q - p
+	var w := vq - vp
+	var ww := w.length_squared()
+	var t := 0.0 if ww < 1e-6 else clampf(-r.dot(w) / ww, 0.0, CPA_HORIZON)
+	return Vector2(t, (r + w * t).length())
+
+
+## `v` gives way to `o`: the fastest of CPA_FACTORS of its speed that keeps the
+## CPA open (slowing lets `o` cross ahead), capped on v.cpa_cap.
+func _cpa_give_way(v: Vessel, o: Vessel) -> void:
+	var p := v.pos2()
+	var q := o.pos2()
+	var reach := CPA_RANGE + v.half_seg + o.half_seg
+	if p.distance_squared_to(q) > reach * reach:
+		return
+	var need := CPA_KEEP + v.hull_radius + o.hull_radius + v.half_seg + o.half_seg
+	var vq := _vel(o, maxf(o.speed, o.cruise * 0.4))
+	var base := maxf(v.speed, v.cruise * 0.6)
+	var now := cpa(p, _vel(v, base), q, vq)
+	if now.y >= need or now.x <= 0.0:
+		return
+	for f: float in CPA_FACTORS:
+		var c := cpa(p, _vel(v, base * f), q, vq)
+		if c.y >= need or c.x <= 0.0:
+			if base * f < v.cpa_cap:
+				v.cpa_cap = base * f
+				if f < 1.0 and v.clear > 30.0:
+					v.blocker = o
+			return
+	v.cpa_cap = 0.0
+	v.blocker = o
 
 
 func _limit(v: Vessel, o: Vessel, c: float, by_hull: bool) -> void:
