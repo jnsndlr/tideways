@@ -29,8 +29,8 @@ extends RefCounted
 ##   helm_turn_rate() -> float            how fast it swings round (rad/s)
 
 const DECIDE_EVERY := 0.25
-const HORIZON := 30.0
-const STEP_T := 1.5
+const HORIZON := 60.0
+const STEP_T := 2.0
 const SCAN := 420.0
 const REPLAN_EVERY := 8.0
 # Headings tried either side of each course, and the speeds tried when no
@@ -45,6 +45,10 @@ const KEEP_SHIP := 42.0
 const KEEP_AHEAD_OF_SHIP := 48.0
 const KEEP_MOORED := 12.0       # from boats lying at a berth or at anchor
 const WILDLIFE_RADIUS := 45.0
+# As the give-way vessel it opens the pass wider (like MarineTraffic.CPA_KEEP)
+# from anything under way, so it acts early rather than shaving past.
+const GIVE_WAY_KEEP_SMALL := 30.0
+const GIVE_WAY_KEEP_SHIP := 60.0
 # A stand-on vessel only acts once a pass is this close and this soon.
 const STAND_ON_KEEP := 6.0
 const STAND_ON_SOON := 8.0
@@ -260,6 +264,8 @@ func _threats(p: Vector2) -> Array[Threat]:
 		t.keep = KEEP_SHIP if ship else KEEP_SMALL
 		t.ahead_keep = KEEP_AHEAD_OF_SHIP if ship and o.speed > 0.9 else 0.0
 		t.radius = o.hull_radius
+		if t.why != "" and o.wants_to_move():
+			t.keep = GIVE_WAY_KEEP_SHIP if ship else GIVE_WAY_KEEP_SMALL
 		if o.road() == Vessel.Road.MOORED:
 			t.moored = true
 			t.keep = KEEP_MOORED

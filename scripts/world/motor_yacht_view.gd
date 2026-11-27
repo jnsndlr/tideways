@@ -15,6 +15,10 @@ func _init(yacht: MotorYacht, lights: VesselNightLights) -> void:
 	add_child(lamps)
 	_navigation = lamps.add_lamp(Models.motor_yacht_nav_lights())
 	_mast = lamps.add_lamp(Models.motor_yacht_mast_light())
+	if yacht.spec.art_path != "":
+		# (The lamps are laid out for the flybridge cruiser's hull.)
+		_navigation.mesh = null
+		_mast.mesh = null
 	_rode.mesh = Models.motor_yacht_rode()
 	_rode.hide()
 	add_child(_rode)

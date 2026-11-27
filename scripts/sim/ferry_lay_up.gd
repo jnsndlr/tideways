@@ -5,7 +5,7 @@ extends RefCounted
 
 signal berth_changed
 
-enum Berth { WORKING, TO_TIE_UP, TIED_UP, TO_WORKING, DELIVERING }
+enum Berth { WORKING, TO_TIE_UP, TIED_UP, TO_WORKING, DELIVERING, FREE }  # FREE: sailing on her own, off every route
 
 ## Minutes between sailings that justify freeing the working slip.
 const GAP_TIE_UP := 150.0

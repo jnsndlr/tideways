@@ -3,11 +3,25 @@ extends RefCounted
 ## Resolves a marine hull family to its geometry in the current art style.
 
 
+static var _art := {}
+
+
 static func model_scale(spec: VesselSpec) -> float:
+	if spec.art_path != "":
+		return 1.0  # (drawn at its real size)
 	return Models.LEGACY_SCALE * spec.size_factor
 
 
+## A real-size model (VesselSpec.art_path), baked once.
+static func art_mesh(path: String) -> ArrayMesh:
+	if not _art.has(path):
+		_art[path] = ModelParts.baked(path).commit()
+	return _art[path]
+
+
 static func hull(spec: VesselSpec, variant: int) -> ArrayMesh:
+	if spec.art_path != "":
+		return art_mesh(spec.art_path)
 	match spec.hull:
 		VesselSpec.Hull.SLOOP:
 			return Models.sailboat()
@@ -29,6 +43,8 @@ static func hull(spec: VesselSpec, variant: int) -> ArrayMesh:
 
 
 static func lights(spec: VesselSpec) -> ArrayMesh:
+	if spec.art_path != "":
+		return Models.sailboat_lights()
 	match spec.hull:
 		VesselSpec.Hull.SLOOP:
 			return Models.sailboat_lights()

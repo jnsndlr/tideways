@@ -66,11 +66,21 @@ const SHOP_SHELLS := {
 	"poppy_and_stem": Vector2(6.6, 5.8),
 	"sound_fish_market": Vector2(6.2, 5.4),
 	CITY_HALL: Vector2(11, 7),
+	GROCERY: Vector2(15.4, 10.8),
 }
 
 const PIER_RESTAURANTS := ["sea_glass_grill", "red_net_kitchen"]
 
 const TREE_CELL := 64.0
+var airfields: Array[AirTraffic.Field] = []
+var seaplane_docks: Array[AirTraffic.WaterDock] = []
+var _lots_cache := {}  # TownLots key -> baked lots (map.town_lots_cache_path)
+var _lots_cache_dirty := false
+var _lots_used: Array[String] = []
+var _lane_glows: Array[MeshInstance3D] = []
+var junction_nodes := {}  # Vector2i(town id, plan node) -> [MeshInstance3D, plan edges]
+var street_nodes := {}  # Vector2i(town id, plan edge) -> Node3D (see refresh_streets)
+var _road_cells := {}  # blocked cells that only a road blocks
 const LIFT_CELL := 2.0
 # The most the ground may fall (m) across a building's plan; steeper lots are
 # left empty rather than graded.
@@ -145,7 +155,9 @@ func build(frame: Signal = Signal()) -> Node3D:
 		_build_water,
 		_build_terminals,
 		_build_marinas,
+		_build_airstrips,
 		_build_quays,
+		_build_coast_guard,
 		_build_roads,
 		_build_towns,
 		_build_radio_towers,
@@ -165,9 +177,16 @@ func build(frame: Signal = Signal()) -> Node3D:
 	if _frames.cancelled:
 		root.free()
 		root = null
+		for gmi in _lane_glows:
+			gmi.free()  # (not yet under the night lights)
+		_lane_glows.clear()
 		return null
 	night_lights = _add_mesh(glows.commit(), "NightLights", false)
 	night_lights.visible = false
+	# Street lamps' light follows the day too, and each street's shows with it.
+	for gmi in _lane_glows:
+		night_lights.add_child(gmi)
+	_lane_glows.clear()
 	# Hidden sites' lights hang under the night lights, so they follow the day.
 	for id in _sites:
 		var site_glows: GlowBuilder = _sites[id][1]
@@ -408,6 +427,7 @@ func _block(p: Vector3, radius: float) -> void:
 	for dz in range(-r, r + 1):
 		for dx in range(-r, r + 1):
 			_blocked[Vector2i(cx + dx, cz + dz)] = true
+			_road_cells.erase(Vector2i(cx + dx, cz + dz))
 
 
 ## Mount slip glows on the fitted caps and move them when the slip is refitted.
@@ -459,6 +479,25 @@ func _add_slip_gull_perches(slip_to_world: Transform3D, cap: Vector3) -> void:
 func _perch(a: Vector3, b: Vector3, spread: float, kind: int) -> void:
 	if root.visible:
 		gull_perches.append(Seagulls.Perch.new(a, b, spread, kind))
+
+
+## Road cells block trees and grid lots like anything else, but street-front lots
+## (which face the road) only check for blockers that aren't roads.
+func _block_road(p: Vector3, radius: float) -> void:
+	var r := ceili(radius / 6.0)
+	var cx := floori(p.x / 6.0)
+	var cz := floori(p.z / 6.0)
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var c := Vector2i(cx + dx, cz + dz)
+			if not _blocked.has(c):
+				_road_cells[c] = true
+			_blocked[c] = true
+
+
+func _is_blocked_off_road(x: float, z: float) -> bool:
+	var c := Vector2i(floori(x / 6.0), floori(z / 6.0))
+	return _blocked.has(c) and not _road_cells.has(c)
 
 
 func _is_blocked(x: float, z: float) -> bool:
@@ -1337,7 +1376,114 @@ func _eagle_trees(pines: Array[Transform3D]) -> void:
 
 # --- Roads & towns ------------------------------------------------------------------
 
+## Street stages (road_detail's road_stage): a street shows once a building stands on
+## it, as dirt, then gravel, then its zone's paving as its lots fill. The core is paved
+## first: its streets get a head start on the share of lots built.
+const STREET_GRAVEL_AT := 0.4
+const STREET_PAVED_AT := 0.8
+const STREET_ZONE_HEAD_START := [0.3, 0.1, 0.0, 0.3]  # by StreetPlan.Zone
+
+
+## Shows and paves each plan street for how many of its lots are built.
+func refresh_streets(isl: MapData.Town) -> void:
+	if isl.street_plan == null:
+		return
+	var stages := street_stages(isl)
+	for li in isl.street_plan.edges.size():
+		var node: Node3D = street_nodes.get(Vector2i(isl.id, li))
+		if node == null:
+			continue
+		var stage := stages[li]
+		node.visible = stage >= 0
+		(node.get_node("Road") as GeometryInstance3D).set_instance_shader_parameter("road_stage", float(maxi(stage, 0)))
+		(node.get_node("Lamps") as Node3D).visible = stage >= 2
+		if node.has_meta("glow"):
+			(node.get_meta("glow") as Node3D).visible = stage >= 2
+	for key: Vector2i in junction_nodes:
+		if key.x != isl.id:
+			continue
+		var j: Array = junction_nodes[key]
+		var best := -1
+		for li: int in j[1]:
+			best = maxi(best, stages[li])
+		(j[0] as MeshInstance3D).visible = best >= 0
+		(j[0] as MeshInstance3D).set_instance_shader_parameter("road_stage", float(maxi(best, 0)))
+
+
+## Each plan street's stage, grown outward from the square: a street's own stage
+## comes from its lots (street_stage), but every street shown also shows the way back
+## to the square, at least as good a surface as anything beyond it. So no street sits
+## cut off, and paving only ever joins paving. Streets the square can't reach stay hidden.
+static func street_stages(isl: MapData.Town) -> PackedInt32Array:
+	var plan := isl.street_plan
+	var ne := plan.edges.size()
+	var out := PackedInt32Array()
+	out.resize(ne)
+	out.fill(-1)
+	if ne == 0 or plan.nodes.is_empty():
+		return out
+	# The square: the plan node nearest where the lot road ends (as _junctions finds it).
+	var root := 0
+	if isl.road_main_a.size() > 0:
+		var end := isl.road_main_a[isl.road_main_a.size() - 1]
+		for i in plan.nodes.size():
+			if plan.nodes[i].distance_to(end) < plan.nodes[root].distance_to(end):
+				root = i
+	var at := {}  # node → edges meeting there
+	for li in ne:
+		for n: int in [plan.edges[li].a, plan.edges[li].b]:
+			if n >= 0:
+				(at.get_or_add(n, []) as Array).append(li)
+	# Breadth-first from the square: each street's parent is the one it's reached by.
+	var parent := PackedInt32Array()
+	parent.resize(ne)
+	parent.fill(-2)  # -2 unreached, -1 leaves the square
+	var order: Array[int] = []
+	var queue: Array = [[root, -1]]
+	var seen := {root: true}
+	while not queue.is_empty():
+		var q: Array = queue.pop_front()
+		for li: int in at.get(q[0], []):
+			if parent[li] != -2:
+				continue
+			parent[li] = q[1]
+			order.append(li)
+			for n: int in [plan.edges[li].a, plan.edges[li].b]:
+				if n >= 0 and not seen.has(n):
+					seen[n] = true
+					queue.append([n, li])
+	# Leaves first: a street needs at least what anything beyond it needs.
+	for li in order:
+		out[li] = 2 if isl.street_pinned.has(li) else street_stage(isl, li)
+	for i in range(order.size() - 1, -1, -1):
+		var li := order[i]
+		if parent[li] >= 0:
+			out[parent[li]] = maxi(out[parent[li]], out[li])
+	return out
+
+
+## This street's own stage from its lots alone: -1 hidden, 0 dirt, 1 gravel, 2 paved.
+static func street_stage(isl: MapData.Town, edge: int) -> int:
+	var built := int(isl.street_built.get(edge, 0))
+	if built <= 0:
+		return -1
+	var total := maxi(int(isl.street_lots.get(edge, 0)), 1)
+	var zone: int = isl.street_plan.edges[edge].zone
+	var k := float(built) / float(total) + float(STREET_ZONE_HEAD_START[zone])
+	return 2 if k >= STREET_PAVED_AT else (1 if k >= STREET_GRAVEL_AT else 0)
+
+
+## A building finished on `lot`: count it on its street and repave.
+func lot_built(isl: MapData.Town, lot: MapData.TownLot) -> void:
+	if lot.street < 0:
+		return
+	isl.street_built[lot.street] = int(isl.street_built.get(lot.street, 0)) + 1
+	refresh_streets(isl)
+
+
 func _build_roads() -> void:
+	var road_mat := ShaderMaterial.new()
+	road_mat.shader = load(ROAD_SHADER)
 	var mb := MeshBuilder.new()
 	var lamps := MeshBuilder.new()
 	var aprons := MeshBuilder.new()
@@ -1345,18 +1491,27 @@ func _build_roads() -> void:
 		if isl.road_main_a.is_empty():
 			continue
 		_ticket_approach(aprons, isl)
+		var plan := isl.street_plan
+		var by_plan := plan != null and plan.edges.size() == isl.road_lanes.size()
+		# Where plan streets (and the lot road into the square) meet: one plate each,
+		# and how far back each street stops for it.
+		var style := RoadMesh.Style.DOUBLE_EDGES if isl.population >= DOUBLE_LINE_POP else RoadMesh.Style.DASHED_EDGES
+		# road_lanes holds the plan's edges in order: each street's zone picks its look.
+		var zone_style := [RoadMesh.Style.CORE_WALK, RoadMesh.Style.CORE_WALK, RoadMesh.Style.DASHED, RoadMesh.Style.CORE_WALK]
+		var trims := _junctions(mb, plan, isl.road_main_a, style, zone_style, isl.id, road_mat) if by_plan else {}
 		var main := isl.road_main_a.duplicate()
 		var centre := RoadMesh.length_of(isl.road_main_a)
 		if isl.road_main_b.size() > 1:
 			main.append_array(isl.road_main_b.slice(1))
 		var total := RoadMesh.length_of(main)
 		var crossed := not isl.road_cross.is_empty()
-		var style := RoadMesh.Style.DOUBLE_EDGES if isl.population >= DOUBLE_LINE_POP else RoadMesh.Style.DASHED_EDGES
+		var main_stop: float = total - float(trims.get("lot", 0.0))
 		# No markings over the lot's apron, through the junction or right at the end.
 		var show_main := func(s: float) -> float:
-			var k := smoothstep(3.0, 9.0, s) * smoothstep(0.0, 4.0, total - s)
-			return k * smoothstep(6.0, 11.0, absf(s - centre)) if crossed else k
-		RoadMesh.strip(mb, main, ROAD, style, show_main)
+			var k := smoothstep(3.0, 9.0, s) * smoothstep(0.0, 4.0, main_stop - s)
+			k = k * smoothstep(6.0, 11.0, absf(s - centre)) if crossed else k
+			return 0.5 + 0.5 * k  # the sidewalk runs right up to the lot and the junction
+		RoadMesh.strip(mb, main, ROAD, style, show_main, 0.0, main_stop if trims.has("lot") else INF)
 		var lines: Array[PackedVector3Array] = [main]
 		for line in isl.road_cross:
 			var length := RoadMesh.length_of(line)
@@ -1364,15 +1519,147 @@ func _build_roads() -> void:
 				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(0.0, 4.0, length - s)
 			RoadMesh.strip(mb, line, ROAD, RoadMesh.Style.DASHED, show, RoadMesh.HALF)
 			lines.append(line)
+		for li in isl.road_lanes.size():
+			var line := isl.road_lanes[li]
+			var length := RoadMesh.length_of(line)
+			var t0: float = trims.get("%d_0" % li, RoadMesh.HALF)
+			var t1: float = trims.get("%d_1" % li, RoadMesh.HALF)
+			var show := func(s: float) -> float:
+				return 0.5 + 0.5 * smoothstep(t0, t0 + 5.0, s) * smoothstep(t1, t1 + 5.0, length - s)
+			var lane_style: RoadMesh.Style = zone_style[plan.edges[li].zone] if by_plan else RoadMesh.Style.DASHED
+			# Plan streets are their own nodes, hidden until a lot along them builds and
+			# paved by stages as it fills (refresh_streets).
+			var lane_mb := MeshBuilder.new()
+			RoadMesh.strip(lane_mb, line, ROAD, lane_style, show, t0, length - t1)
+			var lane_lamps := MeshBuilder.new()
+			var main_glows := glows
+			glows = GlowBuilder.new()
+			_street_lamps(lane_lamps, line, isl.road_main_a[isl.road_main_a.size() - 1])
+			var lane_glows := glows
+			glows = main_glows
+			for i in range(0, line.size(), 3):
+				_block_road(line[i], 9.0)
+			var node := Node3D.new()
+			node.name = "Street_%d_%d" % [isl.id, li]
+			node.visible = false
+			var rmi := MeshInstance3D.new()
+			rmi.name = "Road"
+			rmi.mesh = lane_mb.commit(road_mat)
+			rmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			node.add_child(rmi)
+			var lmi := MeshInstance3D.new()
+			lmi.name = "Lamps"
+			lmi.mesh = lane_lamps.commit()
+			lmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			if not lane_glows.is_empty():
+				var gmi := MeshInstance3D.new()
+				gmi.name = "Glow"
+				gmi.mesh = lane_glows.commit()
+				gmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				node.set_meta("glow", gmi)
+				_lane_glows.append(gmi)
+			node.add_child(lmi)
+			root.add_child(node)
+			street_nodes[Vector2i(isl.id, li)] = node
 		for line in lines:
 			for i in range(0, line.size(), 3):
-				_block(line[i], 9.0)
+				_block_road(line[i], 9.0)
 			_street_lamps(lamps, line, isl.road_main_a[isl.road_main_a.size() - 1])
-	var mat := ShaderMaterial.new()
-	mat.shader = load(ROAD_SHADER)
-	_add_mesh(mb.commit(mat), "Roads", false)
+	_add_mesh(mb.commit(road_mat), "Roads", false)
 	_add_mesh(lamps.commit(), "StreetLamps", false)
 	_add_mesh(aprons.commit(), "TicketApproaches", false)
+
+
+## Join plan streets where two or more meet (see RoadMesh.junction).
+func _junctions(mb: MeshBuilder, plan: StreetPlan, lot_road: PackedVector3Array, lot_style: int, zone_style: Array, tid := -1, mat: Material = null) -> Dictionary:
+	# node → [centre, arms, keys]: key "li_end" names which street end each arm is.
+	var at := {}
+	if lot_road.size() > 2:
+		var sqn := 0
+		var end := lot_road[lot_road.size() - 1]
+		for i in plan.nodes.size():
+			if plan.nodes[i].distance_to(end) < plan.nodes[sqn].distance_to(end):
+				sqn = i
+		at[sqn] = [end, [_heading(lot_road, true)] as Array[Vector3], ["lot"], [[lot_road, true, lot_style]]]
+	for li in plan.edges.size():
+		var e: Dictionary = plan.edges[li]
+		var pts: PackedVector3Array = e.pts
+		if pts.size() < 2:
+			continue
+		for end: int in [0, 1]:
+			var n: int = e.a if end == 0 else e.b
+			if n < 0:
+				continue
+			if not at.has(n):
+				at[n] = [pts[0] if end == 0 else pts[pts.size() - 1], [] as Array[Vector3], [], []]
+			at[n][1].append(_heading(pts, end == 1))
+			at[n][3].append([pts, end == 1, zone_style[e.zone]])
+			at[n][2].append("%d_%d" % [li, end])
+	var trims := {}
+	for n: int in at:
+		var arms: Array[Vector3] = at[n][1]
+		if arms.size() < 2 or (arms.size() == 2 and arms[0].dot(arms[1]) < -0.9):
+			for k: String in at[n][2]:
+				trims[k] = 0.0  # a dead end or a street running straight on
+			continue
+		var reach := RoadMesh.junction_reach(arms)
+		var mouths := PackedVector3Array()
+		var tangents := PackedVector3Array()
+		var styles: Array[int] = []
+		for i in arms.size():
+			styles.append(at[n][3][i][2])
+			var pts: PackedVector3Array = at[n][3][i][0]
+			var from_end: bool = at[n][3][i][1]
+			var m := _point_along(pts, from_end, reach[i])
+			mouths.append(m)
+			var t := _point_along(pts, from_end, reach[i] + 1.0) - m
+			t.y = 0.0
+			tangents.append(t.normalized() if t.length() > 0.01 else arms[i])
+		var keys: Array = at[n][2]
+		if tid < 0 or keys.has("lot"):
+			RoadMesh.junction(mb, at[n][0], mouths, tangents, styles, ROAD)
+		else:
+			# Off the square, a junction shows (and paves) with the streets it joins.
+			var jmb := MeshBuilder.new()
+			RoadMesh.junction(jmb, at[n][0], mouths, tangents, styles, ROAD)
+			var jmi := MeshInstance3D.new()
+			jmi.name = "Junction_%d_%d" % [tid, n]
+			jmi.mesh = jmb.commit(mat)
+			jmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			jmi.visible = false
+			root.add_child(jmi)
+			var lanes: Array[int] = []
+			for k: String in keys:
+				lanes.append(int(k.get_slice("_", 0)))
+			junction_nodes[Vector2i(tid, n)] = [jmi, lanes]
+		for i in arms.size():
+			trims[at[n][2][i]] = reach[i]
+	return trims
+
+
+## Point on a line `dist` metres in from its start (or end).
+func _point_along(pts: PackedVector3Array, from_end: bool, dist: float) -> Vector3:
+	var s := 0.0
+	for k in pts.size() - 1:
+		var a := pts[pts.size() - 1 - k] if from_end else pts[k]
+		var b := pts[pts.size() - 2 - k] if from_end else pts[k + 1]
+		var seg := Vector2(b.x - a.x, b.z - a.z).length()
+		if s + seg >= dist:
+			return a.lerp(b, (dist - s) / maxf(seg, 0.001))
+		s += seg
+	return pts[0] if from_end else pts[pts.size() - 1]
+
+
+## Flat heading out of a line's start (or, with `from_end`, back out of its end),
+## taken ~8 m along so a curving street points the way it actually leaves.
+func _heading(pts: PackedVector3Array, from_end: bool) -> Vector3:
+	var p0 := pts[pts.size() - 1] if from_end else pts[0]
+	var p1 := p0
+	for i in pts.size():
+		p1 = pts[pts.size() - 1 - i] if from_end else pts[i]
+		if Vector2(p1.x - p0.x, p1.z - p0.z).length() > 8.0:
+			break
+	return Vector3(p1.x - p0.x, 0.0, p1.z - p0.z).normalized()
 
 
 func _ticket_approach(mb: MeshBuilder, isl: MapData.Town) -> void:
@@ -1388,8 +1675,9 @@ func _ticket_approach(mb: MeshBuilder, isl: MapData.Town) -> void:
 		var sb := Layout.ticket_spread((entrance - b).dot(isl.dock_dir), length)
 		if sa <= 0.0:
 			break
-		var inner_a := a - lateral * RoadMesh.HALF
-		var inner_b := b - lateral * RoadMesh.HALF
+		# From the kerb line, laid just over the sidewalk so it gives way to the lanes.
+		var inner_a := a - lateral * RoadMesh.ASPHALT_HALF + Vector3.UP * 0.02
+		var inner_b := b - lateral * RoadMesh.ASPHALT_HALF + Vector3.UP * 0.02
 		var outer_a := inner_a - lateral * Layout.TICKET_EXTRA_WIDTH * sa
 		var outer_b := inner_b - lateral * Layout.TICKET_EXTRA_WIDTH * sb
 		mb.quad(inner_a, outer_a, outer_b, inner_b, ROAD, Vector3.UP)
@@ -1407,9 +1695,29 @@ func _ticket_approach(mb: MeshBuilder, isl: MapData.Town) -> void:
 
 ## Sodium lamps every LAMP_GAP along a road, alternating sides, none in the
 ## junction at `crossing`.
+const STREETLIGHT := "res://assets/models/streetlight.glb"
+const LAMP_SCALE := 1.8
+
+
 func _street_lamps(mb: MeshBuilder, line: PackedVector3Array, crossing: Vector3) -> void:
-	const LAMP_GAP := 48.0
 	glows.xform = Transform3D.IDENTITY
+	for spot: Array in street_lamp_spots(line, crossing):
+		var p: Vector3 = spot[0]
+		var out: Vector3 = spot[1]
+		var xf := Transform3D(Basis(Vector3.UP, atan2(-out.z, out.x)).scaled(Vector3.ONE * LAMP_SCALE), p)
+		Models._append_part(mb, ModelParts.baked(STREETLIGHT), xf)
+		var head := xf * Vector3(1.55, 5.18, 0.0)
+		glows.glow(head, GlowBuilder.SODIUM, 0.66, 5.0, p.y < 12.0, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		glows.pool(Vector3(head.x, p.y + 0.36, head.z) + out * 1.5, GlowBuilder.SODIUM, 15.0, 0.22)
+		var cap := xf * Vector3(1.55, 5.4, 0.0)
+		_perch(cap, cap, 0.0, Seagulls.Kind.LAMP)
+
+
+## Where a street's lamps stand: [post, arm direction out over the street], every
+## LAMP_GAP, alternating sides, none near the crossing.
+static func street_lamp_spots(line: PackedVector3Array, crossing: Vector3) -> Array:
+	const LAMP_GAP := 48.0
+	var spots: Array = []
 	var next := LAMP_GAP * 0.5
 	var walked := 0.0
 	var side := 1.0
@@ -1427,17 +1735,21 @@ func _street_lamps(mb: MeshBuilder, line: PackedVector3Array, crossing: Vector3)
 			if Vector2(p.x - crossing.x, p.z - crossing.z).length() < 14.0:
 				next += LAMP_GAP * 0.25
 				continue
-			mb.box(p + Vector3(0, 5.1, 0), Vector3(0.36, 11.4, 0.36), Color(0.3, 0.31, 0.33))
-			mb.box(p + Vector3(0, 10.8, 0), Vector3(1.2, 0.42, 1.2), Color(0.25, 0.26, 0.28))
-			mb.box(p + Vector3(0, 10.5, 0), Vector3(0.9, 0.21, 0.9), Models.lamp_glass(GlowBuilder.SODIUM))
-			glows.glow(p + Vector3(0, 10.35, 0), GlowBuilder.SODIUM, 0.66, 5.0, p.y < 12.0, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
-			glows.pool(p + Vector3(0, 0.36, 0) - lat * 3.6 * side, GlowBuilder.SODIUM, 15.0, 0.22)
-			_perch(p + Vector3(0, 11.01, 0), p + Vector3(0, 11.01, 0), 0.0, Seagulls.Kind.LAMP)
+			spots.append([p, -lat * side])
 			side = -side
 			next += LAMP_GAP
 		walked += seg
+	return spots
 
 
+## Small retail store (assets/models/retail_stores): only on core lots round the square,
+## one per town. Ordered after the regular shops, before city hall.
+const GROCERY := "saltwater_grocery"
+
+
+static func shop_path(shop_name: String) -> String:
+	var dir := "retail_stores" if shop_name == GROCERY else "coastal_shops"
+	return "res://assets/models/%s/%s.glb" % [dir, shop_name]
 
 
 func _build_towns() -> void:
@@ -1470,13 +1782,15 @@ func _build_towns() -> void:
 	var houses := kit_names.size()
 	var shop_names := SHOP_SHELLS.keys()
 	shop_names.erase(CITY_HALL)
+	shop_names.erase(GROCERY)
+	shop_names.append(GROCERY)
 	var city_hall_variant := houses + shop_names.size()
 	shop_names.append(CITY_HALL)
 	var shop_plans: Array[Rect2] = []
 	for shop_name: String in shop_names:
 		if not await _frames.can_continue():
 			return
-		var path := "res://assets/models/coastal_shops/%s.glb" % shop_name
+		var path := shop_path(shop_name)
 		var mb := MeshBuilder.new()
 		Models._append_part(mb, ModelParts.baked(path), Transform3D.IDENTITY)
 		var shell: Vector2 = SHOP_SHELLS[shop_name]
@@ -1488,15 +1802,15 @@ func _build_towns() -> void:
 		shop_meshes.append(mesh)
 		shop_names_list.append(shop_name)
 	var per_variant: Array = []
+	var yards := MeshBuilder.new()
 	for v in variants:
 		var list: Array[Transform3D] = []
 		per_variant.append(list)
 
+	_load_lots_cache()
 	var town_rng := RandomNumberGenerator.new()
 	town_rng.seed = map.map_seed * 41 + 19
 	const RESERVE_LANDMARKS := 4
-	const RESERVE_COMMERCIAL := 12
-	const RESERVE_HOUSES := 36
 
 	for isl in map.towns:
 		isl.growth_lots.clear()
@@ -1508,13 +1822,23 @@ func _build_towns() -> void:
 		if isl.has_dock:
 			inland = -isl.dock_dir
 		var spacing := 16.5
-		var candidates: Array[Dictionary] = []
-		for b in range(-10, 11):
+		var candidates: Array[Dictionary] = await _frontage_candidates(isl, town_rng)
+		var town_lines: Array[PackedVector3Array] = [isl.road_main_a, isl.road_main_b]
+		town_lines.append_array(isl.road_cross)
+		town_lines.append_array(isl.road_lanes)
+		# Frontage lots from the street plan, in reveal-rank order, replace the grid.
+		var plan_lots := isl.street_plan != null and USE_PLAN_LOTS
+		if plan_lots:
+			candidates = _plan_lot_candidates(isl)
+		# Big boxes past the town's lots, at its edge; frontage lots under them dropped.
+		BigBoxes.reserve(self, isl)
+		candidates = candidates.filter(func(c: Dictionary) -> bool:
+			return not _is_blocked_off_road(c["p"].x, c["p"].z))
+		var grid_n := 0 if plan_lots else 13
+		for b in range(1 - grid_n, grid_n):
 			if not await _frames.can_continue():
 				return
-			for a in range(-10, 11):
-				if isl.has_dock and (a == 0 or b == 0):
-					continue  # the streets
+			for a in range(-12, 13):
 				var p := tc + t * (a * spacing) + inland * (b * spacing)
 				p += Vector3(town_rng.randf_range(-2.2, 2.2), 0, town_rng.randf_range(-2.2, 2.2))
 				if isl.has_dock and (p - isl.shore).dot(isl.dock_dir) > Layout.LOT_BACK - isl.lot_shift() - 12.0:
@@ -1537,6 +1861,10 @@ func _build_towns() -> void:
 					front = -inland
 				var yaw := atan2(front.x, front.z) + town_rng.randf_range(-0.05, 0.05)
 				var r := Vector2(a, b).length() * spacing
+				if isl.has_dock and _near_candidate(candidates, p, 11.0):
+					continue  # a frontage lot already
+				if isl.has_dock and not _near_road(town_lines, p, GRID_REACH):
+					continue  # back lots stay within a short walk of a street
 				(
 					candidates
 					. append(
@@ -1544,7 +1872,11 @@ func _build_towns() -> void:
 							"p": p,
 							"yaw": yaw,
 							"r": r,
-							"sort_r": r + town_rng.randf_range(-9.0, 9.0),
+							"sort_r": (
+								r
+								+ town_rng.randf_range(-9.0, 9.0)
+								+ (GRID_AFTER if isl.has_dock else 0.0)
+							),
 							"drop": hmax - hmin,
 							"h": h,
 						}
@@ -1555,9 +1887,14 @@ func _build_towns() -> void:
 				return float(x["sort_r"]) < float(y["sort_r"])
 		)
 
+		# Every lot the land gives is kept for growth: about one shop to three houses.
 		var want_houses := TownGrowth.target_houses_for(isl.population)
 		var want_commercial := TownGrowth.target_commercial_for(isl.population)
+		var RESERVE_COMMERCIAL := maxi(0, ceili(candidates.size() * 0.24) - want_commercial)
+		var RESERVE_HOUSES := candidates.size()
 		var has_city_hall := false
+		var taken: Array[PackedVector2Array] = []  # footprints placed or reserved so far
+		var streets := _street_hash(isl)
 		var placed_comm := 0
 		var placed_houses := 0
 		var reserved_landmarks := 0
@@ -1592,14 +1929,21 @@ func _build_towns() -> void:
 			llot.yaw = float(c["yaw"])
 			llot.lot_y = float(c["h"])
 			llot.kind = MapData.TownLot.Kind.LANDMARK
+			llot.street = _count_street(isl, c, false)
 			llot.waterfront = float(c["h"]) < 15.0
 			isl.growth_lots.append(llot)
 			_block(p, 7.5)
 			reserved_landmarks += 1
 
+		var house_plans: Array[Rect2] = []
+		for kn in kit_names:
+			house_plans.append(Models.kit_footprint(kn))
+
 		# 2. Place initial commercial buildings (1 per 333 pop) and reserve commercial growth lots.
 		var shop_count := shop_names.size()
-		var regular_shop_count := maxi(shop_count - 1, 1)
+		var regular_shop_count := maxi(shop_count - 2, 1)
+		var grocery_idx := shop_count - 2
+		var has_grocery := false
 		for idx in candidates.size():
 			if used_idx.has(idx):
 				continue
@@ -1617,17 +1961,31 @@ func _build_towns() -> void:
 				and isl.community_type == "residential"
 			):
 				shop_idx = city_hall_variant - houses
+			elif not has_grocery and int(c.get("zone", -1)) == StreetPlan.Zone.CORE:
+				shop_idx = grocery_idx
+			var fit := _fit_lot(c, shop_plans, shop_idx, regular_shop_count, sc)
+			if fit.is_empty():
+				continue
+			shop_idx = fit[0]
+			sc = fit[1]
+			p = fit[2]
+			if shop_idx == grocery_idx:
+				has_grocery = true
 			var vi := houses + shop_idx
 			var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
 			var plan: Rect2 = shop_plans[shop_idx]
 			var lot := _kit_lot_heights(p, basis, plan)
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
+			var foot := _footprint(p, yaw, plan, sc, CITY_HALL_CLEAR if vi == city_hall_variant else BUILDING_GAP)
+			if _hits(taken, foot) or _lot_on_street(streets, c, p, yaw, plan, sc, foot):
+				continue
+			taken.append(foot)
 			used_idx[idx] = true
 			if placed_comm < want_commercial:
-				var pad := Rect2(plan.position * sc, plan.size * sc).grow(KIT_LOT_MARGIN)
+				var pad := _lot_pad(c, plan, sc)
 				terrain.level_now(Vector3(p.x, 0, p.z), basis.z.normalized(),
-					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, KIT_LOT_BLEND)
+					pad.position.y, pad.end.y, pad.position.x, pad.end.x, lot.z, _lot_blend(c))
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				(per_variant[vi] as Array[Transform3D]).append(xf)
 				if vi == city_hall_variant:
@@ -1643,6 +2001,7 @@ func _build_towns() -> void:
 					float(c["h"]) < 15.0
 				)
 				_block(p, 7.8)
+				_count_street(isl, c, true)
 				placed_comm += 1
 			else:
 				var clot := MapData.TownLot.new()
@@ -1651,6 +2010,7 @@ func _build_towns() -> void:
 				clot.scale = sc
 				clot.lot_y = lot.z
 				clot.kind = MapData.TownLot.Kind.COMMERCIAL
+				clot.street = _count_street(isl, c, false)
 				clot.variant = shop_idx
 				clot.waterfront = float(c["h"]) < 15.0
 				isl.growth_lots.append(clot)
@@ -1667,14 +2027,24 @@ func _build_towns() -> void:
 			var p: Vector3 = c["p"]
 			var yaw: float = float(c["yaw"])
 			var vi := town_rng.randi_range(0, houses - 1)
-			var basis := Basis(Vector3.UP, yaw)
+			var fit := _fit_lot(c, house_plans, vi, houses, 1.0)
+			if fit.is_empty():
+				continue
+			vi = fit[0]
+			var hsc: float = fit[1]
+			p = fit[2]
+			var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * hsc)
 			var plan: Rect2 = Models.kit_footprint(kit_names[vi])
 			var lot := _kit_lot_heights(p, basis, plan)
 			if lot.x - lot.y > KIT_MAX_DROP or lot.y < 2.4:
 				continue
+			var foot := _footprint(p, yaw, plan, hsc, BUILDING_GAP)
+			if _hits(taken, foot) or _lot_on_street(streets, c, p, yaw, plan, hsc, foot):
+				continue
+			taken.append(foot)
 			used_idx[idx] = true
 			if placed_houses < want_houses:
-				var pad := Rect2(plan.position, plan.size).grow(KIT_LOT_MARGIN)
+				var pad := _lot_pad(c, plan, hsc)
 				terrain.level_now(
 					Vector3(p.x, 0, p.z),
 					basis.z.normalized(),
@@ -1683,10 +2053,12 @@ func _build_towns() -> void:
 					pad.position.x,
 					pad.end.x,
 					lot.z,
-					KIT_LOT_BLEND
+					_lot_blend(c)
 				)
 				var xf := Transform3D(basis, Vector3(p.x, lot.z, p.z))
 				(per_variant[vi] as Array[Transform3D]).append(xf)
+				var yd := _yard_extent(c, plan, hsc)
+				add_yard(yards, Vector3(p.x, lot.z, p.z), yaw, plan, hsc, yd.x, yd.y)
 				_entry_light(
 					xf,
 					Models.kit_marker(kit_names[vi], "PorchLight"),
@@ -1694,15 +2066,20 @@ func _build_towns() -> void:
 					float(c["h"]) < 15.0
 				)
 				_block(p, 7.8)
+				_count_street(isl, c, true)
 				placed_houses += 1
 			else:
 				var hlot := MapData.TownLot.new()
 				hlot.pos = Vector3(p.x, lot.z, p.z)
 				hlot.yaw = yaw
-				hlot.scale = 1.0
+				hlot.scale = hsc
 				hlot.lot_y = lot.z
 				hlot.kind = MapData.TownLot.Kind.HOUSE
+				hlot.street = _count_street(isl, c, false)
 				hlot.variant = vi
+				var hyd := _yard_extent(c, plan, hsc)
+				hlot.yard_half = hyd.x
+				hlot.yard_back = hyd.y
 				hlot.waterfront = float(c["h"]) < 15.0
 				isl.growth_lots.append(hlot)
 				_block(p, 5.5)
@@ -1711,11 +2088,375 @@ func _build_towns() -> void:
 		isl.initial_houses = placed_houses
 		isl.initial_commercial = placed_comm
 
+	_save_lots_cache()
+	for isl in map.towns:
+		refresh_streets(isl)
+	_add_mesh(yards.commit(), "Yards")
 	var no_colors: Array[Color] = []
 	for i in variants.size():
 		var xforms: Array[Transform3D] = per_variant[i]
 		var group_name: String = "Houses%d" % i if i < houses else shop_names[i - houses]
 		await _multimesh(variants[i], xforms, no_colors, group_name)
+
+
+## Back gardens from the garden kit: a fenced yard behind each house, with a bed,
+## border or orchard plot in it. Lots without room behind get no yard.
+const GARDENS := ["res://assets/models/home_gardens/kitchen_garden.tscn",
+	"res://assets/models/home_gardens/cottage_border.tscn", "res://assets/models/home_gardens/orchard_plot.tscn"]
+const FENCES := ["res://assets/models/home_gardens/parts/white_picket", "res://assets/models/home_gardens/parts/cedar"]
+# (chain link's diamond mesh is a texture, which baking loses: left out for now)
+const FENCE_SPAN := 2.4
+const YARD_MIN := 4.0
+const YARD_MAX := 11.0
+
+
+## [half width, back z] of a house's yard in its own frame (+Z toward the street);
+## back z is 0 when there's no yard.
+func _yard_extent(c: Dictionary, plan: Rect2, sc: float) -> Vector2:
+	if not c.has("lot_w"):
+		return Vector2.ZERO
+	var front_z := plan.end.y * sc + LOT_SETBACK
+	var lot_back := front_z - float(c["lot_d"]) + 0.6
+	var house_back := plan.position.y * sc
+	if house_back - lot_back < YARD_MIN:
+		return Vector2.ZERO
+	var half := maxf(float(c["lot_w"]) * 0.5 - 0.4, plan.size.x * sc * 0.5)
+	return Vector2(half, maxf(lot_back, house_back - YARD_MAX))
+
+
+## Fence and garden for the house at `at`/`yaw` (see _yard_extent) into `mb`.
+func add_yard(mb: MeshBuilder, at: Vector3, yaw: float, plan: Rect2, sc: float, half: float, back: float) -> void:
+	if back == 0.0:
+		return
+	var b := Basis(Vector3.UP, yaw)
+	var pick := _hash(at.x, at.z)
+	var house_back := plan.position.y * sc - 0.3
+	var fence: String = FENCES[floori(pick * 7.0) % FENCES.size()]
+	var post := ModelParts.baked(fence + "_post.glb")
+	var span := ModelParts.baked(fence + "_span.glb")
+	var ground := func(l: Vector3) -> Transform3D:
+		var w := at + b * l
+		return Transform3D(b, Vector3(w.x, maxf(terrain.height_v(w), at.y - 1.0), w.z))
+	# Fence: down one side, across the back, up the other side, in even spans.
+	var corners := [Vector3(-half, 0, house_back), Vector3(-half, 0, back), Vector3(half, 0, back), Vector3(half, 0, house_back)]
+	for k in 3:
+		var a: Vector3 = corners[k]
+		var e: Vector3 = corners[k + 1]
+		var n := maxi(1, roundi(a.distance_to(e) / FENCE_SPAN))
+		var step := (e - a) / n
+		var ang := atan2(-step.z, step.x)
+		for i in n:
+			var q := a + step * i
+			var xf: Transform3D = ground.call(q)
+			Models._append_part(mb, post, xf * Transform3D(Basis(Vector3.UP, ang), Vector3.ZERO))
+			Models._append_part(mb, span, xf * Transform3D(Basis(Vector3.UP, ang) * Basis.from_scale(Vector3(step.length() / FENCE_SPAN, 1, 1)), Vector3.ZERO))
+		Models._append_part(mb, post, ground.call(e))
+	# The garden itself, in the middle of the yard.
+	var garden := ModelParts.baked(GARDENS[floori(pick * 13.0) % GARDENS.size()])
+	var mid := Vector3(-half * 0.3 if pick > 0.5 else half * 0.3, 0, (house_back + back) * 0.5)
+	Models._append_part(mb, garden, ground.call(mid) * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO))
+
+
+## Tallies a lot against the plan street it fronts (built: a building stands there
+## now); returns that street's edge, or -1 for a grid lot.
+func _count_street(isl: MapData.Town, c: Dictionary, built: bool) -> int:
+	var e := int(c.get("edge", -1))
+	if e < 0:
+		return -1
+	isl.street_lots[e] = int(isl.street_lots.get(e, 0)) + 1
+	if built:
+		isl.street_built[e] = int(isl.street_built.get(e, 0)) + 1
+	return e
+
+
+## Place towns on TownLots (blocks + frontage lots from the StreetPlan) instead of the grid.
+const USE_PLAN_LOTS := true
+
+
+## Baked lots for the authored map: towns whose plan and ground haven't changed skip
+## TownLots' raster. Written from the editor only, like the route caches.
+func _load_lots_cache() -> void:
+	_lots_cache = {}
+	_lots_cache_dirty = false
+	_lots_used.clear()
+	var path := map.town_lots_cache_path
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return
+	var f := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	var data = f.get_var() if f else null
+	if data is Dictionary:
+		_lots_cache = data
+
+
+func _save_lots_cache() -> void:
+	var path := map.town_lots_cache_path
+	if path.is_empty() or not _lots_cache_dirty or not OS.has_feature("editor"):
+		return
+	# Keep only this build's towns, so stale plans don't pile up in the file.
+	var keep := {}
+	for k in _lots_used:
+		keep[k] = _lots_cache[k]
+	var target := ProjectSettings.globalize_path(path)
+	DirAccess.make_dir_recursive_absolute(target.get_base_dir())
+	var f := FileAccess.open_compressed(target, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if f == null:
+		push_warning("Couldn't save town lots to " + path)
+		return
+	f.store_var(keep)
+	_lots_cache_dirty = false
+
+
+## One candidate per TownLots lot, set back from its street, facing it; sort_r is the
+## lot's reveal rank so towns fill out in rank order.
+func _plan_lot_candidates(isl: MapData.Town) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var tl: TownLots
+	if map.town_lots_cache_path.is_empty():
+		tl = TownLots.build(isl.street_plan, terrain, isl.street_plan._sq)
+	else:
+		var got := TownLots.build_cached(isl.street_plan, terrain, isl.street_plan._sq, _lots_cache)
+		tl = got[0]
+		_lots_used.append(got[1])
+		_lots_cache_dirty = _lots_cache_dirty or got[2]
+	isl.town_lots = tl
+	for lot in tl.lots:
+		var facing: Vector2 = lot.facing
+		var c: Vector2 = lot.front - facing * minf(lot.depth * 0.5, 7.0)
+		var p := Vector3(c.x, 0.0, c.y)
+		if _is_blocked_off_road(p.x, p.z):
+			continue
+		var h := terrain.height_v(p)
+		if h < 4.2 or h > 55.0:
+			continue
+		var hmin := h
+		var hmax := h
+		for o: Vector3 in [Vector3(4.8, 0, 0), Vector3(-4.8, 0, 0), Vector3(0, 0, 5.7), Vector3(0, 0, -5.7)]:
+			var hh := terrain.height_v(p + o)
+			hmin = minf(hmin, hh)
+			hmax = maxf(hmax, hh)
+		if hmax - hmin > 4.2 or hmin < 2.4:
+			continue
+		out.append({"p": p, "yaw": atan2(facing.x, facing.y), "r": float(lot.along),
+			"front": lot.front, "facing": facing, "lot_w": float(lot.width), "lot_d": float(lot.depth),
+			"sort_r": float(lot.rank), "drop": hmax - hmin, "h": h, "edge": int(lot.edge), "zone": int(lot.zone)})
+	return out
+
+
+## For a TownLots candidate: the variant (preferring `want`, then the rest of the
+## first `count`) and scale whose footprint fits the lot's frontage and depth, and
+## where to put it so its front sits LOT_SETBACK behind the street face, centred.
+## Grid candidates (no lot size) pass straight through. Empty if nothing fits.
+const LOT_SETBACK := 1.0
+const LOT_SIDE_GAP := 0.6   # total, split between the two sides
+const LOT_MIN_SCALE := 0.8
+## Gap kept between neighbouring buildings, and the clear ground round city hall.
+const BUILDING_GAP := 0.75
+const CITY_HALL_CLEAR := 4.0
+
+
+## A building's footprint corners in XZ, grown by `grow` each side.
+func _footprint(p: Vector3, yaw: float, plan: Rect2, sc: float, grow: float) -> PackedVector2Array:
+	var r := Rect2(plan.position * sc, plan.size * sc).grow(grow)
+	var b := Basis(Vector3.UP, yaw)
+	var out := PackedVector2Array()
+	for c: Vector2 in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+		var w := p + b * Vector3(c.x, 0.0, c.y)
+		out.append(Vector2(w.x, w.z))
+	return out
+
+
+## Street centreline points bucketed by STREET_CELL, for _on_street.
+const STREET_CELL := 12.0
+## A building keeps this far from any street's centreline (past the sidewalk).
+const STREET_CLEAR := RoadMesh.HALF + 0.6
+
+
+func _street_hash(isl: MapData.Town) -> Dictionary:
+	var lines: Array[PackedVector3Array] = [isl.road_main_a, isl.road_main_b]
+	lines.append_array(isl.road_cross)
+	lines.append_array(isl.road_lanes)
+	var h := {}
+	for line in lines:
+		for i in line.size() - 1:
+			var a := Vector2(line[i].x, line[i].z)
+			var b := Vector2(line[i + 1].x, line[i + 1].z)
+			var n := maxi(1, ceili(a.distance_to(b) / 2.0))
+			for k in n + 1:
+				var q := a.lerp(b, float(k) / n)
+				var key := Vector2i(floori(q.x / STREET_CELL), floori(q.y / STREET_CELL))
+				if not h.has(key):
+					h[key] = PackedVector2Array()
+				h[key].append(q)
+	return h
+
+
+## A StreetPlan lot already sits behind its street face (TownLots keeps it off the
+## roads), so only the building itself, unpadded, is kept clear of the asphalt and
+## kerb; grid lots keep the full STREET_CLEAR. Checking plan lots like grid lots threw
+## out ~80% of them.
+const PLAN_LOT_STREET_CLEAR := RoadMesh.ASPHALT_HALF + 0.7
+
+
+func _lot_on_street(h: Dictionary, c: Dictionary, p: Vector3, yaw: float, plan: Rect2, sc: float, padded: PackedVector2Array) -> bool:
+	if int(c.get("edge", -1)) < 0:
+		return _on_street(h, padded)
+	return _on_street(h, _footprint(p, yaw, plan, sc, 0.0), PLAN_LOT_STREET_CLEAR)
+
+
+## Whether any part of the footprint (edges sampled every ~1.5 m) is on a street.
+func _on_street(h: Dictionary, foot: PackedVector2Array, clear := STREET_CLEAR) -> bool:
+	for i in foot.size():
+		var a := foot[i]
+		var b := foot[(i + 1) % foot.size()]
+		var n := maxi(1, ceili(a.distance_to(b) / 1.5))
+		for k in n:
+			var q := a.lerp(b, float(k) / n)
+			var c := Vector2i(floori(q.x / STREET_CELL), floori(q.y / STREET_CELL))
+			for dx in range(-1, 2):
+				for dy in range(-1, 2):
+					for r: Vector2 in h.get(c + Vector2i(dx, dy), PackedVector2Array()):
+						if r.distance_to(q) < clear:
+							return true
+	return false
+
+
+func _hits(taken: Array[PackedVector2Array], foot: PackedVector2Array) -> bool:
+	for t in taken:
+		if not Geometry2D.intersect_polygons(t, foot).is_empty():
+			return true
+	return false
+
+
+func _fit_lot(c: Dictionary, plans: Array[Rect2], want: int, count: int, sc: float) -> Array:
+	if not c.has("lot_w"):
+		return [want, sc, c["p"]]
+	var lot_w: float = c["lot_w"]
+	var lot_d: float = c["lot_d"]
+	var order: Array[int] = [want]
+	for i in count:
+		if i != want:
+			order.append((want + i) % count if (want + i) % count != want else i)
+	for vi in order:
+		var plan: Rect2 = plans[vi]
+		var s := minf(sc, minf((lot_w - LOT_SIDE_GAP) / plan.size.x, (lot_d - LOT_SETBACK) / plan.size.y))
+		if s < LOT_MIN_SCALE:
+			continue
+		var facing: Vector2 = c["facing"]
+		var front: Vector2 = c["front"]
+		var right := Vector2(facing.y, -facing.x)   # Basis(UP, yaw).x in XZ
+		var at := front - facing * (LOT_SETBACK + plan.end.y * s) - right * (plan.get_center().x * s)
+		return [vi, s, Vector3(at.x, 0.0, at.y)]
+	return []
+
+
+## A building's levelled pad. On a street lot the pad stops at the building's front
+## and blends out within the setback + verge, so it never lifts ground over the road.
+func _lot_pad(c: Dictionary, plan: Rect2, sc: float) -> Rect2:
+	var pad := Rect2(plan.position * sc, plan.size * sc).grow(KIT_LOT_MARGIN)
+	if c.has("lot_w"):
+		pad.size.y = plan.end.y * sc - pad.position.y
+	return pad
+
+
+func _lot_blend(c: Dictionary) -> float:
+	return LOT_SETBACK + 0.5 if c.has("lot_w") else KIT_LOT_BLEND
+
+
+## Grid lots fill in behind the streets only after every street-front lot.
+const GRID_AFTER := 400.0
+## Back lots stay within this of a street centreline (a second row behind the frontage).
+const GRID_REACH := 90.0
+## Street-front lots: centre this far from the road's centreline, and this far apart
+## along it (closer near the square, where shops and terraces go).
+const FRONTAGE_OFFSET := 13.0
+const FRONTAGE_CORE := 120.0
+
+
+## Lots facing each street both sides, ranked by how far along the streets they are
+## from the square, so a town fills out from its square along the front street,
+## then up the main street and the lanes.
+func _frontage_candidates(isl: MapData.Town, rng: RandomNumberGenerator) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if not isl.has_dock or isl.road_main_a.is_empty():
+		return out
+	var all_lines: Array[PackedVector3Array] = [isl.road_main_a]
+	var streets: Array = []  # [line, metres from the square at its start]
+	if isl.road_main_b.size() > 1:
+		streets.append([isl.road_main_b, 0.0])
+	for line in isl.road_cross:
+		streets.append([line, 0.0])
+	for line in isl.road_lanes:
+		# A lane starts where it leaves the front street: rank it by that distance.
+		var base := 0.0
+		for front in isl.road_cross:
+			for i in front.size():
+				if front[i].distance_to(line[0]) < 0.5:
+					base = i * MapGenerator.ROAD_STEP
+		streets.append([line, base + 40.0])
+	for st: Array in streets:
+		all_lines.append(st[0])
+	for st: Array in streets:
+		if not await _frames.can_continue():
+			return out
+		var line: PackedVector3Array = st[0]
+		var base: float = st[1]
+		var s := 10.0
+		var total := RoadMesh.length_of(line)
+		while s < total - 4.0:
+			var i := clampi(int(s / MapGenerator.ROAD_STEP), 1, line.size() - 2)
+			var d := line[i + 1] - line[i - 1]
+			d.y = 0.0
+			var lat := d.normalized().cross(Vector3.UP)
+			var core := base + s < FRONTAGE_CORE
+			for side: float in [-1.0, 1.0]:
+				var p := line[i] + lat * side * (FRONTAGE_OFFSET + rng.randf_range(-0.8, 1.2))
+				var away := lat * side
+				if _is_blocked_off_road(p.x + away.x * 6.0, p.z + away.z * 6.0) or _is_blocked_off_road(p.x, p.z):
+					continue
+				var h := terrain.height_v(p)
+				if h < 3.0 or h > 55.0:
+					continue
+				var hmin := h
+				var hmax := h
+				for o: Vector3 in [away * 5.0, -away * 4.0, d.normalized() * 4.8, -d.normalized() * 4.8]:
+					var hh := terrain.height_v(p + o)
+					hmin = minf(hmin, hh)
+					hmax = maxf(hmax, hh)
+				if hmax - hmin > 4.2 or hmin < 2.4:
+					continue
+				if _near_road(all_lines, p, FRONTAGE_OFFSET - 2.5) or _near_candidate(out, p, 9.0):
+					continue
+				var front := -away
+				var r := base + s
+				out.append({
+					"p": p,
+					"yaw": atan2(front.x, front.z) + rng.randf_range(-0.04, 0.04),
+					"r": r,
+					"sort_r": r + rng.randf_range(-6.0, 6.0),
+					"drop": hmax - hmin,
+					"h": h,
+				})
+			s += 10.0 if core else 14.0
+	return out
+
+
+static func _near_road(lines: Array[PackedVector3Array], p: Vector3, r: float) -> bool:
+	var r2 := r * r
+	for line in lines:
+		for i in range(0, line.size(), 2):
+			var q := line[i]
+			if (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z) < r2:
+				return true
+	return false
+
+
+static func _near_candidate(list: Array[Dictionary], p: Vector3, r: float) -> bool:
+	var r2 := r * r
+	for c in list:
+		var q: Vector3 = c["p"]
+		if (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z) < r2:
+			return true
+	return false
 
 
 ## Reserves a hilltop radio tower pad on each inhabited island and builds the
@@ -2128,10 +2869,10 @@ func lift_image() -> Image:
 
 
 
-## Put the dining deck flush with the right edge of the jetty, landward of its T-head.
+## Fit the authored 2.8 m gangway against the jetty between two mooring cleats.
 ## The deck surface is local Y=0 and the opening in its railing is on the -X side.
 func _marina_restaurant(m: MapData.Marina) -> void:
-	var center := Vector3(2.7 + 7.0, 2.25 + 0.375, 24.0)
+	var center := Vector3(DockKit.MAIN_WIDTH * 0.5 + 2.8 + 7.0, DockKit.HIGH + 0.645, 30.0 - 4.7)
 	for x: float in [-7.0, 0.0, 7.0]:
 		for z: float in [-4.0, 1.0, 6.0]:
 			if terrain.height_v(m.at(center.z + z, center.x + x)) >= 0.0:
@@ -2143,41 +2884,578 @@ func _marina_restaurant(m: MapData.Marina) -> void:
 	dining.transform = m.xform() * Transform3D(Basis.IDENTITY, center)
 
 
-## A wooden pier out to a T-head float with berths along its seaward face (the
+const RUNWAY := "res://assets/models/airport_runway.glb"
+const HANGAR := "res://assets/models/airplane_hangar.glb"
+const HANGAR_AT := Vector3(-141.0, 0.0, -67.0)   # at the head of the taxiway, door onto the apron
+const AIRFIELD := "res://assets/models/airfield_buildings/%s.glb"
+const WINDSOCK := "res://assets/models/windsock.glb"
+const CHAIN_LINK := "res://assets/models/home_gardens/fences/chain_link.tscn"
+## Runway-model space: x along the runway, -z off to the apron side.
+const APRON_X := Vector2(-212.0, -66.0)
+const APRON_Z := Vector2(-56.0, -32.4)
+## [model, x, z, yaw]: the row of airfield buildings facing the apron.
+const AIRFIELD_ROW := [
+	["control_tower", -201.0, -62.0, 0.0],
+	["flight_office", -176.0, -61.0, 0.0],
+	["open_gable_hangar", -110.0, -64.0, 0.0],
+	["sawtooth_workshop_hangar", -85.0, -63.5, 0.0],
+]
+## Parking stands on the apron (x), planes nose-in toward the runway at z = STAND_Z.
+const STANDS := [-196.0, -178.0, -110.0, -92.0]
+const STAND_Z := -38.0
+## Where the access road leaves the apron (its east end) for town.
+const GATE := Vector2(-66.0, -44.0)
+## Everything on the strip sits a touch proud of the graded ground, so the
+## terrain's triangles don't poke through the verges.
+const STRIP_LIFT := 0.12
+const FENCE_Z := -80.0
+const APRON_COLOR := Color(0.32, 0.36, 0.37)   # matches the runway asphalt
+const APRON_LINE := Color(0.95, 0.59, 0.055)
+
+
+## The authored airstrips: the runway on its graded strip (MapGenerator._grade_airstrips),
+## an apron at the head of its taxiway exit lined with the airfield kit (tower, flight
+## office, hangars), planes parked on it, a windsock and a chain-link fence round the
+## back. The runway's edge lights glow at night. Trees and houses keep off.
+func _build_airstrips() -> void:
+	for isl in map.islands:
+		if not isl.airstrip:
+			continue
+		var d := isl.airstrip_dir
+		var xf := Transform3D(Basis(d, Vector3.UP, d.cross(Vector3.UP)), isl.airstrip_at)
+		# Tipped to the strip's grade, as a shear so it stays plumb.
+		var tilted := xf
+		tilted.basis.x = d + Vector3.UP * isl.airstrip_slope
+		tilted.origin += Vector3.UP * STRIP_LIFT
+		var slope := isl.airstrip_slope
+		var on_strip := func(x: float, z: float, yaw := 0.0) -> Transform3D:
+			return xf * Transform3D(Basis(Vector3.UP, yaw), Vector3(x, slope * x + STRIP_LIFT, z))
+		var runway := Models._cached(RUNWAY, func(): return ModelParts.baked(RUNWAY).commit())
+		_add_mesh(runway, isl.name + " Runway", false).transform = tilted
+		# The apron: asphalt from the taxiway mouth to the building row, a yellow lead-in line.
+		var mb := MeshBuilder.new()
+		mb.xform = tilted
+		var ac := Vector3((APRON_X.x + APRON_X.y) * 0.5, 0.035, (APRON_Z.x + APRON_Z.y) * 0.5)
+		mb.box(ac, Vector3(APRON_X.y - APRON_X.x, 0.07, APRON_Z.y - APRON_Z.x), APRON_COLOR)
+		mb.box(Vector3(ac.x, -0.41, ac.z), Vector3(APRON_X.y - APRON_X.x + 3.0, 0.8, APRON_Z.y - APRON_Z.x + 3.0),
+			Color(0.28, 0.27, 0.215))
+		mb.box(Vector3(-141.0, 0.07, -44.0), Vector3(0.25, 0.02, 24.0), APRON_LINE)
+		mb.box(Vector3(ac.x, 0.07, -50.0), Vector3(APRON_X.y - APRON_X.x - 8.0, 0.02, 0.25), APRON_LINE)
+		for px: float in STANDS:
+			mb.box(Vector3(px, 0.07, STAND_Z), Vector3(0.25, 0.02, 10.0), APRON_LINE)
+		_add_mesh(mb.commit(), isl.name + " Apron", false)
+		var hangar := Models._cached(HANGAR, func(): return ModelParts.baked(HANGAR).commit())
+		var hxf: Transform3D = on_strip.call(HANGAR_AT.x, HANGAR_AT.z)
+		_add_mesh(hangar, isl.name + " Hangar").transform = hxf
+		_entry_light(hxf, Vector3(0.0, 9.2, 7.8), Vector3(0.0, 0.3, 9.0), false)
+		for b: Array in AIRFIELD_ROW:
+			var path: String = AIRFIELD % b[0]
+			var m := Models._cached(path, func(): return ModelParts.baked(path).commit())
+			var bxf: Transform3D = on_strip.call(b[1], b[2], b[3])
+			_add_mesh(m, "%s %s" % [isl.name, b[0]]).transform = bxf
+			_entry_light(bxf, Vector3(0.0, 3.2, 5.0), Vector3(0.0, 0.1, 6.0), false)
+		# Planes are AirTraffic's: it parks, lands and launches them (see air_traffic.gd).
+		airfields.append(AirTraffic.Field.new(isl.name, xf, slope, STRIP_LIFT, STANDS, STAND_Z))
+		_airfield_road(isl, on_strip)
+		_airfield_windsock(on_strip.call(-56.0, -27.0), isl.name)
+		_airfield_fence(on_strip, isl.name)
+		# Edge lights (runway model: every 46 m, 11.8 m off the centreline).
+		glows.xform = tilted
+		var lx := -230.0
+		while lx <= 230.0:
+			for side: float in [-11.8, 11.8]:
+				glows.glow(Vector3(lx, 0.45, side), GlowBuilder.WARM, 0.9, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			lx += 46.0
+		for end: float in [-241.0, 241.0]:
+			for side: float in [-9.0, -4.5, 0.0, 4.5, 9.0]:
+				glows.glow(Vector3(end, 0.3, side), GlowBuilder.GREEN, 0.8, 4.0, false, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		var u := -250.0
+		while u <= 250.0:
+			for v: float in [-30.0, -18.0, -6.0, 6.0, 18.0, 30.0]:
+				_block(xf * Vector3(u, 0, v), 9.0)
+			u += 9.0
+		var bu := APRON_X.x - 6.0
+		while bu <= APRON_X.y + 6.0:
+			for v: float in [36.0, 48.0, 60.0, 72.0, 82.0]:
+				_block(xf * Vector3(bu, 0, -v), 9.0)
+			bu += 9.0
+
+
+## A road from the apron's gate to the nearest street of a town on the same island:
+## out along the apron's line, then straight across the land. None if it would
+## have to cross water or run too far.
+func _airfield_road(isl: MapData.Island, on_strip: Callable) -> void:
+	var gate: Vector3 = (on_strip.call(GATE.x, GATE.y) as Transform3D).origin
+	var out: Vector3 = (on_strip.call(GATE.x + 30.0, GATE.y) as Transform3D).origin
+	var best := Vector3.ZERO
+	var best_d := INF
+	var best_town: MapData.Town = null
+	var best_lane := -1   # plan street (road_lanes index) the road joins, if any
+	for t in map.towns:
+		if t.island != map.islands.find(isl):
+			continue
+		var lines: Array[PackedVector3Array] = [t.road_main_a, t.road_main_b]
+		lines.append_array(t.road_cross)
+		lines.append_array(t.road_lanes)
+		for li in lines.size():
+			for q in lines[li]:
+				var dd := Vector2(q.x - out.x, q.z - out.z).length()
+				if dd < best_d:
+					best_d = dd
+					best = q
+					best_town = t
+					best_lane = li - (lines.size() - t.road_lanes.size())
+	if best_d > 1600.0:
+		print("airport road: no town street near ", isl.name)
+		return
+	var pts := PackedVector3Array([gate])
+	var n := maxi(2, ceili(best_d / 6.0))
+	for i in range(0, n + 1):
+		var q := out.lerp(best, float(i) / n)
+		var h := terrain.height_at(q.x, q.z)
+		if h < 0.6:
+			print("airport road: water in the way on ", isl.name)
+			return
+		pts.append(Vector3(q.x, h + 0.15, q.z) if i < n else best)
+	pts[1].y = out.y
+	# The street it joins is paved from the start, and so the way back to the square.
+	if best_town != null and best_lane >= 0:
+		best_town.street_pinned[best_lane] = true
+	var mb := MeshBuilder.new()
+	RoadMesh.strip(mb, pts, ROAD, RoadMesh.Style.DASHED, func(_s: float) -> float: return 1.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = load(ROAD_SHADER)
+	_add_mesh(mb.commit(mat), isl.name + " AirportRoad", false)
+	for i in range(0, pts.size(), 2):
+		_block_road(pts[i], 9.0)
+
+
+## The windsock, its streaming animation looped.
+func _airfield_windsock(at: Transform3D, isl_name: String) -> void:
+	var scene := load(WINDSOCK) as PackedScene
+	if scene == null:
+		return
+	var ws := scene.instantiate() as Node3D
+	ws.name = isl_name + " Windsock"
+	ws.transform = at
+	root.add_child(ws)
+	var anim := ws.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if anim != null and not anim.get_animation_list().is_empty():
+		var a := anim.get_animation(anim.get_animation_list()[0])
+		a.loop_mode = Animation.LOOP_LINEAR
+		anim.play(anim.get_animation_list()[0])
+
+
+## Chain-link fence round the back of the airfield: along FENCE_Z behind the
+## building row and down both sides to the runway's shoulder.
+func _airfield_fence(on_strip: Callable, isl_name: String) -> void:
+	var scene := load(CHAIN_LINK) as PackedScene
+	if scene == null:
+		return
+	var fence := Node3D.new()
+	fence.name = isl_name + " AirfieldFence"
+	root.add_child(fence)
+	var span := 2.4
+	var x0 := APRON_X.x - 6.0
+	var x1 := APRON_X.y + 6.0
+	var runs := [[Vector2(x0, FENCE_Z), Vector2(x1, FENCE_Z)],
+		[Vector2(x0, -22.0), Vector2(x0, FENCE_Z)], [Vector2(x1, FENCE_Z), Vector2(x1, GATE.y - 6.0)],
+		[Vector2(x1, GATE.y + 6.0), Vector2(x1, -22.0)]]
+	for r: Array in runs:
+		var a: Vector2 = r[0]
+		var b: Vector2 = r[1]
+		var n := ceili(a.distance_to(b) / span)
+		var dir := (b - a).normalized()
+		var yaw := atan2(-dir.y, dir.x)
+		for i in n:
+			var p := a + dir * span * i
+			var f := scene.instantiate() as Node3D
+			f.transform = on_strip.call(p.x, p.y, yaw)
+			fence.add_child(f)
+
+
+const DockKit := preload("res://scripts/world/dock_kit.gd")
+const MARINA_HEAD_C := 50.0   # T-head float centre (u); fingers run out from its seaward edge
+
+
+## The marina from the dock kit: a fixed pier on piles from the shore, a ramp down
+## to the T-head float, and finger floats between the berths.
+func _marina_docks(m: MapData.Marina) -> void:
+	if not DockKit.available():
+		return
+	var kit := DockKit.new()
+	kit.name = map.islands[m.island].name + " MarinaDocks" + str(m.id)
+	root.add_child(kit)
+	kit.transform = m.xform()
+	var p := Vector3(0, DockKit.HIGH, -12.0)
+	while p.z < MARINA_HEAD_C - DockKit.MAIN_WIDTH * 0.5 - DockKit.RUN * 2.0 - 0.01:
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.PILES)
+	p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.LOW)
+	kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.FLOATS)
+	var plan := _marina_plan(m)
+	# The head reaches just past the outermost branch on each side; drop branches
+	# until it (and the water either side of it) stays clear of the island.
+	var reach: Array[float] = []
+	for si in 2:
+		var sp: Dictionary = plan[si]
+		var side := -1.0 if si == 0 else 1.0
+		var at := 21.0
+		while true:
+			var outer: float = 21.0 + sp.shift + sp.pitch * (sp.count - 0.5) + DockKit.MAIN_WIDTH * 0.5 if sp.count > 0 else 21.0
+			at = ceilf((outer - 21.0) / DockKit.RUN) * DockKit.RUN + 21.0
+			if sp.count == 0 or _marina_head_clear(m, side, at):
+				break
+			sp.count -= 1
+		reach.append(at)
+	var h := Vector3(-reach[0], DockKit.LOW, MARINA_HEAD_C)
+	for k in roundi((reach[0] + reach[1]) / DockKit.RUN):
+		h = kit.add_deck(DockKit.Width.MAIN, h, Vector2(1, 0), DockKit.Support.FLOATS)
+	var edge := MARINA_HEAD_C + DockKit.MAIN_WIDTH * 0.5
+	for b in Layout.MARINA_BERTHS + 1:
+		var v := m.berth_v(b) - Layout.MARINA_BERTH_SPACING * 0.5
+		var fp := kit.add_deck(DockKit.Width.FINGER, Vector3(v, DockKit.LOW, edge), Vector2(0, 1), DockKit.Support.FLOATS)
+		kit.add_deck(DockKit.Width.FINGER, fp, Vector2(0, 1), DockKit.Support.FLOATS)
+	_marina_branches(m, kit, plan, edge)
+	_marina_cliff_stair(m, kit)
+
+
+static func _xz(p: Vector3) -> Vector2:
+	return Vector2(p.x, p.z)
+
+
+const MARINA_SLIP_BOATS := [
+	"res://assets/models/powerboats/cuddy_runabout.glb", "res://assets/models/powerboats/picnic_launch.glb",
+	"res://assets/models/powerboats/downeast_cruiser.glb", "res://assets/models/powerboats/alloy_pilothouse.glb",
+]
+
+
+## Deep water all along the head out to `to` on one side, with room for slips
+## on its shoreward and seaward faces.
+func _marina_head_clear(m: MapData.Marina, side: float, to: float) -> bool:
+	var xf := m.xform()
+	var v := 21.0
+	while v <= to + 14.0:
+		for u: float in [MARINA_HEAD_C - 14.0, MARINA_HEAD_C, MARINA_HEAD_C + 14.0]:
+			if terrain.height_v(xf * Vector3(side * v, 0, u)) > -2.0:
+				return false
+		v += 3.0
+	return true
+
+
+## Each side of the head gets a run of branch docks, packed close like a real
+## marina: a few metres out past the visitor berths, a fairway apart. Bigger
+## towns get more branches.
+func _marina_plan(m: MapData.Marina) -> Array[Dictionary]:
+	var lots := 0
+	for t in map.towns:
+		if t.island == m.island:
+			lots = maxi(lots, t.growth_lots.size())
+	var most := 2 if lots < 80 else (3 if lots < 160 else 4)
+	var r := RandomNumberGenerator.new()
+	r.seed = m.id * 977 + m.island * 31 + 5
+	var plan: Array[Dictionary] = []
+	for side in 2:
+		plan.append({
+			shift = 6.0 * r.randi_range(1, 2),
+			pitch = 50.0 + 2.0 * r.randi_range(0, 2),   # fingers + hulls both sides leave a ~22 m fairway
+			count = r.randi_range(maxi(most - 1, 1), most),
+			seed = r.randi(),
+		})
+	return plan
+
+
+## Branch docks cross the head (the spine) like the ribs of a fish, long runs of
+## 12 m finger slips down both sides, seaward and, where it is deep enough,
+## shoreward too. About one slip in five is under a boathouse, kept together at
+## a branch's outer end; nearly every open slip holds a boat.
+func _marina_branches(m: MapData.Marina, kit: Node3D, plan: Array[Dictionary], edge: float) -> void:
+	var xf := m.xform()
+	var back := MARINA_HEAD_C - DockKit.MAIN_WIDTH * 0.5
+	var mb := MeshBuilder.new()
+	mb.xform = xf
+	glows.xform = xf
+	var outer: Array = []   # [bv, side, runs] of each side's outermost seaward arm
+	for si in 2:
+		var side := -1.0 if si == 0 else 1.0
+		var sp: Dictionary = plan[si]
+		var r := RandomNumberGenerator.new()
+		r.seed = sp.seed
+		for k in sp.count:
+			var bv: float = side * (21.0 + sp.shift + sp.pitch * (k + 0.5))
+			var sea: int = 5 + r.randi_range(0, 4) + sp.count
+			var land := r.randi_range(1, 4)
+			var reach_n := _marina_branch(m, kit, xf, r, bv, edge, 1.0, sea, side, mb, sp.pitch)
+			_marina_branch(m, kit, xf, r, bv, back, -1.0, land, side, mb, sp.pitch)
+			if k == sp.count - 1 and reach_n > 0:
+				outer.append([bv, side, reach_n])
+	_marina_seaplane_dock(m, kit, outer, edge, mb)
+	if not mb.is_empty():
+		_add_mesh(mb.commit(), map.islands[m.island].name + " MarinaFurniture")
+
+
+## One arm of a branch from the head's face at `u0`, `runs` long toward `dir`
+## (+1 seaward), cut short of shallow water.
+## Boats in the seaward arms' slips are real vessels (MarineTraffic spawns them
+## from m.slips); the shoreward arms, boxed in by the head, keep still props.
+func _marina_branch(m: MapData.Marina, kit: Node3D, xf: Transform3D, r: RandomNumberGenerator, bv: float, u0: float, dir: float, runs: int, side: float, mb: MeshBuilder, pitch: float) -> int:
+	var n := 0
+	while n < runs:
+		var ok := true
+		for dv: float in [-14.0, 0.0, 14.0]:
+			if terrain.height_v(xf * Vector3(bv + dv, 0, u0 + dir * DockKit.RUN * (n + 1))) > -2.0:
+				ok = false
+		if not ok:
+			break
+		n += 1
+	if n < 2:
+		return 0
+	var p := Vector3(bv, DockKit.LOW, u0)
+	for i in n:
+		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, dir), DockKit.Support.FLOATS)
+	_marina_furniture(kit, mb, r, bv, u0, dir, n)
+	var fingers := n
+	var covered := maxi(1 if dir > 0 else 0, roundi((fingers - 1) * 2 / 5.0))
+	for fs: float in [-1.0, 1.0]:
+		var x0 := bv + fs * DockKit.MAIN_WIDTH * 0.5
+		for j in fingers:
+			var fp := Vector3(x0, DockKit.LOW, u0 + dir * DockKit.RUN * (j + 0.5))
+			for q in 2:
+				fp = kit.add_deck(DockKit.Width.FINGER, fp, Vector2(fs, 0), DockKit.Support.FLOATS)
+		for j in fingers - 1:
+			var su := u0 + dir * DockKit.RUN * (j + 1.0)
+			var from_end := fingers - 2 - j
+			var is_cov := from_end * 2 + (0 if fs == side else 1) < covered
+			if is_cov:
+				kit.add_boathouse(DockKit.Boathouse.OPEN if r.randf() < 0.6 else DockKit.Boathouse.ENCLOSED,
+					Vector3(x0, DockKit.LOW, su), Vector2(fs, 0))
+			if r.randf() < (0.3 if is_cov else 0.12):
+				continue
+			var sail := not is_cov and r.randf() < 0.35
+			var model: String = "" if sail else MARINA_SLIP_BOATS[r.randi() % MARINA_SLIP_BOATS.size()]
+			var yaw := 0.0 if r.randf() < 0.5 else PI
+			if dir > 0.0:
+				var fair := bv + fs * pitch * 0.5
+				var bow := m.lateral() * -fs
+				m.slips.append({
+					at = _xz(m.at(su, x0 + fs * 6.5)), out = _xz(m.at(su, fair)),
+					mouth = _xz(m.at(u0 + dir * (DockKit.RUN * n + 24.0), fair)),
+					yaw = atan2(bow.x, bow.z), sail = sail, model = model,
+				})
+			else:
+				var boat: Node3D
+				if sail:
+					var mi := MeshInstance3D.new()
+					mi.mesh = Models.sailboat_furled()
+					boat = mi
+				else:
+					boat = (load(model) as PackedScene).instantiate() as Node3D
+				kit.add_child(boat)
+				boat.transform = Transform3D(Basis(Vector3.UP, fs * PI * 0.5 + yaw), Vector3(x0 + fs * 6.5, 0.0, su))
+				if sail:
+					# (After the transform, which would reset it: the sloop is built a third size.)
+					boat.scale = Vector3.ONE * Models.LEGACY_SCALE
+			# Fenders over the finger edges either side of the hull.
+			for e: float in [-1.0, 1.0]:
+				for along: float in [4.0, 8.5]:
+					_marina_prop(kit, MARINA_FENDER, Vector3(x0 + fs * along, DockKit.LOW, su + e * (DockKit.RUN - DockKit.FINGER_WIDTH) * 0.5), 0.0 if e < 0 else PI)
+	return n
+
+
+## A seaplane float: the outermost seaward arm on one side runs on past its last
+## finger as plain dock, and a floatplane ties up along its open outer face,
+## nose in. Needs deep water beside it and a clear run out to sea for take-off.
+const SEAPLANE_EXT := 4      # plain runs past the last finger
+const SEAPLANE_RUN := 520.0  # open water needed ahead of the float for a take-off
+func _marina_seaplane_dock(m: MapData.Marina, kit: Node3D, outer: Array, edge: float, mb: MeshBuilder) -> void:
+	var xf := m.xform()
+	var order := outer.duplicate()
+	if order.size() == 2 and (m.id % 2) == 1:
+		order.reverse()
+	for o: Array in order:
+		var bv: float = o[0]
+		var side: float = o[1]
+		var u_end: float = edge + DockKit.RUN * o[2]
+		var moor_v := bv + side * (DockKit.MAIN_WIDTH * 0.5 + 3.2)
+		var ok := true
+		for i in SEAPLANE_EXT + 1:
+			for dv: float in [0.0, side * 12.0]:
+				if terrain.height_v(xf * Vector3(bv + dv, 0, u_end + DockKit.RUN * (i + 0.5))) > -2.0:
+					ok = false
+		var d := 0.0
+		while ok and d < SEAPLANE_RUN:
+			for dv: float in [-10.0, 10.0]:
+				if terrain.height_v(xf * Vector3(moor_v + side * 14.0 + dv, 0, u_end + d)) > -2.0:
+					ok = false
+			d += 20.0
+		if not ok:
+			continue
+		var p := Vector3(bv, DockKit.LOW, u_end)
+		for i in SEAPLANE_EXT:
+			p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.FLOATS)
+		for along: float in [3.0, 9.0, 15.0, 21.0]:
+			_marina_prop(kit, MARINA_FENDER, Vector3(bv + side * DockKit.MAIN_WIDTH * 0.5, DockKit.LOW, u_end + along), PI * 0.5 * side)
+		# A windsock-orange post at the end, lit at night.
+		var tip := Vector3(bv, DockKit.LOW, p.z - 0.8)
+		mb.box(tip + Vector3(0, 1.5, 0), Vector3(0.2, 3.0, 0.2), Color(0.95, 0.45, 0.1))
+		glows.glow(tip + Vector3(0, 3.1, 0), GlowBuilder.RED, 0.18, 2.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+		# Moored nose in, so it heads back out to sea when it leaves.
+		var moor := xf * Vector3(moor_v, 0.0, u_end + DockKit.RUN * SEAPLANE_EXT * 0.5 + 1.0)
+		seaplane_docks.append(AirTraffic.WaterDock.new(map.islands[m.island].name + " Marina", moor, m.dir, m.lateral() * side))
+		return
+
+
+const MARINA_PEDESTAL := "res://assets/models/dock_kit/power_pedestal.glb"
+const MARINA_DOCK_BOX := "res://assets/models/dock_kit/dock_box.glb"
+const MARINA_FENDER := "res://assets/models/dock_kit/fender.glb"
+const MARINA_CRAB_POT := "res://assets/models/dock_kit/crab_pot.glb"
+const MARINA_FISH_CRATE := "res://assets/models/dock_kit/fish_crate.glb"
+func _marina_prop(kit: Node3D, path: String, at: Vector3, yaw: float) -> void:
+	var n := (load(path) as PackedScene).instantiate() as Node3D
+	kit.add_child(n)
+	n.transform = Transform3D(Basis(Vector3.UP, yaw), at)
+
+
+## Along a branch: a power pedestal at every other finger (a little light on
+## top at night), white dock boxes here and there, and a lamp at the outer end.
+func _marina_furniture(kit: Node3D, mb: MeshBuilder, r: RandomNumberGenerator, bv: float, u0: float, dir: float, n: int) -> void:
+	var hw := DockKit.MAIN_WIDTH * 0.5
+	for j in n:
+		var u := u0 + dir * DockKit.RUN * (j + 0.5)
+		for e: float in [-1.0, 1.0]:
+			var x := bv + e * (hw - 0.35)
+			var yaw := -e * PI * 0.5   # face across the branch
+			if j % 2 == 0:
+				_marina_prop(kit, MARINA_PEDESTAL, Vector3(x, DockKit.LOW, u), yaw)
+				glows.glow(mb.xform * Vector3(x, DockKit.LOW + 1.1, u), GlowBuilder.LED, 0.12, 1.2, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+			elif r.randf() < 0.45:
+				_marina_prop(kit, MARINA_DOCK_BOX, Vector3(x, DockKit.LOW, u + 1.6 * e), yaw)
+	# Gear left out near the head: a stack of crab pots, a crate or two.
+	if r.randf() < 0.45:
+		var g := Vector3(bv + (0.9 if r.randf() < 0.5 else -0.9), DockKit.LOW, u0 + dir * (DockKit.RUN * 1.0 + r.randf() * DockKit.RUN))
+		for i in r.randi_range(1, 3):
+			_marina_prop(kit, MARINA_CRAB_POT, g + Vector3(0, 0.43 * i - 0.43, 0), r.randf() * 0.5)
+		for i in r.randi_range(0, 2):
+			_marina_prop(kit, MARINA_FISH_CRATE, g + Vector3(0, 0, dir * (1.3 + 0.7 * i)), r.randf() * 0.4 - 0.2)
+	var end := Vector3(bv, DockKit.LOW, u0 + dir * (DockKit.RUN * n - 0.8))
+	mb.box(end + Vector3(0, 2.0, 0), Vector3(0.22, 4.0, 0.22), Color(0.25, 0.26, 0.28))
+	var lamp := end + Vector3(0, 4.0, 0)
+	Models.add_lantern(mb, lamp, GlowBuilder.WARM, 2.2)
+	glows.glow(Models.lantern_glow_at(lamp, 2.2), GlowBuilder.WARM, 0.4, 3.5, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
+	glows.pool(end + Vector3(0, 0.1, -dir * 2.5), GlowBuilder.WARM, 7.0, 0.22)
+
+
+## Where the marina pier meets a cliff, dock-kit gangways switch back up the
+## face beside it, landing to landing, and a deck carries the last landing in
+## onto the clifftop.
+const STAIR_RISE := 1.4     # per 6 m gangway
+const STAIR_FLIGHT := 3     # gangways between landings
+func _marina_cliff_stair(m: MapData.Marina, kit: Node3D) -> void:
+	var xf := m.xform()
+	var face := 0.0
+	var u := 4.0
+	while u > -20.0:
+		if terrain.height_v(xf * Vector3(0, 0, u)) > DockKit.HIGH + 0.3:
+			face = u
+			break
+		u -= 1.0
+	if face == 0.0:
+		return
+	var v0 := DockKit.MAIN_WIDTH * 0.5
+	var top := 0.0
+	for du in range(2, 20, 2):
+		top = maxf(top, terrain.height_v(xf * Vector3(0, 0, face - du)))
+	if top < DockKit.HIGH + 2.5:
+		return
+	# Run along whichever side keeps the stair closest in to the face: its
+	# length follows the height, and the lane stands just off the rock.
+	var best := INF
+	var sv := 1.0
+	var su := face
+	var ramps := 1
+	for side: float in [1.0, -1.0]:
+		var t := top
+		var rp := 1
+		var length := 0.0
+		var lane := face
+		# The clifftop never drops below what stands behind the face: sampling
+		# the stair's far end can land off the island, in the sea.
+		for it in 3:
+			rp = maxi(1, ceili((t - DockKit.HIGH) / STAIR_RISE))
+			length = DockKit.RUN * (1 + mini(rp, STAIR_FLIGHT))
+			var g := 0.0
+			for du in range(2, 14, 2):
+				g = maxf(g, terrain.height_v(xf * Vector3(side * (v0 + DockKit.RUN), 0, face - du)))
+			t = maxf(g, top)
+		rp = maxi(1, ceili((t - DockKit.HIGH) / STAIR_RISE))
+		length = DockKit.RUN * (1 + mini(rp, STAIR_FLIGHT))
+		var v := 0.0
+		while v <= length + DockKit.MAIN_WIDTH:
+			var uu := face + 12.0
+			while uu > face - 6.0 and terrain.height_v(xf * Vector3(side * (v0 + v), 0, uu)) < DockKit.HIGH:
+				uu -= 0.5
+			lane = maxf(lane, uu)
+			v += 1.0
+		if lane < best:
+			best = lane
+			sv = side
+			su = lane
+			ramps = rp
+			top = t
+	su += DockKit.MAIN_WIDTH * 0.5 + 0.4
+	var rise := (top - DockKit.HIGH) / ramps
+	var mb := MeshBuilder.new()
+	mb.xform = xf
+	var post := Color(0.3, 0.25, 0.2)
+	# Flights switch back toward the face, each lane LANE seaward of the next,
+	# so the last flight ends against the rock. A level deck off the pier keeps
+	# the returning flights and the deck in clear of the pier itself.
+	const LANE := 8.0
+	var lanes := ceili(float(ramps) / STAIR_FLIGHT)
+	var p: Vector3 = kit.add_deck(DockKit.Width.MAIN, Vector3(sv * v0, DockKit.HIGH, su + (lanes - 1) * LANE), Vector2(sv, 0), DockKit.Support.PILES)
+	var dir := sv
+	var done := 0
+	while true:
+		for k in mini(STAIR_FLIGHT, ramps - done):
+			p = kit.add_ramp(DockKit.Width.MAIN, p, Vector2(dir, 0), p.y + rise)
+			done += 1
+			for e: float in [-1.0, 1.0]:
+				mb.box(Vector3(p.x, (p.y - 0.25) * 0.5 - 0.5, p.z + e * (DockKit.MAIN_WIDTH * 0.5 - 0.2)), Vector3(0.25, p.y + 0.75, 0.25), post)
+		if done >= ramps:
+			break
+		# A landing two decks long carries the turn shoreward to the next lane.
+		var l := Vector3(p.x + dir * DockKit.MAIN_WIDTH * 0.5, p.y, p.z + DockKit.MAIN_WIDTH * 0.5)
+		for i in 2:
+			l = kit.add_deck(DockKit.Width.MAIN, l, Vector2(0, -1), DockKit.Support.PILES)
+		p = Vector3(p.x, p.y, p.z - LANE)
+		dir = -dir
+	# Deck in from the top of the run until it meets the clifftop, starting
+	# level with the last ramp's far edge so the turn has no missing corner.
+	var b := Vector3(p.x + dir * DockKit.MAIN_WIDTH * 0.5, p.y, p.z + DockKit.MAIN_WIDTH * 0.5)
+	for i in 6:
+		if terrain.height_v(xf * Vector3(b.x, 0, b.z)) >= p.y - 0.6:
+			break
+		b = kit.add_deck(DockKit.Width.MAIN, b, Vector2(0, -1), DockKit.Support.PILES)
+	_add_mesh(mb.commit(), map.islands[m.island].name + " MarinaStair")
+
+
+## A pier out to a T-head float with berths along its seaward face (the
 ## sailboats themselves are MarineTraffic's), a lamp at each end of the head.
 func _build_marinas() -> void:
-	var plank := Color(0.56, 0.46, 0.34)
-	var float_col := Color(0.66, 0.6, 0.5)
 	for m in map.marinas:
 		if not await _frames.can_continue():
 			return
 		var mb := MeshBuilder.new()
 		mb.xform = m.xform()
 		glows.xform = mb.xform
-		var pe := Layout.MARINA_PIER_END
-		var hu := Layout.MARINA_HEAD_U
 		var hh := Layout.MARINA_HEAD_HALF
-		mb.box(Vector3(0, 2.25, (pe - 12.0) * 0.5), Vector3(5.4, 0.75, pe + 12.0), plank)
-		var u := -3.0
-		while u < pe:
-			for side: float in [-1.0, 1.0]:
-				mb.box(Vector3(side * 3.0, -3.9, u), Vector3(0.84, 12.9, 0.84), Models.WOOD)
-			u += 10.5
-		# The T-head, a little lower, its pilings standing proud.
-		mb.box(Vector3(0, 1.5, hu), Vector3(hh * 2.0, 0.9, 6.0), float_col)
-		mb.box(Vector3(0, 1.08, hu + 3.06), Vector3(hh * 2.0, 0.36, 0.24), Color(0.25, 0.25, 0.26))
-		for v: float in [-hh + 0.9, -4.5, 4.5, hh - 0.9]:
-			mb.cylinder(Vector3(v, -6.0, hu - 3.6), 0.6, 0.54, 10.8, 6, Models.WOOD, Color(0.4, 0.33, 0.27))
-		for b in Layout.MARINA_BERTHS:
-			# A cleat for each berth.
-			mb.box(Vector3(m.berth_v(b), 2.1, hu + 2.25), Vector3(1.05, 0.3, 0.36), Color(0.3, 0.3, 0.32))
+		_marina_docks(m)
 		for side: float in [-1.0, 1.0]:
-			var post := Vector3(side * (hh - 0.9), 1.95, hu)
+			var post := Vector3(side * (hh - 0.9), DockKit.LOW, MARINA_HEAD_C)
 			mb.box(post + Vector3(0, 2.4, 0), Vector3(0.3, 4.8, 0.3), Color(0.25, 0.26, 0.28))
 			var lamp := post + Vector3(0, 4.8, 0)
 			Models.add_lantern(mb, lamp, GlowBuilder.WARM, 2.7)
 			glows.glow(Models.lantern_glow_at(lamp, 2.7), GlowBuilder.WARM, 0.48, 4.0, true, 0.0, Vector3.ZERO, Models.LAMP_ON_AT)
-			glows.pool(Vector3(side * (hh - 3.6), 1.98, hu), GlowBuilder.WARM, 9.0, 0.25)
+			glows.pool(Vector3(side * (hh - 3.6), DockKit.LOW + 0.03, MARINA_HEAD_C), GlowBuilder.WARM, 9.0, 0.25)
 			var top := mb.xform * (lamp + Vector3(0, 1.08, 0))
 			_perch(top, top, 0.0, Seagulls.Kind.LAMP)
 		_add_mesh(mb.commit(), map.islands[m.island].name + " Marina")
@@ -2195,6 +3473,10 @@ func _build_marinas() -> void:
 ## floodlights for working in the dark. A fish quay has a fish shed and stacked
 ## totes on it and a hoist over the water; the pilot station its pilot house,
 ## with a lookout and radar mast.
+func _build_coast_guard() -> void:
+	CoastGuardStation.build(self)
+
+
 func _build_quays() -> void:
 	var plank := Color(0.5, 0.42, 0.33)
 	var cap := Color(0.6, 0.6, 0.57)

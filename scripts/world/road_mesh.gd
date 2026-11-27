@@ -5,7 +5,7 @@ extends RefCounted
 ## UV.x is metres across from the centreline (+ right), UV.y metres along; UV2.x how
 ## strongly the markings show there, UV2.y the marking Style (road_detail.gdshaderinc).
 
-enum Style { NONE, DASHED, DASHED_EDGES, DOUBLE_EDGES }
+enum Style { NONE, DASHED, DASHED_EDGES, DOUBLE_EDGES, CORE_WALK, LANE }
 
 ## Half the asphalt's width (must match RD_ASPHALT_HALF in road_detail.gdshaderinc),
 ## and half the whole road's, shoulders and all.
@@ -27,7 +27,7 @@ static func length_of(points: PackedVector3Array) -> float:
 ## Adds a strip along `points` (its centreline, at the road's surface) to `mb`,
 ## starting `start` metres along (a side street starts at the edge of the road it
 ## leaves). `show` maps metres along to how strongly the markings show (0..1).
-static func strip(mb: MeshBuilder, points: PackedVector3Array, col: Color, style: Style, show: Callable, start := 0.0) -> void:
+static func strip(mb: MeshBuilder, points: PackedVector3Array, col: Color, style: Style, show: Callable, start := 0.0, stop := INF) -> void:
 	# Stations: metres along, centre, and the right-hand unit vector (mitred).
 	var along := PackedFloat32Array()
 	var centres := PackedVector3Array()
@@ -40,6 +40,10 @@ static func strip(mb: MeshBuilder, points: PackedVector3Array, col: Color, style
 			if s < start and s + seg > start:
 				along.append(start)
 				centres.append(points[i - 1].lerp(points[i], (start - s) / seg))
+			if s < stop and s + seg >= stop:
+				along.append(stop)
+				centres.append(points[i - 1].lerp(points[i], (stop - s) / seg))
+				break
 			s += seg
 		if s >= start:
 			along.append(s)
@@ -116,3 +120,98 @@ static func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, ua: Vector
 	mb.colors.append_array([col, col, col])
 	mb.uvs.append_array([ua, uc, ub])
 	mb.uv2s.append_array([va, vc, vb])
+
+
+## A joined junction: one plain-asphalt plate where streets meet, with the kerb and
+## sidewalk curving round each corner from one street's to the next. Each arm's strip
+## ends at `mouths[i]`, running out along `tangents[i]` (flat unit vectors, away from
+## the junction); `styles[i]` is its Style (sidewalk corners only between two
+## sidewalked streets, gravel verge otherwise).
+static func junction(mb: MeshBuilder, centre: Vector3, mouths: PackedVector3Array, tangents: PackedVector3Array, styles: Array[int], col: Color) -> void:
+	var n := mouths.size()
+	if n < 2:
+		return
+	var order: Array[int] = []
+	for i in n:
+		order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var da := mouths[a] - centre
+		var db := mouths[b] - centre
+		return atan2(da.z, da.x) < atan2(db.z, db.x))
+	var lift := Vector3(0, 0.03, 0)
+	var rim := PackedVector3Array()
+	var none := Vector2(0.0, Style.NONE)
+	for oi in n:
+		var i := order[oi]
+		var j := order[(oi + 1) % n]
+		var ri := tangents[i].cross(Vector3.UP)
+		var rj := tangents[j].cross(Vector3.UP)
+		rim.append(mouths[i] - ri * ASPHALT_HALF)
+		rim.append(mouths[i] + ri * ASPHALT_HALF)
+		# The corner from arm i's high side round to arm j's low side.
+		var walk := _walked(styles[i]) and _walked(styles[j])
+		var band_style: int = Style.CORE_WALK if walk else Style.DASHED
+		var inner := _corner(mouths[i] + ri * ASPHALT_HALF, tangents[i], mouths[j] - rj * ASPHALT_HALF, tangents[j])
+		var outer := _corner(mouths[i] + ri * HALF, tangents[i], mouths[j] - rj * HALF, tangents[j])
+		var s := 0.0
+		var d := Vector2(1.0, band_style)
+		for k in inner.size():
+			if k > 0:
+				rim.append(inner[k])
+			if k == inner.size() - 1:
+				break
+			var seg := Vector2(inner[k + 1].x - inner[k].x, inner[k + 1].z - inner[k].z).length()
+			var drop := Vector3(0, -SHOULDER_DROP, 0)
+			_quad(mb, inner[k] + lift, outer[k] + lift + drop, outer[k + 1] + lift + drop, inner[k + 1] + lift,
+				Vector2(ASPHALT_HALF, s), Vector2(HALF, s), Vector2(HALF, s + seg), Vector2(ASPHALT_HALF, s + seg),
+				d, d, d, d, col, Vector3.UP)
+			var down := Vector3(0, -SKIRT, 0)
+			var away := (outer[k] - inner[k])
+			away.y = 0.0
+			_quad(mb, outer[k] + drop, outer[k + 1] + drop, outer[k + 1] + down, outer[k] + down,
+				Vector2(HALF, s), Vector2(HALF, s + seg), Vector2(HALF * 1.02, s + seg), Vector2(HALF * 1.02, s),
+				d, d, d, d, col, away)
+			s += seg
+	for i in rim.size():
+		_tri(mb, centre + lift, rim[i] + lift, rim[(i + 1) % rim.size()] + lift, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, none, none, none, col, Vector3.UP)
+
+
+static func _walked(style: int) -> bool:
+	return style >= Style.DASHED_EDGES and style <= Style.CORE_WALK
+
+
+## A kerb line curving from `a` (on a street heading out along `da`) to `b` (heading
+## out along `db`): a quadratic through where the two edges would meet, or straight
+## across when they don't.
+static func _corner(a: Vector3, da: Vector3, b: Vector3, db: Vector3) -> PackedVector3Array:
+	# Solve a - da*t = b - db*u on the ground plane.
+	var den := -da.x * db.z + da.z * db.x
+	var ctrl := a.lerp(b, 0.5)
+	if absf(den) > 0.05:
+		var wx := b.x - a.x
+		var wz := b.z - a.z
+		var t := (-wx * db.z + wz * db.x) / den
+		var u := (-da.x * wz + da.z * wx) / den
+		if t > 0.0 and u > 0.0 and t < 40.0 and u < 40.0:
+			ctrl = a - da * t
+			ctrl.y = lerpf(a.y, b.y, 0.5)
+	var out := PackedVector3Array()
+	const STEPS := 8
+	for k in STEPS + 1:
+		var f := float(k) / STEPS
+		out.append(a.lerp(ctrl, f).lerp(ctrl.lerp(b, f), f))
+	return out
+
+
+## How far out along each arm its street must stop so neighbouring streets' full
+## widths clear each other: sharper angles push the mouth further out.
+static func junction_reach(arms: Array[Vector3]) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	for i in arms.size():
+		var tightest := PI
+		for j in arms.size():
+			if j != i:
+				tightest = minf(tightest, acos(clampf(arms[i].dot(arms[j]), -1.0, 1.0)))
+		var need := HALF / tan(maxf(tightest, 0.2) * 0.5) if tightest < PI * 0.5 else HALF
+		out.append(clampf(need + 1.0, HALF + 1.0, 30.0))
+	return out

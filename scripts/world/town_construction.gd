@@ -150,6 +150,14 @@ func _on_construction_completed(job: TownGrowth.BuildJob) -> void:
 			site.root.queue_free()
 	if job.lot != null:
 		_spawn_finished_building(job)
+		if builder != null and job.town_id >= 0:
+			if job.kind == MapData.TownLot.Kind.BIG_BOX:
+				BigBoxes.opened(builder.map.towns[job.town_id], job.lot)
+			builder.lot_built(builder.map.towns[job.town_id], job.lot)
+			if job.kind == MapData.TownLot.Kind.BIG_BOX and sim != null:
+				var term: Terminal = sim.terminals.get(job.town_id)
+				if term != null:
+					term.add_drive(BigBoxes.drive(builder.map.towns[job.town_id], job.lot))
 
 
 func _process(delta: float) -> void:
@@ -332,6 +340,13 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			mi.transform = xf
 			add_child(mi)
 			var kit_name := builder.house_kit_names[idx]
+			if lot.yard_back != 0.0:
+				var yard := MeshBuilder.new()
+				builder.add_yard(yard, Vector3(lot.pos.x, lot.lot_y, lot.pos.z), lot.yaw,
+					Models.kit_footprint(kit_name), lot.scale, lot.yard_half, lot.yard_back)
+				var ymi := MeshInstance3D.new()
+				ymi.mesh = yard.commit()
+				add_child(ymi)
 			var lamp := Models.kit_marker(kit_name, "PorchLight")
 			var entry := Models.kit_marker(kit_name, "Entry")
 			_add_runtime_building_light(
@@ -389,6 +404,9 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 					xf, Vector3(0.0, 3.0, 4.2), GlowBuilder.WARM, 0.26, lot.waterfront
 				)
 
+		MapData.TownLot.Kind.BIG_BOX:
+			add_child(BigBoxes.spawn(lot))
+
 		MapData.TownLot.Kind.RADIO_TOWER:
 			var mesh := builder.landmarks.mesh_for("radio_tower")
 			if mesh != null:
@@ -437,6 +455,9 @@ func _level_job(job: TownGrowth.BuildJob) -> void:
 	if job.landmark_model == "airplane_hangar_low":
 		half_w = 13.0
 		half_d = 12.0
+	if job.kind == MapData.TownLot.Kind.BIG_BOX:
+		BigBoxes.level(builder, lot)
+		return
 	_level_lot_runtime(lot.pos, lot.yaw, half_w, half_d, lot.lot_y)
 
 

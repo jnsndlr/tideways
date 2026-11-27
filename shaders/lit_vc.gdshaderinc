@@ -188,6 +188,7 @@ void fragment() {
 		float gloss;
 		vec3 glow;
 		road_detail(world_pos, UV, UV2, fwidth(UV), mpp, ALBEDO, rough, gloss, glow);
+		if (rough < 0.0) { discard; }  // an unpaved street's grassy edge: the ground shows
 		ROUGHNESS = rough;
 		road_gloss = gloss;
 		EMISSION = glow;

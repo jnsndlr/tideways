@@ -21,6 +21,9 @@ var s := 0.0
 var trips := 0
 var _leaving: MapData.Marina = null    # holds this marina's lock while getting out
 var _arriving := false                 # holds the destination's lock
+var _out_leg := false                  # motoring ahead out of a slip's fairway
+## Kept in a finger slip: goes out less often, and always comes home to it.
+var dwell_scale := 1.0
 
 
 # --- Hooks ----------------------------------------------------------------------------
@@ -59,6 +62,13 @@ func marina_name(m: MapData.Marina) -> String:
 ## A point on berth `b`'s line at `u` out from the shore, for this boat's centre
 ## (a longer boat lies, and backs out, a little further out).
 func _berth_pos(m: MapData.Marina, b: int, u: float) -> Vector2:
+	if b >= Layout.MARINA_BERTHS:
+		var slip: Dictionary = m.slips[b - Layout.MARINA_BERTHS]
+		if u == Layout.MARINA_BACKOUT_U:
+			return slip.out
+		if u == Layout.MARINA_APPROACH_U:
+			return slip.mouth
+		return slip.at
 	var p := m.at(u + spec.half_length - BERTH_HALF_LENGTH, m.berth_v(b))
 	return Vector2(p.x, p.z)
 
@@ -72,6 +82,8 @@ func _make_fast() -> void:
 	helm = null
 	var d := -marina.dir
 	_yaw = atan2(d.x, d.z)
+	if berth >= Layout.MARINA_BERTHS:
+		_yaw = marina.slips[berth - Layout.MARINA_BERTHS].yaw
 
 
 func _pose_moored() -> void:
@@ -91,6 +103,9 @@ func _start_backing_out() -> void:
 
 
 func _back_out(delta: float) -> void:
+	if _out_leg:
+		_motor_out(delta)
+		return
 	var left := path.length - s
 	var target := minf(REVERSE_SPEED, 0.6 + sqrt(2.0 * 1.2 * left))
 	target = minf(target, yield_speed())
@@ -100,6 +115,30 @@ func _back_out(delta: float) -> void:
 	position = Vector3(p.x, sin(_bob * 1.6) * 0.15, p.y)
 	_pose(delta)
 	if path.length - s < 0.15:
+		if berth >= Layout.MARINA_BERTHS:
+			# Out of a slip: ahead down the fairway, clear of the docks.
+			_out_leg = true
+			speed = 0.0
+			path = NavPath.new(PackedVector2Array([pos2(), marina.slips[berth - Layout.MARINA_BERTHS].mouth]))
+			s = 0.0
+			return
+		path = null
+		_backed_out()
+
+
+func _motor_out(delta: float) -> void:
+	var target := minf(spec.motor_speed * 0.6, yield_speed())
+	speed = minf(target, speed + spec.accel * delta)
+	var t := path.tangent(s)
+	_yaw = rotate_toward(_yaw, atan2(t.x, t.y), spec.motor_turn * delta)
+	# Swings round to the fairway before it makes much way.
+	var aligned := absf(angle_difference(_yaw, atan2(t.x, t.y))) < 0.5
+	s = minf(s + (speed if aligned else speed * 0.2) * delta, path.length)
+	var p := path.sample(s)
+	position = Vector3(p.x, sin(_bob * 1.6) * 0.15, p.y)
+	_pose(delta)
+	if path.length - s < 0.5:
+		_out_leg = false
 		path = null
 		_backed_out()
 
@@ -133,6 +172,8 @@ func _plan_berthing() -> NavPath:
 	if main.is_empty():
 		main = PackedVector2Array([pos2(), to])
 	main = traffic.nav.finish(main, 0.0, 18.0, 2, hull_radius + 3.0)
+	if dest_berth >= Layout.MARINA_BERTHS:
+		main.append(_berth_pos(dest, dest_berth, Layout.MARINA_BACKOUT_U))
 	main.append(_berth_pos(dest, dest_berth, Layout.MARINA_BERTH_U))
 	return NavPath.new(main)
 

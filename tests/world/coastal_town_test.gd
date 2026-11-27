@@ -1,6 +1,6 @@
 extends SceneTree
-## Verifies exact building placement ratios: 1 house per 100 people and 1 commercial
-## building per 333 people, plus one civic hall in qualifying cities and zero shops
+## Verifies exact building placement ratios: 1 house per 75 people and 1 commercial
+## building per 250 people, plus one civic hall in qualifying cities and zero shops
 ## in tiny hamlets under 333 people.
 
 class TownBuilder extends WorldBuilder:
@@ -8,6 +8,9 @@ class TownBuilder extends WorldBuilder:
 
 	func _multimesh(_mesh: Mesh, xforms: Array[Transform3D], _colors: Array[Color], node_name: String, _variant: Array = []) -> void:
 		placements[node_name] = xforms
+
+	func _add_mesh(_mesh: Mesh, _node_name: String, _shadows := true) -> MeshInstance3D:
+		return null
 
 
 func _initialize() -> void:
@@ -39,7 +42,7 @@ func _initialize() -> void:
 			var town := roundi(placement.origin.x / 400.0) + 1
 			houses[town] += 1
 	var total_comm := [shops[0] + halls[0], shops[1] + halls[1], shops[2] + halls[2]]
-	if halls != [1, 0, 0] or total_comm != [9, 4, 0] or houses != [30, 15, 2]:
+	if halls != [1, 0, 0] or total_comm != [12, 6, 0] or houses != [40, 20, 2]:
 		push_error(
 			"Unexpected town buildings: halls %s, comm %s, houses %s" % [halls, total_comm, houses]
 		)

@@ -73,9 +73,9 @@ func _process(_delta: float) -> bool:
 		var got := TownGrowth.expected_connections_for(c[0], 10)
 		_expect(got == c[1], "Pop %d expected %d connections, got %d" % [c[0], c[1], got])
 
-	# 3. Verify 1 house / 100 pop and 1 commercial / 333 pop formulas.
-	_expect(TownGrowth.target_houses_for(1250) == 12, "1250 pop -> 12 houses")
-	_expect(TownGrowth.target_commercial_for(1000) == 3, "1000 pop -> 3 commercial")
+	# 3. Verify 1 house / 75 pop and 1 commercial / 250 pop formulas.
+	_expect(TownGrowth.target_houses_for(1250) == 16, "1250 pop -> 16 houses")
+	_expect(TownGrowth.target_commercial_for(1000) == 4, "1000 pop -> 4 commercial")
 
 	# 4. Spin up a 3-town TinyRegion simulation for live progression tests.
 	_region = TinyRegion.build(3)
@@ -241,14 +241,14 @@ func _process(_delta: float) -> bool:
 
 	var houses_before := st_rur.built_houses
 	var comm_before := st_rur.built_commercial
-	st_rur.population_exact = 1350.0  # crosses +2 houses (11->13) and +1 commercial (3->4)
+	st_rur.population_exact = 1350.0  # crosses house and commercial thresholds
 	tg.step(1.0)
 	_expect(
 		(
 			MapData.TownLot.Kind.HOUSE in started_kinds
 			or MapData.TownLot.Kind.COMMERCIAL in started_kinds
 		),
-		"Crossing 100/333 pop thresholds must start construction jobs"
+		"Crossing 75/250 pop thresholds must start construction jobs"
 	)
 	# Advance enough game minutes to finish queued house & commercial builds.
 	for _s in 60:
@@ -276,9 +276,11 @@ func _process(_delta: float) -> bool:
 	)
 	st_rur.population_exact = 4005.0
 	tg.step(1.0)
+	# (The hangar only comes once airfields are placed on the map: TownGrowth.AIRFIELDS_PLACED.)
+	var hangars := TownGrowth.AIRFIELDS_PLACED
 	_expect(
-		"%d:airfield_4000" % t_rur.id in milestones_hit,
-		"Rural town at 4k must unlock airfield_4000"
+		("%d:airfield_4000" % t_rur.id in milestones_hit) == hangars,
+		"Rural town at 4k unlocks airfield_4000 only once airfields are placed"
 	)
 	_expect(
 		"%d:observatory_4000" % t_rur.id in milestones_hit,
@@ -294,8 +296,8 @@ func _process(_delta: float) -> bool:
 	st_ind.population_exact = 4005.0
 	tg.step(1.0)
 	_expect(
-		"%d:airfield_4000" % t_ind.id in milestones_hit,
-		"Second town at 4k must still unlock airfield_4000"
+		("%d:airfield_4000" % t_ind.id in milestones_hit) == hangars,
+		"Second town at 4k unlocks airfield_4000 only once airfields are placed"
 	)
 	_expect(
 		not ("%d:observatory_4000" % t_ind.id in milestones_hit),
@@ -317,7 +319,7 @@ func _process(_delta: float) -> bool:
 		tg.step(30.0)
 	_expect(
 		(
-			"airplane_hangar_low" in completed_models
+			("airplane_hangar_low" in completed_models) == hangars
 			and "observatory" in completed_models
 			and "radio_tower" in completed_models
 		),

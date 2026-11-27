@@ -24,6 +24,8 @@ var _locked := false
 ## unless its islands are moved, so Play loads its routes from here; a stale or
 ## missing file is planned afresh and rewritten on a desktop run.
 var route_cache_path := ""
+## Baked town lots for this layout (MapData.town_lots_cache_path).
+var town_lots_cache_path := ""
 var _planner: RoutePlanner
 var _memo := preload("res://scripts/map/route_memo.gd").new()
 var _cancel_mutex := Mutex.new()
@@ -93,6 +95,9 @@ func _build(layout: MapLayout, plan: RegionPlan) -> void:
 	rng.seed = map_seed
 	map = MapData.new()
 	map.map_seed = map_seed
+	map.town_lots_cache_path = town_lots_cache_path
+	if town_lots_cache_path.contains("main_story"):
+		map.shipping_channels = ShippingLanes.MAIN_CHANNELS
 	terrain = Terrain.new(map_seed, map.half_size)
 	var ports: Array[Vector2] = []
 	for spec in layout.islands:
@@ -178,6 +183,10 @@ static func apply_spec(isl: MapData.Island, spec: MapLayout.IslandSpec) -> void:
 		else "residential"
 	)
 	isl.radio_tower_built = isl.name == "Madrona Island"
+	isl.airstrip = spec.airstrip
+	isl.airstrip_at = Vector3(spec.airstrip_x, 0.0, spec.airstrip_z)
+	var hd := deg_to_rad(spec.airstrip_heading)
+	isl.airstrip_dir = Vector3(cos(hd), 0.0, sin(hd))
 	isl.dock_sites.clear()
 	for d in spec.docks:
 		var site := MapData.DockSite.new()
@@ -1168,33 +1177,40 @@ func _place_islets() -> void:
 			placed += 1
 
 
-## A small-boat marina on most inhabited islands: a stretch of shore with land
-## behind, deep water out past the T-head and its approach, and well clear of the
-## ferry terminals, their lanes and each other. Its own RNG, so the rest of the
-## map stays the same for a given seed.
+## A small-boat marina for every town: the fitting stretch of its island's shore
+## nearest the town (land behind, deep water out past the T-head and its approach,
+## clear of the ferry terminals, their lanes and the other marinas). Its own RNG,
+## so the rest of the map stays the same for a given seed.
+const MARINA_TOWN_REACH := 520.0
 func _place_marinas(map_seed: int) -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = map_seed * 17 + 3
-	for isl in _main_islands():
+	for town in map.towns:
 		if _should_stop():
 			return
-		if r.randf() > 0.85:
+		var isl := map.islands[town.island]
+		if isl.is_mainland:
 			continue
-		var sites: Array = []
+		var anchor: Vector3 = town.shore if town.has_dock else Vector3(town.center.x, 0.0, town.center.y)
+		var best: Variant = null
+		var best_d := MARINA_TOWN_REACH
 		var start := r.randf() * TAU
-		for k in 32:
-			var ang := start + TAU * k / 32.0
+		for k in 96:
+			var ang := start + TAU * k / 96.0
 			var site: Variant = _marina_site(isl, Vector3(cos(ang), 0.0, sin(ang)))
-			if site != null:
-				sites.append(site)
-		if sites.is_empty():
+			if site == null:
+				continue
+			var d := Vector2(site[0].x - anchor.x, site[0].z - anchor.z).length()
+			if d < best_d:
+				best_d = d
+				best = site
+		if best == null:
 			continue
-		var pick: Array = sites[r.randi_range(0, sites.size() - 1)]
 		var m := MapData.Marina.new()
 		m.id = map.marinas.size()
 		m.island = isl.id
-		m.shore = pick[0]
-		m.dir = pick[1]
+		m.shore = best[0]
+		m.dir = best[1]
 		map.marinas.append(m)
 
 
@@ -1224,10 +1240,10 @@ func _marina_site(isl: MapData.Island, n3: Vector3) -> Variant:
 	var reach := s3 + n3 * Layout.MARINA_APPROACH_U
 	for o in map.islands:
 		for sp in _dock_spots(o):
-			if s3.distance_to(sp[0]) < 240.0 or reach.distance_to(sp[0] + sp[1] * 120.0) < 240.0:
+			if s3.distance_to(sp[0]) < 130.0 or reach.distance_to(sp[0] + sp[1] * 120.0) < 150.0:
 				return null
 	for m in map.marinas:
-		if s3.distance_to(m.shore) < 180.0:
+		if s3.distance_to(m.shore) < 200.0:
 			return null
 	for u: float in [0.0, 45.0, 90.0, 135.0]:
 		var q := s3 + n3 * u
@@ -1426,8 +1442,52 @@ func _carve_landings() -> void:
 			LANDING_LOW, LANDING_GRADE, LANDING_FADE)
 
 
+## Runway half length and the graded ground round it: the strip's gravel bed, the
+## taxiway exit and hangar apron on its -Z side (see the airport_runway model).
+const AIRSTRIP_HALF := 250.0
+const AIRSTRIP_SIDE := 18.0
+const AIRSTRIP_APRON := 80.0
+const AIRSTRIP_BLEND := 110.0
+
+
+const AIRSTRIP_MAX_GRADE := 0.02
+
+
+## Grade the authored airstrips: a straight line fitted to the ground along each
+## (no steeper than AIRSTRIP_MAX_GRADE), so the strip follows the land's fall and
+## eases out into it instead of standing on a level shelf.
+func _grade_airstrips() -> void:
+	for isl in map.islands:
+		if not isl.airstrip:
+			continue
+		var n := 41
+		var su := 0.0
+		var sh := 0.0
+		var suu := 0.0
+		var suh := 0.0
+		for k in n:
+			var u := lerpf(-AIRSTRIP_HALF, AIRSTRIP_HALF, float(k) / (n - 1))
+			var h := 0.0
+			for v: float in [-AIRSTRIP_SIDE, AIRSTRIP_APRON * 0.5]:
+				h += terrain.height_v(isl.airstrip_at + isl.airstrip_dir * u + Vector3.UP.cross(isl.airstrip_dir) * v) * 0.5
+			su += u
+			sh += h
+			suu += u * u
+			suh += u * h
+		var slope := (n * suh - su * sh) / (n * suu - su * su)
+		slope = clampf(slope, -AIRSTRIP_MAX_GRADE, AIRSTRIP_MAX_GRADE)
+		var y := maxf((sh - slope * su) / n, 4.0 + absf(slope) * AIRSTRIP_HALF)
+		isl.airstrip_at.y = y
+		isl.airstrip_slope = slope
+		# Terrain flats run u along `dir` and v along UP x dir; the apron side is
+		# the runway model's -Z, which is +v here.
+		terrain.add_flat(Vector3(isl.airstrip_at.x, 0.0, isl.airstrip_at.z), isl.airstrip_dir,
+			-AIRSTRIP_HALF, AIRSTRIP_HALF, -AIRSTRIP_SIDE, AIRSTRIP_APRON, y, AIRSTRIP_BLEND, slope)
+
+
 func _flatten_terminals() -> void:
 	_carve_landings()
+	_grade_airstrips()
 	_fit_approaches()
 	for isl in map.towns:
 		if not isl.has_dock:
@@ -1654,6 +1714,12 @@ func _haul_clear(p: Vector3, gap: float) -> bool:
 			return false
 	if _shore_routes.near(Vector2(p.x, p.z), 120.0):
 		return false
+	# Not over a town's streets: a beach carves the shore down well inland.
+	for t in map.towns:
+		for line in t.road_lanes:
+			for i in range(0, line.size(), 4):
+				if Vector2(line[i].x - p.x, line[i].z - p.z).length() < 90.0:
+					return false
 	return true
 
 
@@ -1810,33 +1876,57 @@ func _layout_towns() -> void:
 			# the inland edge of the ticket plaza, or at the junction on short roads.
 			var distance := (e - isl.town_center).dot(nd)
 			var flat_length := minf(distance, absf(Layout.TICKET_U - Layout.LOT_BACK) * 2.0)
+			# The square sits just inland of the ticket plaza; the front street runs
+			# both ways from it along the shore, and the main street climbs inland.
+			var square_d := minf(distance, flat_length + SQUARE_INSET)
 			isl.road_main_a = PackedVector3Array()
 			for step in ceili(flat_length / ROAD_STEP):
 				isl.road_main_a.append(e - nd * (step * ROAD_STEP))
 			var apron := e - nd * flat_length
-			if distance > flat_length + 0.01:
-				isl.road_main_a.append_array(_road_line(apron, isl.town_center, true, false, ROAD_GRADE_CLIMB))
+			if square_d > flat_length + 0.01:
+				isl.road_main_a.append_array(_road_line(apron, e - nd * square_d, true, false, ROAD_GRADE_CLIMB))
 			else:
 				isl.road_main_a.append(apron)
-			var tc := isl.road_main_a[isl.road_main_a.size() - 1]
+			var sq := isl.road_main_a[isl.road_main_a.size() - 1]
+			isl.road_main_b = PackedVector3Array()
+			isl.road_cross.clear()
+			isl.road_lanes.clear()
+			if distance > square_d + 12.0:
+				isl.road_main_b = _road_line(sq, isl.town_center, true, false, ROAD_GRADE_CLIMB)
+			var tc := isl.road_main_b[isl.road_main_b.size() - 1] if isl.road_main_b.size() > 1 else sq
 			var far := 0.0
-			while far < 48.0 and _h(tc - nd * (far + 6.0)) > 3.9:
+			while far < 96.0 and _h(tc - nd * (far + 6.0)) > 3.9:
 				far += 6.0
 			if far >= 12.0:
-				isl.road_main_b = _road_line(tc, tc - nd * far, true, true, ROAD_GRADE_STEEP)
+				var ext := _road_line(tc, tc - nd * far, true, true, ROAD_GRADE_STEEP)
+				if ext.size() > 1:
+					if isl.road_main_b.size() > 1:
+						isl.road_main_b.append_array(ext.slice(1))
+					else:
+						isl.road_main_b = ext
 			for side: float in [-1.0, 1.0]:
-				var length := 0.0
-				while length < 72.0 and _h(tc + t * side * (length + 6.0)) > 3.9:
-					length += 6.0
-				if length >= 18.0:
-					var cross := _road_line(tc, tc + t * side * length, true, true, ROAD_GRADE_STEEP)
-					if cross.size() > 1:
-						isl.road_cross.append(cross)
+				var path := _contour_walk(isl, sq, t * side)
+				if path.size() * ROAD_STEP < 24.0:
+					continue
+				var front := _road_along(path, true, true, ROAD_GRADE_STEEP)
+				if front.size() < 2:
+					continue
+				isl.road_cross.append(front)
+				_add_lanes(isl, front, side)
+			if isl.road_main_b.size() > 30:
+				_add_side_streets(isl, isl.road_main_b)
+			var others: Array[Vector3] = []
+			for o in map.towns:
+				if o != isl:
+					others.append(o.shore if o.has_dock else o.town_center)
+			isl.street_plan = StreetPlan.build(isl, terrain, sq, others)
+			if not isl.street_plan.edges.is_empty():
+				_grade_plan(isl)
 			# Grade beneath the extra inbound lanes as well as the through road.
 			var outer := PackedVector3Array()
 			for point in isl.road_main_a:
 				var inland := (e - point).dot(nd)
-				var spread := Layout.ticket_spread(inland, distance)
+				var spread := Layout.ticket_spread(inland, square_d)
 				outer.append(point - t * Layout.TICKET_EXTRA_WIDTH * spread)
 				if spread <= 0.0:
 					break
@@ -1844,6 +1934,7 @@ func _layout_towns() -> void:
 			if isl.road_main_b.size() > 1:
 				lines.append(isl.road_main_b)
 			lines.append_array(isl.road_cross)
+			lines.append_array(isl.road_lanes)
 			terrain.add_roads(lines, ROAD_CORE, 4.0)
 		isl.town_center.y = _h(isl.town_center)
 		isl.label_pos = isl.town_center + Vector3(0, 48, 0)
@@ -1898,18 +1989,32 @@ func _town_distance(isl: MapData.Town, e: Vector3) -> float:
 func _road_line(a: Vector3, b: Vector3, pinned: bool, may_stop: bool, steepest := ROAD_GRADE) -> PackedVector3Array:
 	var flat := Vector3(b.x - a.x, 0.0, b.z - a.z)
 	var count := maxi(1, ceili(flat.length() / ROAD_STEP))
-	var lat := flat.normalized().cross(Vector3.UP)
-	var ground := PackedFloat32Array()
 	var pts := PackedVector3Array()
 	for i in count + 1:
-		var p := a.lerp(b, float(i) / count)
-		pts.append(p)
+		pts.append(a.lerp(b, float(i) / count))
+	return _road_along(pts, pinned, may_stop, steepest)
+
+
+## The same profile over any path (points about ROAD_STEP apart, the first at the
+## height it is pinned to): curving streets as well as straight ones.
+func _road_along(pts: PackedVector3Array, pinned: bool, may_stop: bool, steepest := ROAD_GRADE) -> PackedVector3Array:
+	var ground := PackedFloat32Array()
+	var run := 0.0
+	for i in pts.size():
+		var d := pts[mini(i + 1, pts.size() - 1)] - pts[maxi(i - 1, 0)]
+		d.y = 0.0
+		var lat := d.normalized().cross(Vector3.UP)
+		var p := pts[i]
 		ground.append((_h(p) * 2.0 + _h(p + lat * 3.0) + _h(p - lat * 3.0)) * 0.25)
+		if i > 0:
+			run += Vector2(p.x - pts[i - 1].x, p.z - pts[i - 1].z).length()
+	var step := run / maxi(1, pts.size() - 1)
+	var a := pts[0]
 	var grade := ROAD_GRADE
-	var y := road_profile(ground, flat.length() / count * grade, a.y if pinned else NAN)
+	var y := road_profile(ground, step * grade, a.y if pinned else NAN)
 	while grade < steepest - 0.001 and _deepest(y, ground) > ROAD_MAX_CUT:
 		grade = minf(grade + 0.01, steepest)
-		y = road_profile(ground, flat.length() / count * grade, a.y if pinned else NAN)
+		y = road_profile(ground, step * grade, a.y if pinned else NAN)
 	var keep := pts.size()
 	if may_stop:
 		for i in pts.size():
@@ -1922,6 +2027,193 @@ func _road_line(a: Vector3, b: Vector3, pinned: bool, may_stop: bool, steepest :
 	for i in keep:
 		out.append(Vector3(pts[i].x, y[i], pts[i].z))
 	return out
+
+
+## The town's street plan becomes its roads: each street resampled every ROAD_STEP,
+## graded (Terrain.add_roads, below), and drawn and blocked as a lane. The old main
+## street, front streets, lanes and side streets give way to it; the lot road stays.
+## Each edge's pts are replaced by the graded line, so lots read the same streets.
+func _grade_plan(isl: MapData.Town) -> void:
+	isl.road_main_b = PackedVector3Array()
+	isl.road_cross.clear()
+	isl.road_lanes.clear()
+	var plan := isl.street_plan
+	# Every junction stays at its planned height (StreetPlan keeps each street within
+	# MAX_GRADE end to end), and each street is pinned to both of its junctions.
+	var graded: Array[Dictionary] = []
+	for e in plan.edges:
+		var dense := _resample(e.pts, ROAD_STEP)
+		dense[0].y = plan.nodes[e.a].y
+		var g := _road_along(dense, true, false, ROAD_GRADE_STEEP * 0.98)
+		if g.size() < 2:
+			continue
+		if e.b >= 0:
+			var miss := plan.nodes[e.b].y - g[g.size() - 1].y
+			for i in g.size():
+				g[i].y += miss * float(i) / (g.size() - 1)
+		_slope_limit(g, ROAD_GRADE_STEEP * 0.97)
+		e.pts = g
+		graded.append(e)
+		isl.road_lanes.append(g)
+	plan.edges = graded
+
+
+## Ease a line pinned at both ends to no steeper than `steepest` where it can;
+## returns how much too steep it still is (0 when it fits).
+static func _slope_limit(g: PackedVector3Array, steepest: float) -> float:
+	var lim := PackedFloat32Array([0.0])   # lim[i]: most rise from i - 1 to i
+	for i in range(1, g.size()):
+		lim.append(Vector2(g[i].x - g[i - 1].x, g[i].z - g[i - 1].z).length() * steepest)
+	var worst := 0.0
+	var last := g.size() - 1
+	for pass_i in 6:
+		for i in range(1, last):
+			g[i].y = clampf(g[i].y, g[i - 1].y - lim[i], g[i - 1].y + lim[i])
+		for i in range(last - 1, 0, -1):
+			g[i].y = clampf(g[i].y, g[i + 1].y - lim[i + 1], g[i + 1].y + lim[i + 1])
+		worst = 0.0
+		for i in range(1, g.size()):
+			worst = maxf(worst, absf(g[i].y - g[i - 1].y) - lim[i])
+		if worst <= 0.0005:
+			return 0.0
+	return worst
+
+
+## Evenly spaced points along the line, no further apart than `step`, ending on its end.
+static func _resample(pts: PackedVector3Array, step: float) -> PackedVector3Array:
+	var cum := PackedFloat32Array([0.0])
+	for i in range(1, pts.size()):
+		cum.append(cum[i - 1] + Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length())
+	var total := cum[cum.size() - 1]
+	var n := maxi(1, ceili(total / step))
+	var out := PackedVector3Array()
+	var j := 0
+	for k in n + 1:
+		var s := total * k / n
+		while j < pts.size() - 2 and cum[j + 1] < s:
+			j += 1
+		var seg := cum[j + 1] - cum[j]
+		out.append(pts[j].lerp(pts[j + 1], (s - cum[j]) / seg if seg > 0.0 else 0.0))
+	return out
+
+
+## How far inland of the lot's ticket plaza the town square sits.
+const SQUARE_INSET := 14.0
+## The front street runs at most this far each way from the square.
+const FRONT_MAX := 300.0
+## It turns at most this much per ROAD_STEP (about a 30 m radius).
+const FRONT_TURN := 4.0
+## Lanes leave the front street about this far apart, and climb up to LANE_MAX.
+const LANE_EVERY := 64.0
+const LANE_MAX := 140.0
+
+
+## A front street from `start` heading `dir`: it bends to hold the height it
+## started at (at least 6 m above the sea), as a shore road follows a contour,
+## and ends where the land narrows, it can't hold its height, or it nears
+## another dock or this one's lot.
+func _contour_walk(isl: MapData.Town, start: Vector3, dir: Vector3) -> PackedVector3Array:
+	var pts := PackedVector3Array([start])
+	var target := start.y + 1.0  # just above the square: it hugs the shore
+	var head := dir
+	var p := start
+	var nd := isl.dock_dir
+	# Beside the lot, keep inland of the square: the ticket lanes fan out seaward of it.
+	var entrance := (start - isl.shore).dot(nd) + 12.0
+	var length := 0.0
+	var phase := fposmod(start.x * 0.37 + start.z * 0.11 + dir.x * 2.0, TAU)
+	while length < FRONT_MAX:
+		var best := Vector3.INF
+		var best_head := head
+		var best_cost := INF
+		for deg: float in [-FRONT_TURN, -FRONT_TURN * 0.5, 0.0, FRONT_TURN * 0.5, FRONT_TURN]:
+			var hd := head.rotated(Vector3.UP, deg_to_rad(deg))
+			var q := p + hd * ROAD_STEP
+			var lat := hd.cross(Vector3.UP)
+			# Near the square the ground may be the lot's graded low shelf.
+			var shore_h := minf(3.9, start.y - 1.0) if length < 60.0 else 3.4
+			if minf(_h(q + lat * 7.0), _h(q - lat * 7.0)) < shore_h:
+				continue  # not enough land for the road and its shoulders
+			var rel := q - isl.shore
+			if absf(rel.dot(isl.lateral())) < 70.0 and rel.dot(nd) > entrance - 4.0:
+				continue  # keep out of the ferry lot
+			# Hold the contour; only straighten up when it is already close.
+			# On easy ground a gentle wander takes over, so it never runs ruler-straight.
+			var wander := FRONT_TURN * 0.8 * sin(length / 42.0 + phase)
+			var cost := absf(_h(q) - target) + absf(deg - wander) * 0.12
+			if absf(rel.dot(isl.lateral())) < 70.0:
+				cost += maxf(0.0, rel.dot(nd) - entrance + 12.0) * 0.5  # bear away from the lot
+			if length < 12.0:
+				cost = absf(deg)  # leave the square straight
+			if cost < best_cost:
+				best_cost = cost
+				best = q
+				best_head = hd
+		if best == Vector3.INF or (length >= 12.0 and best_cost > 5.0):
+			break
+		var crowded := false
+		for other in map.towns:
+			if other != isl and other.has_dock and Vector2(best.x - other.shore.x, best.z - other.shore.z).length() < 110.0:
+				crowded = true
+				break
+		if crowded:
+			break
+		p = best
+		head = best_head
+		pts.append(p)
+		length += ROAD_STEP
+	return pts
+
+
+## Cross streets off the main street, both sides, every LANE_EVERY: the start
+## of the grid that fills the flatter ground behind the front street.
+func _add_side_streets(isl: MapData.Town, main: PackedVector3Array) -> void:
+	var every := int(LANE_EVERY * 0.8 / ROAD_STEP)
+	for i in range(every, main.size() - 6, every):
+		var d := main[i + 1] - main[i - 1]
+		d.y = 0.0
+		var lat := d.normalized().cross(Vector3.UP)
+		for side: float in [-1.0, 1.0]:
+			var reach := 0.0
+			while reach < LANE_MAX * 0.7 and _h(main[i] + lat * side * (reach + 6.0)) > 3.9:
+				reach += 6.0
+			if reach < 24.0:
+				continue
+			var street := _road_line(main[i], main[i] + lat * side * reach, true, true, ROAD_GRADE_STEEP)
+			if street.size() > 1:
+				isl.road_lanes.append(street)
+
+
+## Lanes climbing off a front street every LANE_EVERY, to whichever side rises.
+func _add_lanes(isl: MapData.Town, front: PackedVector3Array, side: float) -> void:
+	var start := int(LANE_EVERY * 0.6 / ROAD_STEP)
+	var every := int(LANE_EVERY / ROAD_STEP)
+	var flip := side > 0.0
+	for i in range(start, front.size() - 4, every):
+		var p := front[i]
+		var d := front[i + 1] - front[i - 1]
+		d.y = 0.0
+		var lat := d.normalized().cross(Vector3.UP)
+		var up := lat if _h(p + lat * 30.0) > _h(p - lat * 30.0) else -lat
+		up = up.rotated(Vector3.UP, deg_to_rad(10.0 if flip else -10.0))
+		flip = not flip
+		# Walk it uphill with a slow bend, ending at the shore or LANE_MAX.
+		var path := PackedVector3Array([p])
+		var q := p
+		var head := up
+		var bend := deg_to_rad(1.6) * (1.0 if fposmod(p.x + p.z, 2.0) < 1.0 else -1.0)
+		while path.size() * ROAD_STEP < LANE_MAX:
+			head = head.rotated(Vector3.UP, bend * sin(path.size() * ROAD_STEP / 30.0))
+			var nq := q + head * ROAD_STEP
+			if _h(nq) < 3.6:
+				break
+			q = nq
+			path.append(q)
+		if path.size() * ROAD_STEP < 24.0:
+			continue
+		var lane := _road_along(path, true, true, ROAD_GRADE_STEEP)
+		if lane.size() > 1:
+			isl.road_lanes.append(lane)
 
 
 static func _deepest(y: PackedFloat32Array, ground: PackedFloat32Array) -> float:

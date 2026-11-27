@@ -650,6 +650,10 @@ func _free_slot(car: Vehicle) -> int:
 
 func _process(delta: float) -> void:
 	_state_time += Units.game_minutes(delta)
+	if free_sail:
+		_tick_free(delta)
+		_update_trail(delta)
+		return
 	if _orders.manual or not _orders._manual_pending.is_empty():
 		_orders._manual_tick()
 	if not _ramp_synced:
@@ -1120,6 +1124,7 @@ func _tick_sailing(delta: float) -> void:
 		_choose_slip()
 	var wait := minf(minf(_corridor_wait(), _refit_wait()), minf(_slip_wait(), _occupied_wait()))
 	wait = minf(wait, _shift_wait())
+	wait = minf(wait, _physical_slip_wait())
 	if _orders.holding:
 		wait = minf(wait, maxf(_orders._hold_at - traveled, 0.0))
 		_orders._tick_hold(delta)
@@ -1311,7 +1316,7 @@ func _arriving_through(run: Array) -> Ferry:
 	for e in run[2]:
 		var c: MarineTraffic.Corridor = e[1]
 		for f: Ferry in c.boats:
-			if f == self or f.state != State.SAILING or f.destination() != here() or f._waiting_for == self:
+			if f == self or f.berth != Berth.WORKING or f.state != State.SAILING or f.destination() != here() or f._waiting_for == self:
 				continue
 			if f.slip_at(here()) != here().town.slip_index(f.route.id):
 				continue   # coming in to another slip: not through this water
@@ -1451,6 +1456,8 @@ func waiting_on() -> Array[Vessel]:
 
 
 func ahead(d: float) -> Vector2:
+	if free_sail:
+		return _free_ahead(d)
 	# Docked, `traveled` still counts the last crossing but at_a has flipped.
 	if state != State.SAILING:
 		return pos2()
@@ -1461,6 +1468,8 @@ func ahead(d: float) -> Vector2:
 
 
 func path_left() -> float:
+	if free_sail:
+		return _free_left()
 	return run_length() - traveled if state == State.SAILING else 0.0
 
 
@@ -2455,6 +2464,8 @@ func manual_strands(town_id: int) -> Vector2i:
 
 
 func order_move(town_id: int, slip: int) -> bool:
+	if free_sail:
+		return _free_to_dock(town_id, slip)
 	return _orders.order_move(town_id, slip)
 
 
@@ -2478,6 +2489,9 @@ func request_return() -> void:
 		return
 	if _orders.holding:
 		_orders.holding = false
+		return
+	if free_sail:
+		_free_return()
 		return
 	_orders._manual_pending = []
 	if _orders.manual:
@@ -2826,3 +2840,266 @@ func _follow_shift(delta: float) -> bool:
 		xf.basis = Basis(Vector3.UP, _shift_yaw) * _shift_basis
 	global_transform = xf
 	return _shift_s >= length - 0.01
+
+
+# --- Free sailing (RTS move order) ----------------------------------------------
+# Right-click open water: she drops whatever she was doing and makes straight for
+# that point, no route, no queue. Right-click a dock from there and she sails to
+# a point on a route into it, then comes in as any manual move does.
+
+const FREE_TURN := 0.35           # rad/s she swings at under her own steering
+const FREE_JOIN := 260.0          # how far out from a dock she picks up its route
+var free_sail := false
+var _free_target := Vector3.ZERO
+var _free_yaw := 0.0
+var _free_join: Array = []        # [route, s on it, from id, to id, slip] when bound for a dock
+
+
+## Sends her straight to `p` on the water, at once, from wherever and whatever she is doing.
+func order_sail_to(p: Vector3) -> bool:
+	if berth == Berth.DELIVERING or not assigned:
+		return false
+	if not free_sail:
+		itinerary.suspend_service()
+		# Off the slip and the route: everyone aboard goes ashore where she is now
+		# (alongside), or rides along (under way) until she's sent to a dock.
+		if state != State.SAILING and berth == Berth.WORKING:
+			_orders._manual_set_down()
+		for run in _corridor_runs():
+			for e in run[2]:
+				if e[1].owner == self:
+					e[1].owner = null
+		if _ramp(here()):
+			_ramp(here()).lift()
+		_free_yaw = global_transform.basis.get_euler().y
+		_shift = null
+	free_sail = true
+	_orders.manual = true
+	_orders.manual_target = -1
+	_orders.manual_slip = -1
+	_orders._manual_landed = false
+	_orders._manual_pending = []
+	_orders.holding = false
+	_lay_up.lay_up_requested = false
+	_lay_up.return_requested = false
+	_lay_up.gap_due = -1.0
+	berth = Berth.FREE   # (no route, slip or corridor counts her; only her hull does)
+	state = State.SAILING
+	traveled = run_length() * 0.5   # (neither end's slip counts her as there)
+	_free_target = Vector3(p.x, 0.0, p.z)
+	_free_join = []
+	_plan_free()
+	_lie = 0.0
+	_askew = 0.0
+	set_timetable([])
+	sim.stops_changed(self)
+	return true
+
+
+## From free sailing: to slip `slip` at `town_id`, by the route in she fits from the
+## nearest terminal that has one.
+func _free_to_dock(town_id: int, slip: int) -> bool:
+	var best: MapData.Route = null
+	var best_d := INF
+	var best_s := 0.0
+	var from_id := -1
+	for id: int in sim.terminals.keys():
+		if id == town_id:
+			continue
+		var r := sim.route_between(id, town_id)
+		if r == null or sim.leg_problem(self, id, town_id) != "":
+			continue
+		var into_b := r.b == town_id
+		var s := clampf(r.length - FREE_JOIN if into_b else FREE_JOIN, 0.0, r.length)
+		var d := global_position.distance_to(r.curve.sample_baked(s))
+		if d < best_d:
+			best_d = d
+			best = r
+			best_s = s
+			from_id = id
+	if best == null:
+		return false
+	_free_join = [best, best_s, from_id, town_id, slip]
+	var p := best.curve.sample_baked(best_s)
+	_free_target = Vector3(p.x, 0.0, p.z)
+	_plan_free()
+	_orders.manual_target = town_id
+	_orders.manual_slip = slip
+	return true
+
+
+## Return to service while free: on to the nearest of her old stops, back to work from there.
+func _free_return() -> void:
+	var ids: Array = service_stops()
+	var near := -1
+	var near_d := INF
+	for id in ids:
+		if not sim.terminals.has(id):
+			continue
+		var d := global_position.distance_to(sim.terminals[id].town.shore)
+		if d < near_d:
+			near_d = d
+			near = id
+	if near >= 0 and _free_to_dock(near, best_slip(near)):
+		_orders._manual_resume_due = true
+
+
+func _tick_free(delta: float) -> void:
+	for id in sim.marine.corridors:
+		for c in sim.marine.corridors[id]:
+			if c.owner == self:
+				c.owner = null
+	var me := pos2()
+	# On along her planned path: past each point she can see beyond.
+	while _free_wp < _free_path.size() - 1 and (me.distance_to(_free_path[_free_wp]) < 30.0 \
+			or sim.marine.nav.clear_line(me, _free_path[_free_wp + 1], true)):
+		_free_wp += 1
+	var aim2: Vector2 = _free_path[_free_wp] if _free_wp < _free_path.size() else Vector2(_free_target.x, _free_target.z)
+	var to := Vector3(aim2.x - me.x, 0.0, aim2.y - me.y)
+	var dist := _free_left()
+	var want := cruise_speed()
+	if dist < 3.0:
+		want = 0.0
+	else:
+		want = minf(want, sqrt(2.0 * FerryVoyage.YIELD_DECEL * maxf(dist - 2.0, 0.0)))
+		var aim := atan2(to.x, to.z)
+		# Double-ended: she steers whichever end is nearer the way she wants to go.
+		var d0 := angle_difference(_free_yaw, aim)
+		var d1 := angle_difference(_free_yaw, aim + PI)
+		var goal := aim if absf(d0) <= absf(d1) else aim + PI
+		var turn := angle_difference(_free_yaw, goal)
+		_free_yaw += clampf(turn, -FREE_TURN * delta, FREE_TURN * delta)
+		if absf(turn) > 0.6:
+			want *= 0.35
+	# Other hulls in her way (MarineTraffic's check along her real path): she slows and stops.
+	want = minf(want, yield_speed())
+	if speed < 0.3 and want < 0.3 and dist > 10.0:
+		_free_stuck += delta
+		if _free_stuck > 4.0 and is_instance_valid(blocker):
+			_free_stuck = 0.0
+			_plan_free(sim.marine.avoid_circles(blocker, fc.half_width_at(0.0) + 10.0))
+	else:
+		_free_stuck = 0.0
+	speed = move_toward(speed, want, delta * (0.6 if want > speed else FerryVoyage.YIELD_DECEL))
+	var fwd := Vector3(sin(_free_yaw), 0.0, cos(_free_yaw))
+	var sign := 1.0 if fwd.dot(to) >= 0.0 else -1.0
+	var was := global_position
+	var pos := global_position + fwd * sign * speed * delta
+	_bob_time += delta
+	pos.y = sin(_bob_time * 1.3) * 0.21
+	global_transform = Transform3D(Basis(Vector3.UP, _free_yaw), pos)
+	_burn(was.distance_to(pos))
+	_thrust = move_toward(_thrust, 1.0 if speed > 0.5 else 0.0, delta * 0.8)
+	if dist < 6.0 and not _free_join.is_empty():
+		_rejoin_route()
+
+
+var _free_path := PackedVector2Array()
+var _free_wp := 0
+var _free_stuck := 0.0
+
+
+## A way to _free_target round the land, terminals, dolphins and piers (the big-ship
+## nav grid), and round `avoid` circles; a straight line if there is none.
+func _plan_free(avoid: Array[Vector3] = []) -> void:
+	var to := Vector2(_free_target.x, _free_target.z)
+	var pts := sim.marine.nav.find_path(pos2(), to, true, avoid)
+	if pts.size() < 2:
+		pts = PackedVector2Array([pos2(), to])
+	_free_path = pts
+	_free_wp = 1
+
+
+func _free_left() -> float:
+	var me := pos2()
+	if _free_path.size() < 2:
+		return me.distance_to(Vector2(_free_target.x, _free_target.z))
+	var k := clampi(_free_wp, 1, _free_path.size() - 1)
+	var d := me.distance_to(_free_path[k])
+	for i in range(k, _free_path.size() - 1):
+		d += _free_path[i].distance_to(_free_path[i + 1])
+	return d
+
+
+## Where she'll be `d` further along her planned path (for others' hull checks).
+func _free_ahead(d: float) -> Vector2:
+	var p := pos2()
+	if _free_path.size() < 2:
+		return p
+	var k := clampi(_free_wp, 1, _free_path.size() - 1)
+	while k < _free_path.size():
+		var q: Vector2 = _free_path[k]
+		var seg := p.distance_to(q)
+		if d <= seg:
+			return p.move_toward(q, d)
+		d -= seg
+		p = q
+		k += 1
+	return p
+
+
+## Picks up the route she was steering for, and carries on in to its dock along it.
+func _rejoin_route() -> void:
+	var r: MapData.Route = _free_join[0]
+	var s: float = _free_join[1]
+	var from_id: int = _free_join[2]
+	var to_id: int = _free_join[3]
+	var slip: int = _free_join[4]
+	_free_join = []
+	free_sail = false
+	berth = Berth.WORKING
+	route = r
+	term_a = sim.terminals[r.a]
+	term_b = sim.terminals[r.b]
+	at_a = r.a == from_id
+	_rev = at_a != _minus
+	_end_slip = [-1, -1]
+	var dest := destination()
+	if slip >= 0 and slip != dest.town.slip_index(r.id):
+		_end_slip[1 if at_a else 0] = slip
+	_build_yaws()
+	_forecasts.clear()
+	itinerary.set_circuit([from_id, to_id], [r, r], 1)
+	state = State.SAILING
+	traveled = (s + _inset) if at_a else (r.length - s + _inset)
+	_slip_chosen = true
+	_orders.manual = true
+	_orders.manual_target = to_id
+	_orders.manual_slip = slip
+	_orders._manual_landed = false
+	sim.marine.refresh_corridors()
+	_place(_route_s(traveled))
+	sim.stops_changed(self)
+
+
+## Failsafe on top of every other rule: whatever boat is physically lying in, or
+## swinging through, the slip she is coming in to, she holds off until it's gone.
+func _physical_slip_wait() -> float:
+	if berth != Berth.WORKING:
+		return INF
+	var left := path_left()
+	if left > Terminal.REFIT_HOLD + 200.0 or left < 25.0:
+		return INF
+	var s_end := _route_s(run_length())
+	var p := route_point(s_end) + _end_shift(s_end)
+	var s_out := s_end - 80.0 if not at_a else s_end + 80.0
+	var q := route_point(s_out) + _end_shift(s_out)
+	p.y = 0.0
+	q.y = 0.0
+	var seen := {}
+	var boats: Array = []
+	boats.append_array(sim.ferries)
+	if sim.marine:
+		boats.append_array(sim.marine.vessels)
+	for v in boats:
+		if v == self or not is_instance_valid(v) or seen.has(v):
+			continue
+		seen[v] = true
+		var vp: Vector3 = v.global_position
+		vp.y = 0.0
+		var c := Geometry3D.get_closest_point_to_segment(vp, p, q)
+		if c.distance_to(vp) < maxf(v.hull_radius, 4.0) + fc.half_width_at(0.0):
+			if v is Ferry:
+				_waiting_for = v
+			return maxf(0.0, left - Terminal.REFIT_HOLD)
+	return INF

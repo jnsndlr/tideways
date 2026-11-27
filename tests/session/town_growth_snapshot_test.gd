@@ -135,6 +135,7 @@ func _check_landmarks() -> void:
 	var growth := sim.town_growth
 	var st := growth.state_for_town(town)
 	st.population_exact = 6010.5
+	growth.dev_max_builds = 0  # (no free crews, so the milestone stays queued to save)
 	growth.step(1.0)
 	check(
 		growth.observatory_claimed_town == town.id and not st.pending_milestones.is_empty(),

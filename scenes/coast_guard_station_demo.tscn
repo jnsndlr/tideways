@@ -1,0 +1,72 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/coast_guard_station/station_house.glb" id="station_house"]
+[ext_resource type="PackedScene" path="res://assets/models/coast_guard_station/watch_tower.glb" id="watch_tower"]
+[ext_resource type="PackedScene" path="res://assets/models/coast_guard_station/lifeboat_house.glb" id="lifeboat_house"]
+[ext_resource type="PackedScene" path="res://assets/models/coast_guard_station/equipment_garage.glb" id="equipment_garage"]
+
+[sub_resource type="StandardMaterial3D" id="WaterMaterial"]
+albedo_color = Color(0.10, 0.28, 0.32, 1)
+
+[sub_resource type="StandardMaterial3D" id="QuayMaterial"]
+albedo_color = Color(0.47, 0.43, 0.34, 1)
+
+[sub_resource type="BoxMesh" id="HarborMesh"]
+material = SubResource("WaterMaterial")
+size = Vector3(500, 0.4, 500)
+
+[sub_resource type="BoxMesh" id="QuaysideMesh"]
+material = SubResource("QuayMaterial")
+size = Vector3(150, 0.38, 101)
+
+[sub_resource type="BoxMesh" id="ApronMesh"]
+material = SubResource("QuayMaterial")
+size = Vector3(28, 0.38, 12.5)
+
+[sub_resource type="Environment"id="daylight"]
+background_mode = 1
+background_color = Color(0.32, 0.41, 0.43, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.94, 0.96, 1, 1)
+ambient_light_energy = 0.52
+
+[node name="CoastGuardStationDemo" type="Node3D"]
+
+[node name="Daylight" type="WorldEnvironment" parent="."]
+environment = SubResource("daylight")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-54, -35, 0)
+light_energy = 0.67
+shadow_enabled = true
+
+[node name="Camera" type="Camera3D" parent="."]
+position = Vector3(30, 38, 63)
+rotation_degrees = Vector3(-27, 26.6, 0)
+projection = 1
+size = 40
+current = true
+
+[node name="Harbor" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("HarborMesh")
+
+[node name="Quayside" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.2, -48.7)
+mesh = SubResource("QuaysideMesh")
+
+[node name="Apron" type="MeshInstance3D" parent="."]
+position = Vector3(13, 0.2, 8.05)
+mesh = SubResource("ApronMesh")
+
+[node name="station_house" parent="." instance=ExtResource("station_house")]
+position = Vector3(-10, 0.39, -9)
+
+[node name="watch_tower" parent="." instance=ExtResource("watch_tower")]
+position = Vector3(7, 0.39, -10)
+
+[node name="lifeboat_house" parent="." instance=ExtResource("lifeboat_house")]
+position = Vector3(-10, 0, 11)
+
+[node name="equipment_garage" parent="." instance=ExtResource("equipment_garage")]
+position = Vector3(8, 0.39, 8)

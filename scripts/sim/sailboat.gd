@@ -190,7 +190,7 @@ func _backed_out() -> void:
 
 
 func _berthed() -> void:
-	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y)
+	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y) * dwell_scale
 	_moor()
 
 

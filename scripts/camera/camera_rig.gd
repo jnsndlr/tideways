@@ -278,7 +278,9 @@ func _process(_delta: float) -> void:
 		target_dist = clampf(target_dist * (1.0 + 1.5 * dt), MIN_DIST, MAX_DIST)
 
 	if follow != null and is_instance_valid(follow):
-		target_pos = Vector3(follow.global_position.x, 0.0, follow.global_position.z)
+		# Aloft (a plane), look at it rather than the ground under it.
+		var up := follow.global_position.y
+		target_pos = Vector3(follow.global_position.x, up if up > 20.0 else 0.0, follow.global_position.z)
 
 	var k := 1.0 - exp(-dt * 10.0)
 	position = position.lerp(target_pos, k)

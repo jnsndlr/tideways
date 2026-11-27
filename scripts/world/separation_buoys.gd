@@ -7,6 +7,7 @@ extends Node3D
 
 const GLB := "res://assets/models/buoys/buoy_traffic_separation.glb"
 const SPACING := 2000.0
+const CHANNEL_SPACING := 700.0   # along the cargo channels
 const PAINT := preload("res://shaders/weathered_paint.gdshader")
 const AMBER := Color(1.0, 0.65, 0.15)
 
@@ -35,6 +36,7 @@ func setup(s: Simulation, lights: Node3D) -> void:
 	for r in sim.map.routes:
 		_first_code[r.id] = next
 		next += _count(r)
+	_place_channels(next)
 
 
 static func _count(r: MapData.Route) -> int:
@@ -72,15 +74,41 @@ func _place(r: MapData.Route) -> Array:
 func _place_at(r: MapData.Route, s: float, k: int) -> Array:
 	var mid := r.curve.sample_baked(s)
 	var ahead := r.curve.sample_baked(minf(s + 5.0, r.length))
-	var p := Vector3(mid.x, 0.0, mid.z)
-	var dir := Vector3(ahead.x - mid.x, 0.0, ahead.z - mid.z)
-	var yaw := atan2(dir.x, dir.z) if dir.length() > 0.01 else 0.0
+	return _buoy(Vector2(mid.x, mid.z), Vector2(ahead.x - mid.x, ahead.z - mid.z),
+			"Separation Buoy %d-%d" % [r.id, k], code(_first_code.get(r.id, 0) + k))
+
+
+## Buoys every CHANNEL_SPACING along each cargo channel's centreline
+## (ShippingLanes), on the map and a little way past its edge. They stay put.
+func _place_channels(first_code: int) -> void:
+	if not ResourceLoader.exists(GLB) or sim.marine == null or sim.marine.lanes == null:
+		return
+	var lanes := sim.marine.lanes
+	var lim := sim.map.half_size + 600.0
+	var n := first_code
+	for i in lanes.centrelines.size():
+		var line := lanes.centrelines[i]
+		var path := NavPath.new(line)
+		var d := CHANNEL_SPACING * 0.5
+		var k := 0
+		while d < path.length:
+			var p := path.sample(d)
+			if absf(p.x) < lim and absf(p.y) < lim:
+				_buoy(p, path.tangent(d, 20.0), "Channel Buoy %s-%d" % [lanes.names[i], k], code(n))
+				n += 1
+				k += 1
+			d += CHANNEL_SPACING
+
+
+func _buoy(at: Vector2, dir2: Vector2, nm: String, text: String) -> Array:
+	var p := Vector3(at.x, 0.0, at.y)
+	var yaw := atan2(dir2.x, dir2.y) if dir2.length() > 0.01 else 0.0
 	var aid := (load(GLB) as PackedScene).instantiate() as Node3D
-	aid.name = "Separation Buoy %d-%d" % [r.id, k]
+	aid.name = nm
 	add_child(aid)
 	var b := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * WorldBuilder.BUOY_SCALE)
 	aid.transform = Transform3D(b, p)
-	_letter(aid, code(_first_code.get(r.id, 0) + k))
+	_letter(aid, text)
 	var out: Array = [aid]
 	if night_lights:
 		var beacon := aid.find_child("BeaconLight", true, false) as Node3D

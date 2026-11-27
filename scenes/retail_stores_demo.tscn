@@ -1,0 +1,49 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/retail_stores/saltwater_grocery.glb" id="grocery"]
+[ext_resource type="PackedScene" path="res://assets/models/retail_stores/hearth_and_home.glb" id="home"]
+[ext_resource type="PackedScene" path="res://assets/models/retail_stores/mega_mart.glb" id="mart"]
+
+[sub_resource type="Environment" id="daylight"]
+background_mode = 1
+background_color = Color(0.50, 0.60, 0.65, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.91, 0.94, 1, 1)
+ambient_light_energy = 0.7
+
+[sub_resource type="StandardMaterial3D" id="turf"]
+albedo_color = Color(0.40, 0.46, 0.35, 1)
+
+[sub_resource type="BoxMesh" id="ground"]
+material = SubResource("turf")
+size = Vector3(400, 0.3, 400)
+
+[node name="RetailStores" type="Node3D"]
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = SubResource("daylight")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-48, -32, 0)
+shadow_enabled = true
+
+[node name="Camera" type="Camera3D" parent="."]
+position = Vector3(39, 46, 82)
+rotation_degrees = Vector3(-26.2, 21.7, 0)
+projection = 1
+keep_aspect = 0
+size = 110
+current = true
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.15, 0)
+mesh = SubResource("ground")
+
+[node name="SaltwaterGrocery" parent="." instance=ExtResource("grocery")]
+position = Vector3(-29, 0, 10)
+
+[node name="HearthAndHome" parent="." instance=ExtResource("home")]
+position = Vector3(-4, 0, 1)
+
+[node name="MegaMart" parent="." instance=ExtResource("mart")]
+position = Vector3(33, 0, -11)

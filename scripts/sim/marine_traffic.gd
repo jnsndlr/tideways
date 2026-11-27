@@ -47,6 +47,18 @@ const MARGIN := 1.2
 # and three metres over.
 const CORRIDOR_CLEAR := 5.7
 const POSE_STEP := 6.0
+# Radar-style give way (path-following vessels): any higher-ranked vessel within
+# CPA_RANGE whose closest point of approach comes inside CPA_KEEP (plus both hulls)
+# within CPA_HORIZON seconds makes the lower one slow, letting it pass ahead (so
+# it passes astern of it), down to a stop if it has to.
+const CPA_RANGE := 400.0
+const CPA_HORIZON := 90.0
+const CPA_KEEP := 40.0
+const CPA_FACTORS := [1.0, 0.7, 0.45, 0.25, 0.1, 0.0]
+# Held up this long without making way, a vessel stops giving way to paths and
+# CPAs (only hulls still count) for STUCK_GO seconds and works its own way out.
+const STUCK_AFTER := 8.0
+const STUCK_GO := 10.0
 
 var sim: Simulation
 var nav: NavGrid
@@ -56,6 +68,7 @@ var sailboats: Array[Sailboat] = []
 var motor_yachts: Array[MotorYacht] = []
 var convoy: Array[NavalVessel] = []
 var cargo_ships: Array[CargoShip] = []
+var lanes: ShippingLanes   # the cargo channels, if the map has any
 var fishing_boats: Array[FishingBoat] = []
 var grounds: Array[FishingGround] = []
 var anchorages: Array[Anchorage] = []
@@ -71,6 +84,7 @@ var _next := 0
 var _cargo_named := 0
 var _convoy_timer := 0.0
 var _convoys := 0
+var coast_guard: Array[CoastGuardBoat] = []
 
 
 ## Synchronous entry point for tools that prepare charts ahead of setup.
@@ -105,11 +119,14 @@ func setup(s: Simulation, charts: MarineCharts = null) -> void:
 		_register(f, RANK_FERRY)
 	for m in s.map.marinas:
 		var row := []
-		row.resize(Layout.MARINA_BERTHS)
+		row.resize(Layout.MARINA_BERTHS + m.slips.size())
 		berths[m.id] = row
 	_spawn_sailboats()
 	_spawn_fishing_boats()
 	pilotage = Pilotage.new(self)
+	coast_guard = CoastGuardBoat.spawn_fleet(self)
+	if not s.map.shipping_channels.is_empty():
+		lanes = ShippingLanes.trace(s.terrain, s.map.half_size, s.terrain.mainland.axis, s.map.shipping_channels)
 	_spawn_cargo(true)
 	_cargo_timer = rng.randf_range(CARGO_GAP.x, CARGO_GAP.y) * 0.5
 	_convoy_timer = rng.randf_range(CONVOY_GAP.x, CONVOY_GAP.y) * 0.3
@@ -392,6 +409,7 @@ func _spawn_sailboats() -> void:
 			sailboats.append(boat)
 			_register(boat, RANK_SAIL)
 			k += 1
+	_spawn_slip_boats(names, yacht_names)
 	# A few already out sailing, so the water isn't empty at first light.
 	for boat in sailboats:
 		if rng.randf() < 0.3:
@@ -402,15 +420,48 @@ func _spawn_sailboats() -> void:
 			y.start_at_anchor()
 
 
+## Boats kept in the finger slips along the marinas' branch docks (as WorldBuilder
+## laid them out): the same sailboats and motor boats as the rest, but they go
+## out about a fifth as often, and always come back to their own slip.
+const SLIP_DWELL_SCALE := 5.0
+func _spawn_slip_boats(names: Array, yacht_names: Array) -> void:
+	var sail_types := VesselTypes.sailboats().filter(func(t: VesselSpec) -> bool: return t.id != "cruiser")
+	for m in sim.map.marinas:
+		for i in m.slips.size():
+			var slip: Dictionary = m.slips[i]
+			var b := Layout.MARINA_BERTHS + i
+			var first := rng.randf_range(30.0, 1440.0 * 2.0)
+			var boat: MarinaBoat
+			if slip.sail:
+				var sb := Sailboat.new()
+				sim.add_child(sb)
+				sb.dwell_scale = SLIP_DWELL_SCALE
+				sb.setup(self, names[sailboats.size() % names.size()], VesselTypes.pick(sail_types, rng), m, b, first)
+				sailboats.append(sb)
+				_register(sb, RANK_SAIL)
+				boat = sb
+			else:
+				var y := MotorYacht.new()
+				sim.add_child(y)
+				y.dwell_scale = SLIP_DWELL_SCALE
+				y.setup(self, yacht_names[motor_yachts.size() % yacht_names.size()], VesselTypes.slip_powerboat(slip.model), m, b, 0, first)
+				motor_yachts.append(y)
+				_register(y, RANK_POWER)
+				boat = y
+			berths[m.id][b] = boat
+
+
 ## Picks a free berth for `boat` to sail to (another marina if there is one,
 ## otherwise back home) and reserves it. Returns [marina, berth] or [].
 func reserve_berth(boat: MarinaBoat) -> Array:
+	if boat.berth >= Layout.MARINA_BERTHS:
+		return [boat.marina, boat.berth]   # slip boats go out and come home
 	var options: Array = []
 	for m in sim.map.marinas:
 		if m == boat.marina and sim.map.marinas.size() > 1 and rng.randf() < 0.85:
 			continue
 		var row: Array = berths[m.id]
-		for b in row.size():
+		for b in Layout.MARINA_BERTHS:
 			if row[b] == null or row[b] == boat:
 				options.append([m, b])
 	if options.is_empty():
@@ -555,6 +606,9 @@ func release_spot(sp: Anchorage.Spot, boat: Vessel) -> void:
 # --- Cargo ships --------------------------------------------------------------------
 
 func _spawn_cargo(midway := false) -> void:
+	if lanes != null and not lanes.centrelines.is_empty():
+		_spawn_cargo_in_lane(midway)
+		return
 	var hs := sim.map.half_size
 	for attempt in 8:
 		# Ships use the passage: in at one open end of the channel, out at the other.
@@ -582,6 +636,28 @@ func _spawn_cargo(midway := false) -> void:
 		var path := NavPath.new(pts)
 		var s0 := path.length * rng.randf_range(0.3, 0.55) if midway else 0.0
 		if not is_clear(path.sample(s0), 270.0) or _meets_head_on(path):
+			continue
+		var ship := CargoShip.new()
+		sim.add_child(ship)
+		ship.setup(self, CARGO_NAMES[(sim.map.map_seed + _cargo_named) % CARGO_NAMES.size()], sp, path, s0,
+				rng.randi_range(0, sp.variants - 1))
+		_cargo_named += 1
+		cargo_ships.append(ship)
+		_register(ship, RANK_CARGO)
+		return
+
+
+## A cargo ship up or down one of the shipping channels, on her own lane right
+## of the buoyed centreline, from far beyond one end of the map to far beyond the other.
+func _spawn_cargo_in_lane(midway: bool) -> void:
+	for attempt in 8:
+		var i := rng.randi_range(0, lanes.centrelines.size() - 1)
+		var pts := lanes.track(i, rng.randf() < 0.5)
+		var sp := VesselTypes.pick(VesselTypes.cargo_ships(), rng)
+		pts = nav.smooth(pts, 2, 30.0)
+		var path := NavPath.new(pts)
+		var s0 := path.length * rng.randf_range(0.3, 0.6) if midway else 0.0
+		if not is_clear(path.sample(s0), 270.0):
 			continue
 		var ship := CargoShip.new()
 		sim.add_child(ship)
@@ -856,12 +932,26 @@ func _update_clearances() -> void:
 				shown[v] = Claim.new(v, sl)
 		else:
 			hulls[v] = Claim.new(v, 0.0)
+	var dt := get_process_delta_time()
 	for v in vessels:
 		v.clear = INF
+		v.cpa_cap = INF
 		v.blocker = null
 		v.blocked_by_hull = false
 		if not own.has(v):
+			v.stuck_t = 0.0
 			continue
+		# Stuck breaker: barely moving while it wants to, for long enough.
+		if v.go_t > 0.0:
+			v.go_t -= dt
+		elif v.speed < 0.4 and not v.resting() and v.path_left() > 20.0 and v.hold > 20.0:
+			v.stuck_t += dt
+			if v.stuck_t > STUCK_AFTER:
+				v.stuck_t = 0.0
+				v.go_t = STUCK_GO
+		else:
+			v.stuck_t = 0.0
+		var asserting := v.go_t > 0.0
 		var mine: Claim = own[v]
 		for o in vessels:
 			if o == v or Vessel.paired(v, o):
@@ -875,6 +965,10 @@ func _update_clearances() -> void:
 					_limit(v, o, mine.ds[k - 1], true)
 			# Never wait on one that is waiting on you: get out of its way instead.
 			# (A vessel steering its own way keeps out of others' paths itself.)
+			if asserting:
+				continue
+			if o.rank > v.rank and not v.free_nav and o.wants_to_move() and not o.waits_for(v):
+				_cpa_give_way(v, o)
 			if o.rank > v.rank and not v.free_nav and shown.has(o) and not o.waits_for(v):
 				var theirs: Claim = shown[o]
 				if not reach.grow(1.5).intersects(theirs.box) or _touches(mine.a[0], mine.b[0], theirs, thr):
@@ -883,6 +977,49 @@ func _update_clearances() -> void:
 					var k2 := _first_hit(mine, theirs.a[j], theirs.b[j], thr + 1.5, false)
 					if k2 > 0:
 						_limit(v, o, mine.ds[k2 - 1], false)
+
+
+## Its velocity as a radar would read it; one wanting to get going is reckoned
+## to be about to, along its path.
+static func _vel(v: Vessel, sp: float) -> Vector2:
+	var d := v.ahead(6.0) - v.pos2()
+	var h := d.normalized() if d.length_squared() > 1e-4 else v.heading2()
+	return h * sp
+
+
+## Closest point of approach of two tracks: [time, distance].
+static func cpa(p: Vector2, vp: Vector2, q: Vector2, vq: Vector2) -> Vector2:
+	var r := q - p
+	var w := vq - vp
+	var ww := w.length_squared()
+	var t := 0.0 if ww < 1e-6 else clampf(-r.dot(w) / ww, 0.0, CPA_HORIZON)
+	return Vector2(t, (r + w * t).length())
+
+
+## `v` gives way to `o`: the fastest of CPA_FACTORS of its speed that keeps the
+## CPA open (slowing lets `o` cross ahead), capped on v.cpa_cap.
+func _cpa_give_way(v: Vessel, o: Vessel) -> void:
+	var p := v.pos2()
+	var q := o.pos2()
+	var reach := CPA_RANGE + v.half_seg + o.half_seg
+	if p.distance_squared_to(q) > reach * reach:
+		return
+	var need := CPA_KEEP + v.hull_radius + o.hull_radius + v.half_seg + o.half_seg
+	var vq := _vel(o, maxf(o.speed, o.cruise * 0.4))
+	var base := maxf(v.speed, v.cruise * 0.6)
+	var now := cpa(p, _vel(v, base), q, vq)
+	if now.y >= need or now.x <= 0.0:
+		return
+	for f: float in CPA_FACTORS:
+		var c := cpa(p, _vel(v, base * f), q, vq)
+		if c.y >= need or c.x <= 0.0:
+			if base * f < v.cpa_cap:
+				v.cpa_cap = base * f
+				if f < 1.0 and v.clear > 30.0:
+					v.blocker = o
+			return
+	v.cpa_cap = 0.0
+	v.blocker = o
 
 
 func _limit(v: Vessel, o: Vessel, c: float, by_hull: bool) -> void:

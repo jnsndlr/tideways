@@ -41,6 +41,8 @@ var shape := Vector4(4.2, 0.0, 0.9, 0.9)
 var hull: Hull
 var size_factor := 1.0
 var variants := 1               # range of variant indices available when spawning
+## A real-size model drawn as is, in place of its hull family's (marina slip powerboats).
+var art_path := ""
 
 
 ## Radius of the capsule other vessels keep out of.
