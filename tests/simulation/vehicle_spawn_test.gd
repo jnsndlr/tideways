@@ -33,6 +33,7 @@ func run() -> void:
 	check_parking_trailer_clearance()
 	check_boarding_approaches()
 	check_merge_priority()
+	check_turning_pickup()
 	check_world_isolation()
 	RoadVehicleModel.authored = original_mode
 	if failures == 0:
@@ -207,6 +208,29 @@ func check_merge_priority() -> void:
 	follower.leader = lead
 	expect(is_zero_approx(follower._room_ahead()), "Wait for the assigned leader at the merge")
 	expect(is_inf(lead._room_ahead()), "The leader must be free to clear that merge")
+	sim.free()
+
+
+func check_turning_pickup() -> void:
+	var sim := make_world()
+	var sedan := moving_car(sim, 0)
+	var pickup := VehicleFactory.from_parts(false, "pickup_fullsize", 0)
+	pickup.moving_traffic = sim.moving_vehicles
+	sim.traffic.add_child(pickup)
+	pickup.lane_v = Layout.LANE_WIDTH
+	pickup.rotation.y = -PI / 2.0
+	pickup.position = sedan._g_front + Vector3(pickup.length * 0.5 + 3, 0, 4)
+	pickup.drive(PackedVector3Array([pickup.position + Vector3.LEFT * 20]))
+	expect(is_inf(sedan._room_ahead()), "An unassigned crossing car has no merge priority")
+	sedan.leader = pickup
+	expect(is_inf(sedan._room_to(pickup)), "Pickup tail and middle are outside the sedan's lane")
+	expect(
+		is_equal_approx(sedan._room_ahead(), 4.0 - Vehicle.FOLLOW_GAP),
+		"Yield when the assigned pickup's side reaches the sedan's approach"
+	)
+	pickup.position.x -= pickup.length + 8
+	pickup._cache_ends()
+	expect(is_inf(sedan._room_ahead()), "Proceed once the pickup clears the approach")
 	sim.free()
 
 
