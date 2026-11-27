@@ -4,8 +4,7 @@ extends SceneTree
 ## line for each model pair, consecutive contacts for actual vehicles, and any vehicle
 ## held still for 150 checks. Add --mesh-contacts to probe rendered surfaces.
 ##
-##   godot --headless --path . --fixed-fps 30 \
-##     --script tests/traffic/vehicle_overlap_test.gd -- --seed=123 --frames=6000
+##   python3 tools/check_road_traffic.py -- --seed=123 --frames=6000
 
 const ContactSamples := preload("res://tests/traffic/vehicle_contact_samples.gd")
 const HALF_W := 0.9
@@ -29,7 +28,16 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--frames="):
 			max_frames = int(a.substr(9))
-	main = load("res://scenes/sandbox.tscn").instantiate()
+	var scene := load("res://scenes/sandbox.tscn") as PackedScene
+	if scene == null:
+		push_error("Could not load the traffic sandbox.")
+		quit(1)
+		return
+	main = scene.instantiate()
+	if main == null:
+		push_error("Could not instantiate the traffic sandbox.")
+		quit(1)
+		return
 	root.add_child(main)
 
 
@@ -42,6 +50,10 @@ func _collect(n: Node, out: Array) -> void:
 
 
 func _process(_delta: float) -> bool:
+	if frames == 0 and (main == null or main.get("sim") == null):
+		push_error("Traffic sandbox initialization failed before the first frame.")
+		quit(1)
+		return false
 	frames += 1
 	if frames == 5:
 		Engine.time_scale = 4.0
