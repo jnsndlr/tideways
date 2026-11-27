@@ -2205,8 +2205,10 @@ func _build_quays() -> void:
 		# The wharf: a heavy timber deck with a concrete cap along its face.
 		var mid := (back + face) * 0.5
 		mb.box(Vector3(0, deck - 0.6, mid), Vector3(hh * 2.0, 1.2, face - back), plank)
-		mb.box(Vector3(0, deck + 0.06, face - 1.05), Vector3(hh * 2.0, 0.42, 2.1), cap)
-		mb.box(Vector3(0, deck - 2.7, face - 0.24), Vector3(hh * 2.0, 3.6, 0.48), Models.WOOD)
+		# The cap starts on the deck and the lower facing ends at its underside.
+		# All three fronts share a plane, so their height bands must meet edge to edge.
+		mb.box(Vector3(0, deck + 0.135, face - 1.05), Vector3(hh * 2.0, 0.27, 2.1), cap)
+		mb.box(Vector3(0, deck - 2.85, face - 0.24), Vector3(hh * 2.0, 3.3, 0.48), Models.WOOD)
 		var v := -hh + 1.2
 		while v <= hh - 0.9:
 			mb.box(Vector3(v, -5.4, face - 0.6), Vector3(1.08, 16.8, 1.08), Models.WOOD)
