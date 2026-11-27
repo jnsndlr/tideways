@@ -39,6 +39,8 @@ var model := ""            # VehicleData key ("" for the code-built car and truc
 var lane_v := 0.0          # lateral lane position while queued at a terminal
 ## Absolute game minute when this vehicle joined the queue.
 var lot_arrival := 0.0
+## True while driving from the road to a reserved holding lane.
+var entering_lot := false
 var length := 0.0          # bumper to bumper, rig included (game units)
 var slots := 1             # queue / deck slots it takes
 var dest := -1             # island id it is travelling to (-1: not set)
@@ -177,6 +179,7 @@ func _ready() -> void:
 
 
 func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0.0) -> void:
+	entering_lot = false
 	_parking_yaw = NAN
 	path = _round_corners(points)
 	_on_arrive = on_arrive
@@ -300,10 +303,10 @@ func _room_to(o: Vehicle) -> float:
 	return maxf(0.0, rel.dot(_g_fwd) - FOLLOW_GAP)
 
 
-## An arriving car crosses the backs of the holding lanes. When a tractor turns
-## into its final lane its trailer can still span that aisle. Clip the actual
+## A rig crossing the booths or turning into its holding lane can still span
+## the aisle while its tractor is clear. Clip the actual
 ## hitch-to-tail segment to the strip in front of our bumper.
-func _parking_trailer_room(o: Vehicle) -> float:
+func _crossing_trailer_room(o: Vehicle) -> float:
 	var hitch := o.global_transform * o._hitch - _g_front
 	var tail := o._g_tail - _g_front
 	if absf(tail.y) > FOLLOW_WIDTH:
@@ -344,8 +347,13 @@ func _room_ahead() -> float:
 			continue
 		if o._g_fwd.dot(_g_fwd) >= SAME_WAY:
 			room = minf(room, _room_to(o))
-		elif o.trailer and not is_nan(o._parking_yaw) and is_nan(_parking_yaw):
-			room = minf(room, _parking_trailer_room(o))
+		elif o.trailer and is_nan(_parking_yaw):
+			# The final leg of an inbound route crosses from the booths to the reserved lane.
+			var at_booths := (
+				entering_lot and path.size() > 1 and o.entering_lot and o.path.size() == 1
+			)
+			if at_booths or not is_nan(o._parking_yaw):
+				room = minf(room, _crossing_trailer_room(o))
 	return room
 
 

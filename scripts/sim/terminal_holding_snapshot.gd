@@ -310,6 +310,7 @@ func _read_car(
 		car.lane_v = row.source_offset
 		lane.reserve_arrival(car.get_instance_id(), car.slots, row.transfer)
 		car.resume_drive(term._on_car_reached_lot.bind(lane, row.transfer))
+		car.entering_lot = not row.transfer
 		return true
 	return _place_in_queue(row, car, term, lane)
 

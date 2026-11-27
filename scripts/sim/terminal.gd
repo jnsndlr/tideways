@@ -841,6 +841,7 @@ func _spawn_car() -> void:
 		car.rotation.y = atan2(d.x, d.z)
 		car.straighten()
 	car.drive(path, _on_car_reached_lot.bind(lane))
+	car.entering_lot = true
 
 
 func _on_car_reached_lot(car: Vehicle, lane: Lane, changing_lanes := false) -> void:
