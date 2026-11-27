@@ -53,6 +53,7 @@ const KEYS := [
 
 var sim: Simulation
 var sun: DirectionalLight3D
+var shadow_grid := DirectionalShadowGrid.new()
 var env: Environment
 var sky_mat: ShaderMaterial
 var water_mat: ShaderMaterial
@@ -124,6 +125,7 @@ static func _sun_rotation(h: float) -> Vector3:
 func _place_sun(h: float) -> void:
 	sun.rotation_degrees = _sun_rotation(h)
 	RenderingServer.global_shader_parameter_set("sun_direction", sun.global_transform.basis.z)
+	shadow_grid.apply(sun)
 
 
 func apply(h: float) -> void:
@@ -142,7 +144,7 @@ func apply(h: float) -> void:
 	sun.light_energy = p.energy * dim
 	sun.shadow_enabled = p.energy > 0.02
 	if _sky_sun:
-		_sky_sun.rotation_degrees = sun.rotation_degrees
+		_sky_sun.rotation_degrees = _sun_rotation(h)
 		_sky_sun.light_color = p.light
 		_sky_sun.light_energy = p.energy * dim
 
