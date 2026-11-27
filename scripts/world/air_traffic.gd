@@ -259,9 +259,13 @@ func _dress(p: Craft, delta: float) -> void:
 	if p.prop and p.prop_spin > 0.0:
 		p.prop.rotate_object_local(Vector3.BACK, p.prop_spin * delta)
 	if p.wake:
+		# The trail's head is drawn at the source, so once the floats leave the
+		# water the source stays where they lifted off and the trail just fades.
 		var at := p.node.global_position
-		p.wake.position = Vector3(at.x, 0.0, at.z)
-		p.wake.step(delta, ROLL, not p.parked and at.y < FLOATS + 0.6)
+		var wet := at.y < FLOATS + 0.6
+		if wet:
+			p.wake.position = Vector3(at.x, 0.0, at.z)
+		p.wake.step(delta, ROLL, not p.parked and wet)
 	var night := day_cycle.night if day_cycle else 0.0
 	var low := p.node.global_position.y < 250.0 + (0.0 if p.water else _ground_y(p))
 	var on := night > 0.05 and not p.parked and not p.holding and low and (p.airborne or p.speed > TAXI + 1.0)
