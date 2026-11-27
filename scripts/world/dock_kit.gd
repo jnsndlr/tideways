@@ -16,6 +16,8 @@ const MAIN_WIDTH := 4.0
 const FINGER_WIDTH := 2.0
 const LOW := 0.48
 const HIGH := 1.98
+## Camera distance (to a marina's middle) past which its cleats are not drawn.
+const CLEAT_RANGE := 220.0
 const CLEAT := "res://assets/models/dock_kit/cleat.glb"
 const PIECES := [
 	["res://assets/models/dock_kit/main_deck.glb", "res://assets/models/dock_kit/main_floats.glb", "res://assets/models/dock_kit/main_piles.glb", "res://assets/models/dock_kit/main_ramp.glb"],
@@ -154,20 +156,22 @@ func bake() -> void:
 		var xf := inv * mi.global_transform if is_inside_tree() else _local_xform(mi)
 		for s in mi.mesh.get_surface_count():
 			var mat: Material = mi.get_active_material(s)
-			var key := "%d:%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow]
+			var cleat := mi.find_parent("MooringCleats") != null
+			var key := "%d:%d:%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow, int(cleat)]
 			if not tools.has(key):
 				var st := SurfaceTool.new()
 				st.begin(Mesh.PRIMITIVE_TRIANGLES)
 				tools[key] = st
-				looks[key] = [mat, mi.cast_shadow]
+				looks[key] = [mat, mi.cast_shadow, cleat]
 			(tools[key] as SurfaceTool).append_from(mi.mesh, s, xf)
 		merged.append(mi)
 	if merged.is_empty():
 		return
 	var shadow_on := ArrayMesh.new()
 	var shadow_off := ArrayMesh.new()
+	var cleats := ArrayMesh.new()
 	for key: String in tools:
-		var target := shadow_off if looks[key][1] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF else shadow_on
+		var target := cleats if looks[key][2] else shadow_off if looks[key][1] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF else shadow_on
 		(tools[key] as SurfaceTool).commit(target)
 		target.surface_set_material(target.get_surface_count() - 1, looks[key][0])
 	for mi in merged:
@@ -180,6 +184,16 @@ func bake() -> void:
 		out.mesh = pair[0]
 		out.cast_shadow = pair[1]
 		add_child(out)
+	# Cleats are too small to see from afar: no shadow, and they drop out with distance.
+	if cleats.get_surface_count() > 0:
+		var c := MeshInstance3D.new()
+		c.name = "DockCleats"
+		c.mesh = cleats
+		c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		c.visibility_range_end = CLEAT_RANGE
+		c.visibility_range_end_margin = 20.0
+		c.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		add_child(c)
 
 
 func _local_xform(n: Node3D) -> Transform3D:

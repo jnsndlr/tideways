@@ -68,66 +68,98 @@ def finish(name, offset):
     obj.location = offset
 
 
+# One white material carries the fir, stringer and rubbing-strip colours.
+deck_mat = material("Dock vertex colour", (1, 1, 1))
+colour_node = deck_mat.node_tree.nodes.new("ShaderNodeVertexColor")
+colour_node.layer_name = "Dock colour"
+deck_mat.node_tree.links.new(colour_node.outputs["Color"],
+                             deck_mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+
+
+def part(name, vertices, faces, mat):
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    mesh.materials.append(mat)
+    obj = bpy.data.objects.new(name, mesh)
+    scene.collection.objects.link(obj)
+    return obj
+
+
+def panel(name, center, size, faces, rgb, shades=None):
+    # Lower and upper corners each run counterclockwise from (-x, -y).
+    vertices = [(center[0] + x*size[0]/2, center[1] + y*size[1]/2,
+                 center[2] + z*size[2]/2)
+                for z in (-1, 1) for x, y in ((-1,-1), (1,-1), (1,1), (-1,1))]
+    obj = part(name, vertices, faces, deck_mat)
+    colours = obj.data.color_attributes.new(name="Dock colour", type="FLOAT_COLOR", domain="POINT")
+    for i, value in enumerate(colours.data):
+        shade = shades[i % 4] if shades else 1.0
+        value.color = (*(c*shade for c in rgb), 1)
+
+
+top = (4,5,6,7)
+bottom = (3,2,1,0)
+front, back = (0,1,5,4), (2,3,7,6)
+left, right = (3,0,4,7), (1,2,6,5)
+
 finished = set()
 for row, (kind, w) in enumerate([("main", 4), ("finger", 2)]):
     for col, ramp in enumerate([False, True]):
         for i in range(30):
-            box("Plank", (0, (i+.5)/5, -.045), (w, .196, .09),
-                boards[(i*7 + i//3) % 4], .004)
+            # Vary colour across the narrow axis to suggest grain along the board.
+            rng = random.Random(413+i)
+            shades = [rng.uniform(.78,.88), rng.uniform(.78,.88),
+                      rng.uniform(.98,1.08), rng.uniform(.98,1.08)]
+            panel("Plank", (0,(i+.5)/5,-.045), (w,.196,.09), (top,front,back),
+                  BOARD_COLORS[(i*7 + i//3) % 4], shades)
         for sign in [-1, 1]:
             x = sign*(w/2-.11)
-            box("Stringer", (x, 3, -.19), (.18, 6, .22), steel if ramp else timber)
+            panel("Stringer", (x,3,-.19), (.18,6,.22), (bottom,left,right,front,back),
+                  steel.diffuse_color[:3] if ramp else TIMBER_COLOR)
             if ramp:
                 for y in [.06, 2, 4, 5.94]:
-                    box("Stanchion", (x, y, .43), (.055,.055,.86), steel)
+                    box("Stanchion", (x, y, .43), (.055,.055,.86), steel, 0)
                 for z in [.48,.88]:
-                    box("Handrail", (x, 3, z), (.064,5.94,.055), steel)
+                    box("Handrail", (x, 3, z), (.064,5.94,.055), steel, 0)
                 for y in [.10,5.90]:
                     box("Threshold stripe", (sign*w/4,y,.002), (w/2-.14,.065,.004), paint, 0)
             else:
                 for y in [1.5, 4.5]:
-                    box("Hull rub strip", (sign*(w/2-.03), y, -.13), (.06,2.76,.14), rubber)
+                    panel("Hull rub strip", (sign*(w/2-.03),y,-.13), (.06,2.76,.14),
+                          (top,bottom,front,back,right if sign > 0 else left), rubber.diffuse_color[:3])
         finish(kind + ("_ramp" if ramp else "_deck"), (col*5,row*8,0))
     for sign in [-1, 1]:
         x = sign*(w/2-.44)
-        box("Sealed float", (x,3,-.56), (.71,5.65,.62), float_mat,.08)
+        box("Sealed float", (x,3,-.56), (.71,5.65,.62), float_mat,0)
         for y in [.85,3,5.15]:
-            box("Float band", (x,y,-.56), (.73,.09,.64), rubber,.05)
+            box("Float band", (x,y,-.56), (.73,.09,.64), rubber,0)
     finish(kind+"_floats", (10,row*8,0))
     for y in [.6,5.4]:
-        box("Pile cap beam",(0,y,-.36),(w-.16,.23,.23), timber)
+        panel("Pile cap beam", (0,y,-.36), (w-.16,.23,.23),
+              (top,bottom,front,back,left,right), TIMBER_COLOR)
         for sign in [-1, 1]:
-            bpy.ops.mesh.primitive_cylinder_add(vertices=12,radius=.16,depth=5,
+            bpy.ops.mesh.primitive_cylinder_add(vertices=8,end_fill_type="NOTHING",radius=.16,depth=5,
                 location=(sign*(w/2-.32),y,-2.965))
             bpy.context.object.data.materials.append(timber)
-            grain(bpy.context.object, wood_rng)
+            # The cap beam covers the pile head and the lower end is submerged.
     finish(kind+"_piles", (15,row*8,0))
 
 # A cast two-horn cleat, with open space for a line under each horn.
 iron = material("Graphite cast iron", (.052, .065, .071))
-box("Mounting foot", (0, 0, .016), (.16, .34, .032), iron)
+box("Mounting foot", (0, 0, .016), (.16, .34, .032), iron, 0)
 for sign in (-1, 1):
-    leg = box("Cleat leg", (0, sign*.084, .077), (.074,.060,.115), iron)
+    leg = box("Cleat leg", (0, sign*.084, .077), (.074,.060,.115), iron, 0)
     leg.rotation_euler.x = -sign*.18
-    for x in (-.054, .054):
-        bpy.ops.mesh.primitive_cylinder_add(vertices=6, radius=.013, depth=.014,
-                                            location=(x, sign*.137, .039))
-        bpy.context.object.data.materials.append(steel)
-# Loft an elliptical crossbar, tapering and lifting both horn tips.
-rings = [(-.26,.168,.013), (-.235,.162,.022), (-.13,.14,.035),
-         (0,.14,.040), (.13,.14,.035), (.235,.162,.022), (.26,.168,.013)]
-vertices = [(r*math.cos(i*math.tau/8), y, z+r*.76*math.sin(i*math.tau/8))
-            for y,z,r in rings for i in range(8)]
-faces = [tuple(range(8)), tuple(reversed(range(len(vertices)-8, len(vertices))))]
+# Diamond sections taper from the broad centre to the raised tips.
+rings = [(-.26,.168,.013), (0,.14,.040), (.26,.168,.013)]
+vertices = [(r*math.cos(i*math.tau/4), y, z+r*.76*math.sin(i*math.tau/4))
+            for y,z,r in rings for i in range(4)]
+faces = [(0,1,2,3), (11,10,9,8)]
 for k in range(len(rings)-1):
-    for i in range(8):
-        a, b = 8*k+i, 8*k+(i+1)%8
-        faces.append((a, a+8, b+8, b))
-mesh = bpy.data.meshes.new("Cleat horns")
-mesh.from_pydata(vertices, [], faces)
-horns = bpy.data.objects.new("Cleat horns", mesh)
-scene.collection.objects.link(horns)
-mesh.materials.append(iron)
+    for i in range(4):
+        a, b = 4*k+i, 4*k+(i+1)%4
+        faces.append((a, a+4, b+4, b))
+part("Cleat horns", vertices, faces, iron)
 finish("cleat", (-3, 0, 0))
 
 ivory = material("Salt-worn fiberglass", (.78, .80, .71))

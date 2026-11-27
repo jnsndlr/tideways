@@ -69,6 +69,18 @@ func _apply() -> void:
 						if c.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
 							c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			"cards": _hide(main, "TreeCards*")
+			"decks": _hide(main, "DockDecks")
+			"dockshadow":
+				for c in main.find_children("DockDecks", "GeometryInstance3D", true, false):
+					c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			"docknear":
+				# Shadows only near the camera: a shadow-only copy that drops out past 300 m.
+				for c: MeshInstance3D in main.find_children("DockDecks", "MeshInstance3D", true, false):
+					c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					var s := c.duplicate() as MeshInstance3D
+					s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+					s.visibility_range_end = 300.0
+					c.get_parent().add_child(s)
 			"mland": _hide(main, "Mainland")
 			"cumulus": _hide(main, "Cumulus")
 			"grass": main.find_child("Grass", true, false).queue_free()
