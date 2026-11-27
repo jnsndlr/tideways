@@ -4,7 +4,11 @@ extends RefCounted
 ## distant terminal through several texels even with a stationary camera. Align
 ## the focus cascade to a fixed local landmark without moving the sunlight ray.
 
-var atlas_size := int(ProjectSettings.get_setting_with_override("rendering/lights_and_shadows/directional_shadow/size"))
+var atlas_size := int(
+	ProjectSettings.get_setting_with_override(
+		"rendering/lights_and_shadows/directional_shadow/size"
+	)
+)
 var _anchor := Vector3.ZERO
 var _texel := 0.0
 var _reach := 0.0
@@ -14,7 +18,13 @@ var _near := 0.0
 func focus(sun: DirectionalLight3D, rig: CameraRig, terminals: Dictionary) -> void:
 	_texel = 0
 	var camera := rig.camera
-	if camera == null or camera.projection != Camera3D.PROJECTION_PERSPECTIVE or sun.directional_shadow_mode != DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS or sun.directional_shadow_blend_splits or sun.light_angular_distance != 0.0:
+	if (
+		camera == null
+		or camera.projection != Camera3D.PROJECTION_PERSPECTIVE
+		or sun.directional_shadow_mode != DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		or sun.directional_shadow_blend_splits
+		or sun.light_angular_distance != 0.0
+	):
 		return
 	# A fixed landmark keeps a pan from scrolling the sampling grid with the
 	# camera. Leave open water and views without a nearby terminal alone.
@@ -35,7 +45,12 @@ func focus(sun: DirectionalLight3D, rig: CameraRig, terminals: Dictionary) -> vo
 		return
 	var start := _near
 	var end := _reach
-	for split: float in [sun.directional_shadow_split_1, sun.directional_shadow_split_2, sun.directional_shadow_split_3, 1.0]:
+	for split: float in [
+		sun.directional_shadow_split_1,
+		sun.directional_shadow_split_2,
+		sun.directional_shadow_split_3,
+		1.0
+	]:
 		end = lerpf(_near, _reach, split)
 		if depth <= end:
 			break
@@ -43,7 +58,7 @@ func focus(sun: DirectionalLight3D, rig: CameraRig, terminals: Dictionary) -> vo
 	var projection := camera.get_camera_projection()
 	# Radius of this frustum slice's bounding sphere. Four cascades occupy
 	# quarter tiles, with a one-texel guard on either side in the renderer.
-	var radius := Vector3(end / projection.x.x, end / projection.y.y, (end-start)*0.5).length()
+	var radius := Vector3(end / projection.x.x, end / projection.y.y, (end - start) * 0.5).length()
 	_texel = 2.0 * radius / (atlas_size * 0.5 - 2.0)
 
 
@@ -63,4 +78,4 @@ func apply(sun: DirectionalLight3D) -> void:
 	if absf(scale - 1.0) > 0.001 or absf(roll) > deg_to_rad(0.05):
 		return
 	sun.global_basis = sun.global_basis * Basis(Vector3.BACK, roll)
-	sun.directional_shadow_max_distance = _near + (_reach-_near) * scale
+	sun.directional_shadow_max_distance = _near + (_reach - _near) * scale
