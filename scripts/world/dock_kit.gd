@@ -4,12 +4,20 @@ extends Node3D
 ## Directions use the XZ plane. Each call returns the far edge for chaining.
 enum Width { MAIN, FINGER }
 enum Support { FLOATS, PILES }
+enum Boathouse { OPEN, ENCLOSED }
+
+const BOATHOUSES := [
+	"res://assets/models/dock_kit/boathouse_open.glb",
+	"res://assets/models/dock_kit/boathouse_enclosed.glb",
+]
 
 const RUN := 6.0
 const MAIN_WIDTH := 4.0
 const FINGER_WIDTH := 2.0
 const LOW := 0.48
 const HIGH := 1.98
+## Camera distance (to a marina's middle) past which its cleats are not drawn.
+const CLEAT_RANGE := 220.0
 const CLEAT := "res://assets/models/dock_kit/cleat.glb"
 const PIECES := [
 	["res://assets/models/dock_kit/main_deck.glb", "res://assets/models/dock_kit/main_floats.glb", "res://assets/models/dock_kit/main_piles.glb", "res://assets/models/dock_kit/main_ramp.glb"],
@@ -56,7 +64,23 @@ static func available() -> bool:
 func _piece(path: String) -> Node3D:
 	if not _pieces.has(path):
 		_pieces[path] = load(path)
-	return (_pieces[path] as PackedScene).instantiate()
+	var n := (_pieces[path] as PackedScene).instantiate() as Node3D
+	_use_vertex_colour(n)
+	return n
+
+
+## The deck, stringer and rub-strip colours are painted in vertex colours on one
+## white material ("Dock vertex colour"), which the glTF import leaves switched off.
+static func _use_vertex_colour(n: Node) -> void:
+	for mi: MeshInstance3D in n.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null:
+			continue
+		for s in mi.mesh.get_surface_count():
+			var mat := mi.mesh.surface_get_material(s) as BaseMaterial3D
+			if mat != null and mat.resource_name.begins_with("Dock vertex colour"):
+				mat.vertex_color_use_as_albedo = true
+				# Linear, as authored (the old per-board materials' colours); not sRGB.
+				mat.vertex_color_is_srgb = false
 
 
 func add_deck(width: Width, start: Vector3, direction: Vector2, support: Support) -> Vector3:
@@ -66,6 +90,19 @@ func add_deck(width: Width, start: Vector3, direction: Vector2, support: Support
 		add_child(foundation)
 		foundation.transform = Transform3D(Basis.looking_at(end - start), start)
 	return end
+
+
+## Shelter a 12 m slip between two level fingers spaced one RUN apart.
+## Start at deck height, centred between the fingers, and face open water.
+func add_boathouse(kind: Boathouse, start: Vector3, direction: Vector2) -> void:
+	if direction.is_zero_approx():
+		push_error("Boathouse direction must have a horizontal heading.")
+		return
+	var shelter := _piece(BOATHOUSES[kind])
+	add_child(shelter)
+	shelter.transform = Transform3D(
+		Basis.looking_at(Vector3(direction.x, 0, direction.y).normalized()), start
+	)
 
 
 func add_ramp(width: Width, start: Vector3, direction: Vector2, end_height: float) -> Vector3:
@@ -121,3 +158,78 @@ func _place(width: Width, start: Vector3, direction: Vector2, end_height: float,
 				cleat.position = Vector3(side * (half_width - 0.16), 0, -along)
 	_sections.append(section)
 	return section.end
+
+
+## Merge every placed piece into one mesh per material so a whole assembly costs a
+## handful of draw calls instead of one per deck, float and cleat. Call once the
+## assembly is finished; colliders and other non-mesh nodes stay as they are.
+func bake() -> void:
+	var tools := {}  # key -> SurfaceTool
+	var looks := {}  # key -> [material, cast_shadow]
+	var inv := global_transform.affine_inverse() if is_inside_tree() else Transform3D.IDENTITY
+	var merged: Array[MeshInstance3D] = []
+	for mi: MeshInstance3D in find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var xf := inv * mi.global_transform if is_inside_tree() else _local_xform(mi)
+		for s in mi.mesh.get_surface_count():
+			var mat: Material = mi.get_active_material(s)
+			var cleat := mi.find_parent("MooringCleats") != null
+			var key := (
+				"%d:%d:%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow, int(cleat)]
+			)
+			if not tools.has(key):
+				var st := SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				tools[key] = st
+				looks[key] = [mat, mi.cast_shadow, cleat]
+			(tools[key] as SurfaceTool).append_from(mi.mesh, s, xf)
+		merged.append(mi)
+	if merged.is_empty():
+		return
+	var shadow_on := ArrayMesh.new()
+	var shadow_off := ArrayMesh.new()
+	var cleats := ArrayMesh.new()
+	for key: String in tools:
+		var target := (
+			cleats
+			if looks[key][2]
+			else (
+				shadow_off
+				if looks[key][1] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				else shadow_on
+			)
+		)
+		(tools[key] as SurfaceTool).commit(target)
+		target.surface_set_material(target.get_surface_count() - 1, looks[key][0])
+	for mi in merged:
+		mi.free()
+	for pair in [
+		[shadow_on, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "DockDecks"],
+		[shadow_off, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "DockDecksNoShadow"]
+	]:
+		if (pair[0] as ArrayMesh).get_surface_count() == 0:
+			continue
+		var out := MeshInstance3D.new()
+		out.name = pair[2]
+		out.mesh = pair[0]
+		out.cast_shadow = pair[1]
+		add_child(out)
+	# Cleats are too small to see from afar: no shadow, and they drop out with distance.
+	if cleats.get_surface_count() > 0:
+		var c := MeshInstance3D.new()
+		c.name = "DockCleats"
+		c.mesh = cleats
+		c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		c.visibility_range_end = CLEAT_RANGE
+		c.visibility_range_end_margin = 20.0
+		c.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		add_child(c)
+
+
+func _local_xform(n: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	while n != null and n != self:
+		xf = n.transform * xf
+		n = n.get_parent() as Node3D
+	return xf

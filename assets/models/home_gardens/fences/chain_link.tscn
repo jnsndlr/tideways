@@ -1,0 +1,13 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/chain_link_post.glb" id="Post"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/chain_link_span.glb" id="Span"]
+
+[node name="chain_link" type="Node3D"]
+
+[node name="StartPost" parent="." instance=ExtResource("Post")]
+
+[node name="Panel" parent="." instance=ExtResource("Span")]
+
+[node name="EndPost" parent="." instance=ExtResource("Post")]
+position = Vector3(2.4, 0, 0)

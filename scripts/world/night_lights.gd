@@ -41,8 +41,18 @@ func setup(
 	sim.ferry_added.connect(_light_ferry)
 	_car_mat = GlowBuilder.material().duplicate() as ShaderMaterial
 	_car_mat.set_shader_parameter("instance_gate", true)
-	static_lights.layers = LAYER
+	# Layers don't inherit: street lamps', sites' and bought slips' glows hang under
+	# the static lights as children, and would blow the minimap out white at night.
+	_keep_off_minimap(static_lights)
+	static_lights.child_entered_tree.connect(_keep_off_minimap)
 	_set_on(false)
+
+
+func _keep_off_minimap(n: Node) -> void:
+	if n is VisualInstance3D:
+		n.layers = LAYER
+	for c in n.get_children():
+		_keep_off_minimap(c)
 
 
 ## Her navigation and deck lights.

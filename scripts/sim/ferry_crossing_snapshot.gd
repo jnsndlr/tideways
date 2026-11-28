@@ -4,7 +4,7 @@ extends RefCounted
 ## an empty hull after rebuilding the same network, timetable, captain and class.
 ## The company owns the clock, ledger and waiting queues separately. Restore the
 ## network's corridor reservations after installing every hull's position.
-const VERSION := 6
+const VERSION := 7
 const NUMBERS := [
 	"distance",
 	"speed",
@@ -33,7 +33,12 @@ const NUMBERS := [
 
 static func capture(ferry: Ferry) -> Dictionary:
 	var lay_up := {}
-	if FerryLayUpSnapshot.needed(ferry):
+	var free_sailing := {}
+	if ferry.free_sail:
+		free_sailing = FerryFreeSailingSnapshot.capture(ferry)
+		if free_sailing.is_empty():
+			return {}
+	elif FerryLayUpSnapshot.needed(ferry):
 		lay_up = FerryLayUpSnapshot.capture(ferry)
 		if lay_up.is_empty():
 			return {}
@@ -56,7 +61,7 @@ static func capture(ferry: Ferry) -> Dictionary:
 		return {}
 	var command := ferry._command
 	var record := {
-		"version": VERSION if not lay_up.is_empty() else 5,
+		"version": 5,
 		"service": service_record(ferry),
 		"phase": "crossing" if ferry.state == Ferry.State.SAILING else "boarding",
 		"from": ferry.here().town.key,
@@ -93,7 +98,11 @@ static func capture(ferry: Ferry) -> Dictionary:
 		"homeward_walkers": FerryWalkOnSnapshot.capture_walkers(ferry._homeward_walkers),
 	}
 	if not lay_up.is_empty():
+		record.version = 6
 		record.lay_up = lay_up
+	elif not free_sailing.is_empty():
+		record.version = VERSION
+		record.free_sailing = free_sailing
 	if ferry.state == Ferry.State.SAILING:
 		# _update_lie eases the simulation angle after place_underway applies this frame.
 		record.sailing_pose = {
@@ -178,7 +187,11 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 	if (
 		(
 			not _ordinary_service(ferry)
-			and not (ferry.manual and record is Dictionary and record.has("lay_up"))
+			and not (
+				ferry.manual
+				and record is Dictionary
+				and (record.has("lay_up") or record.has("free_sailing"))
+			)
 		)
 		or not _empty_hull(ferry)
 		or not ferry._pax_walkers.is_empty()
@@ -269,7 +282,10 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 	ferry._landing_askew = record.landing_askew
 	ferry._slip_chosen = record.slip_chosen
 	if sailing:
-		ferry.place_underway()
+		if ferry.free_sail:
+			ferry.berth = Ferry.Berth.FREE
+		else:
+			ferry.place_underway()
 		if record.has("sailing_pose"):
 			var forward := SnapshotVector3.decode(record.sailing_pose.forward)
 			var position := SnapshotVector3.decode(record.sailing_pose.position)
@@ -281,7 +297,7 @@ static func restore(record: Variant, ferry: Ferry, build_vehicle: Callable) -> b
 	ferry.passengers_aboard = passengers
 	manifest.install(ferry)
 	FerryWalkOnSnapshot.install_walkers(
-		homeward, ferry, ferry._homeward_walkers, ferry._on_walker_home
+		homeward, ferry.sim, ferry._homeward_walkers, ferry._on_walker_home
 	)
 	if walking:
 		FerryWalkOnSnapshot.install(record.walk_ons, ferry)
@@ -304,7 +320,10 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 	if (
 		not _integer(r.get("version"), VERSION)
 		or r.version < 1
-		or r.has("lay_up") != (r.version >= 6)
+		or r.has("lay_up") != (r.version == 6)
+		or r.has("free_sailing") != (r.version == VERSION)
+		or r.has("free_sailing") != ferry.free_sail
+		or (ferry.free_sail and r.get("phase") != "crossing")
 		or (
 			r.has("lay_up")
 			and (not r.lay_up is Dictionary or r.lay_up.has("order") != ferry.manual)
@@ -327,7 +346,7 @@ static func _valid_state(r: Dictionary, ferry: Ferry) -> bool:
 	):
 		return false
 	var call_town := ferry.sim.map.towns[ferry.stops[int(r.call)]].key
-	if (r.phase != "crossing") != (call_town == r.from):
+	if not ferry.free_sail and (r.phase != "crossing") != (call_town == r.from):
 		return false
 	for key in NUMBERS:
 		if not _number(r.get(key)):
@@ -384,6 +403,12 @@ static func _valid_sailing_pose(record: Dictionary, ferry: Ferry) -> bool:
 		return false
 	var forward := SnapshotVector3.decode(pose.forward)
 	var position := SnapshotVector3.decode(pose.position)
+	if ferry.free_sail:
+		return (
+			is_zero_approx(forward.y)
+			and is_equal_approx(forward.length_squared(), 1.0)
+			and absf(position.y) <= 0.22
+		)
 	var at_a: bool = record.from == ferry.term_a.town.key
 	var distance: float = (
 		record.distance - ferry.dock_inset()

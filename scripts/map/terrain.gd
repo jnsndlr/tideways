@@ -51,6 +51,9 @@ var detail := FastNoiseLite.new()
 var rubble := FastNoiseLite.new()
 var hills := FastNoiseLite.new()
 var flats: Array[Dictionary] = []
+## Under a graded road the ground may not rise above the road bed again (lot pads,
+## later flats): NAN where no road claims the cell.
+var road_cap := PackedFloat32Array()
 ## The land past the grid's edge (heights there come from it, see outer_height).
 var mainland: Mainland
 ## owner_grid's mark for ground the mainland shaped (not an island's stamp).
@@ -313,9 +316,31 @@ func outer_height(x: float, z: float) -> float:
 	return _height_of(m.x, x, z, _world_stamp) + mainland.relief(x, z, m.y, m.x)
 
 
-func add_flat(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1: float, height: float, blend: float) -> void:
-	flats.append({"o": origin, "n": dir, "t": Vector3.UP.cross(dir), "u0": u0, "u1": u1,
-		"v0": v0, "v1": v1, "h": height, "blend": blend})
+func add_flat(
+	origin: Vector3,
+	dir: Vector3,
+	u0: float,
+	u1: float,
+	v0: float,
+	v1: float,
+	height: float,
+	blend: float,
+	slope := 0.0
+) -> void:
+	flats.append(
+		{
+			"o": origin,
+			"n": dir,
+			"t": Vector3.UP.cross(dir),
+			"u0": u0,
+			"u1": u1,
+			"v0": v0,
+			"v1": v1,
+			"h": height,
+			"blend": blend,
+			"slope": slope
+		}
+	)
 
 
 ## Keeps the ground under a trestle clear of its deck: within `u0..u1` along `dir` and
@@ -410,6 +435,9 @@ func _apply_roads(f: Dictionary) -> void:
 				continue
 			var g := j * (n + 1) + i
 			var target := best_y[k] - ROAD_DROP
+			# A later road may cross or end beside an existing downhill road bed.
+			if g < road_cap.size() and not is_nan(road_cap[g]):
+				target = minf(target, road_cap[g])
 			var past := best_past[k]
 			if past > 0.0:
 				var across := sqrt(maxf(best_d[k] * best_d[k] - past * past, 0.0))
@@ -419,6 +447,10 @@ func _apply_roads(f: Dictionary) -> void:
 				continue
 			if d <= 0.0:
 				h_grid[g] = target
+				if road_cap.size() != h_grid.size():
+					road_cap.resize(h_grid.size())
+					road_cap.fill(NAN)
+				road_cap[g] = target
 				continue
 			var run := clampf(absf(h_grid[g] - target) * 3.0, blend, ROAD_SLOPE_MAX)
 			if d < run:
@@ -443,6 +475,7 @@ func _apply_flat(f: Dictionary) -> void:
 	var v1: float = f.v1
 	var blend: float = f.blend
 	var target: float = f.h
+	var slope: float = f.get("slope", 0.0)  # height gained per metre along u
 	var under: Callable = f.get("under", Callable())
 	var reach := maxf(absf(u0), absf(u1)) + maxf(absf(v0), absf(v1)) + blend
 	var i0 := _index_of(o.x - reach)
@@ -465,7 +498,11 @@ func _apply_flat(f: Dictionary) -> void:
 				if h_grid[k] > cap:
 					h_grid[k] = lerpf(h_grid[k], cap, 1.0 - smoothstep(0.0, blend, dd))
 				continue
-			h_grid[k] = lerpf(h_grid[k], target, 1.0 - smoothstep(0.0, blend, dd))
+			h_grid[k] = lerpf(
+				h_grid[k], target + slope * clampf(u, u0, u1), 1.0 - smoothstep(0.0, blend, dd)
+			)
+			if k < road_cap.size() and not is_nan(road_cap[k]):
+				h_grid[k] = minf(h_grid[k], road_cap[k])
 
 
 ## Dredging (a slip bought where the water is shallow, Terminal): the ground over

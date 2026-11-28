@@ -71,9 +71,12 @@ func start_generated(seed_value: int) -> void:
 	await _start_region(generator, generator.generate.bind(seed_value))
 
 
-func start_authored(layout: MapLayout, opening: Scenario, route_cache_path: String) -> void:
+func start_authored(
+	layout: MapLayout, opening: Scenario, route_cache_path: String, town_lots_cache_path := ""
+) -> void:
 	var generator := MapGenerator.new()
 	generator.route_cache_path = route_cache_path
+	generator.town_lots_cache_path = town_lots_cache_path
 	scenario = opening
 	var plan := opening.region_plan() if opening else null
 	await _start_region(generator, generator.generate_from.bind(layout, plan))
@@ -147,6 +150,10 @@ func _start_region(gen: MapGenerator, generate: Callable) -> void:
 	if _setup_frames.cancelled or not is_instance_valid(sim):
 		return
 	process_mode = previous_mode
+	var town_dev := TownDevPanel.new()
+	town_dev.name = "TownDevPanel"
+	add_child(town_dev)
+	town_dev.setup(sim, rig)
 	set_process(true)
 	build_from = 1.0
 	build_to = 1.0
@@ -260,12 +267,20 @@ func _attach_simulation_views() -> void:
 			if guide:
 				builder.add_slip_perches(guide)
 	gulls.setup(sim, day_cycle, builder.gull_perches)
+	var air := AirTraffic.new()
+	air.name = "AirTraffic"
+	add_child(air)
+	air.day_cycle = day_cycle
+	air.setup(builder.airfields, builder.seaplane_docks)
 	if not await _setup_frames.can_continue():
 		return
 	var separation := SeparationBuoys.new()
 	separation.name = "Separation Buoys"
 	separation.setup(sim, builder.night_lights)
 	add_child(separation)
+	var lanes_png := str(Scenes.launch_options.values.get("lanes-png", ""))
+	if lanes_png != "" and sim.marine.lanes != null:
+		sim.marine.lanes.save_debug(terrain, map.half_size, lanes_png)
 	var ambience := Ambience.new()
 	ambience.name = "Ambience"
 	ambience.setup(rig, gulls, day_cycle, builder)
@@ -522,6 +537,8 @@ func _update_dof() -> void:
 func _dress_vessel(vessel: Vessel, lights: NightLights) -> void:
 	if vessel.spec == null:
 		return
+	if vessel is CoastGuardBoat:
+		return  # (it carries its own art: CoastGuardBoat.setup_berth; check before NavalVessel, its base)
 	if vessel is NavalVessel:
 		NavalVesselView.fit(vessel)
 		return

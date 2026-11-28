@@ -2,8 +2,15 @@
 from pathlib import Path
 from math import atan2, cos, sin, tau
 import sys
+import random
 import bpy
 from mathutils import Matrix, Vector
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pier_wood import BOARD_COLORS, TIMBER_COLOR, grain
+
+wood_rng = random.Random(413)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "assets/models/coastal_shops"
@@ -378,6 +385,20 @@ def dining_pier():
             box(x,y,-4.68,.46,.46,9.2,"Pile")
     for x in [-6.80,0,6.80]:
         box(x,-1.0,-.42,.29,10.03,.44,"Cedar")
+    # A 2.8 m gangway rises from the fixed dock into the port rail opening.
+    run, rise = 2.8, .645
+    angle = atan2(rise, run)
+    y = -4.7
+    for i in range(14):
+        t = (i + .5) / 14
+        plank = box(-7-run*(1-t)+.05*sin(angle), y, -rise*(1-t)-.05*cos(angle),
+                    run/14/cos(angle)-.005, 1.84, .10, "Dock")
+        plank.rotation_euler.y = -angle
+    for side in (-.86, .86):
+        for h in (-.13, .87):
+            rod((-7-run,y+side,h-rise),(-7,y+side,h),.105,"Cedar")
+        for t in (.035,.5,.965):
+            box(-7-run*(1-t),y+side,.435-rise*(1-t),.09,.09,.87,"Dock")
     # Rail posts, square caps, and vertical pickets around the terrace.
     runs=[((-6.81,-5.89),(6.81,-5.89),6),
           ((6.81,-5.89),(6.81,3.78),4),
@@ -1116,6 +1137,12 @@ def fish_market():
 def export(name, build, offset):
     parts.clear()
     build()
+    if restaurants:
+        for obj in parts:
+            mat = obj.data.materials[0]
+            if mat.name in ("Dock", "Honey", "Cedar", "Pile"):
+                obj.data.materials[0] = pier_timber if mat.name == "Pile" else wood_rng.choice(pier_boards)
+                grain(obj, wood_rng)
     bpy.ops.object.select_all(action='DESELECT')
     for obj in parts:
         obj.select_set(True)
@@ -1134,6 +1161,14 @@ lineup = ([("harbor_inn",harbor_inn,-7),("glass_hall",glass_hall,7)] if pair els
           [("salt_and_rye",bakery,-11),("sound_chandlery",chandlery,0),("tideline_cafe",cafe,11)])
 restaurants = "--pier-restaurants" in sys.argv
 if restaurants:
+    def pier_material(name, rgb):
+        mat = mats["Dock"].copy()
+        mat.name = name
+        mat.diffuse_color = (*rgb, 1)
+        mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*rgb, 1)
+        return mat
+    pier_boards = [pier_material(f"Weathered fir {i}", rgb) for i, rgb in enumerate(BOARD_COLORS)]
+    pier_timber = pier_material("Pier timber", TIMBER_COLOR)
     study = "pier_restaurants"
     lineup = [("sea_glass_grill", sea_glass_grill, -8.6), ("red_net_kitchen", red_net_kitchen, 8.6)]
 trio = "--commercial-trio" in sys.argv

@@ -131,6 +131,25 @@ static func classic_pine() -> ArrayMesh:
 	)
 
 
+## A ~40-triangle stand-in for `m`'s shadow: a trunk and two stacked cones filling its bounds.
+static func shadow_cones(n: String, m: Mesh) -> ArrayMesh:
+	return Models._cached(
+		"tree_shadow_" + n,
+		func():
+			var b := m.get_aabb()
+			var c := b.get_center()
+			var h := b.size.y
+			var r := maxf(b.size.x, b.size.z) * 0.5
+			var y0 := b.position.y
+			var mb := MeshBuilder.new()
+			var col := Color(0.2, 0.3, 0.2)
+			mb.cylinder(Vector3(c.x, y0, c.z), r * 0.12, r * 0.1, h * 0.3, 4, col)
+			mb.cylinder(Vector3(c.x, y0 + h * 0.15, c.z), r, 0.0, h * 0.6, 7, col)
+			mb.cylinder(Vector3(c.x, y0 + h * 0.5, c.z), r * 0.7, 0.0, h * 0.5, 7, col)
+			return mb.commit()
+	)
+
+
 static func classic_broadleaf() -> ArrayMesh:
 	return Models._cached(
 		"round",
@@ -154,9 +173,14 @@ static func variants(broadleaf: bool) -> Array:
 	var out := []
 	for n: String in BROAD_VARIANTS if broadleaf else pine_variants:
 		if n.begins_with("lpine"):
-			# One model all the way out, casting its own shadow, then its impostor.
+			# One model all the way out, then its impostor; its shadow is cast by two
+			# cones fitted to it (a shadow can't tell, and the full model in every
+			# cascade was most of the trees' triangles: TID-343).
 			var m := part(n)
-			out.append([m, m, null, impostor_card(n, m), null])
+			var sh: Mesh = (
+				m if "--full-tree-shadows" in OS.get_cmdline_user_args() else shadow_cones(n, m)
+			)
+			out.append([m, sh, null, impostor_card(n, m), null])
 			continue
 		var near := part(n)
 		var lod := part(n + "_lod")

@@ -41,6 +41,15 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 	if with_view:
 		check_canvas(hull, view, true)
 
+	boat._yaw = 0.73
+	var direction := boat.straight_prediction_direction()
+	expect(direction != Vector2.ZERO, "An open-water sloop predicts a straight course")
+	for distance: float in [0.0, 3.0, 81.25]:
+		expect(
+			boat.pos2() + direction * distance == boat.ahead(distance),
+			"The straight prediction matches the sloop's course sampler"
+		)
+
 	boat._yaw = 0.0
 	boat.speed = boat.cruise
 	for wind: String in ["W", "E"]:
@@ -59,8 +68,18 @@ func check_passage(sim: Simulation, with_view: bool) -> void:
 			check_trim(view, tack)
 
 	boat._begin_berthing()
-	expect(boat.motoring and boat.state == Sailboat.State.ARRIVING, "The sloop douses its sails on approach")
-	expect(is_equal_approx(boat.helm_speed(sim.wind_yaw()), boat.spec.motor_speed), "Engine speed is independent of wind")
+	expect(
+		boat.straight_prediction_direction() == Vector2.ZERO,
+		"A berthing sloop follows its approach path"
+	)
+	expect(
+		boat.motoring and boat.state == Sailboat.State.ARRIVING,
+		"The sloop douses its sails on approach"
+	)
+	expect(
+		is_equal_approx(boat.helm_speed(sim.wind_yaw()), boat.spec.motor_speed),
+		"Engine speed is independent of wind"
+	)
 	if with_view:
 		check_canvas(hull, view, false)
 	boat._berthed()

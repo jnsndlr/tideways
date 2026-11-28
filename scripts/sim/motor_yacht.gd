@@ -78,10 +78,11 @@ func _process(delta: float) -> void:
 	match state:
 		State.MOORED:
 			dwell -= Units.game_minutes(delta)
-			var h := traffic.sim.hour()
-			if dwell <= 0.0 and h >= LEAVE_HOURS.x and h < LEAVE_HOURS.y:
+			if dwell <= 0.0 and _departure_hours(LEAVE_HOURS):
 				_maybe_go_out()
 			_pose_moored()
+			if state == State.MOORED and wake.is_empty():
+				return
 		State.LEAVING:
 			_back_out(delta)
 		State.CRUISING, State.ANCHORING, State.WAITING:
@@ -266,7 +267,7 @@ func _begin_berthing() -> void:
 
 
 func _berthed() -> void:
-	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y)
+	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y) * dwell_scale
 	_moor()
 
 
@@ -444,7 +445,7 @@ func ahead(d: float) -> Vector2:
 		return path.sample(s + d)
 	if not wants_to_move():
 		return pos2()
-	return pos2() + Vector2(sin(_yaw), cos(_yaw)) * d
+	return pos2() + _open_water_direction() * d
 
 
 func status_text() -> String:

@@ -71,6 +71,9 @@ check fare-and-deck test --script tests/simulation/fare_deck_test.gd
 check company-ledger-snapshot test --script tests/rules/company_ledger_snapshot_test.gd
 check vehicle-spawn test --script tests/simulation/vehicle_spawn_test.gd
 check simulation-rules test --script tests/simulation/simulation_rules_test.gd
+check marina-ferry-yield test --script tests/traffic/marina_ferry_yield_test.gd
+check helm-hull-gap test --script tests/traffic/helm_hull_gap_test.gd
+check vessel-neighborhood test --script tests/traffic/vessel_neighborhood_test.gd
 check motor-yacht-anchor test --script tests/world/motor_yacht_anchor_test.gd
 check vessel-hull test --script tests/world/vessel_hull_view_test.gd
 check classic-vessel-hull test --script tests/world/vessel_hull_view_test.gd -- --classic-cargo
@@ -98,6 +101,7 @@ check crossing-restore test --script tests/session/ferry_crossing_snapshot_test.
 check company-network test --script tests/session/company_network_test.gd
 check town-growth-restore test --script tests/session/town_growth_snapshot_test.gd
 check company-restore test --script tests/session/company_snapshot_test.gd
+check free-sailing-restore test --script tests/session/free_sailing_snapshot_test.gd
 check purchased-fleet-restore test --script tests/session/purchased_fleet_snapshot_test.gd
 check inbound-delivery-restore test --script tests/session/inbound_delivery_snapshot_test.gd
 check sale-tow-restore test --script tests/session/sale_tow_snapshot_test.gd
@@ -105,6 +109,8 @@ check lay-up-restore test --script tests/session/ferry_lay_up_snapshot_test.gd
 check working-slip-restore test --script tests/session/working_slip_history_test.gd
 check outbound-traffic-restore test --script tests/session/outbound_traffic_snapshot_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
+check marine-clearance test --script tests/traffic/marine_clearance_test.gd
+check coast-guard-patrol test --script tests/traffic/coast_guard_patrol_test.gd
 check town-growth test --fixed-fps 30 --script tests/simulation/town_growth_test.gd
 check coastal-town test --script tests/world/coastal_town_test.gd
 check authored-tree-model test --script tests/world/tree_model_test.gd

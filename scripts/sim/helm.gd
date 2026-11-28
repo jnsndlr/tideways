@@ -29,8 +29,8 @@ extends RefCounted
 ##   helm_turn_rate() -> float            how fast it swings round (rad/s)
 
 const DECIDE_EVERY := 0.25
-const HORIZON := 30.0
-const STEP_T := 1.5
+const HORIZON := 60.0
+const STEP_T := 2.0
 const SCAN := 420.0
 const REPLAN_EVERY := 8.0
 # Headings tried either side of each course, and the speeds tried when no
@@ -45,6 +45,10 @@ const KEEP_SHIP := 42.0
 const KEEP_AHEAD_OF_SHIP := 48.0
 const KEEP_MOORED := 12.0       # from boats lying at a berth or at anchor
 const WILDLIFE_RADIUS := 45.0
+# As the give-way vessel it opens the pass wider (like MarineTraffic.CPA_KEEP)
+# from anything under way, so it acts early rather than shaving past.
+const GIVE_WAY_KEEP_SMALL := 30.0
+const GIVE_WAY_KEEP_SHIP := 60.0
 # A stand-on vessel only acts once a pass is this close and this soon.
 const STAND_ON_KEEP := 6.0
 const STAND_ON_SOON := 8.0
@@ -145,6 +149,15 @@ class Threat:
 	var a := PackedVector2Array()   # its hull (or centre) at each sample time
 	var b := PackedVector2Array()
 	var fwd := PackedVector2Array()
+	var centre := Vector2.ZERO  # a circle round every sample of its hull (a cheap clear-of test)
+	var bound := 0.0
+
+	func seal() -> void:
+		var box := Rect2(a[0], Vector2.ZERO)
+		for k in a.size():
+			box = box.expand(a[k]).expand(b[k])
+		centre = box.get_center()
+		bound = box.size.length() * 0.5
 
 
 func _decide() -> void:
@@ -160,7 +173,28 @@ func _decide() -> void:
 	var best_speed := 0.0
 	var best_threat: Threat = null
 	var base_yaw: float = courses[0][0]
-	blocked_land = _land_cost(p, base_yaw, v.helm_speed(base_yaw)) > 1.0
+	var base_speed := v.helm_speed(base_yaw)
+	var base_land := _land_cost(p, base_yaw, base_speed)
+	blocked_land = base_land > 1.0
+	var now_gap := traffic.hull_gap(v, p, v.heading2())
+	# For a single preferred course, every alternative adds at least the
+	# first offset's cost. A clear preferred course below that cost wins.
+	if (
+		v is MarinaBoat
+		and courses.size() == 1
+		and courses[0][1] == 0.0
+		and base_land == 0.0
+		and base_speed >= 1.2
+		and absf(angle_difference(base_yaw, _last)) * 0.5 < absf(OFFSETS[1]) * 1.2
+		and now_gap >= 6.0
+		and _clear_cruise(p, yaw, base_yaw, base_speed, my_r, threats)
+	):
+		want_yaw = base_yaw
+		want_speed = base_speed
+		_last = base_yaw
+		give_way_to = null
+		give_way_why = ""
+		return
 	# Headings to weigh up: either side of each course it could steer, and (at a
 	# price) every way round, so it can always turn away from trouble.
 	var cands: Array = []
@@ -172,10 +206,18 @@ func _decide() -> void:
 		var o := angle_difference(base_yaw, h)
 		if absf(o) > 1.0:
 			cands.append([h, 2.0 + absf(o) * 0.5, o])
+	# Nothing it could reach on any of them, whatever it does, needs weighing.
+	var max_top := 0.0
+	for c: Array in cands:
+		max_top = maxf(max_top, v.helm_speed(c[0]))
+	var near: Array[Threat] = []
+	for t: Threat in threats:
+		if p.distance_to(t.centre) <= max_top * HORIZON + _clear_of(t, my_r):
+			near.append(t)
+	threats = near
 	# Hard up against another hull, it can only go where the hull check lets it
 	# (MarineTraffic: no nearer than it is); and if that one is waiting for it to
 	# get out of the way, sitting still settles nothing.
-	var now_gap := traffic.hull_gap(v, p, v.heading2())
 	var pinned := now_gap < 6.0
 	var deadlock := v.blocked_by_hull and is_instance_valid(v.blocker) and v.blocker.waits_for(v)
 	for round in 2:
@@ -183,6 +225,11 @@ func _decide() -> void:
 		for c: Array in cands:
 			var h: float = c[0]
 			var o: float = c[2]
+			var turn_cost := absf(angle_difference(h, _last)) * 0.5
+			# Terrain, traffic and slowing can only add to the course and turn cost.
+			# A tie keeps the earlier heading, so skip its terrain and hull queries too.
+			if c[1] + turn_cost >= best_cost:
+				continue
 			var top := v.helm_speed(h)
 			var land := _land_cost(p, h, top)
 			if pinned:
@@ -192,7 +239,7 @@ func _decide() -> void:
 			for f: float in factors:
 				var sp := top * f
 				var cost: float = c[1] + (1.0 - f) * 1.5 + land
-				cost += absf(angle_difference(h, _last)) * 0.5
+				cost += turn_cost
 				# Barely making way (in irons, say) is no way to get anywhere, and
 				# the longer it goes on the more it is worth a big turn to get going.
 				if sp < 1.2:
@@ -200,6 +247,9 @@ func _decide() -> void:
 				var worst := 0.0
 				var worst_t: Threat = null
 				for t: Threat in threats:
+					# Remaining penalties can only add cost. Ties keep the first winner.
+					if cost >= best_cost:
+						break
 					var pen := _pass_cost(p, yaw, h, sp, my_r, t)
 					if t.why != "" and o > 0.0 and pen > 0.0:
 						# Give-way turns go to starboard.
@@ -240,19 +290,29 @@ func _decide() -> void:
 		give_way_why = best_threat.why
 
 
+func _clear_cruise(
+	p: Vector2, yaw: float, course: float, speed: float, radius: float, threats: Array[Threat]
+) -> bool:
+	for threat in threats:
+		if threat.what is Ferry or _pass_cost(p, yaw, course, speed, radius, threat) > 0.0:
+			return false
+	return true
+
+
 ## Everything near enough to matter, with where it will be at each sample time.
 func _threats(p: Vector2) -> Array[Threat]:
 	var out: Array[Threat] = []
-	for o in traffic.vessels:
+	for o in traffic.helm_candidates(p, SCAN):
 		if o == v or not is_instance_valid(o):
+			continue
+		var reach := SCAN + o.half_seg + o.hull_radius
+		var position := o.global_position
+		if absf(position.x - p.x) > reach or absf(position.z - p.y) > reach:
 			continue
 		# (Working alongside a ship, it is no threat to it, nor it to the ship.)
 		if Vessel.paired(v, o) and (v.road() == Vessel.Road.RESTRICTED or o.road() == Vessel.Road.RESTRICTED):
 			continue
-		var reach := SCAN + o.half_seg + o.hull_radius
-		var q := o.pos2()
-		if absf(q.x - p.x) > reach or absf(q.y - p.y) > reach:
-			continue
+		var q := Vector2(position.x, position.z)
 		var t := Threat.new()
 		t.what = o
 		t.why = v.helm_role(o)
@@ -260,6 +320,8 @@ func _threats(p: Vector2) -> Array[Threat]:
 		t.keep = KEEP_SHIP if ship else KEEP_SMALL
 		t.ahead_keep = KEEP_AHEAD_OF_SHIP if ship and o.speed > 0.9 else 0.0
 		t.radius = o.hull_radius
+		if t.why != "" and o.wants_to_move():
+			t.keep = GIVE_WAY_KEEP_SHIP if ship else GIVE_WAY_KEEP_SMALL
 		if o.road() == Vessel.Road.MOORED:
 			t.moored = true
 			t.keep = KEEP_MOORED
@@ -267,17 +329,40 @@ func _threats(p: Vector2) -> Array[Threat]:
 		# stopped (waiting for this one to get out of its way, perhaps).
 		var moving := o.wants_to_move()
 		var osp := maxf(o.speed, o.cruise * 0.4)
+		if not moving:
+			# Lying still: the same hull at every sample time.
+			var n := int(HORIZON / STEP_T) + 1
+			var f0 := o.heading2()
+			t.a.resize(n)
+			t.a.fill(q - f0 * o.half_seg)
+			t.b.resize(n)
+			t.b.fill(q + f0 * o.half_seg)
+			t.fwd.resize(n)
+			t.fwd.fill(f0)
+			t.seal()
+			out.append(t)
+			continue
+		var heading := o.heading2()
+		var crabbing := o.crabbing()
+		var straight := o.straight_prediction_direction()
 		for k in range(0, int(HORIZON / STEP_T) + 1):
-			var d := osp * k * STEP_T if moving else 0.0
-			var c := o.ahead(d) if moving else q
-			var f := o.heading2()
-			if moving and not o.crabbing():
-				var g := o.ahead(d + 3.0) - o.ahead(maxf(d - 3.0, 0.0))
+			var d := osp * k * STEP_T
+			var c := q + straight * d if straight != Vector2.ZERO else o.ahead(d)
+			var f := heading
+			if not crabbing:
+				var before := maxf(d - 3.0, 0.0)
+				var g: Vector2
+				if straight != Vector2.ZERO:
+					g = (q + straight * (d + 3.0)) - (q + straight * before)
+				else:
+					g = o.ahead(d + 3.0) - o.ahead(before)
 				if g.length_squared() > 1e-6:
-					f = g.normalized() * signf(g.normalized().dot(f) + 1e-3)
+					var tangent := g.normalized()
+					f = tangent * signf(tangent.dot(heading) + 1e-3)
 			t.a.append(c - f * o.half_seg)
 			t.b.append(c + f * o.half_seg)
 			t.fwd.append(f)
+		t.seal()
 		out.append(t)
 	if traffic.sim.wildlife:
 		for w: Wildlife.Visit in traffic.sim.wildlife.active_visits():
@@ -296,6 +381,7 @@ func _threats(p: Vector2) -> Array[Threat]:
 				t.a.append(c)
 				t.b.append(c)
 				t.fwd.append(f)
+			t.seal()
 			out.append(t)
 	return out
 
@@ -308,6 +394,25 @@ func _pass_cost(p: Vector2, yaw: float, h: float, sp: float, my_r: float, t: Thr
 	var d0 := Vector2(sin(yaw), cos(yaw))
 	var d1 := Vector2(sin(h), cos(h))
 	var stand_on := t.why == ""
+	# Every pose it reckons on lies along the two legs below; a threat that stays
+	# further than any keep from both legs costs nothing (most boats in a marina).
+	var early_end := p + d0 * sp * minf(HORIZON, turn_t * 0.5)
+	var clear := _clear_of(t, my_r)
+	if (
+		(
+			Geometry2D.get_closest_point_to_segment(t.centre, p, early_end).distance_to(t.centre)
+			> clear
+		)
+		and (
+			(
+				Geometry2D
+				. get_closest_point_to_segment(t.centre, early_end, early_end + d1 * sp * HORIZON)
+				. distance_to(t.centre)
+			)
+			> clear
+		)
+	):
+		return 0.0
 	var worst := 0.0
 	var total := 0.0
 	# (Now is the same whichever way it turns, so it doesn't count towards the
@@ -331,6 +436,11 @@ func _pass_cost(p: Vector2, yaw: float, h: float, sp: float, my_r: float, t: Thr
 			if k > 0:
 				worst = maxf(worst, pen)
 	return worst + total / t.a.size()
+
+
+## Further than this from every pose it reckons on, `t` costs nothing.
+static func _clear_of(t: Threat, my_r: float) -> float:
+	return t.bound + t.radius + my_r + maxf(t.keep, STAND_ON_KEEP) + t.ahead_keep
 
 
 ## How much land (or the edge of the map) closes the way ahead on heading `h`.

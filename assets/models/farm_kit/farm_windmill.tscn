@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/farm_kit/farm_windmill.glb" id="model"]
+[ext_resource type="Script" path="res://scripts/world/farm_windmill.gd" id="motion"]
+
+[node name="FarmWindmill" instance=ExtResource("model")]
+script = ExtResource("motion")

@@ -11,7 +11,7 @@ func mesh_for(model_name: String) -> ArrayMesh:
 		return _landmark_meshes[model_name]
 	var path := ""
 	if WorldBuilder.SHOP_SHELLS.has(model_name):
-		path = "res://assets/models/coastal_shops/%s.glb" % model_name
+		path = WorldBuilder.shop_path(model_name)
 	else:
 		path = "res://assets/models/%s.glb" % model_name
 	if not ResourceLoader.exists(path):

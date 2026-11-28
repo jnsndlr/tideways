@@ -222,7 +222,7 @@ static func _install_fleet(
 static func _unique_berths(sim: Simulation) -> bool:
 	var reserved := {}
 	for f in sim.ferries:
-		if f.berth == Ferry.Berth.WORKING:
+		if f.berth in [Ferry.Berth.WORKING, Ferry.Berth.FREE]:
 			continue
 		var berth := Vector2i(f.here().town.id, f.tie_up)
 		if reserved.has(berth):
@@ -300,6 +300,8 @@ static func _accounts_for_traffic(sim: Simulation) -> bool:
 				for row in lane.queue:
 					owned[row.vehicle_id] = true
 				owned.merge(lane.approaching)
+		for walker in term.departing_walkers:
+			owned[walker.get_instance_id()] = true
 		for pax in term.passenger_queue:
 			if pax.node != null:
 				owned[pax.node.get_instance_id()] = true

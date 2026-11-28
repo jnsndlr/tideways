@@ -61,10 +61,11 @@ func _process(delta: float) -> void:
 	match state:
 		State.MOORED:
 			dwell -= Units.game_minutes(delta)
-			var h := traffic.sim.hour()
-			if dwell <= 0.0 and h >= LEAVE_HOURS.x and h < LEAVE_HOURS.y:
+			if dwell <= 0.0 and _departure_hours(LEAVE_HOURS):
 				depart()
 			_pose_moored()
+			if state == State.MOORED and wake.is_empty():
+				return
 		State.LEAVING:
 			_back_out(delta)
 		State.SAILING, State.WAITING:
@@ -190,7 +191,7 @@ func _backed_out() -> void:
 
 
 func _berthed() -> void:
-	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y)
+	dwell = traffic.rng.randf_range(DWELL.x, DWELL.y) * dwell_scale
 	_moor()
 
 

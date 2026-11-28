@@ -9,7 +9,15 @@ class Island:
 	var key := ""                   # durable within this region; shared by its terminal
 	var id := 0
 	var name := ""
-	var center := Vector2.ZERO      # x, z
+	var center := Vector2.ZERO  # x, z
+	var airstrip := false  # an authored, graded airstrip (see MapLayout.IslandSpec)
+	var airstrip_at := Vector3.ZERO  # runway centre, y = its graded height
+	var airstrip_dir := Vector3.RIGHT  # along the runway
+	var airstrip_slope := 0.0  # its grade: height gained per metre along airstrip_dir
+	var service_road := PackedVector3Array()
+	# [foot, top] of the coast guard cliff ramp, ground cut clear of it  # graded road to a
+	# site off the town (the coast guard station)
+	var service_ramp := PackedVector3Array()
 	var radius := 120.0
 	var strength := 1.0             # elevation multiplier
 	var inhabited := true
@@ -85,9 +93,16 @@ class Town:
 	# Town
 	var town_center := Vector3.ZERO
 	var town_axis := Vector3.RIGHT
-	var road_main_a := PackedVector3Array()   # lot entrance → town centre
-	var road_main_b := PackedVector3Array()   # town centre → inland end
-	var road_cross: Array[PackedVector3Array] = []
+	var road_main_a := PackedVector3Array()  # lot entrance → town centre
+	var road_main_b := PackedVector3Array()  # town centre → inland end
+	var road_cross: Array[PackedVector3Array] = []  # from the square: the front street, each way
+	# lanes climbing off the front street (no traffic yet)
+	var road_lanes: Array[PackedVector3Array] = []
+	var street_plan: StreetPlan  # the planned street network (step 1: overlay only)
+	var town_lots: TownLots  # blocks + ranked frontage lots from street_plan
+	var street_lots := {}  # plan edge → lots placed or reserved along it
+	var street_built := {}  # plan edge → buildings standing along it (reveals and paves it)
+	var street_pinned := {}  # plan edge → true: shown paved from the start (the airport road joins it)
 	var label_pos := Vector3.ZERO
 
 	func lateral() -> Vector3:
@@ -131,7 +146,8 @@ class Town:
 		if not slips[i].tie_up or i < working:
 			return (i - (working - 1) * 0.5) * Layout.SLIP_SPACING
 		# Tie-ups: the first a slip spacing on from the last working slip, then side by side.
-		return (working - 1) * 0.5 * Layout.SLIP_SPACING + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
+		var last_working := (working - 1) * 0.5 * Layout.SLIP_SPACING
+		return last_working + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
 
 	## Pins every slip where it lies now, so adding one moves none of the others.
 	func freeze_slip_offsets() -> void:
@@ -200,7 +216,7 @@ class DockSite:
 ## WorldBuilder places initial buildings up to the starting ratios and reserves
 ## the remaining lots clear of trees so growth can construct into them cleanly.
 class TownLot:
-	enum Kind { HOUSE, COMMERCIAL, LANDMARK, RADIO_TOWER }
+	enum Kind { HOUSE, COMMERCIAL, LANDMARK, RADIO_TOWER, BIG_BOX }
 	var pos := Vector3.ZERO
 	var yaw := 0.0
 	var scale := 1.0
@@ -209,6 +225,12 @@ class TownLot:
 	var variant := 0
 	var occupied := false
 	var waterfront := false
+	var yard_half := 0.0  # see WorldBuilder._yard_extent; yard_back 0 = no yard
+	var yard_back := 0.0
+	var street := -1  # StreetPlan edge it fronts (-1: a grid lot)
+	var model := ""  # BIG_BOX: store model (WorldBuilder.BIG_BOXES)
+	var store_drive := PackedVector3Array()
+	var need_pop := 0  # BIG_BOX: town population it's built at
 
 
 ## Somewhere boats tie up along a shore. Its frame is like a terminal's: origin
@@ -255,6 +277,11 @@ class Harbour:
 
 ## A small-boat pier with a T-head (see Layout's marina frame).
 class Marina extends Harbour:
+	## Finger slips out along the branch docks (filled in by WorldBuilder): each
+	## {at, out, mouth: Vector2, yaw: float, sail: bool, model: String}. Boats kept
+	## there are berth numbers Layout.MARINA_BERTHS + i (see MarinaBoat).
+	var slips: Array = []
+
 	func berth_v(i: int) -> float:
 		return (i - (Layout.MARINA_BERTHS - 1) * 0.5) * Layout.MARINA_BERTH_SPACING
 
@@ -396,7 +423,12 @@ class Route:
 
 
 var map_seed := 0
+## Where baked TownLots for an authored map live (WorldBuilder); empty = always build.
+var town_lots_cache_path := ""
 var half_size := 3300.0
+## Cargo shipping channels (ShippingLanes): name -> where each crosses the middle
+## row of the passage. Empty: cargo ships find their own way through.
+var shipping_channels := {}
 var islands: Array[Island] = []
 ## Every town, each with its dock (if any) and terminal (once built).
 var towns: Array[Town] = []

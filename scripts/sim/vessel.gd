@@ -21,8 +21,16 @@ var speed := 0.0
 var cruise := 3.0
 var yield_decel := 3.0    # braking used to stop short of a conflict
 var rank := 0             # higher ranks keep their course; lower ones give way
-var half_seg := 3.0
-var hull_radius := 3.0
+var half_seg := 3.0:
+	set(value):
+		half_seg = value
+		if neighborhood:
+			neighborhood.include_reach(self)
+var hull_radius := 3.0:
+	set(value):
+		hull_radius = value
+		if neighborhood:
+			neighborhood.include_reach(self)
 var claim_step := 6.0     # spacing of the points MarineTraffic samples ahead
 var hold := INF           # how far it means to go for now (short of a channel or berth it is waiting for)
 var model_variant := 0
@@ -34,7 +42,29 @@ var consort: Vessel = null   # the ship it is working alongside, if any (their h
 # Set by MarineTraffic each frame.
 var clear := INF
 var blocker: Vessel = null
-var blocked_by_hull := false   # (rather than by giving way to another's path)
+var blocked_by_hull := false  # (rather than by giving way to another's path)
+var cpa_cap := INF  # speed it may make and still keep a passing ship's CPA open
+var stuck_t := 0.0  # how long it has been held up without making way
+var go_t := 0.0  # while > 0, it has stopped giving way (only hulls count) to work free
+
+var neighborhood: VesselNeighborhood
+var neighborhood_order := 0
+var neighborhood_bounds := Rect2()
+
+
+func _notification(what: int) -> void:
+	if neighborhood == null:
+		return
+	match what:
+		NOTIFICATION_PREDELETE:
+			neighborhood.remove(self)
+		NOTIFICATION_LOCAL_TRANSFORM_CHANGED:
+			var pos := position
+			if not top_level and neighborhood_bounds.has_point(Vector2(pos.x, pos.z)):
+				return
+			neighborhood.relocate(self)
+		NOTIFICATION_ENTER_TREE, NOTIFICATION_UNPARENTED:
+			neighborhood.relocate(self)
 
 
 ## Whether it is trying to get somewhere (moored or docked vessels aren't).
@@ -45,6 +75,12 @@ func wants_to_move() -> bool:
 ## Where the centre will be after advancing `d` further along its path.
 func ahead(_d: float) -> Vector2:
 	return pos2()
+
+
+## World-space direction when ahead(d) follows a straight line from pos2().
+## Zero leaves predictions to the vessel's own path sampler.
+func straight_prediction_direction() -> Vector2:
+	return Vector2.ZERO
 
 
 ## Distance left along its current path.
@@ -84,7 +120,7 @@ func shown_look() -> float:
 
 ## Fastest it may go and still stop within `clear`.
 func yield_speed() -> float:
-	return sqrt(2.0 * yield_decel * maxf(clear - 1.5, 0.0))
+	return minf(sqrt(2.0 * yield_decel * maxf(clear - 1.5, 0.0)), cpa_cap)
 
 
 ## Whether it is held up waiting on `v`, directly (its hull or path, or something

@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/fieldstone_bed.glb" id="fieldstone_bed"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/chard.glb" id="chard"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/apple_tree.glb" id="apple_tree"]
+
+[node name="orchard_plot" type="Node3D"]
+
+[node name="fieldstone_bed_1" parent="." instance=ExtResource("fieldstone_bed")]
+position = Vector3(0, 0, 1)
+
+[node name="chard_2" parent="." instance=ExtResource("chard")]
+position = Vector3(0, 0.2, 1)
+
+[node name="apple_tree_3" parent="." instance=ExtResource("apple_tree")]
+position = Vector3(0.7, 0, -1.45)

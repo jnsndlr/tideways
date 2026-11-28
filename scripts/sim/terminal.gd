@@ -64,6 +64,7 @@ const ROAD_TOLERANCE := 0.06
 var passengers_served_today := 0
 ## Walk-on passengers waiting at the passenger terminal: {dest, arrival, variant, node}.
 var passenger_queue: Array[Dictionary] = []
+var departing_walkers: Array[Passenger] = []
 
 
 ## A snapshot of the holding lot. Waiting counts vehicles; inbound counts reserved spaces.
@@ -643,30 +644,47 @@ func lane_keys() -> Array[int]:
 
 
 func _build_road_paths() -> void:
-	var to_lot := town.road_main_a.duplicate()
-	to_lot.reverse()
 	var branches: Array[PackedVector3Array] = []
 	if town.road_main_b.size() > 1:
 		branches.append(town.road_main_b)
 	branches.append_array(town.road_cross)
+	if town.street_plan != null:
+		branches.append_array(town.street_plan.drives_from_square())
+	for lot in town.growth_lots:
+		if lot.kind == MapData.TownLot.Kind.BIG_BOX and lot.occupied:
+			var d := lot.store_drive
+			if d.size() > 1:
+				branches.append(d)
 	if branches.is_empty():
 		branches.append(PackedVector3Array([town.road_main_a[town.road_main_a.size() - 1]]))
 	for b in branches:
-		var inbound := b.duplicate()
-		inbound.reverse()
-		inbound.append_array(to_lot)
-		var road_path := _keep_right(inbound)
-		var entrance := to_lot[-1]
-		var length := (entrance - to_lot[0]).dot(town.dock_dir)
-		for v: float in Layout.TICKET_LANES:
-			var ticket_path := road_path.duplicate()
-			for j in to_lot.size():
-				var inland := (entrance - to_lot[j]).dot(town.dock_dir)
-				ticket_path[b.size() + j] += town.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
-			_inbound.append(simplify(ticket_path, ROAD_TOLERANCE))
-		var outbound := town.road_main_a.duplicate()
-		outbound.append_array(b)
-		_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
+		add_drive(b)
+
+
+## Adds a drive (a street polyline out from the square) that town cars come from
+## and go home along, to and from the ferry lot.
+func add_drive(b: PackedVector3Array) -> void:
+	if b.size() < 1 or town.road_main_a.size() < 1:
+		return
+	var to_lot := town.road_main_a.duplicate()
+	to_lot.reverse()
+	var inbound := b.duplicate()
+	inbound.reverse()
+	inbound.append_array(to_lot)
+	var road_path := _keep_right(inbound)
+	var entrance := to_lot[-1]
+	var length := (entrance - to_lot[0]).dot(town.dock_dir)
+	for v: float in Layout.TICKET_LANES:
+		var ticket_path := road_path.duplicate()
+		for j in to_lot.size():
+			var inland := (entrance - to_lot[j]).dot(town.dock_dir)
+			ticket_path[b.size() + j] += (
+				town.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
+			)
+		_inbound.append(simplify(ticket_path, ROAD_TOLERANCE))
+	var outbound := town.road_main_a.duplicate()
+	outbound.append_array(b)
+	_outbound.append(_keep_right(simplify(outbound, ROAD_TOLERANCE)))
 
 
 ## Douglas-Peucker: the fewest of `pts` (ends kept) that stay within `tol` of the rest.
@@ -985,8 +1003,14 @@ func _prune_unserved_passengers(dests: Array[int]) -> void:
 		if p["dest"] not in dests:
 			var node: Passenger = p["node"]
 			if node != null and is_instance_valid(node):
-				node.walk(PackedVector3Array([door]), func(w: Passenger): w.queue_free())
+				departing_walkers.append(node)
+				node.walk(PackedVector3Array([door]), _on_walker_departed)
 			passenger_queue.remove_at(i)
+
+
+func _on_walker_departed(walker: Passenger) -> void:
+	departing_walkers.erase(walker)
+	walker.queue_free()
 
 
 ## Boards the next walk-on passenger heading to one of `serves`. Returns {} if none wait.

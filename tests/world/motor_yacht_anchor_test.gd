@@ -36,7 +36,14 @@ func _run() -> void:
 		if with_view:
 			check_gear(yacht, view, lamps, false, true, true, "setting")
 		yacht._process(MotorYacht.SCOPE / MotorYacht.SET_SPEED)
-		expect(yacht.state == MotorYacht.State.ANCHORED, "The yacht lies at anchor once the line is paid out")
+		expect(
+			yacht.state == MotorYacht.State.ANCHORED,
+			"The yacht lies at anchor once the line is paid out"
+		)
+		expect(
+			yacht.straight_prediction_direction() == Vector2.ZERO,
+			"An anchored yacht has no straight-course prediction"
+		)
 		if with_view:
 			check_gear(yacht, view, lamps, false, true, true, "anchored")
 

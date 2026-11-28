@@ -59,10 +59,17 @@ func _ready() -> void:
 	# The authored islands' routes are planned once and kept (MapGenerator.route_cache_path).
 	# Every dock site's routes are in them, so buying one plans nothing (TID-319).
 	var route_cache_path := ""
+	var town_lots_cache_path := ""
 	if not unsaved:
-		route_cache_path = "res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+		route_cache_path = (
+			"res://maps/routes/%s-%s.json" % [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+		)
+		town_lots_cache_path = (
+			"res://maps/town_lots/%s-%s.bin"
+			% [MapLayout.MAIN_STORY.get_file().get_basename(), plan]
+		)
 	save_scenario = _played_scenario
-	await start_authored(layout, opening, route_cache_path)
+	await start_authored(layout, opening, route_cache_path, town_lots_cache_path)
 	if not built:
 		return
 	editor = IslandEditor.new()

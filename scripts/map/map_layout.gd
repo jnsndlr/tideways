@@ -54,6 +54,12 @@ class IslandSpec:
 	var ferry := true  # with no scenario (--full-network): build its first dock
 	var community_type := "residential"  # "rural", "residential", or "industrial"
 	var docks: Array[DockSpec] = []
+	## A graded airstrip: its centre in world x/z and the runway's heading in degrees
+	## (0 = along +x). Only written when the island has one.
+	var airstrip := false
+	var airstrip_x := 0.0
+	var airstrip_z := 0.0
+	var airstrip_heading := 0.0
 
 	## Where dock `d` meets the shore in the world, and the heading out to sea.
 	func dock_at(d: DockSpec) -> Vector2:
@@ -79,6 +85,12 @@ class IslandSpec:
 			d[k] = snappedf(v, 0.001) if v is float else v
 		if not docks.is_empty():
 			d["docks"] = docks.map(func(dk: DockSpec): return dk.to_dict())
+		if airstrip:
+			d["airstrip"] = {
+				"x": snappedf(airstrip_x, 0.1),
+				"z": snappedf(airstrip_z, 0.1),
+				"heading": snappedf(airstrip_heading, 0.1)
+			}
 		return d
 
 	static func from_dict(d: Dictionary) -> IslandSpec:
@@ -104,6 +116,12 @@ class IslandSpec:
 				return null
 		if not d.get("dock", false) is bool:
 			return null
+		if d.has("airstrip"):
+			var a: Dictionary = d["airstrip"]
+			s.airstrip = true
+			s.airstrip_x = float(a.get("x", 0.0))
+			s.airstrip_z = float(a.get("z", 0.0))
+			s.airstrip_heading = float(a.get("heading", 0.0))
 		# The old single hand-placed dock, in world coordinates.
 		if bool(d.get("dock", false)) and s.docks.is_empty():
 			s.docks.append(s.dock_from_world(Vector2(float(d.get("dock_x", 0.0)), float(d.get("dock_z", 0.0))), float(d.get("dock_angle", 0.0))))

@@ -7,7 +7,7 @@ extends SceneTree
 ## wildlife photos)
 ## - Organic (5/8/10/day), ferry-driven (up to 5x), and milestone growth
 ## - 1 house / 100 pop and 1 commercial / 333 pop construction triggers & TownConstruction lifecycle
-## - 4,000 pop Hangar + Windsock, unique first-rural-only Observatory, and Madrona + 6,000 island
+## - Day-one airport hangars, unique first-rural-only Observatory, and Madrona + 6,000 island
 ## Radio Tower
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tests/simulation/town_growth_test.gd
@@ -73,9 +73,9 @@ func _process(_delta: float) -> bool:
 		var got := TownGrowth.expected_connections_for(c[0], 10)
 		_expect(got == c[1], "Pop %d expected %d connections, got %d" % [c[0], c[1], got])
 
-	# 3. Verify 1 house / 100 pop and 1 commercial / 333 pop formulas.
-	_expect(TownGrowth.target_houses_for(1250) == 12, "1250 pop -> 12 houses")
-	_expect(TownGrowth.target_commercial_for(1000) == 3, "1000 pop -> 3 commercial")
+	# 3. Verify 1 house / 75 pop and 1 commercial / 250 pop formulas.
+	_expect(TownGrowth.target_houses_for(1250) == 16, "1250 pop -> 16 houses")
+	_expect(TownGrowth.target_commercial_for(1000) == 4, "1000 pop -> 4 commercial")
 
 	# 4. Spin up a 3-town TinyRegion simulation for live progression tests.
 	_region = TinyRegion.build(3)
@@ -241,14 +241,14 @@ func _process(_delta: float) -> bool:
 
 	var houses_before := st_rur.built_houses
 	var comm_before := st_rur.built_commercial
-	st_rur.population_exact = 1350.0  # crosses +2 houses (11->13) and +1 commercial (3->4)
+	st_rur.population_exact = 1350.0  # crosses house and commercial thresholds
 	tg.step(1.0)
 	_expect(
 		(
 			MapData.TownLot.Kind.HOUSE in started_kinds
 			or MapData.TownLot.Kind.COMMERCIAL in started_kinds
 		),
-		"Crossing 100/333 pop thresholds must start construction jobs"
+		"Crossing 75/250 pop thresholds must start construction jobs"
 	)
 	# Advance enough game minutes to finish queued house & commercial builds.
 	for _s in 60:
@@ -268,7 +268,7 @@ func _process(_delta: float) -> bool:
 		)
 	)
 
-	# Verify 4,000 pop Hangar + unique first-rural-only Observatory!
+	# Crossing 4,000 can award the first rural observatory.
 	var milestones_hit: Array[String] = []
 	tg.milestone_unlocked.connect(
 		func(town: MapData.Town, mid: String, _title: String, _detail: String):
@@ -277,8 +277,8 @@ func _process(_delta: float) -> bool:
 	st_rur.population_exact = 4005.0
 	tg.step(1.0)
 	_expect(
-		"%d:airfield_4000" % t_rur.id in milestones_hit,
-		"Rural town at 4k must unlock airfield_4000"
+		"%d:airfield_4000" % t_rur.id not in milestones_hit,
+		"Reaching 4,000 should not award a second hangar"
 	)
 	_expect(
 		"%d:observatory_4000" % t_rur.id in milestones_hit,
@@ -288,14 +288,13 @@ func _process(_delta: float) -> bool:
 		tg.observatory_claimed_town == t_rur.id, "Observatory must be claimed by first rural town"
 	)
 
-	# Make town 0 rural too and push it past 4k -> must get airfield_4000, MUST NOT get
-	# observatory_4000!
+	# A second rural town reaching 4,000 cannot claim the same observatory.
 	t_ind.community_type = "rural"
 	st_ind.population_exact = 4005.0
 	tg.step(1.0)
 	_expect(
-		"%d:airfield_4000" % t_ind.id in milestones_hit,
-		"Second town at 4k must still unlock airfield_4000"
+		"%d:airfield_4000" % t_ind.id not in milestones_hit,
+		"The retired hangar reward should stay absent in other towns"
 	)
 	_expect(
 		not ("%d:observatory_4000" % t_ind.id in milestones_hit),
@@ -317,11 +316,14 @@ func _process(_delta: float) -> bool:
 		tg.step(30.0)
 	_expect(
 		(
-			"airplane_hangar_low" in completed_models
+			"airplane_hangar_low" not in completed_models
 			and "observatory" in completed_models
 			and "radio_tower" in completed_models
 		),
-		"Hangar, Observatory, and Radio Tower builds must complete (got %s)" % [completed_models]
+		(
+			"Expected the observatory and radio tower to finish without another hangar (got %s)"
+			% [completed_models]
+		)
 	)
 
 	tc.free()

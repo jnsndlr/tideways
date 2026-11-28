@@ -1,6 +1,11 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://scripts/world/dock_kit_demo.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/dock_kit/dock_box.glb" id="dock_box"]
+[ext_resource type="PackedScene" path="res://assets/models/dock_kit/power_pedestal.glb" id="power_pedestal"]
+[ext_resource type="PackedScene" path="res://assets/models/dock_kit/fender.glb" id="fender"]
+[ext_resource type="PackedScene" path="res://assets/models/dock_kit/fish_crate.glb" id="fish_crate"]
+[ext_resource type="PackedScene" path="res://assets/models/dock_kit/crab_pot.glb" id="crab_pot"]
 
 [sub_resource type="Environment" id="Environment"]
 background_mode = 1
@@ -31,7 +36,21 @@ rotation_degrees = Vector3(-54, -32, 0)
 shadow_enabled = true
 
 [node name="Camera3D" type="Camera3D" parent="."]
-position = Vector3(20, 22, 39)
+position = Vector3(31, 15, -34)
 projection = 1
 size = 25.0
 current = true
+[node name="DockBox" parent="." instance=ExtResource("dock_box")]
+position = Vector3(-7.7, 1.98, -1.47)
+
+[node name="PowerPedestal" parent="." instance=ExtResource("power_pedestal")]
+position = Vector3(-5.4, 1.98, -1.7)
+
+[node name="Fender" parent="." instance=ExtResource("fender")]
+position = Vector3(-6.5, 1.98, -2)
+
+[node name="FishCrate" parent="." instance=ExtResource("fish_crate")]
+position = Vector3(-4.05, 1.98, -1.46)
+
+[node name="CrabPot" parent="." instance=ExtResource("crab_pot")]
+position = Vector3(-8.38, 1.98, 1.37)

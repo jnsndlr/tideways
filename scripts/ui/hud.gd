@@ -23,6 +23,8 @@ const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0, Units.REAL_TIME_SCALE]
 const SPEED_LABELS := ["Paused", "1x", "8x", "16x", "32x", "Real time"]
 const WILD := Color(0.98, 0.78, 0.42)
 
+const COST_TAG_SECONDS := 2.6
+var selected_plane: AirTraffic.Craft
 var _game_menu: PopupMenu
 var _layout_editor := preload("res://scripts/ui/hud_layout_editor.gd").new()
 var _menu_button: Button
@@ -78,7 +80,6 @@ var _port_tabs := {}
 var _fleet_panel: FleetPanel
 var _finance_panel: FinancePanel
 var _cost_tags: Array = []      # [label, ferry, real seconds shown]
-const COST_TAG_SECONDS := 2.6
 var _wild_panel: PanelContainer
 var _wild_list: VBoxContainer
 var _wild_islands: Label
@@ -94,6 +95,9 @@ var _help: Label
 var _minimap_overlay: Control
 var _refresh := 0.0
 var _last_hour := -1.0
+
+var _select_ring: MeshInstance3D
+var _hover_ring: MeshInstance3D
 
 
 func setup(session: WorldSession, offers_dock_sites := false) -> void:
@@ -478,6 +482,12 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 		if not wildlife.photograph(visit):
 			show_toast(visit.species.plural.to_upper(), "Already photographed this %s." % _group_word(visit), 3.0)
 		return
+	var air := _session.get_node_or_null("AirTraffic") as AirTraffic
+	if air:
+		var plane := air.pick(screen_pos, cam, clampf(9000.0 / rig.distance, 24.0, 120.0))
+		if plane:
+			select_plane(plane)
+			return
 	var best: Vessel = null
 	var best_d := clampf(9000.0 / rig.distance, 24.0, 220.0)
 	for v in sim.marine.vessels:
@@ -491,11 +501,11 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 		if d < best_d:
 			best_d = d
 			best = v
-	if best is Ferry:
-		select_ferry(best)
-		return
 	if best:
-		select_vessel(best)
+		if best is Ferry:
+			select_ferry(best)
+		else:
+			select_vessel(best)
 		return
 	var hit: Variant = rig.pick_terrain(screen_pos)
 	if hit == null:
@@ -572,6 +582,16 @@ func select_vessel(v: Vessel) -> void:
 	_refresh_panels()
 
 
+## A light plane: shows its panel and follows it.
+func select_plane(c: AirTraffic.Craft) -> void:
+	_reset_selection()
+	selected_plane = c
+	rig.follow = c.node
+	if rig.target_dist > 400.0:
+		rig.target_dist = 220.0
+	_refresh_panels()
+
+
 func clear_selection() -> void:
 	_reset_selection()
 	_refresh_panels()
@@ -583,6 +603,7 @@ func _reset_selection() -> void:
 	selected_town = null
 	selected_ferry = null
 	selected_vessel = null
+	selected_plane = null
 	rig.follow = null
 
 
@@ -681,50 +702,118 @@ func _build_info_panel() -> void:
 
 
 ## RTS orders for the selected ferry (TID-329): right-click a dock to send her
-## there (everyone gets off; she lies there out of service), open water to pull
-## her aside where she is, riders kept aboard.
+## there (everyone gets off; she lies there out of service), open water to sail
+## her straight to that point, whatever she was doing.
 func _on_ground_right_clicked(screen_pos: Vector2) -> void:
 	var f := selected_ferry
 	if f == null or not is_instance_valid(f):
 		return
-	var cam := rig.camera
-	var best: Terminal = null
-	var best_d := 70.0
-	for term: Terminal in sim.terminals.values():
-		var c: Vector3 = term.town.shore
-		if cam.is_position_behind(c):
-			continue
-		var d := cam.unproject_position(c).distance_to(screen_pos)
-		if d < best_d:
-			best_d = d
-			best = term
-	if best:
-		var id := best.town.id
-		if id not in f.manual_reach():
-			show_toast(
-				f.ferry_name.to_upper(),
-				"No route she fits from where she is to %s." % best.town.name,
-				3.0
-			)
-			return
-		var slip := f.best_slip(id)
+	var pick := _dock_under(screen_pos)
+	if not pick.is_empty():
+		var term: Terminal = pick[0]
+		var slip: int = pick[1]
+		var id := term.town.id
+		if not term.town.slips[slip].fits(f.fc.size) or term.town.slips[slip].building:
+			slip = f.best_slip(id)
 		if slip < 0 or not f.order_move(id, slip):
-			show_toast(f.ferry_name.to_upper(), "No slip at %s she fits." % best.town.name, 3.0)
+			show_toast(f.ferry_name.to_upper(), "No route in to %s she fits." % term.town.name, 3.0)
 			return
 		show_toast(
-			f.ferry_name.to_upper(), "Bound for %s · everyone gets off there." % best.town.name, 3.0
+			f.ferry_name.to_upper(), "Bound for %s · everyone gets off there." % term.town.name, 3.0
 		)
 		_refresh_panels()
 		return
-	if f.order_hold():
-		show_toast(f.ferry_name.to_upper(), "Pulled aside · Return to service to carry on.", 3.0)
-		_refresh_panels()
-	else:
+	var p := _water_point(screen_pos)
+	if p.is_finite() and f.order_sail_to(p):
 		show_toast(
-			f.ferry_name.to_upper(),
-			"She can only pull aside under way. Right-click a dock to send her there.",
-			3.0
+			f.ferry_name.to_upper(), "Under way to that spot · Return to service to carry on.", 3.0
 		)
+		_refresh_panels()
+
+
+## Where the pointer meets the sea (y = 0); INF if it points above the horizon.
+func _water_point(screen_pos: Vector2) -> Vector3:
+	var cam := rig.camera
+	var o := cam.project_ray_origin(screen_pos)
+	var d := cam.project_ray_normal(screen_pos)
+	if absf(d.y) < 1e-4 or (o.y / -d.y) < 0.0:
+		return Vector3.INF
+	return o + d * (o.y / -d.y)
+
+
+## The slip of a built terminal under the pointer, as [terminal, slip index], or [].
+## Picks along each slip's whole length (berth out past the dolphins), not just the shore.
+func _dock_under(screen_pos: Vector2) -> Array:
+	var cam := rig.camera
+	var best: Array = []
+	var best_d := 60.0
+	for term: Terminal in sim.terminals.values():
+		var xf := term.global_transform
+		for i in term.town.slips.size():
+			if term.town.slips[i].building:
+				continue
+			for z in [0.0, 25.0, 50.0, 75.0, -25.0, -50.0, -75.0]:
+				var c: Vector3 = xf * Vector3(term.town.slip_offset(i), 0.0, z)
+				if cam.is_position_behind(c):
+					continue
+				var d := cam.unproject_position(c).distance_to(screen_pos)
+				if d < best_d:
+					best_d = d
+					best = [term, i]
+	return best
+
+
+func _ring(color: Color) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var t := TorusMesh.new()
+	t.inner_radius = 0.92
+	t.outer_radius = 1.0
+	t.rings = 64
+	t.ring_segments = 6
+	m.mesh = t
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test = true
+	mat.render_priority = 10
+	m.material_override = mat
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	m.visible = false
+	m.top_level = true
+	sim.add_child(m)
+	return m
+
+
+## Selection ring under the selected ferry; hover ring on the slip a right-click would send her to.
+func _update_order_rings() -> void:
+	if sim == null or rig == null:
+		return
+	if _select_ring == null:
+		_select_ring = _ring(Color(0.45, 1.0, 0.55, 0.9))
+		_hover_ring = _ring(Color(1.0, 0.85, 0.3, 0.95))
+	var f := selected_ferry
+	var on := f != null and is_instance_valid(f)
+	_select_ring.visible = on
+	_hover_ring.visible = false
+	if not on:
+		return
+	var r := f.fc.half_length + 6.0
+	_select_ring.global_transform = Transform3D(
+		Basis().scaled(Vector3(r, 2.0, r)), Vector3(f.global_position.x, 0.6, f.global_position.z)
+	)
+	var mouse := get_viewport().get_mouse_position()
+	var pick := _dock_under(mouse)
+	if pick.is_empty():
+		return
+	var term: Terminal = pick[0]
+	var c: Vector3 = term.global_transform * Vector3(term.town.slip_offset(pick[1]), 0.0, 0.0)
+	var hr := 26.0
+	_hover_ring.global_transform = Transform3D(
+		Basis().scaled(Vector3(hr, 2.0, hr)), Vector3(c.x, 1.0, c.z)
+	)
+	_hover_ring.visible = true
+	Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND)
 
 
 ## Send the selected ferry by hand to `slip` at `town_id` (TID-328).
@@ -823,6 +912,8 @@ func _on_info_button() -> void:
 		rig.follow = null if rig.follow == selected_ferry else selected_ferry
 	elif selected_vessel:
 		rig.follow = null if rig.follow == selected_vessel else selected_vessel
+	elif selected_plane:
+		rig.follow = null if rig.follow == selected_plane.node else selected_plane.node
 	elif selected_town:
 		rig.focus_on(selected_town.town_center, 390.0)
 	_refresh_panels()
@@ -859,11 +950,15 @@ func _refresh_panels() -> void:
 	# Cargo ships leave the map.
 	if selected_vessel and not is_instance_valid(selected_vessel):
 		selected_vessel = null
+	# Planes that fly off the map are gone.
+	if selected_plane and not is_instance_valid(selected_plane.node):
+		selected_plane = null
 	var offer_dock := false
 	var offer_upgrades := false
 	_ferry_panel.visible = selected_ferry != null
 	_info_panel.visible = (
-		selected_ferry == null and (selected_town != null or selected_vessel != null)
+		selected_ferry == null
+		and (selected_town != null or selected_vessel != null or selected_plane != null)
 	)
 	_terminal_bar.visible = selected_town != null and sim.terminals.has(selected_town.id)
 	if _terminal_bar.visible:
@@ -921,6 +1016,17 @@ func _refresh_panels() -> void:
 					rows.append(["Escort", esc])
 		_set_rows(rows)
 		_info_button.text = "Stop following" if rig.follow == v else "Follow"
+	elif selected_plane:
+		var c := selected_plane
+		_info_title.text = c.tail
+		_info_sub.text = (
+			"DHC-2 Beaver · floatplane" if selected_plane.water else "Cessna 172 · light aircraft"
+		)
+		var rows := [["Status", c.status_text()], ["Speed", "%d kn" % roundi(Units.knots(c.speed))]]
+		if c.airborne:
+			rows.append(["Altitude", "%d ft" % roundi(maxf(c.node.global_position.y, 0.0) * 3.28)])
+		_set_rows(rows)
+		_info_button.text = "Stop following" if rig.follow == c.node else "Follow"
 	elif selected_town:
 		var isl := selected_town
 		var term: Terminal = sim.terminals.get(isl.id)
@@ -1536,6 +1642,8 @@ func _on_minimap_input(event: InputEvent) -> void:
 # --- Per frame ----------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	_update_order_rings()
 	_update_labels()
 	_minimap_overlay.queue_redraw()
 	if route_overlay:

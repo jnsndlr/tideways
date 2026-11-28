@@ -1,0 +1,19 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/cedar_bed.glb" id="cedar_bed"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/cabbages.glb" id="cabbages"]
+[ext_resource type="PackedScene" path="res://assets/models/home_gardens/parts/chard.glb" id="chard"]
+
+[node name="kitchen_garden" type="Node3D"]
+
+[node name="cedar_bed_1" parent="." instance=ExtResource("cedar_bed")]
+position = Vector3(0, 0, -1)
+
+[node name="cabbages_2" parent="." instance=ExtResource("cabbages")]
+position = Vector3(0, 0.2, -1)
+
+[node name="cedar_bed_3" parent="." instance=ExtResource("cedar_bed")]
+position = Vector3(0, 0, 1)
+
+[node name="chard_4" parent="." instance=ExtResource("chard")]
+position = Vector3(0, 0.2, 1)

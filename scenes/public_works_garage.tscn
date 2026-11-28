@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/public_works.glb" id="model"]
+[ext_resource type="Script" path="res://scripts/world/public_works_garage.gd" id="controller"]
+
+[node name="PublicWorksGarage" type="Node3D"]
+script = ExtResource("controller")
+
+[node name="Building" parent="." instance=ExtResource("model")]

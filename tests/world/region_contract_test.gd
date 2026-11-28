@@ -3,6 +3,7 @@ extends SceneTree
 
 func _initialize() -> void:
 	var fixture: MapData
+	var previous_town: WeakRef
 	for seed_value in [121, 123]:
 		var mainland := Mainland.new(seed_value, 4000.0)
 		for end in [-20000.0, 20000.0]:
@@ -11,6 +12,11 @@ func _initialize() -> void:
 				quit(1)
 				return
 		fixture = MapGenerator.new().generate(seed_value)
+		if previous_town != null and previous_town.get_ref() != null:
+			push_error("Replacing a generated region retained its previous town")
+			quit(1)
+			return
+		previous_town = weakref(fixture.towns[0])
 		var failure := inspect(fixture)
 		if not failure.is_empty():
 			push_error("Region seed %s: %s" % [seed_value, failure])
