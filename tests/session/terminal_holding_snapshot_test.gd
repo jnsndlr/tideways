@@ -95,6 +95,7 @@ func _check_moving_traffic() -> void:
 		live.free()
 		return
 	var car: Vehicle = live.moving_vehicles.front()
+	check(car.entering_lot, "A new road arrival crosses the booths")
 	for transfer in [false, true]:
 		if transfer:
 			var previous := car.lot_arrival
@@ -104,6 +105,10 @@ func _check_moving_traffic() -> void:
 			check(car.lot_arrival == previous, "Changing lanes keeps the original arrival")
 		car._process(0.05)
 		for parking in [false, true]:
+			check(
+				car.entering_lot == (not transfer and not parking),
+				"Only road arrivals use the booths"
+			)
 			_compare_moving(port, car, parking)
 			if not parking:
 				for frame in 4000:
@@ -195,6 +200,7 @@ func _compare_moving(port: Terminal, car: Vehicle, parking: bool) -> void:
 	var lane := (
 		target.lane_at_offset(restored.lane_v) if parking else _reserved_lane(target, restored)
 	)
+	check(restored.entering_lot == car.entering_lot, "Recover the booth crossing duty")
 	check(lane != null, "Keep the physical lane assignment")
 	if lane != null:
 		check(

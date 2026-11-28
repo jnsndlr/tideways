@@ -39,6 +39,8 @@ var model := ""            # VehicleData key ("" for the code-built car and truc
 var lane_v := 0.0          # lateral lane position while queued at a terminal
 ## Absolute game minute when this vehicle joined the queue.
 var lot_arrival := 0.0
+## True while driving from the road to a reserved holding lane.
+var entering_lot := false
 var length := 0.0          # bumper to bumper, rig included (game units)
 var slots := 1             # queue / deck slots it takes
 var dest := -1             # island id it is travelling to (-1: not set)
@@ -177,6 +179,7 @@ func _ready() -> void:
 
 
 func drive(points: PackedVector3Array, on_arrive := Callable(), start_delay := 0.0) -> void:
+	entering_lot = false
 	_parking_yaw = NAN
 	path = _round_corners(points)
 	_on_arrive = on_arrive
@@ -300,24 +303,22 @@ func _room_to(o: Vehicle) -> float:
 	return maxf(0.0, rel.dot(_g_fwd) - FOLLOW_GAP)
 
 
-## An arriving car crosses the backs of the holding lanes. When a tractor turns
-## into its final lane its trailer can still span that aisle. Clip the actual
-## hitch-to-tail segment to the strip in front of our bumper.
-func _parking_trailer_room(o: Vehicle) -> float:
-	var hitch := o.global_transform * o._hitch - _g_front
-	var tail := o._g_tail - _g_front
+## Clip a crossing vehicle or trailer segment to the strip ahead of our bumper.
+func _crossing_room(tail_world: Vector3, nose_world: Vector3, half_width := FOLLOW_WIDTH) -> float:
+	var tail := tail_world - _g_front
+	var nose := nose_world - _g_front
 	if absf(tail.y) > FOLLOW_WIDTH:
 		return INF
 	var right := _g_fwd.cross(Vector3.UP)
 	var x0 := tail.dot(right)
-	var x1 := hitch.dot(right)
-	if minf(x0, x1) > FOLLOW_WIDTH or maxf(x0, x1) < -FOLLOW_WIDTH:
+	var x1 := nose.dot(right)
+	if minf(x0, x1) > half_width or maxf(x0, x1) < -half_width:
 		return INF
 	var z0 := tail.dot(_g_fwd)
-	var z1 := hitch.dot(_g_fwd)
+	var z1 := nose.dot(_g_fwd)
 	if not is_equal_approx(x0, x1):
-		var t0 := (-FOLLOW_WIDTH - x0) / (x1 - x0)
-		var t1 := (FOLLOW_WIDTH - x0) / (x1 - x0)
+		var t0 := (-half_width - x0) / (x1 - x0)
+		var t1 := (half_width - x0) / (x1 - x0)
 		var near_z := lerpf(z0, z1, clampf(minf(t0, t1), 0.0, 1.0))
 		z1 = lerpf(z0, z1, clampf(maxf(t0, t1), 0.0, 1.0))
 		z0 = near_z
@@ -333,6 +334,10 @@ func _room_ahead() -> float:
 	if leader != null:
 		if is_instance_valid(leader) and leader.is_processing() and leader.is_inside_tree():
 			room = _room_to(leader)
+			if lane_v != leader.lane_v and not leader.trailer and leader.model != "":
+				var size: Vector3 = VehicleData.VARIANTS[leader.model].size
+				var clearance := FOLLOW_WIDTH + size.x * leader.scale.x * 0.5
+				room = minf(room, _crossing_room(leader._g_tail, leader._g_front, clearance))
 		else:
 			leader = null
 	var reach := room if room < INF else 60.0
@@ -344,8 +349,13 @@ func _room_ahead() -> float:
 			continue
 		if o._g_fwd.dot(_g_fwd) >= SAME_WAY:
 			room = minf(room, _room_to(o))
-		elif o.trailer and not is_nan(o._parking_yaw) and is_nan(_parking_yaw):
-			room = minf(room, _parking_trailer_room(o))
+		elif o.trailer and is_nan(_parking_yaw):
+			# The final leg of an inbound route crosses from the booths to the reserved lane.
+			var at_booths := (
+				entering_lot and path.size() > 1 and o.entering_lot and o.path.size() == 1
+			)
+			if at_booths or not is_nan(o._parking_yaw):
+				room = minf(room, _crossing_room(o._g_tail, o.global_transform * o._hitch))
 	return room
 
 
