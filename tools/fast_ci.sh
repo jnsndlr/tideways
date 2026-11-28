@@ -98,6 +98,7 @@ check crossing-restore test --script tests/session/ferry_crossing_snapshot_test.
 check company-network test --script tests/session/company_network_test.gd
 check town-growth-restore test --script tests/session/town_growth_snapshot_test.gd
 check company-restore test --script tests/session/company_snapshot_test.gd
+check free-sailing-restore test --script tests/session/free_sailing_snapshot_test.gd
 check purchased-fleet-restore test --script tests/session/purchased_fleet_snapshot_test.gd
 check inbound-delivery-restore test --script tests/session/inbound_delivery_snapshot_test.gd
 check sale-tow-restore test --script tests/session/sale_tow_snapshot_test.gd

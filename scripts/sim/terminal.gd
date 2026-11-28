@@ -64,6 +64,7 @@ const ROAD_TOLERANCE := 0.06
 var passengers_served_today := 0
 ## Walk-on passengers waiting at the passenger terminal: {dest, arrival, variant, node}.
 var passenger_queue: Array[Dictionary] = []
+var departing_walkers: Array[Passenger] = []
 
 
 ## A snapshot of the holding lot. Waiting counts vehicles; inbound counts reserved spaces.
@@ -1002,8 +1003,14 @@ func _prune_unserved_passengers(dests: Array[int]) -> void:
 		if p["dest"] not in dests:
 			var node: Passenger = p["node"]
 			if node != null and is_instance_valid(node):
-				node.walk(PackedVector3Array([door]), func(w: Passenger): w.queue_free())
+				departing_walkers.append(node)
+				node.walk(PackedVector3Array([door]), _on_walker_departed)
 			passenger_queue.remove_at(i)
+
+
+func _on_walker_departed(walker: Passenger) -> void:
+	departing_walkers.erase(walker)
+	walker.queue_free()
 
 
 ## Boards the next walk-on passenger heading to one of `serves`. Returns {} if none wait.

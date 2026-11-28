@@ -70,7 +70,7 @@ static func capture(term: Terminal) -> Dictionary:
 					return {}
 				record.walking_to = SnapshotVector3.encode(node.path[0])
 		passengers.append(record)
-	return {
+	var site := {
 		"version": 3,
 		"seed": str(term.sim.map.map_seed),
 		"town": term.town.key,
@@ -88,6 +88,10 @@ static func capture(term: Terminal) -> Dictionary:
 		"vehicle_demand": term._spawn_acc,
 		"passenger_demand": term._pax_spawn_acc
 	}
+	if not term.departing_walkers.is_empty():
+		site.version = 4
+		site.departing_walkers = FerryWalkOnSnapshot.capture_walkers(term.departing_walkers)
+	return site
 
 
 static func _vehicle_record(car: Vehicle, term: Terminal) -> Dictionary:
@@ -123,7 +127,11 @@ static func restore(record: Variant, term: Terminal, make_vehicle: Callable) -> 
 
 
 static func _valid_header(r: Variant, term: Terminal) -> bool:
-	if not r is Dictionary or not _integer(r.get("version")) or int(r.version) not in [1, 2, 3]:
+	if not r is Dictionary or not _integer(r.get("version")) or int(r.version) not in [1, 2, 3, 4]:
+		return false
+	if r.has("departing_walkers") != (r.version == 4):
+		return false
+	if not FerryWalkOnSnapshot.valid_walkers(r.get("departing_walkers", [])):
 		return false
 	if (
 		r.get("seed") != str(term.sim.map.map_seed)
@@ -230,7 +238,7 @@ func _valid_job(r: Dictionary, term: Terminal) -> bool:
 	if not _remaining_sites.is_empty():
 		return r.staging.is_empty()
 	var count := term.town.construction_staging_lanes
-	if not _paved.is_empty() or count not in [1, 2, 3] or r.staging.size() != count:
+	if not _paved.is_empty() or count not in [1, 2, 3, 4] or r.staging.size() != count:
 		return false
 	for v in r.staging:
 		if not _add_staging_lane(v):
@@ -415,10 +423,16 @@ static func discard_initial_traffic(term: Terminal) -> void:
 		if pax.node != null:
 			pax.node.free()
 	term.passenger_queue.clear()
+	for walker in term.departing_walkers:
+		walker.free()
+	term.departing_walkers.clear()
 
 
 func _install(r: Dictionary, term: Terminal) -> void:
 	discard_initial_traffic(term)
+	FerryWalkOnSnapshot.install_walkers(
+		r.get("departing_walkers", []), term.sim, term.departing_walkers, term._on_walker_departed
+	)
 	term.lanes = _lanes
 	term.site_lanes = _remaining_sites
 	term.paved = _paved

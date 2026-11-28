@@ -96,14 +96,14 @@ static func install(data: Dictionary, ferry: Ferry) -> void:
 	ferry._walk_on_clear_since = data.clear_since
 	ferry._pax_dispatch_timer = data.dispatch
 	ferry._pax_walkers_sent = int(data.sent)
-	install_walkers(data.walkers, ferry, ferry._pax_walkers, ferry._on_walker_aboard)
+	install_walkers(data.walkers, ferry.sim, ferry._pax_walkers, ferry._on_walker_aboard)
 
 
 static func install_walkers(
-	rows: Array, ferry: Ferry, actors: Array[Passenger], arrived: Callable
+	rows: Array, sim: Simulation, actors: Array[Passenger], arrived: Callable
 ) -> void:
 	for row in rows:
-		var walker := ferry.sim.make_passenger(int(row.variant))
+		var walker := sim.make_passenger(int(row.variant))
 		walker.position = SnapshotVector3.decode(row.position)
 		walker.rotation.y = row.yaw
 		var path := PackedVector3Array()

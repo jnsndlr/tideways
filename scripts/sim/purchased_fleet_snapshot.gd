@@ -23,7 +23,13 @@ static func rebuild(
 		return false
 	for ferry in sim.ferries:
 		var voyage = voyages.get(ferry.fleet_key)
-		if voyage is Dictionary and voyage.has("lay_up"):
+		if voyage is Dictionary and voyage.has("free_sailing"):
+			if not FerryFreeSailingSnapshot.prepare(
+				voyage.free_sailing, voyage.get("service"), ferry
+			):
+				return false
+			service_changed = true
+		elif voyage is Dictionary and voyage.has("lay_up"):
 			if (
 				voyage.get("phase") in ["delivery", "delivered"]
 				or not FerryLayUpSnapshot.prepare(voyage.lay_up, voyage.get("service"), ferry)
