@@ -273,7 +273,7 @@ func _decide() -> void:
 ## Everything near enough to matter, with where it will be at each sample time.
 func _threats(p: Vector2) -> Array[Threat]:
 	var out: Array[Threat] = []
-	for o in traffic.vessels:
+	for o in traffic.helm_candidates(p, SCAN):
 		if o == v or not is_instance_valid(o):
 			continue
 		var reach := SCAN + o.half_seg + o.hull_radius

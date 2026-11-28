@@ -31,6 +31,8 @@ const YACHT_NAMES := ["Serenity", "Knot Working", "Reel Time", "Sea Esta", "Isla
 	"Tide Runner", "Madrona Lady", "Free Spirit", "Orca Bay"]
 const FISH_NAMES := ["Northern Dawn", "Ocean Harvest", "Kristi Ann", "Sea Wolf", "Arctic Fox", "Pacific Pride",
 	"Mary Ellen", "Silver Bay", "Westward", "Sea Rover", "Kodiak Queen", "Morning Star", "Lady Grace", "Provider"]
+# Below this fleet size the full scan costs less on the seed 123 opening.
+const HELM_INDEX_MIN_FLEET := 512
 const MAX_CARGO := 2
 const CARGO_GAP := Vector2(35.0, 90.0)   # game minutes between cargo ships
 const RANK_SAIL := 1000
@@ -67,6 +69,7 @@ var corridors := {}         # route id -> Array of the Corridors along it
 var coast_guard: Array[CoastGuardBoat] = []
 var _shared := {}           # route id -> true if two or more boats sail it (each keeps to her own lane)
 var _lock := {}             # harbour -> the vessel manoeuvring there
+var _neighborhood: VesselNeighborhood
 var _clearance := MarineClearance.new()
 var _queue := {}            # harbour -> the vessels waiting to go in, in the order they got there
 var _wait_spots := {}       # harbour -> where boats wait to go in (see wait_spot)
@@ -135,10 +138,24 @@ func _register(v: Vessel, base_rank: int) -> void:
 	v.rank = base_rank + _next
 	_next += 1
 	vessels.append(v)
+	if _neighborhood != null:
+		_neighborhood.add(v)
 	vessel_registered.emit(v)
 
 
+func helm_candidates(center: Vector2, radius: float) -> Array[Vessel]:
+	if _neighborhood == null:
+		if vessels.size() < HELM_INDEX_MIN_FLEET:
+			return vessels
+		_neighborhood = VesselNeighborhood.new(sim)
+		for vessel in vessels:
+			_neighborhood.add(vessel)
+	return _neighborhood.candidates(vessels, center, radius)
+
+
 func remove(v: Vessel) -> void:
+	if v.neighborhood == _neighborhood and _neighborhood != null:
+		_neighborhood.remove(v)
 	vessels.erase(v)
 	if v is Ferry:
 		# Sold: whatever water she held is free, and her routes' corridors are found afresh.
