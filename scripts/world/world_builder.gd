@@ -1616,10 +1616,10 @@ func _build_roads() -> void:
 			else {}
 		)
 		var main := isl.road_main_a.duplicate()
-		var centre := RoadMesh.length_of(isl.road_main_a)
+		var centre := RoadGeometry.length_of(isl.road_main_a)
 		if isl.road_main_b.size() > 1:
 			main.append_array(isl.road_main_b.slice(1))
-		var total := RoadMesh.length_of(main)
+		var total := RoadGeometry.length_of(main)
 		var crossed := not isl.road_cross.is_empty()
 		var main_stop: float = total - float(trims.get("lot", 0.0))
 		# No markings over the lot's apron, through the junction or right at the end.
@@ -1632,14 +1632,14 @@ func _build_roads() -> void:
 		)
 		var lines: Array[PackedVector3Array] = [main]
 		for line in isl.road_cross:
-			var length := RoadMesh.length_of(line)
+			var length := RoadGeometry.length_of(line)
 			var show := func(s: float) -> float:
 				return smoothstep(RoadMesh.HALF, RoadMesh.HALF + 5.0, s) * smoothstep(0.0, 4.0, length - s)
 			RoadMesh.strip(mb, line, ROAD, RoadMesh.Style.DASHED, show, RoadMesh.HALF)
 			lines.append(line)
 		for li in isl.road_lanes.size():
 			var line := isl.road_lanes[li]
-			var length := RoadMesh.length_of(line)
+			var length := RoadGeometry.length_of(line)
 			var t0: float = trims.get("%d_0" % li, RoadMesh.HALF)
 			var t1: float = trims.get("%d_1" % li, RoadMesh.HALF)
 			var show := func(s: float) -> float:
@@ -2544,7 +2544,7 @@ func _frontage_candidates(isl: MapData.Town, rng: RandomNumberGenerator) -> Arra
 		var line: PackedVector3Array = st[0]
 		var base: float = st[1]
 		var s := 10.0
-		var total := RoadMesh.length_of(line)
+		var total := RoadGeometry.length_of(line)
 		while s < total - 4.0:
 			var i := clampi(int(s / MapGenerator.ROAD_STEP), 1, line.size() - 2)
 			var d := line[i + 1] - line[i - 1]
@@ -3411,11 +3411,13 @@ func _marina_branch(
 			if dir > 0.0:
 				var fair := bv + fs * pitch * 0.5
 				var bow := m.lateral() * -fs
+				var hull_bounds := AABB() if sail else VesselAppearance.art_mesh(model).get_aabb()
 				(
 					m
 					. slips
 					. append(
 						{
+							hull_bounds = hull_bounds,
 							at = _xz(m.at(su, x0 + fs * 6.5)),
 							out = _xz(m.at(su, fair)),
 							mouth = _xz(m.at(u0 + dir * (DockKit.RUN * n + 24.0), fair)),

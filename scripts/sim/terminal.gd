@@ -651,7 +651,7 @@ func _build_road_paths() -> void:
 		branches.append_array(town.street_plan.drives_from_square())
 	for lot in town.growth_lots:
 		if lot.kind == MapData.TownLot.Kind.BIG_BOX and lot.occupied:
-			var d := BigBoxes.drive(town, lot)
+			var d := lot.store_drive
 			if d.size() > 1:
 				branches.append(d)
 	if branches.is_empty():

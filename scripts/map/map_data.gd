@@ -229,6 +229,7 @@ class TownLot:
 	var yard_back := 0.0
 	var street := -1  # StreetPlan edge it fronts (-1: a grid lot)
 	var model := ""  # BIG_BOX: store model (WorldBuilder.BIG_BOXES)
+	var store_drive := PackedVector3Array()
 	var need_pop := 0  # BIG_BOX: town population it's built at
 
 

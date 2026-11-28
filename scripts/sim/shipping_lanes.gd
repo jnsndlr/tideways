@@ -9,11 +9,6 @@ extends RefCounted
 ## Keeping to a channel is how cargo ships normally go, not a rule: a ship may
 ## leave it (to call at a port, say) and find its own way.
 
-## Where each channel crosses the map's middle row, across the passage (world x
-## for a north–south passage). Main map only: the red (west) and blue (east)
-## channels.
-const MAIN_CHANNELS := {"red": -3700.0, "blue": 2300.0}
-
 const STEP := 120.0  # between centreline points along the passage
 const REACH := 3200.0  # how far past the map's edge the channels run
 const SCAN := 1600.0  # how far either side of the last point to look for the channel

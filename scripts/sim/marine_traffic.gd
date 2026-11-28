@@ -446,7 +446,7 @@ func _spawn_slip_boats(names: Array, yacht_names: Array) -> void:
 				y.setup(
 					self,
 					yacht_names[motor_yachts.size() % yacht_names.size()],
-					VesselTypes.slip_powerboat(slip.model),
+					VesselTypes.slip_powerboat(slip.model, slip.hull_bounds),
 					m,
 					b,
 					0,

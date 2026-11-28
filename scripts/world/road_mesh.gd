@@ -10,18 +10,10 @@ enum Style { NONE, DASHED, DASHED_EDGES, DOUBLE_EDGES, CORE_WALK, LANE }
 ## Half the asphalt's width (must match RD_ASPHALT_HALF in road_detail.gdshaderinc),
 ## and half the whole road's, shoulders and all.
 const ASPHALT_HALF := 3.7
-const HALF := 5.1
+const HALF := RoadGeometry.HALF_WIDTH
 ## The shoulders fall away this much to their outer edge.
 const SHOULDER_DROP := 0.05
 const SKIRT := 0.60
-
-
-## Horizontal length of a polyline.
-static func length_of(points: PackedVector3Array) -> float:
-	var total := 0.0
-	for i in points.size() - 1:
-		total += Vector2(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z).length()
-	return total
 
 
 ## Adds a strip along `points` (its centreline, at the road's surface) to `mb`,

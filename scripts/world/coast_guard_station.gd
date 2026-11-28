@@ -7,16 +7,14 @@ extends RefCounted
 ## on the spit. Positions are world metres, read off tools/coast_guard_shots.gd
 ## --grid and the clifftop heights (the cliff edge runs along x ~ 2530).
 
-const ISLAND := "Port Rosario"
 const DockKit := preload("res://scripts/world/dock_kit.gd")
 const KIT := "res://assets/models/coast_guard_station/%s.glb"
-const WEST := -PI * 0.5  # yaw that turns a model's +z front (or a boat's bow) to the sea
 ## [model, x, z, yaw, front] on the clifftop, fronts to the road and the sea;
 ## front is how far the front wall stands out from the model's centre (its door light).
 const BUILDINGS := [
 	["watch_tower", 2537.0, -784.0, 0.0, 2.05],  # at the road's end, facing it
-	["station_house", 2560.6, -712.0, WEST, 6.0],  # fronts 1.5 m off the road's edge
-	["equipment_garage", 2558.1, -660.0, WEST, 3.5],
+	["station_house", 2560.6, -712.0, CoastGuardLayout.WEST, 6.0],  # fronts 1.5 m off the road's edge
+	["equipment_garage", 2558.1, -660.0, CoastGuardLayout.WEST, 3.5],
 ]
 ## The pier: out from the cliff foot, then north along the shore.
 const ROOT := Vector2(2530.0, -692.0)
@@ -26,40 +24,16 @@ const HEAD := Vector2(2494.0, -872.0)
 const SHORE_A := Vector2(2521.0, -692.0)
 const SHORE_B := Vector2(2521.0, -626.0)
 const SHEDS := [Vector2(2506.0, -673.0), Vector2(2506.0, -645.0)]
-## The ramp climbs north up the cliff face from the root to the clifftop.
-const RAMP_FOOT := Vector3(2519.0, 0.0, -694.0)
-const RAMP_TOP := Vector2(2530.0, -772.0)
-## The road: along the clifftop in front of the buildings, then off toward town.
-const ROAD := [
-	Vector2(2534.0, -772.0),
-	Vector2(2548.0, -760.0),
-	Vector2(2548.0, -600.0),
-	Vector2(2565.0, -545.0)
-]
 const LIGHT_AT := Vector2(2545.0, -798.0)
 const RADAR_AT := Vector2(2539.0, -735.0)
 const RADAR_SCANNER_Y := 14.45
 const RADAR_SPIN_RAD_S := 2.4
-## A level yard east of the road (x0, x1, z0, z1), graded at map generation.
-const YARD := Vector4(2552.0, 2605.0, -770.0, -600.0)
-const DECK := 1.98  # DockKit.HIGH: the kit's fixed deck height
-## [model, berths]: each berth is [x, z, yaw], yaw the way the bow points once in
-## (vessels come in bow first and back out). The cutter lies on the west side of the
-## pier head, bow north or south (the east side is too tight to the shore); the boats
-## lie in the lifeboat houses.
-const MOORED := [
-	["national_security_cutter", [[2480.6, -790.0, 0.0], [2480.6, -790.0, PI]]],
-	["motor_lifeboat_47", [[2506.0, -673.0, -WEST]]],
-	["response_boat_small", [[2506.0, -645.0, -WEST]]],
-]
-
 const PILE := Color(0.3, 0.26, 0.22)
-
 
 static func build(wb: WorldBuilder) -> void:
 	var isl_i := -1
 	for i in wb.map.islands.size():
-		if wb.map.islands[i].name == ISLAND:
+		if wb.map.islands[i].name == CoastGuardLayout.ISLAND:
 			isl_i = i
 	if isl_i < 0:
 		return
@@ -72,17 +46,15 @@ static func build(wb: WorldBuilder) -> void:
 	_docks(wb)
 	for s: Vector2 in SHEDS:
 		var house := wb._add_mesh(_model(KIT % "lifeboat_house"), "Coast Guard lifeboat_house")
-		house.transform = Transform3D(Basis(Vector3.UP, WEST), Vector3(s.x, 0.4, s.y))
-	# The vessels at their berths (MOORED) are CoastGuardBoat's: it sends them on patrol.
+		house.transform = Transform3D(Basis(Vector3.UP, CoastGuardLayout.WEST), Vector3(s.x, 0.4, s.y))
+	# The vessels at their berths (CoastGuardLayout.MOORED) are CoastGuardBoat's: it sends them on patrol.
 	_road(wb, isl_i)
 	_lighthouse(wb)
 	_radar_tower(wb)
 	_clear(wb, Vector2(2560.0, -690.0), 40.0)
 
-
 static func _model(path: String) -> Mesh:
 	return Models._cached(path, func(): return ModelParts.baked(path).commit())
-
 
 ## The pier from the dock kit, fixed main deck on piles: out from the cliff foot
 ## (ROOT) to the elbow, north to the head (then a ramp down to a float), and the shore deck
@@ -97,11 +69,11 @@ static func _docks(wb: WorldBuilder) -> void:
 	var half := DockKit.MAIN_WIDTH * 0.5
 	# West from the cliff foot to the elbow's far edge, so the corner is covered.
 	var west := int(roundf((ROOT.x + 4.0 - (ELBOW.x - half)) / DockKit.RUN))
-	var p := Vector3(ELBOW.x - half + west * DockKit.RUN, DECK, ROOT.y)
+	var p := Vector3(ELBOW.x - half + west * DockKit.RUN, CoastGuardLayout.DECK, ROOT.y)
 	for k in west:
 		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(-1, 0), DockKit.Support.PILES)
 	# North from the elbow's north edge to the head.
-	p = Vector3(ELBOW.x, DECK, ELBOW.y - half)
+	p = Vector3(ELBOW.x, CoastGuardLayout.DECK, ELBOW.y - half)
 	for k in int(roundf((ELBOW.y - half - HEAD.y) / DockKit.RUN)):
 		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, -1), DockKit.Support.PILES)
 	# Off the head, a ramp down to a float landing for the small boats.
@@ -109,19 +81,18 @@ static func _docks(wb: WorldBuilder) -> void:
 	for k in 2:
 		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, -1), DockKit.Support.FLOATS)
 	# South along the cliff foot from the elbow run's south edge.
-	p = Vector3(SHORE_A.x, DECK, SHORE_A.y + half)
+	p = Vector3(SHORE_A.x, CoastGuardLayout.DECK, SHORE_A.y + half)
 	for k in int(roundf((SHORE_B.y - SHORE_A.y - half) / DockKit.RUN)):
 		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.PILES)
 	_ramp(wb, kit)
 	kit.bake()
 
-
 ## The way up the cliff: dock kit ramp sections chained from the elbow run's north
-## edge (RAMP_FOOT) to the clifftop, on timber posts down to the rock.
+## edge (CoastGuardLayout.RAMP_FOOT) to the clifftop, on timber posts down to the rock.
 static func _ramp(wb: WorldBuilder, kit: Node3D) -> void:
 	var isl_i := -1
 	for i in wb.map.islands.size():
-		if wb.map.islands[i].name == ISLAND:
+		if wb.map.islands[i].name == CoastGuardLayout.ISLAND:
 			isl_i = i
 	var ends: PackedVector3Array = wb.map.islands[isl_i].service_ramp
 	if ends.size() < 2:
@@ -148,7 +119,6 @@ static func _ramp(wb: WorldBuilder, kit: Node3D) -> void:
 				)
 	wb._add_mesh(mb.commit(), "Coast Guard Ramp Posts")
 
-
 ## The station's road, graded at map generation (MapGenerator._grade_coast_guard_road)
 ## on to the nearest street of Port Rosario, which it joins paved.
 static func _road(wb: WorldBuilder, isl_i: int) -> void:
@@ -167,12 +137,11 @@ static func _road(wb: WorldBuilder, isl_i: int) -> void:
 	for i in range(0, pts.size(), 3):
 		wb._block_road(pts[i], 9.0)
 
-
 ## A lighthouse on the tip of the spit, its beam turning at night.
 static func _lighthouse(wb: WorldBuilder) -> void:
 	var p := _ground(wb, LIGHT_AT.x, LIGHT_AT.y)
 	var mb := MeshBuilder.new()
-	var gallery := Models.add_lighthouse(mb, p - Vector3(0, 0.3, 0), 0, WEST)
+	var gallery := Models.add_lighthouse(mb, p - Vector3(0, 0.3, 0), 0, CoastGuardLayout.WEST)
 	wb._add_mesh(mb.commit(), "Coast Guard Lighthouse")
 	var lamp := gallery * (Vector3.UP * Models.LIGHTHOUSE_LENS_Y)
 	var beacon := Color(1.0, 0.92, 0.75)
@@ -181,10 +150,9 @@ static func _lighthouse(wb: WorldBuilder) -> void:
 	wb.glows.beam(lamp, beacon, 6.6, 225.0, 0.5, 0.3, 0.0)
 	wb._block(p, 14.0)
 
-
 ## Radar tower on the clifftop with a spinning open-array scanner and red beacons.
 static func _radar_tower(wb: WorldBuilder) -> void:
-	var xf := Transform3D(Basis(Vector3.UP, WEST), _ground(wb, RADAR_AT.x, RADAR_AT.y))
+	var xf := Transform3D(Basis(Vector3.UP, CoastGuardLayout.WEST), _ground(wb, RADAR_AT.x, RADAR_AT.y))
 	var tower := wb._add_mesh(_model(KIT % "radar_tower"), "Coast Guard radar_tower")
 	tower.transform = xf
 	var scanner := _RadarSpinner.new()
@@ -213,7 +181,6 @@ class _RadarSpinner:
 	func _process(delta: float) -> void:
 		rotate_y(delta * RADAR_SPIN_RAD_S)
 
-
 static func _ground(wb: WorldBuilder, x: float, z: float) -> Vector3:
 	var h := INF
 	for o: Vector2 in [
@@ -221,7 +188,6 @@ static func _ground(wb: WorldBuilder, x: float, z: float) -> Vector3:
 	]:
 		h = minf(h, wb.terrain.height_at(x + o.x, z + o.y))
 	return Vector3(x, h, z)
-
 
 static func _clear(wb: WorldBuilder, at: Vector2, r: float) -> void:
 	var u := -r

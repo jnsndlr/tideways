@@ -25,7 +25,6 @@ const EDGE_SHARE := 0.6  # may take only frontage lots ranked past this share (t
 const MAX_DROP := 5.0
 const STRAIGHT := 1.0  # how far the road may bow across the lot's frontage
 const END_CLEAR := 12.0  # keep off the junctions at the road's ends
-const BUILD_MINUTES := 720.0
 const PARKED_SHARE := 0.55
 
 static var _meshes := {}  # model -> [mesh, foot Rect2 (store-local XZ), parking centre]
@@ -96,6 +95,7 @@ static func reserve(b: WorldBuilder, isl: MapData.Town) -> void:
 		lot.yaw = spot[1]
 		lot.lot_y = spot[0].y
 		lot.street = spot[2]
+		lot.store_drive = drive(isl, lot)
 		isl.growth_lots.append(lot)
 		isl.street_lots[lot.street] = int(isl.street_lots.get(lot.street, 0)) + 1
 		var fwd := Vector3(sin(lot.yaw), 0.0, cos(lot.yaw))
@@ -138,7 +138,7 @@ static func _find(b: WorldBuilder, isl: MapData.Town, foot: Rect2) -> Array:
 			):
 				lamps.append(spot[0])
 		var walked := 0.0
-		var total := RoadMesh.length_of(pts)
+		var total := RoadGeometry.length_of(pts)
 		for i in range(1, pts.size()):
 			var a := pts[i - 1]
 			var p := pts[i]

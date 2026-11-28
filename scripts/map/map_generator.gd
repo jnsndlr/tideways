@@ -132,7 +132,7 @@ func _build(layout: MapLayout, plan: RegionPlan) -> void:
 	map.map_seed = map_seed
 	map.town_lots_cache_path = town_lots_cache_path
 	if town_lots_cache_path.contains("main_story"):
-		map.shipping_channels = ShippingLanes.MAIN_CHANNELS
+		map.shipping_channels = {"red": -3700.0, "blue": 2300.0}
 	terrain = Terrain.new(map_seed, map.half_size)
 	var ports: Array[Vector2] = []
 	for spec in layout.islands:
@@ -2100,18 +2100,18 @@ func _grade_plan(isl: MapData.Town) -> void:
 	plan.edges = graded
 
 
-## The coast guard station's road (CoastGuardStation.ROAD, its corners rounded)
+## The coast guard station's road (CoastGuardLayout.ROAD, its corners rounded)
 ## on to the nearest town street clear of a street's end, with a smoothed profile
 ## the ground is graded to, as for the town's own streets.
 func _grade_coast_guard_road() -> void:
 	var isl_i := -1
 	for i in map.islands.size():
-		if map.islands[i].name == CoastGuardStation.ISLAND:
+		if map.islands[i].name == CoastGuardLayout.ISLAND:
 			isl_i = i
 	if isl_i < 0:
 		return
 	# Level the yard east of the road first, at its mean height, so the road grades onto it.
-	var yd := CoastGuardStation.YARD
+	var yd := CoastGuardLayout.YARD
 	var sum := 0.0
 	var n_yard := 0
 	var x := yd.x
@@ -2135,12 +2135,12 @@ func _grade_coast_guard_road() -> void:
 		18.0
 	)
 	terrain._apply_flat(terrain.flats[terrain.flats.size() - 1])
-	var out: Vector2 = CoastGuardStation.ROAD[CoastGuardStation.ROAD.size() - 1]
+	var out: Vector2 = CoastGuardLayout.ROAD[CoastGuardLayout.ROAD.size() - 1]
 	var best := Vector3.INF
 	var best_d := INF
 	var best_town: MapData.Town = null
 	var best_lane := -1
-	var clear_end := RoadMesh.HALF + 6.0
+	var clear_end := RoadGeometry.HALF_WIDTH + 6.0
 	for t in map.towns:
 		if t.island != isl_i:
 			continue
@@ -2166,7 +2166,7 @@ func _grade_coast_guard_road() -> void:
 	if best_town == null:
 		return
 	var flat: Array[Vector2] = []
-	for q: Vector2 in CoastGuardStation.ROAD:
+	for q: Vector2 in CoastGuardLayout.ROAD:
 		flat.append(q)
 	flat.append(Vector2(best.x, best.z))
 	# Round the corners (Chaikin), keeping both ends.
@@ -2210,9 +2210,9 @@ func _grade_coast_guard_road() -> void:
 	map.islands[isl_i].service_road = g
 	# The cliff ramp: from the pier deck to the clifftop, the ground cut clear beneath it.
 	var foot := Vector3(
-		CoastGuardStation.RAMP_FOOT.x, CoastGuardStation.DECK, CoastGuardStation.RAMP_FOOT.z
+		CoastGuardLayout.RAMP_FOOT.x, CoastGuardLayout.DECK, CoastGuardLayout.RAMP_FOOT.z
 	)
-	var rt := CoastGuardStation.RAMP_TOP
+	var rt := CoastGuardLayout.RAMP_TOP
 	# It lands level with the road's end, which it meets.
 	var top := Vector3(rt.x, g[0].y, rt.y)
 	var run := Vector3(top.x - foot.x, 0.0, top.z - foot.z)

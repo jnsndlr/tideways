@@ -160,8 +160,7 @@ static func _trawler() -> VesselSpec:
 
 ## A motor boat from the marina's finger slips, drawn from its real-size model
 ## (assets/models/powerboats), sized and handled like a small motor yacht.
-static func slip_powerboat(path: String) -> VesselSpec:
-	var box := VesselAppearance.art_mesh(path).get_aabb()
+static func slip_powerboat(path: String, box: AABB) -> VesselSpec:
 	var s := _motor_yacht()
 	s.id = "slip_" + path.get_file().get_basename()
 	s.type_name = path.get_file().get_basename().capitalize()

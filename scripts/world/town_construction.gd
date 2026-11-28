@@ -157,7 +157,7 @@ func _on_construction_completed(job: TownGrowth.BuildJob) -> void:
 			if job.kind == MapData.TownLot.Kind.BIG_BOX and sim != null:
 				var term: Terminal = sim.terminals.get(job.town_id)
 				if term != null:
-					term.add_drive(BigBoxes.drive(builder.map.towns[job.town_id], job.lot))
+					term.add_drive(job.lot.store_drive)
 
 
 func _process(delta: float) -> void:

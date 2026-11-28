@@ -12,6 +12,7 @@ signal construction_completed(job: BuildJob)
 signal milestone_unlocked(town: MapData.Town, milestone_id: String, title: String, detail: String)
 signal island_radio_tower_unlocked(island: MapData.Island)
 
+const BIG_BOX_BUILD_MINUTES := 720.0
 const PEOPLE_PER_HOUSE := 75
 const PEOPLE_PER_COMMERCIAL := 250
 const MAX_CONCURRENT_BUILDS := 2
@@ -890,7 +891,7 @@ func _queue_needed_builds(town: MapData.Town, st: TownState) -> void:
 		# 1b. Big-box stores, each once the town reaches its population.
 		var big := _claim_big_box(town)
 		if big != null:
-			_start_build(town, st, big, MapData.TownLot.Kind.BIG_BOX, BigBoxes.BUILD_MINUTES)
+			_start_build(town, st, big, MapData.TownLot.Kind.BIG_BOX, BIG_BOX_BUILD_MINUTES)
 			continue
 
 		# 2. Commercial buildings: 1 per 250 people.

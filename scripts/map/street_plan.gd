@@ -492,7 +492,7 @@ func _square_tree() -> Array:
 			var m: int = e.b if e.a == n else (e.a if e.b == n else -2)
 			if m < 0:
 				continue
-			var d := dist[n] + RoadMesh.length_of(e.pts)
+			var d := dist[n] + RoadGeometry.length_of(e.pts)
 			if d < dist[m]:
 				dist[m] = d
 				prev_e[m] = ei

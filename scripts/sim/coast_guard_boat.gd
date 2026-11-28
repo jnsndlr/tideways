@@ -34,10 +34,10 @@ static func spawn_fleet(t: MarineTraffic) -> Array[CoastGuardBoat]:
 	var out: Array[CoastGuardBoat] = []
 	var here := false
 	for isl in t.sim.map.islands:
-		here = here or isl.name == CoastGuardStation.ISLAND
+		here = here or isl.name == CoastGuardLayout.ISLAND
 	if not here:
 		return out
-	for m: Array in CoastGuardStation.MOORED:
+	for m: Array in CoastGuardLayout.MOORED:
 		var b := CoastGuardBoat.new()
 		t.sim.add_child(b)
 		b.setup_berth(t, m[0], m[1])
