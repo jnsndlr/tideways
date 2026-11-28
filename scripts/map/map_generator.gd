@@ -2225,6 +2225,12 @@ func _grade_coast_guard_road() -> void:
 	)
 	terrain._apply_flat(terrain.flats[terrain.flats.size() - 1])
 	map.islands[isl_i].service_ramp = PackedVector3Array([foot, top])
+	# The tower and its doorway share the road-end grade on the sloping headland.
+	var tower := CoastGuardLayout.WATCH_TOWER
+	terrain.level_now(
+		Vector3(tower.x, 0.0, tower.y), Vector3.RIGHT, -7.0, 7.0, -8.0, 7.0,
+		g[0].y - Terrain.ROAD_DROP, 5.0
+	)
 	if best_lane >= 0:
 		best_town.street_pinned[best_lane] = true
 

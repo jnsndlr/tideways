@@ -12,6 +12,10 @@ func _initialize() -> void:
 		push_error("A joining road raised the ground above the existing downhill road bed")
 		quit(1)
 		return
+	if not _watchtower_entry_is_level():
+		push_error("The Port Rosario watchtower entrance is not level with its footing")
+		quit(1)
+		return
 	var roads := 0
 	for seed_value: int in SEEDS:
 		var gen := MapGenerator.new()
@@ -50,6 +54,21 @@ func _joining_road_keeps_downhill_street_clear() -> bool:
 		if not is_nan(caps[i]) and t.h_grid[i] > before[i] + 0.0001:
 			return false
 	return is_equal_approx(t.height_at(-Terrain.CELL * 4.0, 0), 8.0 - Terrain.ROAD_DROP)
+
+
+## The watchtower sits at the end of the station road, with its door facing the road.
+func _watchtower_entry_is_level() -> bool:
+	var gen := MapGenerator.new()
+	gen.generate_from(
+		MapLayout.load_file(MapLayout.MAIN_STORY), Scenario.load_file(Scenario.OPENING).region_plan()
+	)
+	var tower := CoastGuardLayout.WATCH_TOWER
+	var entry_y := gen.terrain.height_at(tower.x, tower.y + 2.05)
+	for x: float in [-5.0, 0.0, 5.0]:
+		for z: float in [-5.0, 0.0, 5.0]:
+			if absf(gen.terrain.height_at(tower.x + x, tower.y + z) - entry_y) > 0.15:
+				return false
+	return true
 
 
 func _check(isl: MapData.Town, t: Terrain) -> String:

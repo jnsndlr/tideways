@@ -12,7 +12,7 @@ const KIT := "res://assets/models/coast_guard_station/%s.glb"
 ## [model, x, z, yaw, front] on the clifftop, fronts to the road and the sea;
 ## front is how far the front wall stands out from the model's centre (its door light).
 const BUILDINGS := [
-	["watch_tower", 2537.0, -784.0, 0.0, 2.05],  # at the road's end, facing it
+	["watch_tower", CoastGuardLayout.WATCH_TOWER.x, CoastGuardLayout.WATCH_TOWER.y, 0.0, 2.05],
 	["station_house", 2560.6, -712.0, CoastGuardLayout.WEST, 6.0],  # fronts 1.5 m off the road's edge
 	["equipment_garage", 2558.1, -660.0, CoastGuardLayout.WEST, 3.5],
 ]

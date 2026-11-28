@@ -16,6 +16,8 @@ const ROAD := [
 ]
 ## A level yard east of the road (x0, x1, z0, z1), graded at map generation.
 const YARD := Vector4(2552.0, 2605.0, -770.0, -600.0)
+## The tower and its entrance stand together on a pad at the end of the station road.
+const WATCH_TOWER := Vector2(2537.0, -784.0)
 const DECK := 1.98  # DockKit.HIGH: the kit's fixed deck height
 ## [model, berths]: each berth is [x, z, yaw], yaw the way the bow points once in
 ## (vessels come in bow first and back out). The cutter lies on the west side of the
