@@ -205,6 +205,11 @@ func _decide() -> void:
 		for c: Array in cands:
 			var h: float = c[0]
 			var o: float = c[2]
+			var turn_cost := absf(angle_difference(h, _last)) * 0.5
+			# Terrain, traffic and slowing can only add to the course and turn cost.
+			# A tie keeps the earlier heading, so skip its terrain and hull queries too.
+			if c[1] + turn_cost >= best_cost:
+				continue
 			var top := v.helm_speed(h)
 			var land := _land_cost(p, h, top)
 			if pinned:
@@ -214,7 +219,7 @@ func _decide() -> void:
 			for f: float in factors:
 				var sp := top * f
 				var cost: float = c[1] + (1.0 - f) * 1.5 + land
-				cost += absf(angle_difference(h, _last)) * 0.5
+				cost += turn_cost
 				# Barely making way (in irons, say) is no way to get anywhere, and
 				# the longer it goes on the more it is worth a big turn to get going.
 				if sp < 1.2:
