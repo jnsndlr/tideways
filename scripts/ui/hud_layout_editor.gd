@@ -76,9 +76,7 @@ func place(bounds: Rect2) -> void:
 			var travel := (bounds.size - panel.size).max(Vector2.ZERO)
 			panel.position = bounds.position + travel * fraction.clamp(Vector2.ZERO, Vector2.ONE)
 	if visible:
-		_tools.position = Vector2(
-			bounds.end.x - _tools.size.x - 8.0, bounds.position.y + 8.0
-		)
+		_tools.position = Vector2(bounds.end.x - _tools.size.x - 8.0, bounds.position.y + 8.0)
 		queue_redraw()
 
 
