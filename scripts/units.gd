@@ -10,6 +10,7 @@ const VEHICLE_MODEL_SCALE := 1.26
 const KNOT := 0.514444          # m/s
 const SPEED_UP := 3.6
 const MINUTES_PER_SECOND := 0.5  # 2 real seconds = 1 game minute at 1x
+const REAL_TIME_SCALE := 1.0 / (60.0 * MINUTES_PER_SECOND)
 
 
 ## Game minutes elapsed in `seconds` of simulation time (at 1x).
