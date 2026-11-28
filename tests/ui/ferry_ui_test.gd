@@ -323,6 +323,8 @@ func exercise_touch_camera(rig: CameraRig) -> bool:
 func exercise_speed_slider(hud: Hud) -> bool:
 	const LABELS := ["Paused", "Real time", "1x", "8x", "16x", "32x"]
 	const RATES := [0.0, 1.0 / 30.0, 1.0, 8.0, 16.0, 32.0]
+	const WAVE_RATES := [0.0, 1.0, 1.0, 2.0, 3.0, 3.0]
+	const ROAD_RATES := [0.0, 1.0 / Units.SPEED_UP, 1.0, 8.0, 16.0, 32.0]
 	for stop in LABELS.size():
 		if not await click_speed_stop(stop):
 			return false
@@ -331,9 +333,33 @@ func exercise_speed_slider(hud: Hud) -> bool:
 			or not is_equal_approx(Engine.time_scale, RATES[stop])
 		):
 			return fail("Wrong speed at slider stop %d" % stop)
+		if not check_motion_rates(current_scene, WAVE_RATES[stop], ROAD_RATES[stop]):
+			return false
 		if stop == 1 and not await exercise_real_time(hud):
 			return false
 	return exercise_speed_drag(hud)
+
+
+func check_motion_rates(session: WorldSession, wave_rate: float, road_rate: float) -> bool:
+	var delta := 0.1 * Engine.time_scale
+	var phase := session._wave_time
+	session._advance_waves(delta)
+	if not is_equal_approx(session._wave_time - phase, 0.1 * wave_rate):
+		return fail("Wrong wave playback at time scale %s" % Engine.time_scale)
+	if not is_equal_approx(session.water_mat.get_shader_parameter("wave_time"), session._wave_time):
+		return fail("The water material did not receive the current wave time")
+	var car := Vehicle.new()
+	session.add_child(car)
+	car.position = Vector3(0, 1000, 0)
+	car.drive(PackedVector3Array([car.position + Vector3.FORWARD * 200]))
+	car._process(delta)
+	var distance := -car.position.z
+	var expected := car.speed * 0.1 * road_rate
+	car.free()
+	return (
+		is_equal_approx(distance, expected)
+		or fail("Wrong road speed at time scale %s" % Engine.time_scale)
+	)
 
 
 func exercise_real_time(hud: Hud) -> bool:
