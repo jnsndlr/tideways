@@ -20,7 +20,7 @@ func run() -> void:
 func exercise() -> bool:
 	if not await enter_game("New company", Scenes.MAIN_MAP):
 		return false
-	if not await press("Pause") or not await press("FLEET") or not await press("Buy a boat"):
+	if not await click_speed_stop(0) or not await press("FLEET") or not await press("Buy a boat"):
 		return false
 	var hud: Hud = current_scene.hud
 	var sim: Simulation = current_scene.sim

@@ -4,18 +4,24 @@ extends CanvasLayer
 ## selection panel, terminal status bar, fleet list, wildlife sightings, toasts,
 ## a minimap and the map controls at the screen edge.
 
+## Emitted for the authored map to show the selected site or clear its pins.
+signal dock_site_selected(town: MapData.Town)
+
+# Speed IDs are also used by launch options and device probes.
+enum Speed { PAUSED, NORMAL, FAST, FASTER, MAXIMUM, REAL_TIME }
+
 const PANEL_BG := Color(0.07, 0.11, 0.13, 0.9)
 # By path, so the editor resolves it even before its class list catches up.
 const RefitCrew := preload("res://scripts/world/slip_refit_crew.gd")
 const TEXT := Color(0.9, 0.94, 0.95)
 const MUTED := Color(0.58, 0.66, 0.68)
 const ACCENT := Color(0.47, 0.86, 0.6)
-const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0]
-const SPEED_LABELS := ["", "1x", "8x", "16x", "32x"]
+const SLIDER_SPEEDS := [
+	Speed.PAUSED, Speed.REAL_TIME, Speed.NORMAL, Speed.FAST, Speed.FASTER, Speed.MAXIMUM
+]
+const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0, 1.0 / (60.0 * Units.MINUTES_PER_SECOND)]
+const SPEED_LABELS := ["Paused", "1x", "8x", "16x", "32x", "Real time"]
 const WILD := Color(0.98, 0.78, 0.42)
-
-## Emitted for the authored map to show the selected site or clear its pins.
-signal dock_site_selected(town: MapData.Town)
 
 var _game_menu: PopupMenu
 var _layout_editor := preload("res://scripts/ui/hud_layout_editor.gd").new()
@@ -47,9 +53,10 @@ var _labels := {}
 var _stat := {}
 var _queue_total_dirty := true
 var _terminal_rows: TerminalInspectorRows
-var _speed_buttons: Array[Button] = []
-var _speed_index := 1
-var _last_running_speed := 1
+var _speed_slider: HSlider
+var _speed_label: Label
+var _speed_index: int = Speed.NORMAL
+var _last_running_speed: int = Speed.NORMAL
 var _info_panel: PanelContainer
 var _ferry_panel: FerryPanel
 var _info_scroll: ScrollContainer
@@ -156,7 +163,7 @@ func setup(session: WorldSession, offers_dock_sites := false) -> void:
 	sim.running_costs_posted.connect(_on_running_costs)
 	sim.ferry_delivered.connect(_on_ferry_delivered)
 	sim.ferry_removed.connect(_on_ferry_removed)
-	set_speed(1)
+	set_speed(Speed.NORMAL)
 	var intro := session.intro(_labels.size())
 	show_toast(intro[0], intro[1])
 
@@ -274,33 +281,22 @@ func _build_top_bar() -> void:
 	date_row.add_theme_constant_override("separation", 10)
 	clock.add_child(date_row)
 	var speeds := HBoxContainer.new()
-	for i in SPEEDS.size():
-		var b := Button.new()
-		b.toggle_mode = true
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(40, 26)
-		b.tooltip_text = "Pause" if i == 0 else "%s speed" % SPEED_LABELS[i]
-		b.pressed.connect(set_speed.bind(i))
-		if i == 0:
-			# Drawn rather than typed: iPad's system fonts lack the ❚❚ glyph.
-			var icon := Control.new()
-			icon.set_anchors_preset(Control.PRESET_FULL_RECT)
-			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			icon.draw.connect(_draw_speed_icon.bind(icon, b, i))
-			b.add_child(icon)
-			b.toggled.connect(func(_on: bool) -> void: icon.queue_redraw())
-			b.mouse_entered.connect(icon.queue_redraw)
-			b.mouse_exited.connect(icon.queue_redraw)
-		else:
-			b.text = SPEED_LABELS[i]
-			b.add_theme_font_override("font", bold)
-			b.add_theme_font_size_override("font_size", 12)
-			b.add_theme_color_override("font_color", TEXT)
-			b.add_theme_color_override("font_hover_color", Color.WHITE)
-			b.add_theme_color_override("font_pressed_color", ACCENT)
-			b.add_theme_color_override("font_hover_pressed_color", ACCENT)
-		speeds.add_child(b)
-		_speed_buttons.append(b)
+	_speed_slider = HSlider.new()
+	_speed_slider.max_value = SLIDER_SPEEDS.size() - 1
+	_speed_slider.step = 1
+	_speed_slider.tick_count = SLIDER_SPEEDS.size()
+	_speed_slider.ticks_on_borders = true
+	_speed_slider.scrollable = false
+	_speed_slider.focus_mode = Control.FOCUS_NONE
+	_speed_slider.custom_minimum_size = Vector2(158, 40)
+	_speed_slider.tooltip_text = "Game speed"
+	_speed_slider.value_changed.connect(
+		func(stop: float) -> void: set_speed(SLIDER_SPEEDS[int(stop)])
+	)
+	speeds.add_child(_speed_slider)
+	_speed_label = _label("", 13, ACCENT, true)
+	_speed_label.custom_minimum_size.x = 60
+	speeds.add_child(_speed_label)
 	clock.add_child(speeds)
 	row.add_child(clock)
 
@@ -407,30 +403,13 @@ func _on_sidebar(id: String) -> void:
 			show_toast(id.to_upper(), "Coming soon: this screen is a placeholder in the preview.")
 
 
-func _draw_speed_icon(icon: Control, b: Button, i: int) -> void:
-	var col := ACCENT if b.button_pressed else (Color.WHITE if b.is_hovered() else TEXT)
-	var c := icon.size * 0.5
-	var h := 11.0
-	if i == 0:
-		icon.draw_rect(Rect2(c + Vector2(-5.0, -h * 0.5), Vector2(3.5, h)), col)
-		icon.draw_rect(Rect2(c + Vector2(1.5, -h * 0.5), Vector2(3.5, h)), col)
-		return
-	var w := 8.0
-	var step := 7.0
-	var x0 := c.x - (w + step * (i - 1)) * 0.5
-	for k in i:
-		var x := x0 + step * k
-		icon.draw_colored_polygon(PackedVector2Array([
-			Vector2(x, c.y - h * 0.5), Vector2(x + w, c.y), Vector2(x, c.y + h * 0.5)]), col)
-
-
 func set_speed(i: int) -> void:
 	_speed_index = i
 	if i > 0:
 		_last_running_speed = i
 	Engine.time_scale = SPEEDS[i]
-	for j in _speed_buttons.size():
-		_speed_buttons[j].button_pressed = j == i
+	_speed_slider.set_value_no_signal(SLIDER_SPEEDS.find(i))
+	_speed_label.text = SPEED_LABELS[i]
 
 
 # --- Island labels ------------------------------------------------------------------
@@ -611,15 +590,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_pressed() or event.is_echo():
 		return
 	if event.is_action(&"hud_toggle_pause"):
-		set_speed(0 if _speed_index > 0 else _last_running_speed)
+		set_speed(_last_running_speed if _speed_index == Speed.PAUSED else Speed.PAUSED)
 	elif event.is_action(&"hud_speed_normal"):
-		set_speed(1)
+		set_speed(Speed.NORMAL)
 	elif event.is_action(&"hud_speed_fast"):
-		set_speed(2)
+		set_speed(Speed.FAST)
 	elif event.is_action(&"hud_speed_fastest"):
-		set_speed(3)
+		set_speed(Speed.FASTER)
 	elif event.is_action(&"hud_speed_max"):
-		set_speed(4)
+		set_speed(Speed.MAXIMUM)
 	elif event.is_action(&"hud_clear_selection"):
 		clear_selection()
 	elif event.is_action(&"hud_next_ferry"):

@@ -23,7 +23,7 @@ Open the folder in Godot 4.7 and press **Play** (F5). On the title screen, **Pla
 | Rotate / tilt | Right- or middle-drag | Q E / R F |
 | Zoom (toward cursor) | Wheel, pinch | Z X or + − |
 | Select island / vessel | Click (or click an island label) | Tab = next ferry, Esc = deselect |
-| Time | Speed buttons in the top bar | Space = pause, 1–3 = speed |
+| Time | Stepped slider in the top bar: Paused, Real time, 1x, 8x, 16x, 32x | Space = pause/resume, 1–4 = speed |
 | New random map | | G |
 | Back to menu | | M (sandbox), Esc (main map) |
 

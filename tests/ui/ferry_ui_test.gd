@@ -69,10 +69,8 @@ func exercise_layout() -> bool:
 		return false
 	if not exercise_touch_camera(hud.rig):
 		return false
-	if not await press("8x speed"):
+	if not await exercise_speed_slider(hud):
 		return false
-	if Engine.time_scale <= 1.0:
-		return fail("Speed control did not accelerate")
 	key(KEY_M)
 	for i in 4:
 		await process_frame
@@ -330,4 +328,73 @@ func exercise_touch_camera(rig: CameraRig) -> bool:
 	touch(0, left, false)
 	if rig.target_pitch >= pitch:
 		return fail("Three-finger drag did not tilt toward the horizon")
+	return true
+
+
+func exercise_speed_slider(hud: Hud) -> bool:
+	const LABELS := ["Paused", "Real time", "1x", "8x", "16x", "32x"]
+	const RATES := [0.0, 1.0 / 30.0, 1.0, 8.0, 16.0, 32.0]
+	for stop in LABELS.size():
+		if not await click_speed_stop(stop):
+			return false
+		if (
+			hud._speed_label.text != LABELS[stop]
+			or not is_equal_approx(Engine.time_scale, RATES[stop])
+		):
+			return fail("Wrong speed at slider stop %d" % stop)
+		if stop == 1 and not await exercise_real_time(hud):
+			return false
+	return exercise_speed_drag(hud)
+
+
+func exercise_real_time(hud: Hud) -> bool:
+	var clock_before := hud.sim.clock_text()
+	var before := hud.sim.abs_minutes()
+	hud.sim._process(60.0 * Engine.time_scale)
+	if not is_equal_approx(hud.sim.abs_minutes() - before, 1.0):
+		return fail("A real minute should advance the clock by one game minute")
+	for frame in 16:
+		await process_frame
+		if hud._stat["time"].text == hud.sim.clock_text():
+			break
+	if hud._stat["time"].text != hud.sim.clock_text() or hud.sim.clock_text() == clock_before:
+		return fail("The HUD clock should display the next minute at Real time")
+	key(KEY_SPACE)
+	if hud._speed_slider.value != 0 or Engine.time_scale != 0:
+		return fail("Space should pause from Real time")
+	key(KEY_SPACE)
+	if hud._speed_slider.value != 1 or hud._speed_label.text != "Real time":
+		return fail("Space should restore Real time")
+	return true
+
+
+func exercise_speed_drag(hud: Hud) -> bool:
+	# Drag the grabber from the right edge while holding the mouse button.
+	var slider := hud._speed_slider
+	var transform := slider.get_global_transform_with_canvas()
+	var start := transform * Vector2(slider.size.x - 1, slider.size.y * 0.5)
+	var end := transform * Vector2(1, slider.size.y * 0.5)
+	var button := InputEventMouseButton.new()
+	button.position = start
+	button.button_index = MOUSE_BUTTON_LEFT
+	button.pressed = true
+	root.push_input(button, true)
+	var drag := InputEventMouseMotion.new()
+	drag.position = end
+	drag.relative = end - start
+	drag.button_mask = MOUSE_BUTTON_MASK_LEFT
+	root.push_input(drag, true)
+	if Engine.time_scale != 0.0 or hud._speed_label.text != "Paused":
+		return fail("Dragging to the first stop should pause before releasing the slider")
+	button.position = end
+	button.pressed = false
+	root.push_input(button, true)
+	key(KEY_1)
+	if (
+		slider.has_focus()
+		or slider.value != 2
+		or hud._speed_label.text != "1x"
+		or Engine.time_scale != 1.0
+	):
+		return fail("The normal-speed shortcut should still work after a slider drag")
 	return true

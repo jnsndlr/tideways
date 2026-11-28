@@ -28,7 +28,7 @@ func play_opening() -> bool:
 	var port := boat.here()
 	if port.town.name != "Port Rosario" or port.capacity() != 14:
 		return fail("Expected 14 holding spaces at Port Rosario before the first sailing")
-	if not await press("8x speed"):
+	if not await click_speed_stop(3):
 		return false
 	for frame in 1200:
 		await process_frame
@@ -36,7 +36,7 @@ func play_opening() -> bool:
 			break
 	if boat.trips != 1 or not boat.here().town.key.begins_with("island-2/"):
 		return fail("Hiyu did not complete her first sailing to Madrona")
-	if not await press("Pause") or not await press("FINANCES"):
+	if not await click_speed_stop(0) or not await press("FINANCES"):
 		return false
 	var ledger := sim.ledger
 	var panel := hud._finance_panel
@@ -107,7 +107,7 @@ func buy_lane(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 		return fail("Buying one lane should debit exactly $150 from cash and purchases")
 	if port.work_stage != Terminal.WorkStage.DRAINING or port.capacity() != 14:
 		return fail("Construction should start before the extra spaces open")
-	if not await press("8x speed"):
+	if not await click_speed_stop(3):
 		return false
 	for frame in 1200:
 		await process_frame
@@ -132,7 +132,7 @@ func buy_lane(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
 
 
 func buy_working_slip(hud: Hud, port: Terminal, ledger: CompanyLedger) -> bool:
-	if not await press("Pause"):
+	if not await click_speed_stop(0):
 		return false
 	var offer := port.find_upgrade(TerminalUpgrade.Kind.SLIP)
 	if offer == null or not offer.blocked.is_empty():

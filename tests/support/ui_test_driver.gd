@@ -15,6 +15,14 @@ func press(label: String, prefix := false) -> bool:
 	return fail("Missing visible button: " + label)
 
 
+func click_speed_stop(stop: int) -> bool:
+	await process_frame
+	var slider: HSlider = current_scene.hud._speed_slider
+	var point := Vector2(slider.size.x * stop / slider.max_value, slider.size.y * 0.5)
+	point.x = clampf(point.x, 1, slider.size.x - 1)
+	return click_control(slider, point, "Game speed stop %d" % stop)
+
+
 func click_control(control: Control, local_point: Vector2, label: String) -> bool:
 	var point := control.get_global_transform_with_canvas() * local_point
 	if not root.get_visible_rect().has_point(point):
