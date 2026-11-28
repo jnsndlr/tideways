@@ -30,6 +30,7 @@ const RADAR_SCANNER_Y := 14.45
 const RADAR_SPIN_RAD_S := 2.4
 const PILE := Color(0.3, 0.26, 0.22)
 
+
 static func build(wb: WorldBuilder) -> void:
 	var isl_i := -1
 	for i in wb.map.islands.size():
@@ -46,15 +47,19 @@ static func build(wb: WorldBuilder) -> void:
 	_docks(wb)
 	for s: Vector2 in SHEDS:
 		var house := wb._add_mesh(_model(KIT % "lifeboat_house"), "Coast Guard lifeboat_house")
-		house.transform = Transform3D(Basis(Vector3.UP, CoastGuardLayout.WEST), Vector3(s.x, 0.4, s.y))
+		house.transform = Transform3D(
+			Basis(Vector3.UP, CoastGuardLayout.WEST), Vector3(s.x, 0.4, s.y)
+		)
 	# The vessels at their berths (CoastGuardLayout.MOORED) are CoastGuardBoat's: it sends them on patrol.
 	_road(wb, isl_i)
 	_lighthouse(wb)
 	_radar_tower(wb)
 	_clear(wb, Vector2(2560.0, -690.0), 40.0)
 
+
 static func _model(path: String) -> Mesh:
 	return Models._cached(path, func(): return ModelParts.baked(path).commit())
+
 
 ## The pier from the dock kit, fixed main deck on piles: out from the cliff foot
 ## (ROOT) to the elbow, north to the head (then a ramp down to a float), and the shore deck
@@ -86,6 +91,7 @@ static func _docks(wb: WorldBuilder) -> void:
 		p = kit.add_deck(DockKit.Width.MAIN, p, Vector2(0, 1), DockKit.Support.PILES)
 	_ramp(wb, kit)
 	kit.bake()
+
 
 ## The way up the cliff: dock kit ramp sections chained from the elbow run's north
 ## edge (CoastGuardLayout.RAMP_FOOT) to the clifftop, on timber posts down to the rock.
@@ -119,6 +125,7 @@ static func _ramp(wb: WorldBuilder, kit: Node3D) -> void:
 				)
 	wb._add_mesh(mb.commit(), "Coast Guard Ramp Posts")
 
+
 ## The station's road, graded at map generation (MapGenerator._grade_coast_guard_road)
 ## on to the nearest street of Port Rosario, which it joins paved.
 static func _road(wb: WorldBuilder, isl_i: int) -> void:
@@ -137,6 +144,7 @@ static func _road(wb: WorldBuilder, isl_i: int) -> void:
 	for i in range(0, pts.size(), 3):
 		wb._block_road(pts[i], 9.0)
 
+
 ## A lighthouse on the tip of the spit, its beam turning at night.
 static func _lighthouse(wb: WorldBuilder) -> void:
 	var p := _ground(wb, LIGHT_AT.x, LIGHT_AT.y)
@@ -150,9 +158,12 @@ static func _lighthouse(wb: WorldBuilder) -> void:
 	wb.glows.beam(lamp, beacon, 6.6, 225.0, 0.5, 0.3, 0.0)
 	wb._block(p, 14.0)
 
+
 ## Radar tower on the clifftop with a spinning open-array scanner and red beacons.
 static func _radar_tower(wb: WorldBuilder) -> void:
-	var xf := Transform3D(Basis(Vector3.UP, CoastGuardLayout.WEST), _ground(wb, RADAR_AT.x, RADAR_AT.y))
+	var xf := Transform3D(
+		Basis(Vector3.UP, CoastGuardLayout.WEST), _ground(wb, RADAR_AT.x, RADAR_AT.y)
+	)
 	var tower := wb._add_mesh(_model(KIT % "radar_tower"), "Coast Guard radar_tower")
 	tower.transform = xf
 	var scanner := _RadarSpinner.new()
@@ -181,6 +192,7 @@ class _RadarSpinner:
 	func _process(delta: float) -> void:
 		rotate_y(delta * RADAR_SPIN_RAD_S)
 
+
 static func _ground(wb: WorldBuilder, x: float, z: float) -> Vector3:
 	var h := INF
 	for o: Vector2 in [
@@ -188,6 +200,7 @@ static func _ground(wb: WorldBuilder, x: float, z: float) -> Vector3:
 	]:
 		h = minf(h, wb.terrain.height_at(x + o.x, z + o.y))
 	return Vector3(x, h, z)
+
 
 static func _clear(wb: WorldBuilder, at: Vector2, r: float) -> void:
 	var u := -r

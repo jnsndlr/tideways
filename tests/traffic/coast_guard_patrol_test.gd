@@ -1,7 +1,10 @@
 extends SceneTree
 ## The cutter's astern lane and open-water patrol must meet on either berth heading.
 
-class OpenWater extends Terrain:
+
+class OpenWater:
+	extends Terrain
+
 	func height_at(_x: float, _z: float) -> float:
 		return -30.0
 
