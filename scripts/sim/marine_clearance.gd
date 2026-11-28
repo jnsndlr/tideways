@@ -21,7 +21,9 @@ const STUCK_GO := 10.0
 # under way, and the still ones (at a berth, at anchor) bucketed by where they lie,
 # so a check against hulls nearby needn't look at every boat in every marina.
 const STILL_CELL := 64.0
+const MOVING_STRIP_WIDTH := 256.0
 var _movers: Array[Vessel] = []
+var _moving_strips := {}  # x strip -> moving vessels in their original order
 var _still := {}  # Vector2i cell -> Array[Vessel] lying (partly) in it
 var _still_reach := 0.0  # the most any still hull reaches from its centre
 var _grid_built := false
@@ -123,11 +125,10 @@ func update(vessels: Array[Vessel], dt: float) -> void:
 			v.stuck_t = 0.0
 		var asserting := v.go_t > 0.0
 		var mine: Claim = own[v]
-		# Still hulls only count through the hull check, so only those near enough
-		# to touch need looking at; every one under way may cross its path.
-		var others: Array = (
-			_movers + _still_in(mine.box.grow(v.hull_radius + _still_reach + MARGIN))
-		)
+		# The helm and the stuck breaker check only current hulls. Path-followers
+		# still need every mover for their separate path and CPA horizons.
+		var movers := _hull_movers(mine, v.hull_radius) if v.free_nav or asserting else _movers
+		var others: Array = movers + _still_in(mine.box.grow(v.hull_radius + _still_reach + MARGIN))
 		for o: Vessel in others:
 			if o == v or Vessel.paired(v, o):
 				continue
@@ -157,13 +158,37 @@ func update(vessels: Array[Vessel], dt: float) -> void:
 						_limit(v, o, mine.ds[k2 - 1], false)
 
 
+## If the checking path fits in one strip, that strip contains every moving
+## hull it can touch. On a boundary, use the full list to preserve blocker ties.
+func _hull_movers(mine: Claim, radius: float) -> Array:
+	var left := floori((mine.box.position.x - radius - MARGIN) / MOVING_STRIP_WIDTH)
+	var right := floori((mine.box.end.x + radius + MARGIN) / MOVING_STRIP_WIDTH)
+	if left != right:
+		return _movers
+	return _moving_strips.get(left, [])
+
+
 func _bucket(vessels: Array[Vessel], hulls: Dictionary, own: Dictionary) -> void:
 	_movers.clear()
+	_moving_strips.clear()
 	_still.clear()
 	_still_reach = 0.0
 	for v in vessels:
 		if own.has(v):
 			_movers.append(v)
+			var hull: Claim = own[v]
+			# Only its present capsule matters to a hull check. Round outwards
+			# before bucketing so floating-point boundaries stay conservative.
+			var left := floori(
+				floorf(minf(hull.a[0].x, hull.b[0].x) - v.hull_radius) / MOVING_STRIP_WIDTH
+			)
+			var right := floori(
+				ceilf(maxf(hull.a[0].x, hull.b[0].x) + v.hull_radius) / MOVING_STRIP_WIDTH
+			)
+			for strip in range(left, right + 1):
+				if not _moving_strips.has(strip):
+					_moving_strips[strip] = []
+				_moving_strips[strip].append(v)
 			continue
 		_still_reach = maxf(_still_reach, v.half_seg + v.hull_radius)
 		var box: Rect2 = (hulls[v] as Claim).box
