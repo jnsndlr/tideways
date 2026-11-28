@@ -10,18 +10,34 @@ var positions: Dictionary
 var _bounds: Rect2
 var _moving := ""
 var _grab := Vector2.ZERO
-var _done := Button.new()
+var _tools := PanelContainer.new()
+var _default_offsets: Dictionary
 
 
 func setup(items: Dictionary) -> void:
 	panels = items
-	positions = GameSettings.hud_positions()
+	var stored := GameSettings.hud_positions()
+	for key: String in panels:
+		var panel: Control = panels[key]
+		_default_offsets[key] = Vector2(panel.offset_left, panel.offset_top)
+		var saved: Variant = stored.get(key)
+		if saved is Vector2 and saved.is_finite():
+			positions[key] = saved
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	_done.text = "Done editing layout"
-	_done.custom_minimum_size = Vector2(150, 44)
-	_done.pressed.connect(finish)
-	add_child(_done)
+	add_child(_tools)
+	var row := HBoxContainer.new()
+	_tools.add_child(row)
+	var reset := Button.new()
+	reset.text = "Reset layout"
+	reset.custom_minimum_size = Vector2(128, 44)
+	reset.pressed.connect(_reset)
+	row.add_child(reset)
+	var done := Button.new()
+	done.text = "Done editing layout"
+	done.custom_minimum_size = Vector2(150, 44)
+	done.pressed.connect(finish)
+	row.add_child(done)
 	hide()
 
 
@@ -41,6 +57,16 @@ func finish() -> void:
 	hide()
 
 
+func _reset() -> void:
+	for key: String in positions:
+		var panel: Control = panels[key]
+		var offset := Vector2(panel.offset_left, panel.offset_top)
+		var initial: Vector2 = _default_offsets[key]
+		panel.position += initial - offset
+	positions.clear()
+	_moving = ""
+
+
 func place(bounds: Rect2) -> void:
 	_bounds = bounds
 	for key: String in panels:
@@ -50,8 +76,8 @@ func place(bounds: Rect2) -> void:
 			var travel := (bounds.size - panel.size).max(Vector2.ZERO)
 			panel.position = bounds.position + travel * fraction.clamp(Vector2.ZERO, Vector2.ONE)
 	if visible:
-		_done.position = Vector2(
-			bounds.get_center().x - _done.size.x * 0.5, bounds.position.y + 8.0
+		_tools.position = Vector2(
+			bounds.end.x - _tools.size.x - 8.0, bounds.position.y + 8.0
 		)
 		queue_redraw()
 

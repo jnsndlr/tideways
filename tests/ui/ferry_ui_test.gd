@@ -264,6 +264,8 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 	await frames(2)
 	var canvas := root.get_visible_rect().size
 	var editor := hud._layout_editor
+	if editor._tools.get_rect().intersects(hud._top_bar.get_rect()):
+		return fail("Layout controls obscure the default clock and speed slider")
 	var from := controls.position + art
 	drag_control(editor, from, Vector2(-canvas.x, 0))
 	await frames(2)
@@ -284,8 +286,31 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 		return fail("Panel positions did not persist")
 	if not hud.rig.target_pos.is_equal_approx(camera_target):
 		return fail("Arranging the HUD panned the camera")
-	# The second viewport also exercises automatic placement with the inspector open.
-	GameSettings._cfg.erase_section_key("display", "hud_positions")
+	# Reload the settings as a new session does, then restore the automatic layout.
+	GameSettings._cfg = null
+	if GameSettings.hud_positions() != editor.positions:
+		return fail("Saved layout did not reload from disk")
+	hud._on_game_menu(3)
+	await frames(2)
+	var minimap := hud._minimap_panel
+	var original_minimap := minimap.position
+	drag_control(editor, minimap.get_rect().get_center(), Vector2(-100, -70))
+	await frames(2)
+	if minimap.position.is_equal_approx(original_minimap):
+		return fail("Minimap did not move in edit mode")
+	if not await press("Reset layout"):
+		return false
+	await frames(2)
+	if (
+		not controls.position.is_equal_approx(resting)
+		or not minimap.position.is_equal_approx(original_minimap)
+	):
+		return fail("Reset did not restore the weather card and minimap")
+	if not await press("Done editing layout"):
+		return false
+	GameSettings._cfg = null
+	if not GameSettings.hud_positions().is_empty():
+		return fail("Reset layout did not persist")
 	return true
 
 
