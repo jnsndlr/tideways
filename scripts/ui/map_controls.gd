@@ -5,8 +5,7 @@ extends PanelContainer
 ## Unpinned, it tucks away again when the player opens another panel or clicks
 ## the map. Which map layers show lives in Settings (GameSettings), not here.
 ##
-## It rests against the left or right edge, part-way down, for the session. A drag
-## on the illustration picks the edge and the height.
+## Default placement rests above the minimap. The HUD layout editor owns custom placement.
 
 signal pin_save_failed(error: Error)
 signal weather_toggled(shown: bool)
@@ -21,19 +20,14 @@ var pinned := false
 ## The screen edge it rests against (1 right, -1 left) and how far down that edge
 ## (0 top .. 1 bottom).
 var side := 1
-var fraction := 0.45
+var fraction := 1.0
 
-var _grab_y := 0.0
-var _bounds := Rect2()
-var _obstacles: Array[Rect2] = []
 
 
 func setup(sim: Simulation, day_cycle: DayCycle, font: Font) -> void:
 	widget.setup(sim, day_cycle, font)
 	widget.tapped.connect(func() -> void: set_weather_shown(not weather_shown))
 	widget.pin_tapped.connect(func() -> void: set_pinned(not pinned))
-	widget.drag_started.connect(func(point: Vector2) -> void: _grab_y = point.y - position.y)
-	widget.drag_moved.connect(_on_drag_moved)
 	add_child(widget)
 	pinned = GameSettings.flag("weather_pinned")
 	widget.pinned = pinned
@@ -83,8 +77,6 @@ func set_weather_shown(on: bool) -> void:
 ## edge has none, it keeps its height and moves in beside whatever is in the way,
 ## so it stays on the side the player put it and within reach.
 func place(bounds: Rect2, obstacles: Array[Rect2]) -> void:
-	_bounds = bounds
-	_obstacles = obstacles
 	var room := maxf(0.0, bounds.size.y - size.y)
 	var top := bounds.position.y
 	var desired := top + fraction * room
@@ -118,10 +110,3 @@ func _is_clear(r: Rect2, obstacles: Array[Rect2]) -> bool:
 		if r.intersects(o.grow(GAP - 0.5)):
 			return false
 	return true
-
-
-## The group follows the finger: whichever edge is nearer, at the finger's height.
-func _on_drag_moved(point: Vector2) -> void:
-	side = 1 if point.x >= _bounds.get_center().x else -1
-	fraction = clampf((point.y - _grab_y - _bounds.position.y) / maxf(1.0, _bounds.size.y - size.y), 0.0, 1.0)
-	place(_bounds, _obstacles)

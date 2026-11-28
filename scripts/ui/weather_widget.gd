@@ -4,7 +4,7 @@ extends Control
 ## over from the Tideways 3D edge widget: a cut-paper sky, sun or moon, cloud for
 ## the current conditions, the temperature, and whether the map is showing its
 ## weather. It only reads the weather. A tap asks to hide or restore the map's
-## weather effects and a drag asks to move the group; MapControls owns both answers.
+## weather effects. A drag cancels the tap.
 ##
 ## The slow drift, shimmer and twinkle are presentation only: they run on real
 ## time, a few redraws a second, whatever the game speed.
@@ -12,10 +12,6 @@ extends Control
 signal tapped
 ## The pin in the top-right corner was tapped.
 signal pin_tapped
-## A press turned into a drag. `point` is where the press began, on the canvas.
-signal drag_started(point: Vector2)
-signal drag_moved(point: Vector2)
-signal drag_ended
 
 ## The drawing is laid out in these units and scaled to the control.
 const ART_SIZE := Vector2(180, 166)
@@ -112,8 +108,12 @@ func _refresh() -> void:
 	if label == "Clear":
 		_label = "Clear night" if night else "Clear skies"
 	_prepare_sky()
-	tooltip_text = "%s%s · %s. Tap to %s map weather; drag to move; pin to keep open." % [label, " at night" if night else "",
-		"Weather shown" if effects_shown else "Map effects hidden", "hide" if effects_shown else "show"]
+	var shown := "Weather shown" if effects_shown else "Map effects hidden"
+	var action := "hide" if effects_shown else "show"
+	tooltip_text = (
+		"%s%s · %s. Tap to %s map weather. Pin to keep open."
+		% [label, " at night" if night else "", shown, action]
+	)
 	queue_redraw()
 
 
@@ -131,7 +131,6 @@ func _gui_input(event: InputEvent) -> void:
 			_feedback_at = Time.get_ticks_msec()
 			if _dragging:
 				_dragging = false
-				drag_ended.emit()
 			elif mb.position.distance_to(_pin_center()) <= PIN_RADIUS:
 				pin_tapped.emit()
 			else:
@@ -141,9 +140,6 @@ func _gui_input(event: InputEvent) -> void:
 		var point := _on_canvas((event as InputEventMouseMotion).position)
 		if not _dragging and point.distance_to(_press_at) > SLOP:
 			_dragging = true
-			drag_started.emit(_press_at)
-		if _dragging:
-			drag_moved.emit(point)
 		accept_event()
 	elif event is InputEventScreenTouch or event is InputEventScreenDrag:
 		# The finger is on this control: keep it from the camera underneath.
