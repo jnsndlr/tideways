@@ -420,6 +420,10 @@ func _round_corners(points: PackedVector3Array) -> PackedVector3Array:
 
 
 func _process(delta: float) -> void:
+	# At Real time, drive in metres per wall second without the map speed-up.
+	# Apply the same interval to steering, following and the start of a drive.
+	if is_equal_approx(Engine.time_scale, Units.REAL_TIME_SCALE):
+		delta /= Units.REAL_TIME_SCALE * Units.SPEED_UP
 	if delay > 0.0:
 		delay -= delta
 		return
