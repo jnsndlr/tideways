@@ -50,7 +50,7 @@ static func build(wb: WorldBuilder) -> void:
 		house.transform = Transform3D(
 			Basis(Vector3.UP, CoastGuardLayout.WEST), Vector3(s.x, 0.4, s.y)
 		)
-	# The vessels at their berths (CoastGuardLayout.MOORED) are CoastGuardBoat's: it sends them on patrol.
+	# CoastGuardBoat owns the berthed vessels and sends them on patrol.
 	_road(wb, isl_i)
 	_lighthouse(wb)
 	_radar_tower(wb)
