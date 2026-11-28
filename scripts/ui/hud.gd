@@ -19,7 +19,7 @@ const ACCENT := Color(0.47, 0.86, 0.6)
 const SLIDER_SPEEDS := [
 	Speed.PAUSED, Speed.REAL_TIME, Speed.NORMAL, Speed.FAST, Speed.FASTER, Speed.MAXIMUM
 ]
-const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0, 1.0 / (60.0 * Units.MINUTES_PER_SECOND)]
+const SPEEDS := [0.0, 1.0, 8.0, 16.0, 32.0, Units.REAL_TIME_SCALE]
 const SPEED_LABELS := ["Paused", "1x", "8x", "16x", "32x", "Real time"]
 const WILD := Color(0.98, 0.78, 0.42)
 

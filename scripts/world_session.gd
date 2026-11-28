@@ -23,6 +23,7 @@ var sky_mat: ShaderMaterial
 var day_cycle: DayCycle
 var clouds: CloudLayer
 var water_mat: ShaderMaterial
+var _wave_time := 0.0
 var route_overlay: MeshInstance3D
 ## Optional layer for regions that draw named water zones.
 var area_overlay: Node3D
@@ -448,7 +449,21 @@ func _notification(what: int) -> void:
 		Engine.max_fps = MAX_FPS
 
 
-func _process(_delta: float) -> void:
+func _advance_waves(delta: float) -> void:
+	var scale := Engine.time_scale
+	if scale <= 0.0:
+		return
+	var rate := 1.0
+	if scale >= 16.0:
+		rate = 3.0
+	elif scale >= 8.0:
+		rate = 2.0
+	_wave_time += delta / scale * rate
+	water_mat.set_shader_parameter("wave_time", _wave_time)
+
+
+func _process(delta: float) -> void:
+	_advance_waves(delta)
 	# Keep shadows crisp and fog sensible at every zoom level. Zoomed in, the first
 	# cascade reaches just past the point looked at, so whatever the player is looking
 	# at gets the finest shadow texels (~3 cm: fine enough for rails); zoomed out,
@@ -534,7 +549,7 @@ func _dress_terminal(terminal: Terminal) -> void:
 	if RefitCrew.available():
 		var crew := RefitCrew.new()
 		terminal.add_child(crew)
-		crew.setup(terminal)
+		crew.setup(terminal, water_mat)
 	if terminal.town.lane_extension_price > 0:
 		var extension := HoldingLaneView.new()
 		terminal.add_child(extension)

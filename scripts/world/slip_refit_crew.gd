@@ -48,6 +48,7 @@ const SWELL_HEIGHT := 0.2                 # water.gdshader's swell_height
 const UNIT := 3.0                         # water.gdshader's UNIT
 
 var terminal: Terminal
+var _water_mat: ShaderMaterial
 var _tow := Node3D.new()
 var _scow := Node3D.new()
 var _slew := Node3D.new()
@@ -80,7 +81,8 @@ static func available() -> bool:
 	return ResourceLoader.exists(PUSHER_GLB) and ResourceLoader.exists(SCOW_GLB)
 
 
-func setup(t: Terminal) -> void:
+func setup(t: Terminal, water_mat: ShaderMaterial = null) -> void:
+	_water_mat = water_mat
 	terminal = t
 	name = "SlipRefitCrew"
 	add_child(_tow)
@@ -443,9 +445,9 @@ func _skiff_loop(v: float, t: float) -> Vector3:
 
 ## The water shader's swell height at world point `p`, so small boats ride it rather
 ## than the swell washing over their decks (water.gdshader's swell()).
-static func swell(p: Vector3) -> float:
+func swell(p: Vector3) -> float:
 	var q := Vector2(p.x, p.z) / UNIT
-	var t := Time.get_ticks_msec() / 1000.0
+	var t := float(_water_mat.get_shader_parameter("wave_time")) if _water_mat else 0.0
 	var h := _gnoise(q * 0.011 + Vector2(0.05, 0.02) * t) + 0.5 * _gnoise(q * 0.027 - Vector2(0.03, 0.07) * t + Vector2(7, 7))
 	return h * SWELL_HEIGHT * UNIT
 

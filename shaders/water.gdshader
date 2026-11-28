@@ -18,6 +18,7 @@ render_mode blend_mix, depth_draw_always, cull_back, specular_schlick_ggx;
 
 #include "res://shaders/clouds.gdshaderinc"
 
+uniform float wave_time = 0.0;
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear;
 uniform sampler2D depth_texture : hint_depth_texture, filter_linear;
 
@@ -758,7 +759,7 @@ float swell(vec2 p, float t) {
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float edge = max(abs(world_pos.x), abs(world_pos.z));
-	float h = swell(world_pos.xz / UNIT, TIME) * swell_height * UNIT * (1.0 - smoothstep(swell_extent - 240.0, swell_extent - 30.0, edge));
+	float h = swell(world_pos.xz / UNIT, wave_time) * swell_height * UNIT * (1.0 - smoothstep(swell_extent - 240.0, swell_extent - 30.0, edge));
 	VERTEX.y += h;
 	world_pos.y += h;
 }
@@ -770,7 +771,7 @@ vec3 view_to_world(vec2 uv, float raw_depth, mat4 inv_proj, mat4 inv_view) {
 
 void fragment() {
 	vec2 p = world_pos.xz / UNIT;
-	float t = TIME;
+	float t = wave_time;
 	float dist = length(VERTEX) / UNIT;
 	// Orthographic views (the minimap) get flat, calm water.
 	float ortho = step(0.5, PROJECTION_MATRIX[3][3]);
