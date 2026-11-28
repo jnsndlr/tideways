@@ -19,6 +19,7 @@ func key(code: Key) -> void:
 
 
 func run() -> void:
+	GameSettings._path = "user://test-layout-%d.cfg" % OS.get_process_id()
 	preload("res://scripts/sandbox.gd").map_seed = 123
 	for size: Vector2i in LANDSCAPE_SIZES:
 		root.size = size
@@ -254,27 +255,62 @@ func exercise_layer_controls(hud: Hud, boat: Ferry) -> bool:
 	await frames(2)
 
 	var camera_target := hud.rig.target_pos
-	var across := -(root.get_visible_rect().size.x - controls.size.x - 80.0)
-	drag_control(widget, art, Vector2(across, 60.0))
-	touch(0, widget.get_global_transform_with_canvas() * art, true)
-	var leaked := not hud.rig._touches.is_empty()
-	touch(0, widget.get_global_transform_with_canvas() * art, false)
+	var resting := controls.position
+	drag_control(widget, art, Vector2(-180, -60))
 	await frames(2)
-	if leaked:
-		return fail("A finger on the weather widget reached the camera")
-	if not controls.weather_shown:
-		return fail("Dragging the weather widget also toggled weather")
+	if controls.position != resting or not controls.weather_shown:
+		return fail("Weather moved or toggled during a normal-play drag")
+	hud._on_game_menu(3)
+	await frames(2)
+	var canvas := root.get_visible_rect().size
+	var editor := hud._layout_editor
+	if editor._tools.get_rect().intersects(hud._top_bar.get_rect()):
+		return fail("Layout controls obscure the default clock and speed slider")
+	var from := controls.position + art
+	drag_control(editor, from, Vector2(-canvas.x, 0))
+	await frames(2)
+	if not is_zero_approx(controls.position.x):
+		return fail("Weather did not reach the left safe edge in layout mode")
+	from = controls.position + art
+	drag_control(editor, from, Vector2(canvas.x, 0))
+	await frames(2)
+	if not is_equal_approx(controls.get_rect().end.x, canvas.x):
+		return fail("Weather did not reach the right safe edge in layout mode")
+	if not await press("Done editing layout") or editor.visible:
+		return fail("Done did not exit layout editing")
+	var saved := ConfigFile.new()
+	if (
+		saved.load(GameSettings._path) != OK
+		or saved.get_value("display", "hud_positions", {}) != editor.positions
+	):
+		return fail("Panel positions did not persist")
 	if not hud.rig.target_pos.is_equal_approx(camera_target):
-		return fail("Dragging the weather widget panned the map")
-	if controls.side != -1 or not root.get_visible_rect().encloses(controls.get_rect()):
-		return fail("Map controls did not settle on the left edge at %s" % controls.get_rect())
-	for panel: Control in [hud._top_bar, hud.sidebar]:
-		if controls.get_rect().intersects(panel.get_rect()):
-			return fail("Map controls settled over %s" % panel.get_path())
-	drag_control(widget, art, Vector2(-across, -60.0))
+		return fail("Arranging the HUD panned the camera")
+	# Reload the settings as a new session does, then restore the automatic layout.
+	GameSettings._cfg = null
+	if GameSettings.hud_positions() != editor.positions:
+		return fail("Saved layout did not reload from disk")
+	hud._on_game_menu(3)
 	await frames(2)
-	if controls.side != 1 or not root.get_visible_rect().encloses(controls.get_rect()):
-		return fail("Map controls did not return to the right edge")
+	var minimap := hud._minimap_panel
+	var original_minimap := minimap.position
+	drag_control(editor, minimap.get_rect().get_center(), Vector2(-100, -70))
+	await frames(2)
+	if minimap.position.is_equal_approx(original_minimap):
+		return fail("Minimap did not move in edit mode")
+	if not await press("Reset layout"):
+		return false
+	await frames(2)
+	if (
+		not controls.position.is_equal_approx(resting)
+		or not minimap.position.is_equal_approx(original_minimap)
+	):
+		return fail("Reset did not restore the weather card and minimap")
+	if not await press("Done editing layout"):
+		return false
+	GameSettings._cfg = null
+	if not GameSettings.hud_positions().is_empty():
+		return fail("Reset layout did not persist")
 	return true
 
 

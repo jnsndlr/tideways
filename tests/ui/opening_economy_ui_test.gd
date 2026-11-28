@@ -62,6 +62,10 @@ func play_opening() -> bool:
 	var label: Control = hud._labels[port.town.id]
 	if not click_control(label, label.size * 0.5, "Port Rosario") or hud.selected_town != port.town:
 		return fail("Port Rosario's map label did not open its inspector")
+	if hud._info_panel.visible or not hud._terminal_bar.visible:
+		return fail("Selecting Port Rosario should open the compact terminal bar")
+	if not await press("Upgrades"):
+		return false
 	if not await buy_lane(hud, port, ledger):
 		return false
 	return await buy_working_slip(hud, port, ledger)

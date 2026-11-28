@@ -26,6 +26,7 @@ const WILD := Color(0.98, 0.78, 0.42)
 const COST_TAG_SECONDS := 2.6
 var selected_plane: AirTraffic.Craft
 var _game_menu: PopupMenu
+var _layout_editor := preload("res://scripts/ui/hud_layout_editor.gd").new()
 var _menu_button: Button
 var _clash_cache := {}  # ferry -> [msec checked, text]
 var _session: WorldSession
@@ -73,6 +74,9 @@ var _info_button: Button
 var _crossings_seen := -1
 var _terminal_bar: PanelContainer
 var _tb := {}
+var _port_conditions := Label.new()
+var _port_page := ""
+var _port_tabs := {}
 var _fleet_panel: FleetPanel
 var _finance_panel: FinancePanel
 var _cost_tags: Array = []      # [label, ferry, real seconds shown]
@@ -137,6 +141,23 @@ func setup(session: WorldSession, offers_dock_sites := false) -> void:
 	_build_help()
 	_build_toast()
 	_build_map_controls()
+	root.add_child(_layout_editor)
+	var movable_panels := {
+		"company_stats": _top_bar,
+		"sidebar": sidebar,
+		"minimap": _minimap_panel,
+		"weather": map_controls,
+		"terminal": _terminal_bar,
+		"ferry": _ferry_panel,
+		"fleet": _fleet_panel,
+		"finances": _finance_panel,
+		"wildlife": _wild_panel,
+	}
+	_layout_editor.setup(movable_panels)
+	_layout_editor.save_failed.connect(
+		func(err: Error) -> void:
+			show_toast("LAYOUT", "Couldn’t save the layout (%s)." % error_string(err))
+	)
 	rig.ground_clicked.connect(_on_ground_clicked)
 	rig.ground_right_clicked.connect(_on_ground_right_clicked)
 	wildlife.visit_started.connect(_on_visit_started)
@@ -315,6 +336,7 @@ func _build_sidebar() -> void:
 	_game_menu = PopupMenu.new()
 	_game_menu.add_item("Save game  (F5)", 0)
 	_game_menu.add_item("Settings", 1)
+	_game_menu.add_item("Edit layout", 3)
 	_game_menu.add_separator()
 	_game_menu.add_item("Main menu", 2)
 	_game_menu.id_pressed.connect(_on_game_menu)
@@ -329,6 +351,8 @@ func _on_game_menu(id: int) -> void:
 			SettingsPanel.open(get_tree())
 		2:
 			Scenes.go(get_tree(), Scenes.MENU)
+		3:
+			_layout_editor.begin()
 
 
 func _build_help() -> void:
@@ -574,6 +598,7 @@ func clear_selection() -> void:
 
 
 func _reset_selection() -> void:
+	_port_page = ""
 	_terminal_rows = null
 	selected_town = null
 	selected_ferry = null
@@ -658,6 +683,9 @@ func _build_info_panel() -> void:
 	_info_grid.add_theme_constant_override("h_separation", 24)
 	_info_grid.add_theme_constant_override("v_separation", 4)
 	v.add_child(_info_grid)
+	v.add_child(_port_conditions)
+	_port_conditions.add_theme_color_override("font_color", MUTED)
+	_port_conditions.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info_button = Button.new()
 	_info_button.focus_mode = Control.FOCUS_NONE
 	_info_button.add_theme_stylebox_override("normal", _panel_style(Color(1, 1, 1, 0.06), 6, 8, 5))
@@ -933,6 +961,13 @@ func _refresh_panels() -> void:
 		and (selected_town != null or selected_vessel != null or selected_plane != null)
 	)
 	_terminal_bar.visible = selected_town != null and sim.terminals.has(selected_town.id)
+	if _terminal_bar.visible:
+		_info_panel.visible = _port_page != ""
+	_info_grid.visible = not _terminal_bar.visible or _port_page == "Details"
+	_port_conditions.visible = _terminal_bar.visible and _port_page == "Details"
+	_info_button.visible = _info_grid.visible
+	_info_title.visible = not _terminal_bar.visible
+	_info_sub.visible = not _terminal_bar.visible
 	_help.visible = not _terminal_bar.visible
 	if selected_ferry:
 		var f := selected_ferry
@@ -1018,7 +1053,7 @@ func _refresh_panels() -> void:
 			_update_terminal_bar(term)
 			_upgrades_box.refresh(term)
 			offer_upgrades = true
-	_upgrades_box.visible = offer_upgrades
+	_upgrades_box.visible = offer_upgrades and _port_page == "Upgrades"
 	_dock_button.visible = offer_dock
 	if _offers_dock_sites:
 		dock_site_selected.emit(selected_town if selected_town and selected_town.has_dock and not selected_town.built else null)
@@ -1041,7 +1076,7 @@ func _build_terminal_bar() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 22)
 	_terminal_bar.add_child(row)
-	for key in ["terminal", "departure", "weather", "wind", "tide"]:
+	for key in ["terminal", "departure", "capacity"]:
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 0)
 		var a := _label("", 11, MUTED, true)
@@ -1053,10 +1088,24 @@ func _build_terminal_bar() -> void:
 		if key == "terminal":
 			v.custom_minimum_size.x = 210
 		row.add_child(v)
-		if key != "tide":
-			row.add_child(VSeparator.new())
+		row.add_child(VSeparator.new())
 		_tb[key] = [a, b, c]
+	for page: String in ["Details", "Upgrades"]:
+		var button := Button.new()
+		button.text = page
+		button.toggle_mode = true
+		button.custom_minimum_size = Vector2(96, 44)
+		button.pressed.connect(_toggle_port_page.bind(page))
+		row.add_child(button)
+		_port_tabs[page] = button
 	_terminal_bar.visible = false
+
+
+func _toggle_port_page(page: String) -> void:
+	_port_page = "" if _port_page == page else page
+	_info_scroll.scroll_vertical = 0
+	_refresh_panels()
+	_fit_info_panel()
 
 
 func _tb_set(key: String, a: String, b: String, c: String) -> void:
@@ -1079,10 +1128,34 @@ func _update_terminal_bar(term: Terminal) -> void:
 		_tb_set("departure", "NEXT DEPARTURE", when, "%s to %s" % [f.ferry_name, dest.town.name])
 	else:
 		_tb_set("departure", "NEXT DEPARTURE", "-", "")
-	_tb_set("weather", "WEATHER", sim.weather.label(), "%d°C" % sim.temperature())
-	_tb_set("wind", "WIND", "%s %d km/h" % [sim.wind_dir, sim.wind_speed], "")
-	var tide := sim.tide()
-	_tb_set("tide", "TIDE", "Rising" if tide.y > 0.0 else "Falling", "%.1f m" % tide.x)
+	var queue := term.queue_summary()
+	var detail := (
+		"%d lanes" % term.lanes[term.lane_keys()[0]].size()
+		if term.has_service()
+		else "No scheduled service"
+	)
+	if term.work_stage == Terminal.WorkStage.DRAINING:
+		detail = "Clearing lanes for construction"
+	elif term.build_remaining > 0:
+		detail = "New lane opens in %d min" % ceili(term.build_remaining)
+	elif queue.has_newest:
+		detail = "%d waiting in newest lane" % queue.newest_waiting
+	_tb_set("capacity", "HOLDING CAPACITY", "%d car spaces" % term.capacity(), detail)
+	if _port_conditions.visible:
+		var tide := sim.tide()
+		_port_conditions.text = (
+			"%s · %d°C   /   Wind %s %d km/h   /   Tide %s %.1f m"
+			% [
+				sim.weather.label(),
+				sim.temperature(),
+				sim.wind_dir,
+				sim.wind_speed,
+				"rising" if tide.y > 0 else "falling",
+				tide.x
+			]
+		)
+	for page: String in _port_tabs:
+		_port_tabs[page].set_pressed_no_signal(page == _port_page)
 
 
 # --- Fleet list ---------------------------------------------------------------------
@@ -1350,7 +1423,8 @@ func _place_toast() -> void:
 		_finance_panel,
 		_wild_panel,
 		_terminal_bar,
-		_minimap_panel
+		_minimap_panel,
+		map_controls
 	]
 	for _pass in panels.size():
 		var moved := false
@@ -1398,6 +1472,26 @@ func _fit_info_panel() -> void:
 		_ferry_panel.size.y = 0.0
 	if not _info_panel.visible:
 		return
+	if _terminal_bar.visible:
+		# Both views share the same bottom edge. Leave the harbor visible above them.
+		var bar := _terminal_bar.get_rect()
+		var height := minf(root.size.y * 0.31, 290.0)
+		if _info_panel.anchor_right != 0.0:
+			_info_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		_info_scroll.custom_minimum_size.y = (
+			height - _info_panel.get_theme_stylebox("panel").get_minimum_size().y
+		)
+		_info_panel.size = Vector2(bar.size.x, height)
+		var y := bar.position.y - height - 4.0
+		if y < _usable_rect(true).position.y:
+			y = bar.end.y + 4.0
+		_info_panel.position = Vector2(bar.position.x, y)
+		return
+	if _info_panel.anchor_right != 1.0:
+		_info_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_info_panel.offset_left = -300
+		_info_panel.offset_right = -20
+		_info_panel.offset_top = 16
 	var content := _info_scroll.get_child(0) as Control
 	var frame := _info_panel.get_theme_stylebox("panel").get_minimum_size().y
 	var room := maxf(120.0, bottom - _info_panel.position.y - frame)
@@ -1423,12 +1517,14 @@ func _place_map_controls() -> void:
 	]:
 		if panel.visible:
 			obstacles.append(panel.get_rect())
-	map_controls.place(_usable_rect(), obstacles)
+	map_controls.place(_usable_rect(true), obstacles)
 
 
 ## The canvas inside the HUD's usual margins and, on a device, the display's safe area.
-func _usable_rect() -> Rect2:
-	var usable := Rect2(Vector2.ZERO, root.size).grow_individual(-20, -16, -20, -16)
+func _usable_rect(flush_to_edge := false) -> Rect2:
+	var usable := Rect2(Vector2.ZERO, root.size)
+	if not flush_to_edge:
+		usable = usable.grow_individual(-20, -16, -20, -16)
 	if not OS.has_feature("mobile"):
 		return usable
 	var window := Vector2(DisplayServer.window_get_size())
@@ -1554,8 +1650,9 @@ func _process(delta: float) -> void:
 		route_overlay.visible = MapControls.shows("routes")
 	if area_overlay:
 		area_overlay.visible = MapControls.shows("areas")
+	_layout_editor.place(_usable_rect(true))
 	_fit_info_panel()
-	if map_controls.visible:
+	if map_controls.visible and not _layout_editor.positions.has("weather"):
 		_place_map_controls()
 
 	var real_dt := delta / maxf(Engine.time_scale, 0.001) if Engine.time_scale > 0.0 else 1.0 / 60.0

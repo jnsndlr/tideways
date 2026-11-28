@@ -59,6 +59,16 @@ static func set_flag(key: String, on: bool) -> Error:
 	return _save("display", key, on)
 
 
+static func hud_positions() -> Dictionary:
+	ensure()
+	var stored: Variant = _cfg.get_value("display", "hud_positions", {})
+	return stored.duplicate() if stored is Dictionary else {}
+
+
+static func save_hud_positions(positions: Dictionary) -> Error:
+	return _save("display", "hud_positions", positions.duplicate())
+
+
 static func _save(section: String, key: String, value: Variant) -> Error:
 	ensure()
 	var old: Variant = _cfg.get_value(section, key) if _cfg.has_section_key(section, key) else null
