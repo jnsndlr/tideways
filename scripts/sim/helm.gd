@@ -222,6 +222,9 @@ func _decide() -> void:
 				var worst := 0.0
 				var worst_t: Threat = null
 				for t: Threat in threats:
+					# Remaining penalties can only add cost. Ties keep the first winner.
+					if cost >= best_cost:
+						break
 					var pen := _pass_cost(p, yaw, h, sp, my_r, t)
 					if t.why != "" and o > 0.0 and pen > 0.0:
 						# Give-way turns go to starboard.
