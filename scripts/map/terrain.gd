@@ -435,6 +435,9 @@ func _apply_roads(f: Dictionary) -> void:
 				continue
 			var g := j * (n + 1) + i
 			var target := best_y[k] - ROAD_DROP
+			# A later road may cross or end beside an existing downhill road bed.
+			if g < road_cap.size() and not is_nan(road_cap[g]):
+				target = minf(target, road_cap[g])
 			var past := best_past[k]
 			if past > 0.0:
 				var across := sqrt(maxf(best_d[k] * best_d[k] - past * past, 0.0))

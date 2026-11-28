@@ -8,6 +8,10 @@ extends SceneTree
 
 const SEEDS := [123, 4242, 777]
 func _initialize() -> void:
+	if not _joining_road_keeps_downhill_street_clear():
+		push_error("A joining road raised the ground above the existing downhill road bed")
+		quit(1)
+		return
 	var roads := 0
 	for seed_value: int in SEEDS:
 		var gen := MapGenerator.new()
@@ -28,6 +32,24 @@ func _initialize() -> void:
 	print("Checked the roads of %d towns" % roads)
 	print("TEST PASSED")
 	quit(0)
+
+
+## A level service road joins a street that continues downhill beyond the junction.
+func _joining_road_keeps_downhill_street_clear() -> bool:
+	var t := Terrain.new(0, Terrain.CELL * 12)
+	t.h_grid.resize(t.e_grid.size())
+	var street := PackedVector3Array([Vector3(0, 12, -32), Vector3(0, 4, 32)])
+	var spur := PackedVector3Array([Vector3(-32, 8, 0), Vector3(0, 8, 0)])
+	t.add_roads([street] as Array[PackedVector3Array], MapGenerator.ROAD_CORE, 4.0)
+	var before := t.h_grid.duplicate()
+	var caps := t.road_cap.duplicate()
+	if not is_equal_approx(t.height_at(0, 0), 8.0 - Terrain.ROAD_DROP):
+		return false
+	t.add_roads([spur] as Array[PackedVector3Array], RoadGeometry.HALF_WIDTH, 4.0)
+	for i in caps.size():
+		if not is_nan(caps[i]) and t.h_grid[i] > before[i] + 0.0001:
+			return false
+	return is_equal_approx(t.height_at(-Terrain.CELL * 4.0, 0), 8.0 - Terrain.ROAD_DROP)
 
 
 func _check(isl: MapData.Town, t: Terrain) -> String:
