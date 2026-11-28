@@ -86,7 +86,11 @@ class IslandSpec:
 		if not docks.is_empty():
 			d["docks"] = docks.map(func(dk: DockSpec): return dk.to_dict())
 		if airstrip:
-			d["airstrip"] = {"x": snappedf(airstrip_x, 0.1), "z": snappedf(airstrip_z, 0.1), "heading": snappedf(airstrip_heading, 0.1)}
+			d["airstrip"] = {
+				"x": snappedf(airstrip_x, 0.1),
+				"z": snappedf(airstrip_z, 0.1),
+				"heading": snappedf(airstrip_heading, 0.1)
+			}
 		return d
 
 	static func from_dict(d: Dictionary) -> IslandSpec:

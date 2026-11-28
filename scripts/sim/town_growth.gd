@@ -26,10 +26,6 @@ const MAX_EXPECTED_CONNECTIONS := 6
 ## profile rates alone (5-50 people/day) meant a new house every few real hours.
 ## Raise it to speed every town up together.
 const GROWTH_SCALE := 1.0
-## Dev tuning (TownDevPanel): build-time multiplier and how many sites a town runs at once.
-var dev_build_speed := 1.0
-var dev_max_builds := MAX_CONCURRENT_BUILDS
-
 const PROFILES := {
 	"rural":
 	{
@@ -62,6 +58,11 @@ const PROFILES := {
 		"weights": Vector3(0.25, 0.60, 0.15),
 	},
 }
+## Off until airfields are placed on the map (docs/town-layout-plan.md, island beyond).
+const AIRFIELDS_PLACED := false
+## Dev tuning (TownDevPanel): build-time multiplier and how many sites a town runs at once.
+var dev_build_speed := 1.0
+var dev_max_builds := MAX_CONCURRENT_BUILDS
 
 
 class BuildJob:
@@ -230,8 +231,6 @@ func _seed_starting_milestones(town: MapData.Town, st: TownState) -> void:
 			_apply_milestone_bonuses(st, def)
 
 
-## Off until airfields are placed on the map (docs/town-layout-plan.md, island beyond).
-const AIRFIELDS_PLACED := false
 
 
 func _town_milestone_defs(community_type: String) -> Array[Dictionary]:
@@ -924,7 +923,11 @@ func _count_active(st: TownState, kind: int) -> int:
 
 func _claim_big_box(town: MapData.Town) -> MapData.TownLot:
 	for lot in town.growth_lots:
-		if lot.kind == MapData.TownLot.Kind.BIG_BOX and not lot.occupied and town.population >= lot.need_pop:
+		if (
+			lot.kind == MapData.TownLot.Kind.BIG_BOX
+			and not lot.occupied
+			and town.population >= lot.need_pop
+		):
 			lot.occupied = true
 			return lot
 	return null

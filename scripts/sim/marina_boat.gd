@@ -19,11 +19,11 @@ var dest_berth := 0
 var path: NavPath              # the leg it is motoring along (backing out, or in to its berth)
 var s := 0.0
 var trips := 0
-var _leaving: MapData.Marina = null    # holds this marina's lock while getting out
-var _arriving := false                 # holds the destination's lock
-var _out_leg := false                  # motoring ahead out of a slip's fairway
 ## Kept in a finger slip: goes out less often, and always comes home to it.
 var dwell_scale := 1.0
+var _leaving: MapData.Marina = null  # holds this marina's lock while getting out
+var _arriving := false  # holds the destination's lock
+var _out_leg := false  # motoring ahead out of a slip's fairway
 
 
 # --- Hooks ----------------------------------------------------------------------------
@@ -119,7 +119,9 @@ func _back_out(delta: float) -> void:
 			# Out of a slip: ahead down the fairway, clear of the docks.
 			_out_leg = true
 			speed = 0.0
-			path = NavPath.new(PackedVector2Array([pos2(), marina.slips[berth - Layout.MARINA_BERTHS].mouth]))
+			path = NavPath.new(
+				PackedVector2Array([pos2(), marina.slips[berth - Layout.MARINA_BERTHS].mouth])
+			)
 			s = 0.0
 			return
 		path = null

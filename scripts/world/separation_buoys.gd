@@ -7,7 +7,7 @@ extends Node3D
 
 const GLB := "res://assets/models/buoys/buoy_traffic_separation.glb"
 const SPACING := 2000.0
-const CHANNEL_SPACING := 700.0   # along the cargo channels
+const CHANNEL_SPACING := 700.0  # along the cargo channels
 const PAINT := preload("res://shaders/weathered_paint.gdshader")
 const AMBER := Color(1.0, 0.65, 0.15)
 
@@ -74,8 +74,12 @@ func _place(r: MapData.Route) -> Array:
 func _place_at(r: MapData.Route, s: float, k: int) -> Array:
 	var mid := r.curve.sample_baked(s)
 	var ahead := r.curve.sample_baked(minf(s + 5.0, r.length))
-	return _buoy(Vector2(mid.x, mid.z), Vector2(ahead.x - mid.x, ahead.z - mid.z),
-			"Separation Buoy %d-%d" % [r.id, k], code(_first_code.get(r.id, 0) + k))
+	return _buoy(
+		Vector2(mid.x, mid.z),
+		Vector2(ahead.x - mid.x, ahead.z - mid.z),
+		"Separation Buoy %d-%d" % [r.id, k],
+		code(_first_code.get(r.id, 0) + k)
+	)
 
 
 ## Buoys every CHANNEL_SPACING along each cargo channel's centreline

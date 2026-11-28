@@ -70,7 +70,9 @@ func start_generated(seed_value: int) -> void:
 	await _start_region(generator, generator.generate.bind(seed_value))
 
 
-func start_authored(layout: MapLayout, opening: Scenario, route_cache_path: String, town_lots_cache_path := "") -> void:
+func start_authored(
+	layout: MapLayout, opening: Scenario, route_cache_path: String, town_lots_cache_path := ""
+) -> void:
 	var generator := MapGenerator.new()
 	generator.route_cache_path = route_cache_path
 	generator.town_lots_cache_path = town_lots_cache_path

@@ -1,16 +1,17 @@
 extends SceneTree
 ## A town at several stages of growth, its streets revealing and paving as lots build
 ## (WorldBuilder.refresh_streets). For checking by eye.
-##   godot --path . --script tools/street_growth_shots.gd -- --out=DIR [--towns=Tern,Lumber Bay] [--dist=M]
+## godot --path . --script tools/street_growth_shots.gd -- --out=DIR [--towns=Tern,Lumber
+## Bay] [--dist=M]
 
-const STAGES := [0, 30, 90, 200, 400]   # extra lots built, in rank order
+const STAGES := [0, 30, 90, 200, 400]  # extra lots built, in rank order
 
 var main: Node
 var frames := 0
 var out := "user://"
 var dist := 330.0
 var names: PackedStringArray = ["Tern", "Lumber Bay", "Bramble Bay"]
-var _jobs: Array = []   # [town, stage index]
+var _jobs: Array = []  # [town, stage index]
 var _wait := 0
 var _built := 0
 
@@ -19,16 +20,22 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv := a.split("=")
 		match kv[0]:
-			"--out": out = kv[1]
-			"--towns": names = kv[1].split(",")
-			"--dist": dist = float(kv[1])
+			"--out":
+				out = kv[1]
+			"--towns":
+				names = kv[1].split(",")
+			"--dist":
+				dist = float(kv[1])
 	main = load("res://scenes/main_map.tscn").instantiate()
 	root.add_child(main)
 
 
 func _find(n: String) -> MapData.Town:
 	for t in main.sim.map.towns:
-		if (t.name.begins_with(n) or main.sim.map.islands[t.island].name.begins_with(n)) and t.street_plan != null:
+		if (
+			(t.name.begins_with(n) or main.sim.map.islands[t.island].name.begins_with(n))
+			and t.street_plan != null
+		):
 			return t
 	return null
 
@@ -60,14 +67,32 @@ func _process(_delta: float) -> bool:
 			if t == null:
 				var all := []
 				for x in main.sim.map.towns:
-					all.append("%s/%s(%s)" % [x.name, main.sim.map.islands[x.island].name, x.street_plan != null])
+					all.append(
+						(
+							"%s/%s(%s)"
+							% [x.name, main.sim.map.islands[x.island].name, x.street_plan != null]
+						)
+					)
 				push_warning("No town named %s; have %s" % [n, all])
 				continue
 			var free := 0
 			for l in t.growth_lots:
 				free += 0 if l.occupied else 1
-			print("%s: plan lots %d, edges %d, growth lots %d (free %d), per edge %s, built %s, pop %d" % [n,
-				t.town_lots.lots.size() if t.town_lots else -1, t.street_plan.edges.size(), t.growth_lots.size(), free, t.street_lots, t.street_built, t.population])
+			print(
+				(
+					"%s: plan lots %d, edges %d, growth lots %d (free %d), per edge %s, built %s, pop %d"
+					% [
+						n,
+						t.town_lots.lots.size() if t.town_lots else -1,
+						t.street_plan.edges.size(),
+						t.growth_lots.size(),
+						free,
+						t.street_lots,
+						t.street_built,
+						t.population
+					]
+				)
+			)
 			for i in STAGES.size():
 				_jobs.append([t, i])
 		_built = 1

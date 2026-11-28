@@ -40,5 +40,7 @@ func _process(delta: float) -> void:
 			var distance := _travel[bay] + (row + 0.5) * SECTION_HEIGHT
 			var angle := clampf((distance - CURVE_START) / RADIUS, 0.0, PI / 2.0)
 			section.position.y = minf(distance, CURVE_START) + RADIUS * sin(angle)
-			section.position.z = 7.12 - RADIUS * (1.0 - cos(angle)) - maxf(0, distance - FULL_TRAVEL)
+			section.position.z = (
+				7.12 - RADIUS * (1.0 - cos(angle)) - maxf(0, distance - FULL_TRAVEL)
+			)
 			section.rotation.x = -angle

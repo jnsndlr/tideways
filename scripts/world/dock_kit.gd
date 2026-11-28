@@ -100,7 +100,9 @@ func add_boathouse(kind: Boathouse, start: Vector3, direction: Vector2) -> void:
 		return
 	var shelter := _piece(BOATHOUSES[kind])
 	add_child(shelter)
-	shelter.transform = Transform3D(Basis.looking_at(Vector3(direction.x, 0, direction.y).normalized()), start)
+	shelter.transform = Transform3D(
+		Basis.looking_at(Vector3(direction.x, 0, direction.y).normalized()), start
+	)
 
 
 func add_ramp(width: Width, start: Vector3, direction: Vector2, end_height: float) -> Vector3:
@@ -162,8 +164,8 @@ func _place(width: Width, start: Vector3, direction: Vector2, end_height: float,
 ## handful of draw calls instead of one per deck, float and cleat. Call once the
 ## assembly is finished; colliders and other non-mesh nodes stay as they are.
 func bake() -> void:
-	var tools := {}      # key -> SurfaceTool
-	var looks := {}      # key -> [material, cast_shadow]
+	var tools := {}  # key -> SurfaceTool
+	var looks := {}  # key -> [material, cast_shadow]
 	var inv := global_transform.affine_inverse() if is_inside_tree() else Transform3D.IDENTITY
 	var merged: Array[MeshInstance3D] = []
 	for mi: MeshInstance3D in find_children("*", "MeshInstance3D", true, false):
@@ -173,7 +175,9 @@ func bake() -> void:
 		for s in mi.mesh.get_surface_count():
 			var mat: Material = mi.get_active_material(s)
 			var cleat := mi.find_parent("MooringCleats") != null
-			var key := "%d:%d:%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow, int(cleat)]
+			var key := (
+				"%d:%d:%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow, int(cleat)]
+			)
 			if not tools.has(key):
 				var st := SurfaceTool.new()
 				st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -187,12 +191,23 @@ func bake() -> void:
 	var shadow_off := ArrayMesh.new()
 	var cleats := ArrayMesh.new()
 	for key: String in tools:
-		var target := cleats if looks[key][2] else shadow_off if looks[key][1] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF else shadow_on
+		var target := (
+			cleats
+			if looks[key][2]
+			else (
+				shadow_off
+				if looks[key][1] == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				else shadow_on
+			)
+		)
 		(tools[key] as SurfaceTool).commit(target)
 		target.surface_set_material(target.get_surface_count() - 1, looks[key][0])
 	for mi in merged:
 		mi.free()
-	for pair in [[shadow_on, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "DockDecks"], [shadow_off, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "DockDecksNoShadow"]]:
+	for pair in [
+		[shadow_on, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "DockDecks"],
+		[shadow_off, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "DockDecksNoShadow"]
+	]:
 		if (pair[0] as ArrayMesh).get_surface_count() == 0:
 			continue
 		var out := MeshInstance3D.new()

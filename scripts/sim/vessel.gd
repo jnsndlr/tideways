@@ -34,10 +34,10 @@ var consort: Vessel = null   # the ship it is working alongside, if any (their h
 # Set by MarineTraffic each frame.
 var clear := INF
 var blocker: Vessel = null
-var blocked_by_hull := false   # (rather than by giving way to another's path)
-var cpa_cap := INF             # speed it may make and still keep a passing ship's CPA open
-var stuck_t := 0.0             # how long it has been held up without making way
-var go_t := 0.0                # while > 0, it has stopped giving way (only hulls count) to work free
+var blocked_by_hull := false  # (rather than by giving way to another's path)
+var cpa_cap := INF  # speed it may make and still keep a passing ship's CPA open
+var stuck_t := 0.0  # how long it has been held up without making way
+var go_t := 0.0  # while > 0, it has stopped giving way (only hulls count) to work free
 
 
 ## Whether it is trying to get somewhere (moored or docked vessels aren't).

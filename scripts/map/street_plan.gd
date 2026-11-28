@@ -12,32 +12,41 @@ extends RefCounted
 
 enum Zone { CORE, MIDDLE, OUTER, MAIN }
 
-const BLOCK_ALONG := 90.0   # between cross streets (along the shore)
-const BLOCK_DEEP := 60.0    # between along-shore streets: two 30 m lots back to back
-const COLS := 4             # grid columns each way from the square
-const ROWS := 5             # along-shore streets inland of the front street
+const BLOCK_ALONG := 90.0  # between cross streets (along the shore)
+const BLOCK_DEEP := 60.0  # between along-shore streets: two 30 m lots back to back
+const COLS := 4  # grid columns each way from the square
+const ROWS := 5  # along-shore streets inland of the front street
 const CORE_COLS := 1
 const CORE_ROWS := 2
-const LAND_H := 3.2         # ground lower than this is shore or water
-const MAX_GRADE := 0.125    # a street steeper than this end to end isn't built
+const LAND_H := 3.2  # ground lower than this is shore or water
+const MAX_GRADE := 0.125  # a street steeper than this end to end isn't built
 const STEP := 6.0
-const FRONT_SET := 30.0   # the front street, in from the water
-const BEND := 12.0          # how far a middle-ring node may slide to hold its height
+const FRONT_SET := 30.0  # the front street, in from the water
+const BEND := 12.0  # how far a middle-ring node may slide to hold its height
 const OUTER_MAX := 220.0
 const MAIN_MAX := 420.0
 
+## Climbs inland no steeper than MAIN_GRADE, steering from its own heading: where
+## straight on is too steep it angles across the slope, and where that side runs out
+## of land it turns back on itself (a switchback) a little higher up.
+const MAIN_GRADE := 0.11
+const CUT := 2.5  # how far the main road may cut into or build up from the ground
 var nodes := PackedVector3Array()
 var node_zone := PackedInt32Array()
 ## Each edge: {a, b, zone, pts: PackedVector3Array}; b is -1 for a dead end.
 var edges: Array[Dictionary] = []
 
 var _t: Terrain
-var _others: Array[Vector3] = []   # other towns: each keeps to the land nearer itself
+var _others: Array[Vector3] = []  # other towns: each keeps to the land nearer itself
 var _isl: MapData.Town
 var _sq: Vector3
 
+var _reach := {}
 
-static func build(isl: MapData.Town, terrain: Terrain, square: Vector3, others: Array[Vector3] = []) -> StreetPlan:
+
+static func build(
+	isl: MapData.Town, terrain: Terrain, square: Vector3, others: Array[Vector3] = []
+) -> StreetPlan:
 	var plan := StreetPlan.new()
 	plan._others = others
 	plan._t = terrain
@@ -70,7 +79,11 @@ func _lay_out(isl: MapData.Town, sq: Vector3) -> void:
 		var along := Vector3(right.x - left.x, 0.0, right.z - left.z).normalized()
 		if along.dot(u) > 0.6:
 			u = along
-			v = Vector3.UP.cross(u) if Vector3.UP.cross(u).dot(-isl.dock_dir) > 0.0 else -Vector3.UP.cross(u)
+			v = (
+				Vector3.UP.cross(u)
+				if Vector3.UP.cross(u).dot(-isl.dock_dir) > 0.0
+				else -Vector3.UP.cross(u)
+			)
 	# How far inland the coast sits at each column, smoothed, so the front street
 	# runs FRONT_SET in from the water and the rows behind follow it.
 	var raw := {}
@@ -92,10 +105,12 @@ func _lay_out(isl: MapData.Town, sq: Vector3) -> void:
 		row_wave[k] = rng.randf_range(6.0, 12.0) * (1.0 if k >= 2 and rng.randf() < 0.55 else 0.0)
 	var col_wave := {}
 	for i in range(-COLS, COLS + 1):
-		col_wave[i] = rng.randf_range(6.0, 12.0) * (1.0 if absi(i) >= 2 and rng.randf() < 0.5 else 0.0)
+		col_wave[i] = (
+			rng.randf_range(6.0, 12.0) * (1.0 if absi(i) >= 2 and rng.randf() < 0.5 else 0.0)
+		)
 	var phase := rng.randf() * TAU
-	var grid := {}   # Vector2i(i, k) → node index
-	var base := {}   # where each node would sit before waves and contour sliding
+	var grid := {}  # Vector2i(i, k) → node index
+	var base := {}  # where each node would sit before waves and contour sliding
 	for k in range(0, ROWS + 1):
 		var row_h := NAN
 		for i in _outward(COLS):
@@ -126,16 +141,28 @@ func _lay_out(isl: MapData.Town, sq: Vector3) -> void:
 				continue
 			var a: int = grid[key]
 			var b: int = grid[other]
-			var p0: Vector3 = nodes[grid[key - d]] if grid.has(key - d) else nodes[a] * 2.0 - nodes[b]
-			var p3: Vector3 = nodes[grid[other + d]] if grid.has(other + d) else nodes[b] * 2.0 - nodes[a]
-			var zone := Zone.CORE if node_zone[a] == Zone.CORE and node_zone[b] == Zone.CORE else Zone.MIDDLE
+			var p0: Vector3 = (
+				nodes[grid[key - d]] if grid.has(key - d) else nodes[a] * 2.0 - nodes[b]
+			)
+			var p3: Vector3 = (
+				nodes[grid[other + d]] if grid.has(other + d) else nodes[b] * 2.0 - nodes[a]
+			)
+			var zone := (
+				Zone.CORE
+				if node_zone[a] == Zone.CORE and node_zone[b] == Zone.CORE
+				else Zone.MIDDLE
+			)
 			var pts := _spline(p0, nodes[a], nodes[b], p3)
 			if not pts.is_empty() and not _crosses(pts, a, b):
 				edges.append({a = a, b = b, zone = zone, pts = pts})
 	# The square joins the nearest street nodes clear of the ferry lot.
 	var square := _add_node(sq, Zone.CORE)
-	var near: Array = grid.values().filter(func(n: int) -> bool: return nodes[n].distance_to(sq) < 110.0)
-	near.sort_custom(func(x: int, y: int) -> bool: return nodes[x].distance_to(sq) < nodes[y].distance_to(sq))
+	var near: Array = grid.values().filter(
+		func(n: int) -> bool: return nodes[n].distance_to(sq) < 110.0
+	)
+	near.sort_custom(
+		func(x: int, y: int) -> bool: return nodes[x].distance_to(sq) < nodes[y].distance_to(sq)
+	)
 	var linked: Array = []
 	for n: int in near:
 		var pts := _straight(sq, nodes[n])
@@ -198,8 +225,15 @@ func _spline(a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> PackedVector3Arr
 	var pts := PackedVector3Array()
 	for s in n + 1:
 		var t := float(s) / n
-		var p := 0.5 * ((2.0 * b) + (-a + c) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t * t
-			+ (-a + 3.0 * b - 3.0 * c + d) * t * t * t)
+		var p := (
+			0.5
+			* (
+				(2.0 * b)
+				+ (-a + c) * t
+				+ (2.0 * a - 5.0 * b + 4.0 * c - d) * t * t
+				+ (-a + 3.0 * b - 3.0 * c + d) * t * t * t
+			)
+		)
 		p = _ground(p)
 		if p.y < LAND_H - 0.4:
 			return PackedVector3Array()
@@ -235,8 +269,11 @@ func _on_lot(isl: MapData.Town, sq: Vector3, p: Vector3) -> bool:
 		if Vector2(p.x - o.x, p.z - o.z).length() < own:
 			return true
 	var d := p - sq
-	return d.dot(isl.dock_dir) > 2.0 and absf(d.dot(isl.lateral())) < isl.lot_half_width + 12.0 and \
-		d.dot(isl.dock_dir) < 140.0
+	return (
+		d.dot(isl.dock_dir) > 2.0
+		and absf(d.dot(isl.lateral())) < isl.lot_half_width + 12.0
+		and d.dot(isl.dock_dir) < 140.0
+	)
 
 
 func _buildable(p: Vector3) -> bool:
@@ -275,9 +312,6 @@ func _straight(a: Vector3, b: Vector3) -> PackedVector3Array:
 			return PackedVector3Array()
 		pts.append(p)
 	return pts
-
-
-var _reach := {}
 
 
 func _keep_connected(root: int) -> void:
@@ -328,7 +362,12 @@ func _contour_street(from: int, dir: Vector3) -> void:
 			if cost < best_cost:
 				best_cost = cost
 				best = q
-		if best == Vector3.INF or best_cost > 4.0 or _near_other(best, pts, 30.0) or _near_own(best, pts, 30.0):
+		if (
+			best == Vector3.INF
+			or best_cost > 4.0
+			or _near_other(best, pts, 30.0)
+			or _near_own(best, pts, 30.0)
+		):
 			break
 		heading = (best - p).normalized()
 		heading.y = 0.0
@@ -342,18 +381,13 @@ func _contour_street(from: int, dir: Vector3) -> void:
 		edges.append({a = from, b = end, zone = Zone.OUTER, pts = pts})
 
 
-## Climbs inland no steeper than MAIN_GRADE, steering from its own heading: where
-## straight on is too steep it angles across the slope, and where that side runs out
-## of land it turns back on itself (a switchback) a little higher up.
-const MAIN_GRADE := 0.11
-const CUT := 2.5   # how far the main road may cut into or build up from the ground
 func _main_road(from: int, v: Vector3) -> void:
 	var p := nodes[from]
 	var pts := PackedVector3Array([p])
 	var length := 0.0
 	var heading := v
 	var turns := 0
-	var y := p.y   # the road's own height: it cuts and fills up to CUT against the ground
+	var y := p.y  # the road's own height: it cuts and fills up to CUT against the ground
 	while length < MAIN_MAX and turns < 12:
 		var best := Vector3.INF
 		var best_cost := INF
@@ -411,7 +445,12 @@ func _crosses(pts: PackedVector3Array, a: int, b: int) -> bool:
 				var q1 := Vector2(other[j].x, other[j].z)
 				if q1.distance_to(p1) > 40.0:
 					continue
-				if Geometry2D.segment_intersects_segment(p1, p2, q1, Vector2(other[j + 1].x, other[j + 1].z)) != null:
+				if (
+					Geometry2D.segment_intersects_segment(
+						p1, p2, q1, Vector2(other[j + 1].x, other[j + 1].z)
+					)
+					!= null
+				):
 					return true
 	return false
 

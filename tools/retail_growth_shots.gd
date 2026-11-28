@@ -1,6 +1,7 @@
 extends SceneTree
 ## A big-box store built by town growth, then town cars driving out of its car park.
-##   godot --path . --resolution 1600x1000 --script tools/retail_growth_shots.gd -- --out=DIR [--town=NAME] [--pop=N]
+## godot --path . --resolution 1600x1000 --script tools/retail_growth_shots.gd -- --out=DIR
+## [--town=NAME] [--pop=N]
 
 var main: Node
 var frames := 0
@@ -78,9 +79,22 @@ func _process(_delta: float) -> bool:
 			print("NO UNBUILT BIG BOX in ", town_name)
 			return true
 		print("TOWN ", town.name, " terminal=", main.sim.terminals.get(town.id) != null)
-		print("LOT ", lot.model, " at ", lot.pos, " need ", lot.need_pop, " street stage ", WorldBuilder.street_stages(town)[lot.street])
+		print(
+			"LOT ",
+			lot.model,
+			" at ",
+			lot.pos,
+			" need ",
+			lot.need_pop,
+			" street stage ",
+			WorldBuilder.street_stages(town)[lot.street]
+		)
 		mark = frames
 		return false
+	return _advance_shot()
+
+
+func _advance_shot() -> bool:
 	var fwd := Vector3(sin(lot.yaw), 0, cos(lot.yaw))
 	var yaw := atan2(fwd.x, fwd.z) + 0.5
 	match step:
@@ -102,7 +116,12 @@ func _process(_delta: float) -> bool:
 		2:
 			if lot.occupied and _built():
 				Engine.time_scale = 1.0
-				print("BUILT after ", frames - mark, " frames; street stage ", WorldBuilder.street_stages(town)[lot.street])
+				print(
+					"BUILT after ",
+					frames - mark,
+					" frames; street stage ",
+					WorldBuilder.street_stages(town)[lot.street]
+				)
 				step = 3
 				mark = frames
 			elif frames - mark > 6000:
@@ -113,7 +132,14 @@ func _process(_delta: float) -> bool:
 			if frames - mark > 40:
 				_shot("2_built")
 				var path := BigBoxes.drive(town, lot)
-				print("DRIVE pts ", path.size(), " from ", path[0] if path.size() else null, " to ", path[-1] if path.size() else null)
+				print(
+					"DRIVE pts ",
+					path.size(),
+					" from ",
+					path[0] if path.size() else null,
+					" to ",
+					path[-1] if path.size() else null
+				)
 				# Only the store's drive for a while: the terminal's own cars pull out of
 				# the car park and head for the ferry.
 				var term: Terminal = main.sim.terminals.get(town.id)
@@ -123,7 +149,9 @@ func _process(_delta: float) -> bool:
 				var keep: Array[PackedVector3Array] = term._inbound.duplicate()
 				term._inbound.clear()
 				term.add_drive(path)
-				print("INBOUND for store: ", term._inbound.size(), " has_service=", term.has_service())
+				print(
+					"INBOUND for store: ", term._inbound.size(), " has_service=", term.has_service()
+				)
 				for k in 3:
 					term._spawn_car()
 				term._inbound = keep

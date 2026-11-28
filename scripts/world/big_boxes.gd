@@ -1,7 +1,8 @@
 class_name BigBoxes
 extends RefCounted
 ## Big-box stores (assets/models/retail_stores) on large lots at the edge of town.
-## Each lot fronts a straight stretch of an outer street or the main road out, parallel to it, its car
+## Each lot fronts a straight stretch of an outer street or the main road out, parallel to
+## it, its car
 ## park flush with the road edge and the store behind. Lots are reserved at map build
 ## and built as the town grows past each store's population; the main road shows as
 ## the store is built, cars drive in up the car park's end aisles and park.
@@ -17,16 +18,17 @@ const PARKING := {"parking_small": [6, 1], "parking_medium": [8, 2], "parking_la
 const PITCH := 2.75
 const STALL := 5.1
 const LANE := 6.3
-const ROAD_GAP := RoadMesh.HALF   # road centreline to the car park's front edge: the drawn road's edge
-const MIN_R := 90.0          # from the square
-const EDGE_SHARE := 0.6      # may take only frontage lots ranked past this share (the edge)
+# road centreline to the car park's front edge: the drawn road's edge
+const ROAD_GAP := RoadMesh.HALF
+const MIN_R := 90.0  # from the square
+const EDGE_SHARE := 0.6  # may take only frontage lots ranked past this share (the edge)
 const MAX_DROP := 5.0
-const STRAIGHT := 1.0        # how far the road may bow across the lot's frontage
-const END_CLEAR := 12.0      # keep off the junctions at the road's ends
+const STRAIGHT := 1.0  # how far the road may bow across the lot's frontage
+const END_CLEAR := 12.0  # keep off the junctions at the road's ends
 const BUILD_MINUTES := 720.0
 const PARKED_SHARE := 0.55
 
-static var _meshes := {}     # model -> [mesh, foot Rect2 (store-local XZ), parking centre]
+static var _meshes := {}  # model -> [mesh, foot Rect2 (store-local XZ), parking centre]
 
 
 static func parking_for(model: String) -> String:
@@ -52,9 +54,20 @@ static func mesh_of(model: String) -> Array:
 	var at := Vector3(store.get_center().x, 0.02, store.end.z + 1.0 - park.position.z)
 	Models._append_part(mb, ModelParts.baked(park_path), Transform3D(Basis.IDENTITY, at))
 	# The gap between the store's front and the car park: paved as a walk.
-	mb.box(Vector3(at.x, 0.06, store.end.z + 0.5), Vector3(park.size.x, 0.12, 1.2), Models.KIT_FOUNDATION)
-	mb.box(Vector3(store.get_center().x, -WorldBuilder.KIT_MAX_DROP * 0.5 + 0.05, store.get_center().z - 1.0),
-		Vector3(store.size.x * 0.96, WorldBuilder.KIT_MAX_DROP, store.size.z * 0.85), Models.KIT_FOUNDATION)
+	mb.box(
+		Vector3(at.x, 0.06, store.end.z + 0.5),
+		Vector3(park.size.x, 0.12, 1.2),
+		Models.KIT_FOUNDATION
+	)
+	mb.box(
+		Vector3(
+			store.get_center().x,
+			-WorldBuilder.KIT_MAX_DROP * 0.5 + 0.05,
+			store.get_center().z - 1.0
+		),
+		Vector3(store.size.x * 0.96, WorldBuilder.KIT_MAX_DROP, store.size.z * 0.85),
+		Models.KIT_FOUNDATION
+	)
 	var mesh := mb.commit()
 	var bb := mesh.get_aabb()
 	var foot := Rect2(bb.position.x, bb.position.z, bb.size.x, at.z + park.end.z - bb.position.z)
@@ -120,7 +133,9 @@ static func _find(b: WorldBuilder, isl: MapData.Town, foot: Rect2) -> Array:
 		var near := _streets_near(plan, pts)
 		var lamps: Array = []
 		if ei < isl.road_lanes.size() and isl.road_main_a.size() > 0:
-			for spot: Array in WorldBuilder.street_lamp_spots(isl.road_lanes[ei], isl.road_main_a[isl.road_main_a.size() - 1]):
+			for spot: Array in WorldBuilder.street_lamp_spots(
+				isl.road_lanes[ei], isl.road_main_a[isl.road_main_a.size() - 1]
+			):
 				lamps.append(spot[0])
 		var walked := 0.0
 		var total := RoadMesh.length_of(pts)
@@ -137,12 +152,20 @@ static func _find(b: WorldBuilder, isl: MapData.Town, foot: Rect2) -> Array:
 			if tan == Vector3.ZERO:
 				continue
 			for side: float in [1.0, -1.0]:
-				var n := Vector3(-tan.z, 0.0, tan.x) * side   # away from the road
-				var fwd := -n                                 # the store faces the road
+				var n := Vector3(-tan.z, 0.0, tan.x) * side  # away from the road
+				var fwd := -n  # the store faces the road
 				var right := Vector3(fwd.z, 0.0, -fwd.x)
-				var at := Vector3(p.x, 0.0, p.z) + n * (ROAD_GAP + foot.end.y) - right * foot.get_center().x
+				var at := (
+					Vector3(p.x, 0.0, p.z)
+					+ n * (ROAD_GAP + foot.end.y)
+					- right * foot.get_center().x
+				)
 				var y := _fit(b, at, fwd, foot, near)
-				if is_nan(y) or _covers_lamp(at, fwd, foot, lamps) or _covers_lot(isl, at, fwd, foot):
+				if (
+					is_nan(y)
+					or _covers_lamp(at, fwd, foot, lamps)
+					or _covers_lot(isl, at, fwd, foot)
+				):
 					continue
 				# Pad at the road's height, so the car park meets it level.
 				return [Vector3(at.x, p.y, at.z), atan2(fwd.x, fwd.z), ei]
@@ -171,7 +194,7 @@ static func _covers_lot(isl: MapData.Town, at: Vector3, fwd: Vector3, foot: Rect
 static func _covers_lamp(at: Vector3, fwd: Vector3, foot: Rect2, lamps: Array) -> bool:
 	var right := Vector3(fwd.z, 0.0, -fwd.x)
 	var r := foot.grow(1.5)
-	r.size.y += 2.0   # out to the lamp row at the road's edge
+	r.size.y += 2.0  # out to the lamp row at the road's edge
 	for l: Vector3 in lamps:
 		var d := l - at
 		if r.has_point(Vector2(d.dot(right), d.dot(fwd))):
@@ -194,7 +217,7 @@ static func _straight_tangent(pts: PackedVector3Array, p: Vector3, reach: float)
 		return Vector3.ZERO
 	var tan := Vector3(hi.x - lo.x, 0.0, hi.z - lo.z)
 	if tan.length() < reach * 1.6:
-		return Vector3.ZERO   # the road doesn't run on far enough either side
+		return Vector3.ZERO  # the road doesn't run on far enough either side
 	tan = tan.normalized()
 	var n := Vector3(-tan.z, 0.0, tan.x)
 	for q in pts:
@@ -236,7 +259,10 @@ static func _fit(b: WorldBuilder, at: Vector3, fwd: Vector3, foot: Rect2, street
 				return NAN
 			var q2 := Vector2(q.x, q.z)
 			for sg: Array in streets:
-				if q2.distance_to(Geometry2D.get_closest_point_to_segment(q2, sg[0], sg[1])) < ROAD_GAP - 0.3:
+				if (
+					q2.distance_to(Geometry2D.get_closest_point_to_segment(q2, sg[0], sg[1]))
+					< ROAD_GAP - 0.3
+				):
 					return NAN
 			var h := b.terrain.height_v(q)
 			lo = minf(lo, h)
@@ -254,8 +280,16 @@ static func _fit(b: WorldBuilder, at: Vector3, fwd: Vector3, foot: Rect2, street
 static func level(b: WorldBuilder, lot: MapData.TownLot) -> void:
 	var foot: Rect2 = mesh_of(lot.model)[1]
 	var fwd := Vector3(sin(lot.yaw), 0.0, cos(lot.yaw))
-	b.terrain.level_now(Vector3(lot.pos.x, 0.0, lot.pos.z), fwd, foot.position.y - 2.0, foot.end.y,
-		foot.position.x - 2.0, foot.end.x + 2.0, lot.lot_y, WorldBuilder.KIT_LOT_BLEND)
+	b.terrain.level_now(
+		Vector3(lot.pos.x, 0.0, lot.pos.z),
+		fwd,
+		foot.position.y - 2.0,
+		foot.end.y,
+		foot.position.x - 2.0,
+		foot.end.x + 2.0,
+		lot.lot_y,
+		WorldBuilder.KIT_LOT_BLEND
+	)
 
 
 ## The finished store, car park and parked cars, as one node at the lot.
@@ -263,7 +297,9 @@ static func spawn(lot: MapData.TownLot) -> Node3D:
 	var got := mesh_of(lot.model)
 	var node := Node3D.new()
 	node.name = "BigBox_%s_%d_%d" % [lot.model, roundi(lot.pos.x), roundi(lot.pos.z)]
-	node.transform = Transform3D(Basis(Vector3.UP, lot.yaw), Vector3(lot.pos.x, lot.lot_y, lot.pos.z))
+	node.transform = Transform3D(
+		Basis(Vector3.UP, lot.yaw), Vector3(lot.pos.x, lot.lot_y, lot.pos.z)
+	)
 	var mi := MeshInstance3D.new()
 	mi.mesh = got[0]
 	node.add_child(mi)

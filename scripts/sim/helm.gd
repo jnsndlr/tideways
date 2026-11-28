@@ -149,7 +149,7 @@ class Threat:
 	var a := PackedVector2Array()   # its hull (or centre) at each sample time
 	var b := PackedVector2Array()
 	var fwd := PackedVector2Array()
-	var centre := Vector2.ZERO       # a circle round every sample of its hull (a cheap clear-of test)
+	var centre := Vector2.ZERO  # a circle round every sample of its hull (a cheap clear-of test)
 	var bound := 0.0
 
 	func seal() -> void:
@@ -351,8 +351,20 @@ func _pass_cost(p: Vector2, yaw: float, h: float, sp: float, my_r: float, t: Thr
 	# further than any keep from both legs costs nothing (most boats in a marina).
 	var early_end := p + d0 * sp * minf(HORIZON, turn_t * 0.5)
 	var clear := _clear_of(t, my_r)
-	if Geometry2D.get_closest_point_to_segment(t.centre, p, early_end).distance_to(t.centre) > clear \
-			and Geometry2D.get_closest_point_to_segment(t.centre, early_end, early_end + d1 * sp * HORIZON).distance_to(t.centre) > clear:
+	if (
+		(
+			Geometry2D.get_closest_point_to_segment(t.centre, p, early_end).distance_to(t.centre)
+			> clear
+		)
+		and (
+			(
+				Geometry2D
+				. get_closest_point_to_segment(t.centre, early_end, early_end + d1 * sp * HORIZON)
+				. distance_to(t.centre)
+			)
+			> clear
+		)
+	):
 		return 0.0
 	var worst := 0.0
 	var total := 0.0

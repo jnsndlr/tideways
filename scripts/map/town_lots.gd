@@ -16,34 +16,34 @@ const PAD := 80.0
 ## Per StreetPlan.Zone: road half-width, lot frontage, target depth, setback.
 const HALF := [5.0, 4.0, 3.5, 5.0]
 const FRONT := [8.0, 13.0, 18.0, 30.0]
-const DEPTH := [40.0, 32.0, 36.0, 48.0]   # core runs back to the block midline
+const DEPTH := [40.0, 32.0, 36.0, 48.0]  # core runs back to the block midline
 const MIN_DEPTH := 8.0
 const ROAD := -1
 const WATER := -2
 
+## Bump when the lot rules change, so baked lots (maps/town_lots/) are recomputed.
+const VERSION := 2
 ## Each lot: {quad: PackedVector2Array (front-left, front-right, back-right, back-left),
 ## front: Vector2 (middle of the street face), facing: Vector2 (toward street),
 ## width, depth, zone, edge, block, corner: bool, rank}
 var lots: Array[Dictionary] = []
 var block_count := 0
-var block_of := PackedInt32Array()   # per cell: block id, or -1
-var owner := PackedInt32Array()      # per cell: owning edge, ROAD, or WATER
+var block_of := PackedInt32Array()  # per cell: block id, or -1
+var owner := PackedInt32Array()  # per cell: owning edge, ROAD, or WATER
 var origin := Vector2.ZERO
 var w := 0
 var h := 0
 
 var _plan: StreetPlan
 var _claimed := PackedByteArray()
-var _edge_box: Array[Rect2] = []   # per edge, its points' XZ bounds
-
-
-## Bump when the lot rules change, so baked lots (maps/town_lots/) are recomputed.
-const VERSION := 2
+var _edge_box: Array[Rect2] = []  # per edge, its points' XZ bounds
 
 
 ## build(), but from `cache` (key -> baked lots) when this town's street plan and
 ## ground are unchanged. A miss builds and adds to the cache. Returns [lots, key, missed].
-static func build_cached(plan: StreetPlan, terrain: Terrain, square: Vector3, cache: Dictionary) -> Array:
+static func build_cached(
+	plan: StreetPlan, terrain: Terrain, square: Vector3, cache: Dictionary
+) -> Array:
 	var key := cache_key(plan, terrain, square)
 	var baked = cache.get(key)
 	if baked is Dictionary and baked.get("lots") is Array:
@@ -115,7 +115,7 @@ func _raster(terrain: Terrain) -> void:
 	w = ceili((hi.x - lo.x + 2 * PAD) / CELL)
 	h = ceili((hi.y - lo.y + 2 * PAD) / CELL)
 	owner.resize(w * h)
-	owner.fill(-3)   # unowned land
+	owner.fill(-3)  # unowned land
 	block_of.resize(w * h)
 	block_of.fill(-1)
 	_claimed.resize(w * h)
@@ -176,13 +176,17 @@ func _nearest_edge(p: Vector2) -> int:
 	var bd := INF
 	for ei in _plan.edges.size():
 		var box := _edge_box[ei]
-		var gap := Vector2(maxf(0.0, maxf(box.position.x - p.x, p.x - box.end.x)),
-			maxf(0.0, maxf(box.position.y - p.y, p.y - box.end.y)))
+		var gap := Vector2(
+			maxf(0.0, maxf(box.position.x - p.x, p.x - box.end.x)),
+			maxf(0.0, maxf(box.position.y - p.y, p.y - box.end.y))
+		)
 		if gap.length_squared() > bd:
 			continue
 		var pts: PackedVector3Array = _plan.edges[ei].pts
 		for i in pts.size() - 1:
-			var q := Geometry2D.get_closest_point_to_segment(p, Vector2(pts[i].x, pts[i].z), Vector2(pts[i + 1].x, pts[i + 1].z))
+			var q := Geometry2D.get_closest_point_to_segment(
+				p, Vector2(pts[i].x, pts[i].z), Vector2(pts[i + 1].x, pts[i + 1].z)
+			)
 			var d := p.distance_squared_to(q)
 			if d < bd:
 				bd = d
@@ -216,7 +220,9 @@ func _degree(n: int) -> int:
 
 
 ## Is the strip across the lot's width at this depth all owned by edge ei and free?
-func _row_ok(f: Vector2, along: Vector2, nrm: Vector2, half_w: float, depth: float, ei: int) -> bool:
+func _row_ok(
+	f: Vector2, along: Vector2, nrm: Vector2, half_w: float, depth: float, ei: int
+) -> bool:
 	# One stray cell per row is raster noise at bends, not a real obstacle.
 	var bad := 0
 	var s := -half_w + 1.0
@@ -254,14 +260,16 @@ func _frontage() -> void:
 			var first := true
 			while t + fw * 0.7 <= stop:
 				# Mixed frontages so a row isn't one model repeated: 0.9–1.7× the zone width.
-				var mix := 0.9 + 0.8 * fposmod(sin(ei * 12.9898 + t * 78.233 + side) * 43758.5453, 1.0)
+				var mix := (
+					0.9 + 0.8 * fposmod(sin(ei * 12.9898 + t * 78.233 + side) * 43758.5453, 1.0)
+				)
 				var lot_w := fw * (1.3 if first and corner_a else mix)
 				var is_corner := first and corner_a
 				if t + lot_w > stop:
 					lot_w = stop - t
 					is_corner = corner_b
 				elif t + lot_w + fw * 0.7 > stop:
-					lot_w = stop - t   # absorb a would-be sliver at the far end
+					lot_w = stop - t  # absorb a would-be sliver at the far end
 					is_corner = corner_b
 				# Full width first, then narrower; if nothing fits, slide on 2 m and retry.
 				var placed := false
@@ -279,8 +287,16 @@ func _frontage() -> void:
 				first = false
 
 
-func _place(flat: PackedVector2Array, cum: PackedFloat32Array, at: float, lot_w: float,
-		side: float, half: float, zone: int, ei: int) -> Dictionary:
+func _place(
+	flat: PackedVector2Array,
+	cum: PackedFloat32Array,
+	at: float,
+	lot_w: float,
+	side: float,
+	half: float,
+	zone: int,
+	ei: int
+) -> Dictionary:
 	var i := 0
 	while i < cum.size() - 2 and cum[i + 1] < at:
 		i += 1
@@ -296,11 +312,23 @@ func _place(flat: PackedVector2Array, cum: PackedFloat32Array, at: float, lot_w:
 		depth += CELL
 	if depth < MIN_DEPTH:
 		return {}
-	var quad := PackedVector2Array([f - along * hw, f + along * hw,
-		f + along * hw + nrm * depth, f - along * hw + nrm * depth])
+	var quad := PackedVector2Array(
+		[f - along * hw, f + along * hw, f + along * hw + nrm * depth, f - along * hw + nrm * depth]
+	)
 	_claim(quad)
-	return {quad = quad, front = f, facing = -nrm, width = lot_w, depth = depth, zone = zone,
-		edge = ei, block = block_of[_idx(cell_of(f + nrm * 2.0))], corner = false, rank = -1, along = 0.0}
+	return {
+		quad = quad,
+		front = f,
+		facing = -nrm,
+		width = lot_w,
+		depth = depth,
+		zone = zone,
+		edge = ei,
+		block = block_of[_idx(cell_of(f + nrm * 2.0))],
+		corner = false,
+		rank = -1,
+		along = 0.0
+	}
 
 
 func _claim(quad: PackedVector2Array) -> void:
@@ -311,7 +339,12 @@ func _claim(quad: PackedVector2Array) -> void:
 	for cy in range(c0.y, c1.y + 1):
 		for cx in range(c0.x, c1.x + 1):
 			var k := _idx(Vector2i(cx, cy))
-			if k >= 0 and Geometry2D.is_point_in_polygon(origin + Vector2(cx + 0.5, cy + 0.5) * CELL, quad):
+			if (
+				k >= 0
+				and Geometry2D.is_point_in_polygon(
+					origin + Vector2(cx + 0.5, cy + 0.5) * CELL, quad
+				)
+			):
 				_claimed[k] = 1
 
 
@@ -331,11 +364,11 @@ func _rank(square: Vector3) -> void:
 	dist[sq_node] = 0.0
 	var lens := []
 	for e in _plan.edges:
-		var L := 0.0
+		var edge_length := 0.0
 		for i in range(1, e.pts.size()):
-			L += e.pts[i].distance_to(e.pts[i - 1])
-		lens.append(L)
-	for _iter in n:   # Bellman-Ford; graphs are tiny
+			edge_length += e.pts[i].distance_to(e.pts[i - 1])
+		lens.append(edge_length)
+	for _iter in n:  # Bellman-Ford; graphs are tiny
 		var changed := false
 		for ei in _plan.edges.size():
 			var e: Dictionary = _plan.edges[ei]

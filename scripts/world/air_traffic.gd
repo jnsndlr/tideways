@@ -14,26 +14,25 @@ extends Node3D
 ## Runway space (Field.local): x along the runway, z off to the apron side (-z),
 ## y above the graded strip.
 
+enum Gate { NONE, CLAIM, RELEASE }
 const MODELS := ["res://assets/models/cessna_172.glb", "res://assets/models/cessna_172_red.glb"]
-const EXIT_X := -141.0          # the taxiway exit (runway model)
-const APRON_LANE_Z := -50.0     # the lead-in line the planes taxi along
+const EXIT_X := -141.0  # the taxiway exit (runway model)
+const APRON_LANE_Z := -50.0  # the lead-in line the planes taxi along
 const TOUCHDOWN_X := 190.0
 const LIFTOFF_X := 40.0
-const APPROACH := 1100.0        # how far out the approach fix is, along +x
+const APPROACH := 1100.0  # how far out the approach fix is, along +x
 const APPROACH_H := 110.0
 const CRUISE_H := 160.0
-const HOLD_R := 260.0           # the holding circle's radius
+const HOLD_R := 260.0  # the holding circle's radius
 const OFF_MAP := 3500.0
 const TAXI := 7.0
 const ROLL := 30.0
 const FLY := 55.0
-const WHEELS := 0.3             # the models' wheels sit this far below their origin
+const WHEELS := 0.3  # the models' wheels sit this far below their origin
 
 const SEAPLANE := "res://assets/models/beaver_floatplane.glb"
-const FLOATS := 0.3             # the floatplane's origin sits this far above the water
+const FLOATS := 0.3  # the floatplane's origin sits this far above the water
 const WATER_TAXI := 5.0
-
-enum Gate { NONE, CLAIM, RELEASE }
 
 
 ## A marina's seaplane float (world_builder._marina_seaplane_dock): one plane ties
@@ -42,7 +41,7 @@ class WaterDock:
 	var name: String
 	var moor: Vector3
 	var out: Vector3
-	var away: Vector3              # off the float's open face
+	var away: Vector3  # off the float's open face
 	var taken := false
 	var next_arrival := 0.0
 
@@ -65,8 +64,8 @@ class Field:
 	var stand_z: float
 	var taken: Array[bool] = []
 	var next_arrival := 0.0
-	var cleared: Object = null     # the craft holding the runway clearance
-	var waiting_air := 0           # arrivals holding for it (they go first)
+	var cleared: Object = null  # the craft holding the runway clearance
+	var waiting_air := 0  # arrivals holding for it (they go first)
 
 	func _init(n: String, x: Transform3D, s: float, l: float, st: Array, sz: float) -> void:
 		name = n
@@ -95,14 +94,14 @@ class Craft:
 	var node: Node3D
 	var path := PackedVector3Array()
 	var speeds := PackedFloat32Array()
-	var gates: Dictionary = {}     # point index -> [Gate, Field]
+	var gates: Dictionary = {}  # point index -> [Gate, Field]
 	var seg := 0
 	var t := 0.0
 	var speed := 0.0
-	var field: Field               # where it's parked / heading to land
-	var home: Field                # where it took off from
+	var field: Field  # where it's parked / heading to land
+	var home: Field  # where it took off from
 	var stand := -1
-	var home_stand := -1           # kept until cleared to push back
+	var home_stand := -1  # kept until cleared to push back
 	var parked := false
 	var wait := 0.0
 	var yaw := 0.0
@@ -112,19 +111,17 @@ class Craft:
 	var hold_centre := Vector3.ZERO
 	var hold_from := 0.0
 	var held_short := false
-	var water := false             # a floatplane, working the marinas' floats
+	var water := false  # a floatplane, working the marinas' floats
 	var dock: WaterDock
 	var prop: Node3D
 	var prop_spin := 0.0
 	var landing_light: SpotLight3D
 	var landing_glow: MeshInstance3D
-	var wake: SlipRefitCrew.WakeSource   # the floats' trail on the water
+	var wake: SlipRefitCrew.WakeSource  # the floats' trail on the water
 
 	func status_text() -> String:
-		if water and parked:
-			return "Moored at %s" % dock.name
 		if water:
-			return ("Inbound to %s" % dock.name) if dock != null else ("Flying" if airborne else "Taxiing")
+			return _water_status()
 		if parked:
 			return "Parked at %s" % field.name
 		if holding:
@@ -135,7 +132,27 @@ class Craft:
 			return ("Inbound to %s" % field.name) if field != null else "Departing the area"
 		return "Taxiing"
 
+	func _water_status() -> String:
+		if parked:
+			return "Moored at %s" % dock.name
+		return (
+			("Inbound to %s" % dock.name) if dock != null else ("Flying" if airborne else "Taxiing")
+		)
 
+
+# Light positions per model (+z nose, +x the left/port wing).
+const CESSNA_LIGHTS := {
+	tip = Vector3(5.45, 2.55, -1.6),
+	tail = Vector3(0, 2.9, -5.0),
+	beacon = Vector3(0, 3.35, -4.2),
+	nose = Vector3(-1.6, 2.5, 0.2)
+}
+const BEAVER_LIGHTS := {
+	tip = Vector3(7.3, 3.3, -0.9),
+	tail = Vector3(0, 3.0, -5.9),
+	beacon = Vector3(0, 4.1, -2.0),
+	nose = Vector3(-2.0, 3.2, 1.0)
+}
 var fields: Array[Field] = []
 var docks: Array[WaterDock] = []
 var planes: Array[Craft] = []
@@ -210,15 +227,12 @@ func _spawn(water := false) -> Craft:
 	_add_lights(p)
 	if water:
 		# Two floats about 3.5 m apart and 7.5 m long: one wake wide enough for both.
-		p.wake = SlipRefitCrew.WakeSource.new(3.8, 1.9, 0.7, 0.5, Vector4(2.0, 0.3, 1.0, 0.8), 8.0, 22.0)
+		p.wake = SlipRefitCrew.WakeSource.new(
+			3.8, 1.9, 0.7, 0.5, Vector4(2.0, 0.3, 1.0, 0.8), 8.0, 22.0
+		)
 		add_child(p.wake)
 	planes.append(p)
 	return p
-
-
-# Light positions per model (+z nose, +x the left/port wing).
-const CESSNA_LIGHTS := {tip = Vector3(5.45, 2.55, -1.6), tail = Vector3(0, 2.9, -5.0), beacon = Vector3(0, 3.35, -4.2), nose = Vector3(-1.6, 2.5, 0.2)}
-const BEAVER_LIGHTS := {tip = Vector3(7.3, 3.3, -0.9), tail = Vector3(0, 3.0, -5.9), beacon = Vector3(0, 4.1, -2.0), nose = Vector3(-2.0, 3.2, 1.0)}
 
 
 ## Navigation lights (red port tip, green starboard, white tail), a flashing red
@@ -229,12 +243,23 @@ func _add_lights(p: Craft) -> void:
 	var tip: Vector3 = l.tip
 	var gb := GlowBuilder.new()
 	gb.glow(tip, GlowBuilder.RED, 0.22, 4.0, false, 0.0, Vector3.ZERO, 0.0)
-	gb.glow(Vector3(-tip.x, tip.y, tip.z), GlowBuilder.GREEN, 0.22, 4.0, false, 0.0, Vector3.ZERO, 0.0)
+	gb.glow(
+		Vector3(-tip.x, tip.y, tip.z), GlowBuilder.GREEN, 0.22, 4.0, false, 0.0, Vector3.ZERO, 0.0
+	)
 	gb.glow(l.tail, GlowBuilder.LED, 0.18, 3.0, false, 0.0, Vector3.ZERO, 0.0)
 	var phase := randf()
 	gb.glow(l.beacon, GlowBuilder.RED, 0.3, 6.0, false, Models.blink_of(phase), Vector3.ZERO, 0.0)
 	for x: float in [tip.x, -tip.x]:
-		gb.glow(Vector3(x, tip.y, tip.z - 0.15), Color(1, 1, 1), 0.3, 8.0, false, Models.blink_of(fmod(phase + 0.5, 1.0)), Vector3.ZERO, 0.0)
+		gb.glow(
+			Vector3(x, tip.y, tip.z - 0.15),
+			Color(1, 1, 1),
+			0.3,
+			8.0,
+			false,
+			Models.blink_of(fmod(phase + 0.5, 1.0)),
+			Vector3.ZERO,
+			0.0
+		)
 	var nav := MeshInstance3D.new()
 	nav.mesh = gb.commit()
 	nav.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -250,7 +275,7 @@ func _add_lights(p: Craft) -> void:
 	p.node.add_child(p.landing_glow)
 	p.landing_light = SpotLight3D.new()
 	p.landing_light.position = l.nose
-	p.landing_light.rotation = Vector3(-0.12, PI, 0)   # SpotLight3D shines down -z
+	p.landing_light.rotation = Vector3(-0.12, PI, 0)  # SpotLight3D shines down -z
 	p.landing_light.spot_range = 180.0
 	p.landing_light.spot_angle = 14.0
 	p.landing_light.light_energy = 6.0
@@ -279,7 +304,13 @@ func _dress(p: Craft, delta: float) -> void:
 		p.wake.step(delta, ROLL, not p.parked and wet)
 	var night := day_cycle.night if day_cycle else 0.0
 	var low := p.node.global_position.y < 250.0 + (0.0 if p.water else _ground_y(p))
-	var on := night > 0.05 and not p.parked and not p.holding and low and (p.airborne or p.speed > TAXI + 1.0)
+	var on := (
+		night > 0.05
+		and not p.parked
+		and not p.holding
+		and low
+		and (p.airborne or p.speed > TAXI + 1.0)
+	)
 	if p.landing_light.visible != on:
 		p.landing_light.visible = on
 		p.landing_glow.visible = on
@@ -306,9 +337,16 @@ func _depart_water(p: Craft) -> void:
 	var d := p.dock
 	p.parked = false
 	_clear_path(p)
-	_route(p, [d.moor, d.at(-8.0, 14.0), d.at(10.0, 26.0), d.at(60.0, 22.0), d.at(80.0, 20.0)],
-		[2.0, 3.0, WATER_TAXI, WATER_TAXI, 4.0])
-	_route(p, [d.at(300.0, 20.0), d.at(480.0, 20.0, 30.0), d.at(1300.0, 20.0, CRUISE_H)], [ROLL * 1.5, FLY * 0.8, FLY])
+	_route(
+		p,
+		[d.moor, d.at(-8.0, 14.0), d.at(10.0, 26.0), d.at(60.0, 22.0), d.at(80.0, 20.0)],
+		[2.0, 3.0, WATER_TAXI, WATER_TAXI, 4.0]
+	)
+	_route(
+		p,
+		[d.at(300.0, 20.0), d.at(480.0, 20.0, 30.0), d.at(1300.0, 20.0, CRUISE_H)],
+		[ROLL * 1.5, FLY * 0.8, FLY]
+	)
 	d.taken = false
 	var free := docks.filter(func(o: WaterDock) -> bool: return o != d and not o.taken)
 	if not free.is_empty() and randf() < 0.6:
@@ -320,15 +358,29 @@ func _depart_water(p: Craft) -> void:
 	else:
 		p.dock = null
 		var out := p.path[p.path.size() - 1]
-		_route(p, [out + d.out.rotated(Vector3.UP, randf_range(-0.8, 0.8)) * OFF_MAP + Vector3.UP * 60.0], [FLY])
+		_route(
+			p,
+			[out + d.out.rotated(Vector3.UP, randf_range(-0.8, 0.8)) * OFF_MAP + Vector3.UP * 60.0],
+			[FLY]
+		)
 
 
 ## Comes in from the sea along -out, touches down well out, slows to a taxi and
 ## swings in alongside the float nose in.
 func _add_water_landing(p: Craft, d: WaterDock) -> void:
-	_route(p, [d.at(APPROACH, 22.0, APPROACH_H), d.at(520.0, 22.0, 20.0), d.at(380.0, 22.0, 0.0),
-		d.at(120.0, 22.0), d.at(40.0, 22.0), d.at(14.0, 12.0), d.moor],
-		[FLY * 0.8, FLY * 0.6, ROLL, WATER_TAXI, WATER_TAXI, 3.0, 1.5])
+	_route(
+		p,
+		[
+			d.at(APPROACH, 22.0, APPROACH_H),
+			d.at(520.0, 22.0, 20.0),
+			d.at(380.0, 22.0, 0.0),
+			d.at(120.0, 22.0),
+			d.at(40.0, 22.0),
+			d.at(14.0, 12.0),
+			d.moor
+		],
+		[FLY * 0.8, FLY * 0.6, ROLL, WATER_TAXI, WATER_TAXI, 3.0, 1.5]
+	)
 
 
 func _park(p: Craft, f: Field, stand: int) -> void:
@@ -366,7 +418,11 @@ func _process(delta: float) -> void:
 				p.stand = s
 				p.airborne = true
 				f.taken[s] = true
-				var start := _approach_fix(f) + _outward(f) * (OFF_MAP - APPROACH) + Vector3.UP * (CRUISE_H - APPROACH_H)
+				var start := (
+					_approach_fix(f)
+					+ _outward(f) * (OFF_MAP - APPROACH)
+					+ Vector3.UP * (CRUISE_H - APPROACH_H)
+				)
 				_route(p, [start], [FLY])
 				_add_landing(p, f, s)
 	for d in docks:
@@ -410,9 +466,19 @@ func _depart(p: Craft) -> void:
 	_clear_path(p)
 	_route(p, [f.local(sx, 0, f.stand_z)], [3.0])
 	_gate(p, Gate.CLAIM, f)
-	_route(p, [f.local(sx, 0, APRON_LANE_Z), f.local(EXIT_X, 0, APRON_LANE_Z), f.local(EXIT_X, 0, -12.0),
-		f.local(EXIT_X + 12.0, 0, 0.0)], [TAXI, TAXI, TAXI, 4.0])
-	_route(p, [f.local(LIFTOFF_X, 0, 0), f.local(LIFTOFF_X + 400.0, 35.0, 0)], [ROLL * 1.6, FLY * 0.8])
+	_route(
+		p,
+		[
+			f.local(sx, 0, APRON_LANE_Z),
+			f.local(EXIT_X, 0, APRON_LANE_Z),
+			f.local(EXIT_X, 0, -12.0),
+			f.local(EXIT_X + 12.0, 0, 0.0)
+		],
+		[TAXI, TAXI, TAXI, 4.0]
+	)
+	_route(
+		p, [f.local(LIFTOFF_X, 0, 0), f.local(LIFTOFF_X + 400.0, 35.0, 0)], [ROLL * 1.6, FLY * 0.8]
+	)
 	_gate(p, Gate.RELEASE, f)
 	_route(p, [f.local(LIFTOFF_X + 1200.0, CRUISE_H, 0)], [FLY])
 	var others := fields.filter(func(o: Field) -> bool: return o != f and o.free_stand() >= 0)
@@ -432,7 +498,17 @@ func _depart(p: Craft) -> void:
 		var out := p.path[p.path.size() - 1]
 		var dir := out - p.path[p.path.size() - 2]
 		dir.y = 0.0
-		_route(p, [out + dir.normalized().rotated(Vector3.UP, randf_range(-0.8, 0.8)) * OFF_MAP + Vector3.UP * 60.0], [FLY])
+		_route(
+			p,
+			[
+				(
+					out
+					+ dir.normalized().rotated(Vector3.UP, randf_range(-0.8, 0.8)) * OFF_MAP
+					+ Vector3.UP * 60.0
+				)
+			],
+			[FLY]
+		)
 
 
 ## Asks for the runway at the approach fix, comes in from +x, touches down, rolls
@@ -441,10 +517,19 @@ func _add_landing(p: Craft, f: Field, stand: int) -> void:
 	var sx: float = f.stands[stand]
 	_route(p, [_approach_fix(f)], [FLY * 0.8])
 	_gate(p, Gate.CLAIM, f)
-	_route(p, [f.local(TOUCHDOWN_X + 250.0, 18.0, 0), f.local(TOUCHDOWN_X, 0, 0),
-		f.local(EXIT_X + 30.0, 0, 0), f.local(EXIT_X, 0, -12.0), f.local(EXIT_X, 0, APRON_LANE_Z),
-		f.local(sx, 0, APRON_LANE_Z), f.local(sx, 0, f.stand_z)],
-		[FLY * 0.6, ROLL, TAXI, TAXI, TAXI, TAXI, 2.0])
+	_route(
+		p,
+		[
+			f.local(TOUCHDOWN_X + 250.0, 18.0, 0),
+			f.local(TOUCHDOWN_X, 0, 0),
+			f.local(EXIT_X + 30.0, 0, 0),
+			f.local(EXIT_X, 0, -12.0),
+			f.local(EXIT_X, 0, APRON_LANE_Z),
+			f.local(sx, 0, APRON_LANE_Z),
+			f.local(sx, 0, f.stand_z)
+		],
+		[FLY * 0.6, ROLL, TAXI, TAXI, TAXI, TAXI, 2.0]
+	)
 
 
 func _approach_fix(f: Field) -> Vector3:
@@ -601,4 +686,7 @@ func _yaw_of(d: Vector3) -> float:
 
 
 func _place(p: Craft, at: Vector3, yaw: float, pitch: float) -> void:
-	p.node.transform = Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -pitch), at + Vector3.UP * (FLOATS if p.water else WHEELS))
+	p.node.transform = Transform3D(
+		Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -pitch),
+		at + Vector3.UP * (FLOATS if p.water else WHEELS)
+	)

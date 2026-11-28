@@ -1,6 +1,7 @@
 extends Node3D
 ## Box truck starts parked nose-out. Both parked positions clear the door sweep.
 
+
 func _ready() -> void:
 	$Truck.mesh = RoadVehicleModel.body_mesh("truck_box", 0)
 	$Pickup.mesh = RoadVehicleModel.body_mesh("pickup_dually", 3)

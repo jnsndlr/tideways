@@ -316,9 +316,31 @@ func outer_height(x: float, z: float) -> float:
 	return _height_of(m.x, x, z, _world_stamp) + mainland.relief(x, z, m.y, m.x)
 
 
-func add_flat(origin: Vector3, dir: Vector3, u0: float, u1: float, v0: float, v1: float, height: float, blend: float, slope := 0.0) -> void:
-	flats.append({"o": origin, "n": dir, "t": Vector3.UP.cross(dir), "u0": u0, "u1": u1,
-		"v0": v0, "v1": v1, "h": height, "blend": blend, "slope": slope})
+func add_flat(
+	origin: Vector3,
+	dir: Vector3,
+	u0: float,
+	u1: float,
+	v0: float,
+	v1: float,
+	height: float,
+	blend: float,
+	slope := 0.0
+) -> void:
+	flats.append(
+		{
+			"o": origin,
+			"n": dir,
+			"t": Vector3.UP.cross(dir),
+			"u0": u0,
+			"u1": u1,
+			"v0": v0,
+			"v1": v1,
+			"h": height,
+			"blend": blend,
+			"slope": slope
+		}
+	)
 
 
 ## Keeps the ground under a trestle clear of its deck: within `u0..u1` along `dir` and
@@ -450,7 +472,7 @@ func _apply_flat(f: Dictionary) -> void:
 	var v1: float = f.v1
 	var blend: float = f.blend
 	var target: float = f.h
-	var slope: float = f.get("slope", 0.0)   # height gained per metre along u
+	var slope: float = f.get("slope", 0.0)  # height gained per metre along u
 	var under: Callable = f.get("under", Callable())
 	var reach := maxf(absf(u0), absf(u1)) + maxf(absf(v0), absf(v1)) + blend
 	var i0 := _index_of(o.x - reach)
@@ -473,7 +495,9 @@ func _apply_flat(f: Dictionary) -> void:
 				if h_grid[k] > cap:
 					h_grid[k] = lerpf(h_grid[k], cap, 1.0 - smoothstep(0.0, blend, dd))
 				continue
-			h_grid[k] = lerpf(h_grid[k], target + slope * clampf(u, u0, u1), 1.0 - smoothstep(0.0, blend, dd))
+			h_grid[k] = lerpf(
+				h_grid[k], target + slope * clampf(u, u0, u1), 1.0 - smoothstep(0.0, blend, dd)
+			)
 			if k < road_cap.size() and not is_nan(road_cap[k]):
 				h_grid[k] = minf(h_grid[k], road_cap[k])
 

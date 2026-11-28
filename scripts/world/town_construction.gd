@@ -342,8 +342,15 @@ func _spawn_finished_building(job: TownGrowth.BuildJob) -> void:
 			var kit_name := builder.house_kit_names[idx]
 			if lot.yard_back != 0.0:
 				var yard := MeshBuilder.new()
-				builder.add_yard(yard, Vector3(lot.pos.x, lot.lot_y, lot.pos.z), lot.yaw,
-					Models.kit_footprint(kit_name), lot.scale, lot.yard_half, lot.yard_back)
+				builder.add_yard(
+					yard,
+					Vector3(lot.pos.x, lot.lot_y, lot.pos.z),
+					lot.yaw,
+					Models.kit_footprint(kit_name),
+					lot.scale,
+					lot.yard_half,
+					lot.yard_back
+				)
 				var ymi := MeshInstance3D.new()
 				ymi.mesh = yard.commit()
 				add_child(ymi)

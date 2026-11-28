@@ -1,7 +1,8 @@
 extends SceneTree
 ## Top-down shots of the story map's islands with a labelled 200 m grid, for
 ## reading off world positions (e.g. where an airstrip should go).
-##   godot --path . --resolution 1600x1600 --script tools/airstrip_grid_shots.gd -- --out=DIR --islands=Madrona Island,Bracken Island
+## godot --path . --resolution 1600x1600 --script tools/airstrip_grid_shots.gd -- --out=DIR
+## --islands=Madrona Island,Bracken Island
 
 var main: Node
 var frames := 0
@@ -11,7 +12,7 @@ var views: Array = []
 var shots := 0
 var ready_at := -1
 var wait := -1
-var runway := false   # --runway: oblique shots of each island's airstrip instead, no grid
+var runway := false  # --runway: oblique shots of each island's airstrip instead, no grid
 
 
 func _initialize() -> void:
@@ -57,9 +58,33 @@ func _process(_delta: float) -> bool:
 		for isl: MapData.Island in main.map.islands:
 			if runway and isl.airstrip:
 				views.append([isl.name + "_runway", isl.airstrip_at, 520.0, 0.6, 0.4])
-				views.append([isl.name + "_end27", isl.airstrip_at + isl.airstrip_dir * 240.0, 260.0, 0.45, 2.2])
-				views.append([isl.name + "_end09", isl.airstrip_at - isl.airstrip_dir * 240.0, 260.0, 0.45, -1.0])
-				views.append([isl.name + "_hangar", isl.airstrip_at + isl.airstrip_dir * -141.0, 160.0, 0.55, 2.6])
+				views.append(
+					[
+						isl.name + "_end27",
+						isl.airstrip_at + isl.airstrip_dir * 240.0,
+						260.0,
+						0.45,
+						2.2
+					]
+				)
+				views.append(
+					[
+						isl.name + "_end09",
+						isl.airstrip_at - isl.airstrip_dir * 240.0,
+						260.0,
+						0.45,
+						-1.0
+					]
+				)
+				views.append(
+					[
+						isl.name + "_hangar",
+						isl.airstrip_at + isl.airstrip_dir * -141.0,
+						160.0,
+						0.55,
+						2.6
+					]
+				)
 			elif not runway and names.has(isl.name):
 				var c := Vector3(isl.center.x, 0, isl.center.y)
 				_grid(c, isl.radius * 1.3)
@@ -84,6 +109,8 @@ func _process(_delta: float) -> bool:
 	if frames - wait < 40:
 		return false
 	wait = -1
-	root.get_viewport().get_texture().get_image().save_png("%s/grid_%s.png" % [out, str(v[0]).to_snake_case()])
+	root.get_viewport().get_texture().get_image().save_png(
+		"%s/grid_%s.png" % [out, str(v[0]).to_snake_case()]
+	)
 	shots += 1
 	return false

@@ -677,7 +677,9 @@ func add_drive(b: PackedVector3Array) -> void:
 		var ticket_path := road_path.duplicate()
 		for j in to_lot.size():
 			var inland := (entrance - to_lot[j]).dot(town.dock_dir)
-			ticket_path[b.size() + j] += town.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
+			ticket_path[b.size() + j] += (
+				town.lateral() * (v + Layout.EXIT_V) * Layout.ticket_spread(inland, length)
+			)
 		_inbound.append(simplify(ticket_path, ROAD_TOLERANCE))
 	var outbound := town.road_main_a.duplicate()
 	outbound.append_array(b)

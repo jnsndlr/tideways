@@ -177,7 +177,9 @@ static func variants(broadleaf: bool) -> Array:
 			# cones fitted to it (a shadow can't tell, and the full model in every
 			# cascade was most of the trees' triangles: TID-343).
 			var m := part(n)
-			var sh: Mesh = m if "--full-tree-shadows" in OS.get_cmdline_user_args() else shadow_cones(n, m)
+			var sh: Mesh = (
+				m if "--full-tree-shadows" in OS.get_cmdline_user_args() else shadow_cones(n, m)
+			)
 			out.append([m, sh, null, impostor_card(n, m), null])
 			continue
 		var near := part(n)

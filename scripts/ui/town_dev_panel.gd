@@ -37,9 +37,11 @@ func setup(simulation: Simulation, camera_rig: CameraRig) -> void:
 		_towns.add_item("%s (%s)" % [t.name, t.key])
 	if not sim.map.towns.is_empty():
 		_select(0)
-	sim.town_growth.population_changed.connect(func(t: MapData.Town, _p: int) -> void:
-		if t == _town:
-			_sync_slider())
+	sim.town_growth.population_changed.connect(
+		func(t: MapData.Town, _p: int) -> void:
+			if t == _town:
+				_sync_slider()
+	)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -82,16 +84,20 @@ func _build_ui() -> void:
 	_slider.step = 25
 	_slider.custom_minimum_size = Vector2(320, 24)
 	_slider.drag_ended.connect(func(_changed: bool) -> void: _apply_slider())
-	_slider.value_changed.connect(func(v: float) -> void: _pop_label.text = "Population → %d" % int(v))
+	_slider.value_changed.connect(
+		func(v: float) -> void: _pop_label.text = "Population → %d" % int(v)
+	)
 	box.add_child(_slider)
 	var row := HBoxContainer.new()
 	box.add_child(row)
 	for step: int in [100, 500, 2000]:
 		var b := Button.new()
 		b.text = "+%d" % step
-		b.pressed.connect(func() -> void:
-			_slider.value = mini(MAX_POP, _town.population + step)
-			_apply_slider())
+		b.pressed.connect(
+			func() -> void:
+				_slider.value = mini(MAX_POP, _town.population + step)
+				_apply_slider()
+		)
 		row.add_child(b)
 	var go := Button.new()
 	go.text = "Go to"
@@ -99,16 +105,20 @@ func _build_ui() -> void:
 	row.add_child(go)
 	_fast_toggle = CheckBox.new()
 	_fast_toggle.text = "Fast builds (×40, 8 at once)"
-	_fast_toggle.toggled.connect(func(on: bool) -> void:
-		sim.town_growth.dev_build_speed = 40.0 if on else 1.0
-		sim.town_growth.dev_max_builds = 8 if on else TownGrowth.MAX_CONCURRENT_BUILDS)
+	_fast_toggle.toggled.connect(
+		func(on: bool) -> void:
+			sim.town_growth.dev_build_speed = 40.0 if on else 1.0
+			sim.town_growth.dev_max_builds = 8 if on else TownGrowth.MAX_CONCURRENT_BUILDS
+	)
 	box.add_child(_fast_toggle)
 	_overlay_toggle = CheckBox.new()
 	_overlay_toggle.text = "Show plan (roads, lot order)"
-	_overlay_toggle.toggled.connect(func(on: bool) -> void:
-		_overlay.visible = on
-		if on:
-			_draw_overlay())
+	_overlay_toggle.toggled.connect(
+		func(on: bool) -> void:
+			_overlay.visible = on
+			if on:
+				_draw_overlay()
+	)
 	box.add_child(_overlay_toggle)
 	_info = Label.new()
 	box.add_child(_info)
@@ -148,9 +158,18 @@ func _update_info() -> void:
 	var names := MapData.TownLot.Kind.keys()
 	var lines: Array[String] = []
 	for k in names.size():
-		lines.append("%s  built %d  free %d" % [names[k].capitalize(), built.get(k, 0), free.get(k, 0)])
-	lines.append("Wants %d houses, %d commercial" % [TownGrowth.target_houses_for(_town.population),
-		TownGrowth.target_commercial_for(_town.population)])
+		lines.append(
+			"%s  built %d  free %d" % [names[k].capitalize(), built.get(k, 0), free.get(k, 0)]
+		)
+	lines.append(
+		(
+			"Wants %d houses, %d commercial"
+			% [
+				TownGrowth.target_houses_for(_town.population),
+				TownGrowth.target_commercial_for(_town.population)
+			]
+		)
+	)
 	if st:
 		lines.append("Building now: %d" % st.active_builds.size())
 	_info.text = "\n".join(lines)

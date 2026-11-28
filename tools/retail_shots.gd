@@ -1,6 +1,7 @@
 extends SceneTree
 ## Shots of the retail stores in towns: each instance of the named model groups.
-##   godot --path . --resolution 1600x1000 --script tools/retail_shots.gd -- --out=DIR [--models=a,b] [--max=4]
+## godot --path . --resolution 1600x1000 --script tools/retail_shots.gd -- --out=DIR
+## [--models=a,b] [--max=4]
 
 var main: Node
 var frames := 0

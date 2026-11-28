@@ -1,4 +1,6 @@
 extends SceneTree
+
+
 ## Top-down maps of each town's blocks and frontage lots, 1 px per metre.
 ## Lots shaded by reveal rank (bright = early), corners outlined white, streets dark.
 ##   godot --headless --path . --script tools/town_lots_map.gd -- <seed> <out_dir> [town filter]
@@ -25,7 +27,11 @@ func _initialize() -> void:
 				var wx := c.x + x - S / 2
 				var wz := c.z + y - S / 2
 				var hh := gen.terrain.height_at(wx, wz)
-				var col := Color(0.15, 0.3, 0.55) if hh < 0.0 else (Color(0.8, 0.75, 0.55) if hh < 3.2 else Color(0.3, 0.45, 0.25))
+				var col := (
+					Color(0.15, 0.3, 0.55)
+					if hh < 0.0
+					else (Color(0.8, 0.75, 0.55) if hh < 3.2 else Color(0.3, 0.45, 0.25))
+				)
 				var k := tl._idx(tl.cell_of(Vector2(wx, wz)))
 				if k >= 0:
 					if tl.owner[k] == TownLots.ROAD:
@@ -49,10 +55,15 @@ func _initialize() -> void:
 			var edge_col := Color.WHITE if lot.corner else fill.darkened(0.55)
 			for i in 4:
 				_line(img, poly[i], poly[(i + 1) % 4], edge_col)
-			_line(img, poly[0], poly[1], Color(0.1, 0.1, 0.1))   # street face
+			_line(img, poly[0], poly[1], Color(0.1, 0.1, 0.1))  # street face
 		img.save_png("%s/lots_%s.png" % [out, isl.name.replace(" ", "_")])
 		var corners := tl.lots.filter(func(l: Dictionary) -> bool: return l.corner).size()
-		print("%s: %d blocks, %d lots (%d corner), %d ms" % [isl.name, tl.block_count, tl.lots.size(), corners, ms])
+		print(
+			(
+				"%s: %d blocks, %d lots (%d corner), %d ms"
+				% [isl.name, tl.block_count, tl.lots.size(), corners, ms]
+			)
+		)
 	quit(0)
 
 

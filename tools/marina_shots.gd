@@ -1,7 +1,16 @@
 extends SceneTree
 ## Renders a few marinas close up and further out, for checking them by eye.
-##   godot --path . --resolution 1600x1000 --script tools/marina_shots.gd -- --seed=123 --out=DIR [--towns=3] [--hours=11,22]
+## godot --path . --resolution 1600x1000 --script tools/marina_shots.gd -- --seed=123
+## --out=DIR [--towns=3] [--hours=11,22]
 
+# [where, distance, pitch, yaw offset from inland]
+const FRAMES := [
+	["mid", 35.0, 0.3, 0.9],
+	["mid", 80.0, 0.5, 2.2],
+	["centre", 60.0, 0.45, 0.5],
+	["centre", 160.0, 0.7, 1.8],
+]
+const MFRAMES := [[70.0, 0.55, 0.6], [150.0, 0.75, 2.0]]
 var main: Node
 var frames := 0
 var out := "user://"
@@ -13,10 +22,6 @@ var views: Array = []
 var shots := 0
 var ready_at := -1
 var wait := -1
-# [where, distance, pitch, yaw offset from inland]
-const FRAMES := [
-	["mid", 35.0, 0.3, 0.9], ["mid", 80.0, 0.5, 2.2], ["centre", 60.0, 0.45, 0.5], ["centre", 160.0, 0.7, 1.8],
-]
 
 
 func _initialize() -> void:
@@ -37,7 +42,6 @@ func _initialize() -> void:
 	root.add_child(main)
 
 
-const MFRAMES := [[70.0, 0.55, 0.6], [150.0, 0.75, 2.0]]
 func _plan() -> void:
 	print("marinas: %d, towns: %d" % [main.map.marinas.size(), main.map.towns.size()])
 	var n := 0
@@ -47,7 +51,17 @@ func _plan() -> void:
 		var at: Vector3 = m.shore + m.dir * 30.0
 		for h in hours:
 			for f in MFRAMES:
-				views.append([main.map.islands[m.island].name + str(m.id), at, f[0], f[1], atan2(m.dir.x, m.dir.z) + f[2], h, "m"])
+				views.append(
+					[
+						main.map.islands[m.island].name + str(m.id),
+						at,
+						f[0],
+						f[1],
+						atan2(m.dir.x, m.dir.z) + f[2],
+						h,
+						"m"
+					]
+				)
 		n += 1
 
 
@@ -84,7 +98,12 @@ func _process(_delta: float) -> bool:
 	if frames - wait < 40:
 		return false
 	wait = -1
-	var tag := "%s_%s_%d_h%d%s" % [str(v[0]).to_snake_case(), v[6], int(v[2]), int(v[5] * 10), "_storm" if storm else ""]
-	root.get_viewport().get_texture().get_image().save_png("%s/marina_%02d_%s.png" % [out, shots, tag])
+	var tag := (
+		"%s_%s_%d_h%d%s"
+		% [str(v[0]).to_snake_case(), v[6], int(v[2]), int(v[5] * 10), "_storm" if storm else ""]
+	)
+	root.get_viewport().get_texture().get_image().save_png(
+		"%s/marina_%02d_%s.png" % [out, shots, tag]
+	)
 	shots += 1
 	return false

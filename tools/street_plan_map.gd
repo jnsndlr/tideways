@@ -1,4 +1,6 @@
 extends SceneTree
+
+
 ## Top-down maps of each town's StreetPlan over its ground, 1 px per metre.
 ##   godot --headless --path . --script tools/street_plan_map.gd -- <seed> <out_dir>
 func _initialize() -> void:
@@ -18,11 +20,20 @@ func _initialize() -> void:
 		for y in S:
 			for x in S:
 				var h := gen.terrain.height_at(c.x + x - S / 2, c.z + y - S / 2)
-				var col := Color(0.15, 0.3, 0.55) if h < 0.0 else (Color(0.8, 0.75, 0.55) if h < 3.2 else Color(0.25, 0.45, 0.2).lightened(clampf(h / 60.0, 0, 0.7)))
+				var col := (
+					Color(0.15, 0.3, 0.55)
+					if h < 0.0
+					else (
+						Color(0.8, 0.75, 0.55)
+						if h < 3.2
+						else Color(0.25, 0.45, 0.2).lightened(clampf(h / 60.0, 0, 0.7))
+					)
+				)
 				if h >= 3.2 and int(h) % 5 == 0 and fposmod(h, 5.0) < 0.35:
 					col = col.darkened(0.3)
 				img.set_pixel(x, y, col)
-		var px := func(p: Vector3) -> Vector2i: return Vector2i(roundi(p.x - c.x + S / 2), roundi(p.z - c.z + S / 2))
+		var px := func(p: Vector3) -> Vector2i:
+			return Vector2i(roundi(p.x - c.x + S / 2), roundi(p.z - c.z + S / 2))
 		for line in [isl.road_main_a]:
 			for p in line:
 				_dot(img, px.call(p), 2, Color(0.3, 0.3, 0.3))

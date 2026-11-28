@@ -12,22 +12,22 @@ const KINDS := {
 	"motor_lifeboat_47": ["Coast Guard 47' motor lifeboat", 7.2, 2.2, 1.4, 8.0, 1600.0],
 	"response_boat_small": ["Coast Guard response boat", 4.4, 1.6, 0.8, 12.0, 1400.0],
 }
-const IN_PORT := Vector2(90.0, 300.0)   # game minutes alongside between patrols
-const LANE_PAD := 30.0                  # straight run past its own length into and out of a berth
-const ASTERN := 2.2                     # m/s backing out
-const ASTERN_HOLD := 0.6                # m/s at the ends of the astern run
+const IN_PORT := Vector2(90.0, 300.0)  # game minutes alongside between patrols
+const LANE_PAD := 30.0  # straight run past its own length into and out of a berth
+const ASTERN := 2.2  # m/s backing out
+const ASTERN_HOLD := 0.6  # m/s at the ends of the astern run
 
 var kind := ""
-var berths: Array = []                  # [Vector2 at, yaw]
+var berths: Array = []  # [Vector2 at, yaw]
 var berth := Vector2.ZERO
-var berth_yaw := 0.0                    # bow heading when in (it berths bow first)
+var berth_yaw := 0.0  # bow heading when in (it berths bow first)
 var docked := true
 var _sail_at := 0.0
 var _patrols := 0
-var _phase := ""                        # "astern", "pivot", "" (under way) while not docked
-var _ps := 0.0                          # distance backed so far
+var _phase := ""  # "astern", "pivot", "" (under way) while not docked
+var _ps := 0.0  # distance backed so far
 var _yaw_now := 0.0
-var _next_berth: Array = []             # the berth this patrol comes home to
+var _next_berth: Array = []  # the berth this patrol comes home to
 
 
 static func spawn_fleet(t: MarineTraffic) -> Array[CoastGuardBoat]:
@@ -191,8 +191,14 @@ func _process(delta: float) -> void:
 		return
 	_place()
 	var h := heading2()
-	wake.update(delta, Vector3(global_position.x, 0.0, global_position.z), Vector3(h.x, 0.0, h.y), speed * delta,
-			speed / cruise, speed > 0.3)
+	wake.update(
+		delta,
+		Vector3(global_position.x, 0.0, global_position.z),
+		Vector3(h.x, 0.0, h.y),
+		speed * delta,
+		speed / cruise,
+		speed > 0.3
+	)
 
 
 ## Backs straight out of the berth along its lane, easing off at either end.

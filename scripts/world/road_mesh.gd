@@ -27,7 +27,15 @@ static func length_of(points: PackedVector3Array) -> float:
 ## Adds a strip along `points` (its centreline, at the road's surface) to `mb`,
 ## starting `start` metres along (a side street starts at the edge of the road it
 ## leaves). `show` maps metres along to how strongly the markings show (0..1).
-static func strip(mb: MeshBuilder, points: PackedVector3Array, col: Color, style: Style, show: Callable, start := 0.0, stop := INF) -> void:
+static func strip(
+	mb: MeshBuilder,
+	points: PackedVector3Array,
+	col: Color,
+	style: Style,
+	show: Callable,
+	start := 0.0,
+	stop := INF
+) -> void:
 	# Stations: metres along, centre, and the right-hand unit vector (mitred).
 	var along := PackedFloat32Array()
 	var centres := PackedVector3Array()
@@ -127,17 +135,26 @@ static func _tri(mb: MeshBuilder, a: Vector3, b: Vector3, c: Vector3, ua: Vector
 ## ends at `mouths[i]`, running out along `tangents[i]` (flat unit vectors, away from
 ## the junction); `styles[i]` is its Style (sidewalk corners only between two
 ## sidewalked streets, gravel verge otherwise).
-static func junction(mb: MeshBuilder, centre: Vector3, mouths: PackedVector3Array, tangents: PackedVector3Array, styles: Array[int], col: Color) -> void:
+static func junction(
+	mb: MeshBuilder,
+	centre: Vector3,
+	mouths: PackedVector3Array,
+	tangents: PackedVector3Array,
+	styles: Array[int],
+	col: Color
+) -> void:
 	var n := mouths.size()
 	if n < 2:
 		return
 	var order: Array[int] = []
 	for i in n:
 		order.append(i)
-	order.sort_custom(func(a: int, b: int) -> bool:
-		var da := mouths[a] - centre
-		var db := mouths[b] - centre
-		return atan2(da.z, da.x) < atan2(db.z, db.x))
+	order.sort_custom(
+		func(a: int, b: int) -> bool:
+			var da := mouths[a] - centre
+			var db := mouths[b] - centre
+			return atan2(da.z, da.x) < atan2(db.z, db.x)
+	)
 	var lift := Vector3(0, 0.03, 0)
 	var rim := PackedVector3Array()
 	var none := Vector2(0.0, Style.NONE)
@@ -151,7 +168,9 @@ static func junction(mb: MeshBuilder, centre: Vector3, mouths: PackedVector3Arra
 		# The corner from arm i's high side round to arm j's low side.
 		var walk := _walked(styles[i]) and _walked(styles[j])
 		var band_style: int = Style.CORE_WALK if walk else Style.DASHED
-		var inner := _corner(mouths[i] + ri * ASPHALT_HALF, tangents[i], mouths[j] - rj * ASPHALT_HALF, tangents[j])
+		var inner := _corner(
+			mouths[i] + ri * ASPHALT_HALF, tangents[i], mouths[j] - rj * ASPHALT_HALF, tangents[j]
+		)
 		var outer := _corner(mouths[i] + ri * HALF, tangents[i], mouths[j] - rj * HALF, tangents[j])
 		var s := 0.0
 		var d := Vector2(1.0, band_style)
@@ -162,18 +181,59 @@ static func junction(mb: MeshBuilder, centre: Vector3, mouths: PackedVector3Arra
 				break
 			var seg := Vector2(inner[k + 1].x - inner[k].x, inner[k + 1].z - inner[k].z).length()
 			var drop := Vector3(0, -SHOULDER_DROP, 0)
-			_quad(mb, inner[k] + lift, outer[k] + lift + drop, outer[k + 1] + lift + drop, inner[k + 1] + lift,
-				Vector2(ASPHALT_HALF, s), Vector2(HALF, s), Vector2(HALF, s + seg), Vector2(ASPHALT_HALF, s + seg),
-				d, d, d, d, col, Vector3.UP)
+			_quad(
+				mb,
+				inner[k] + lift,
+				outer[k] + lift + drop,
+				outer[k + 1] + lift + drop,
+				inner[k + 1] + lift,
+				Vector2(ASPHALT_HALF, s),
+				Vector2(HALF, s),
+				Vector2(HALF, s + seg),
+				Vector2(ASPHALT_HALF, s + seg),
+				d,
+				d,
+				d,
+				d,
+				col,
+				Vector3.UP
+			)
 			var down := Vector3(0, -SKIRT, 0)
-			var away := (outer[k] - inner[k])
+			var away := outer[k] - inner[k]
 			away.y = 0.0
-			_quad(mb, outer[k] + drop, outer[k + 1] + drop, outer[k + 1] + down, outer[k] + down,
-				Vector2(HALF, s), Vector2(HALF, s + seg), Vector2(HALF * 1.02, s + seg), Vector2(HALF * 1.02, s),
-				d, d, d, d, col, away)
+			_quad(
+				mb,
+				outer[k] + drop,
+				outer[k + 1] + drop,
+				outer[k + 1] + down,
+				outer[k] + down,
+				Vector2(HALF, s),
+				Vector2(HALF, s + seg),
+				Vector2(HALF * 1.02, s + seg),
+				Vector2(HALF * 1.02, s),
+				d,
+				d,
+				d,
+				d,
+				col,
+				away
+			)
 			s += seg
 	for i in rim.size():
-		_tri(mb, centre + lift, rim[i] + lift, rim[(i + 1) % rim.size()] + lift, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, none, none, none, col, Vector3.UP)
+		_tri(
+			mb,
+			centre + lift,
+			rim[i] + lift,
+			rim[(i + 1) % rim.size()] + lift,
+			Vector2.ZERO,
+			Vector2.ZERO,
+			Vector2.ZERO,
+			none,
+			none,
+			none,
+			col,
+			Vector3.UP
+		)
 
 
 static func _walked(style: int) -> bool:

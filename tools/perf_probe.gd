@@ -26,7 +26,16 @@ func _initialize() -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
 	# PP_MAIN=1: the main map instead of the sandbox; PP_CAM=0..2 picks a group_perf view.
-	main = load("res://scenes/main_map.tscn" if OS.has_environment("PP_MAIN") else "res://scenes/sandbox.tscn").instantiate()
+	main = (
+		load(
+			(
+				"res://scenes/main_map.tscn"
+				if OS.has_environment("PP_MAIN")
+				else "res://scenes/sandbox.tscn"
+			)
+		)
+		. instantiate()
+	)
 	root.add_child(main)
 	main.set("uncapped", true)
 	Engine.max_fps = 0
@@ -68,14 +77,18 @@ func _apply() -> void:
 					for c in main.find_children(nm, "GeometryInstance3D", true, false):
 						if c.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY:
 							c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			"cards": _hide(main, "TreeCards*")
-			"decks": _hide(main, "DockDecks")
+			"cards":
+				_hide(main, "TreeCards*")
+			"decks":
+				_hide(main, "DockDecks")
 			"dockshadow":
 				for c in main.find_children("DockDecks", "GeometryInstance3D", true, false):
 					c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			"docknear":
 				# Shadows only near the camera: a shadow-only copy that drops out past 300 m.
-				for c: MeshInstance3D in main.find_children("DockDecks", "MeshInstance3D", true, false):
+				for c: MeshInstance3D in main.find_children(
+					"DockDecks", "MeshInstance3D", true, false
+				):
 					c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 					var s := c.duplicate() as MeshInstance3D
 					s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
@@ -116,9 +129,16 @@ func _hide(n: Node, nm: String) -> void:
 func _process(_d: float) -> bool:
 	frames += 1
 	if frames == 20 and OS.has_environment("PP_CAM"):
-		var c: Array = [[0, 0, 2600, 0, 45], [2640, -300, 900, 300, 40], [0, -2400, 2600, 0, 35], [600, 200, 250, 30, 30]][int(OS.get_environment("PP_CAM"))]
-		main.rig.target_pos = Vector3(c[0], 0, c[1]); main.rig.target_dist = c[2]
-		main.rig.target_yaw = deg_to_rad(c[3]); main.rig.target_pitch = deg_to_rad(c[4])
+		var c: Array = [
+			[0, 0, 2600, 0, 45],
+			[2640, -300, 900, 300, 40],
+			[0, -2400, 2600, 0, 35],
+			[600, 200, 250, 30, 30]
+		][int(OS.get_environment("PP_CAM"))]
+		main.rig.target_pos = Vector3(c[0], 0, c[1])
+		main.rig.target_dist = c[2]
+		main.rig.target_yaw = deg_to_rad(c[3])
+		main.rig.target_pitch = deg_to_rad(c[4])
 		main.rig.snap()
 	if frames == 60:
 		if zoom > 0.0:
@@ -205,16 +225,37 @@ func _lodcount() -> void:
 			var lb := 0.0
 			var le := 0.0
 			if mat and mat.shader and "tree" in mat.shader.resource_path:
-				lb = mat.get_shader_parameter("lod_begin"); le = mat.get_shader_parameter("lod_end")
+				lb = mat.get_shader_parameter("lod_begin")
+				le = mat.get_shader_parameter("lod_end")
 			var f := TreeLod.lod_fade * 0.5
 			var kept := 0
 			for i in mm.instance_count:
 				var td := cam.distance_to(n.global_transform * mm.get_instance_transform(i).origin)
 				if (lb <= 0.0 or td >= lb - f) and (le <= 0.0 or td <= le + f):
 					kept += 1
-			var k := String(n.name).split("_")[0] + ("_shadow" if String(n.name).ends_with("_shadow") else (String(n.name).right(5) if "_lod" in String(n.name) else "_lod0"))
-			if not rows.has(k): rows[k] = [0, 0, 0]
-			rows[k][0] += 1; rows[k][1] += tris * mm.instance_count; rows[k][2] += tris * (mm.instance_count if n.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY else kept)
-	var ks := rows.keys(); ks.sort()
+			var k := (
+				String(n.name).split("_")[0]
+				+ (
+					"_shadow"
+					if String(n.name).ends_with("_shadow")
+					else (String(n.name).right(5) if "_lod" in String(n.name) else "_lod0")
+				)
+			)
+			if not rows.has(k):
+				rows[k] = [0, 0, 0]
+			rows[k][0] += 1
+			rows[k][1] += tris * mm.instance_count
+			rows[k][2] += (
+				tris
+				* (
+					mm.instance_count
+					if n.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+					else kept
+				)
+			)
+	var ks := rows.keys()
+	ks.sort()
 	for k in ks:
-		print("LOD %-24s tiles %4d submitted %9d kept %9d" % [k, rows[k][0], rows[k][1], rows[k][2]])
+		print(
+			"LOD %-24s tiles %4d submitted %9d kept %9d" % [k, rows[k][0], rows[k][1], rows[k][2]]
+		)

@@ -70,7 +70,11 @@ func _check(isl: MapData.Town, t: Terrain) -> String:
 			if i > 0:
 				var q := line[i - 1]
 				var run := Vector2(p.x - q.x, p.z - q.z).length()
-				var limit := MapGenerator.ROAD_GRADE_CLIMB if line == main or line == isl.road_main_b else MapGenerator.ROAD_GRADE_STEEP
+				var limit := (
+					MapGenerator.ROAD_GRADE_CLIMB
+					if line == main or line == isl.road_main_b
+					else MapGenerator.ROAD_GRADE_STEEP
+				)
 				if absf(p.y - q.y) > run * limit + 0.001:
 					return "grade %.1f%% at %s" % [absf(p.y - q.y) / run * 100.0, p]
 			var d := line[mini(i + 1, line.size() - 1)] - line[maxi(i - 1, 0)]
@@ -86,7 +90,10 @@ func _check(isl: MapData.Town, t: Terrain) -> String:
 				if other == line or at_junction:
 					continue
 				for q in other:
-					if Vector2(q.x - p.x, q.z - p.z).length() < (MapGenerator.ROAD_CORE + 4.0) * 2.0:
+					if (
+						Vector2(q.x - p.x, q.z - p.z).length()
+						< (MapGenerator.ROAD_CORE + 4.0) * 2.0
+					):
 						at_junction = true
 						break
 			if at_junction:

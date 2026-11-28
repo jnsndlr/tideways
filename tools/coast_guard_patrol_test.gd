@@ -21,7 +21,11 @@ func _initialize() -> void:
 
 func _process(_delta: float) -> bool:
 	frames += 1
-	if main.get("sim") == null or main.sim.get("marine") == null or main.sim.marine.coast_guard.is_empty():
+	if (
+		main.get("sim") == null
+		or main.sim.get("marine") == null
+		or main.sim.marine.coast_guard.is_empty()
+	):
 		return frames > 3000
 	var boats: Array = main.sim.marine.coast_guard
 	if started < 0:
@@ -32,12 +36,35 @@ func _process(_delta: float) -> bool:
 		Engine.time_scale = 6.0
 	for b: CoastGuardBoat in boats:
 		if was[b] != b.docked:
-			print("%s %s at frame %d (s %.0f / %.0f)" % [b.vessel_name, "berthed" if b.docked else "sailed", frames, b.s, b.path.length])
+			print(
+				(
+					"%s %s at frame %d (s %.0f / %.0f)"
+					% [
+						b.vessel_name,
+						"berthed" if b.docked else "sailed",
+						frames,
+						b.s,
+						b.path.length
+					]
+				)
+			)
 			was[b] = b.docked
 	var t := frames - started
 	if t % 3000 == 0:
 		for b: CoastGuardBoat in boats:
-			print("  %s s %.0f/%.0f speed %.1f yield %.1f %s" % [b.vessel_name, b.s, b.path.length, b.speed, b.yield_speed(), b.holding_text()])
+			print(
+				(
+					"  %s s %.0f/%.0f speed %.1f yield %.1f %s"
+					% [
+						b.vessel_name,
+						b.s,
+						b.path.length,
+						b.speed,
+						b.yield_speed(),
+						b.holding_text()
+					]
+				)
+			)
 	if t in [300, 700, 1100] and shot < boats.size():
 		var b: CoastGuardBoat = boats[shot]
 		var p := b.global_position

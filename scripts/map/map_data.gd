@@ -9,13 +9,15 @@ class Island:
 	var key := ""                   # durable within this region; shared by its terminal
 	var id := 0
 	var name := ""
-	var center := Vector2.ZERO      # x, z
-	var airstrip := false           # an authored, graded airstrip (see MapLayout.IslandSpec)
-	var airstrip_at := Vector3.ZERO # runway centre, y = its graded height
-	var airstrip_dir := Vector3.RIGHT   # along the runway
-	var airstrip_slope := 0.0       # its grade: height gained per metre along airstrip_dir
+	var center := Vector2.ZERO  # x, z
+	var airstrip := false  # an authored, graded airstrip (see MapLayout.IslandSpec)
+	var airstrip_at := Vector3.ZERO  # runway centre, y = its graded height
+	var airstrip_dir := Vector3.RIGHT  # along the runway
+	var airstrip_slope := 0.0  # its grade: height gained per metre along airstrip_dir
 	var service_road := PackedVector3Array()
-	var service_ramp := PackedVector3Array()  # [foot, top] of the coast guard cliff ramp, ground cut clear of it  # graded road to a site off the town (the coast guard station)
+	# [foot, top] of the coast guard cliff ramp, ground cut clear of it  # graded road to a
+	# site off the town (the coast guard station)
+	var service_ramp := PackedVector3Array()
 	var radius := 120.0
 	var strength := 1.0             # elevation multiplier
 	var inhabited := true
@@ -91,15 +93,16 @@ class Town:
 	# Town
 	var town_center := Vector3.ZERO
 	var town_axis := Vector3.RIGHT
-	var road_main_a := PackedVector3Array()   # lot entrance → town centre
-	var road_main_b := PackedVector3Array()   # town centre → inland end
-	var road_cross: Array[PackedVector3Array] = []   # from the square: the front street, each way
-	var road_lanes: Array[PackedVector3Array] = []   # lanes climbing off the front street (no traffic yet)
-	var street_plan: StreetPlan   # the planned street network (step 1: overlay only)
-	var town_lots: TownLots       # blocks + ranked frontage lots from street_plan
-	var street_lots := {}         # plan edge → lots placed or reserved along it
-	var street_built := {}        # plan edge → buildings standing along it (reveals and paves it)
-	var street_pinned := {}       # plan edge → true: shown paved from the start (the airport road joins it)
+	var road_main_a := PackedVector3Array()  # lot entrance → town centre
+	var road_main_b := PackedVector3Array()  # town centre → inland end
+	var road_cross: Array[PackedVector3Array] = []  # from the square: the front street, each way
+	# lanes climbing off the front street (no traffic yet)
+	var road_lanes: Array[PackedVector3Array] = []
+	var street_plan: StreetPlan  # the planned street network (step 1: overlay only)
+	var town_lots: TownLots  # blocks + ranked frontage lots from street_plan
+	var street_lots := {}  # plan edge → lots placed or reserved along it
+	var street_built := {}  # plan edge → buildings standing along it (reveals and paves it)
+	var street_pinned := {}  # plan edge → true: shown paved from the start (the airport road joins it)
 	var label_pos := Vector3.ZERO
 
 	func lateral() -> Vector3:
@@ -143,7 +146,8 @@ class Town:
 		if not slips[i].tie_up or i < working:
 			return (i - (working - 1) * 0.5) * Layout.SLIP_SPACING
 		# Tie-ups: the first a slip spacing on from the last working slip, then side by side.
-		return (working - 1) * 0.5 * Layout.SLIP_SPACING + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
+		var last_working := (working - 1) * 0.5 * Layout.SLIP_SPACING
+		return last_working + Layout.SLIP_SPACING + (i - working) * Layout.TIE_UP_SPACING
 
 	## Pins every slip where it lies now, so adding one moves none of the others.
 	func freeze_slip_offsets() -> void:
@@ -221,11 +225,11 @@ class TownLot:
 	var variant := 0
 	var occupied := false
 	var waterfront := false
-	var yard_half := 0.0              # see WorldBuilder._yard_extent; yard_back 0 = no yard
+	var yard_half := 0.0  # see WorldBuilder._yard_extent; yard_back 0 = no yard
 	var yard_back := 0.0
-	var street := -1                 # StreetPlan edge it fronts (-1: a grid lot)
-	var model := ""                  # BIG_BOX: store model (WorldBuilder.BIG_BOXES)
-	var need_pop := 0                # BIG_BOX: town population it's built at
+	var street := -1  # StreetPlan edge it fronts (-1: a grid lot)
+	var model := ""  # BIG_BOX: store model (WorldBuilder.BIG_BOXES)
+	var need_pop := 0  # BIG_BOX: town population it's built at
 
 
 ## Somewhere boats tie up along a shore. Its frame is like a terminal's: origin

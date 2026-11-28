@@ -2,11 +2,11 @@ extends SceneTree
 ## Saves the minimap at day and at night, for checking it by eye.
 ##   godot --path . --script tools/minimap_shots.gd -- --out=DIR
 
+const HOURS := [12.0, 23.0]
 var main: Node
 var frames := 0
 var out := "user://"
 var ready_at := -1
-const HOURS := [12.0, 23.0]
 
 
 func _initialize() -> void:
@@ -32,6 +32,10 @@ func _process(_delta: float) -> bool:
 			if c is SubViewport:
 				c.render_target_update_mode = SubViewport.UPDATE_ONCE
 	if (frames - ready_at) % 60 == 55 and step < HOURS.size():
-		main.hud._minimap_rect.texture.get_image().save_png("%s/minimap_h%d.png" % [out, int(HOURS[step])])
-		root.get_viewport().get_texture().get_image().save_png("%s/screen_h%d.png" % [out, int(HOURS[step])])
+		main.hud._minimap_rect.texture.get_image().save_png(
+			"%s/minimap_h%d.png" % [out, int(HOURS[step])]
+		)
+		root.get_viewport().get_texture().get_image().save_png(
+			"%s/screen_h%d.png" % [out, int(HOURS[step])]
+		)
 	return step >= HOURS.size()

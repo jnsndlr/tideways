@@ -3,6 +3,7 @@ extends SceneTree
 ## reading positions, and oblique views like the player's camera.
 ##   godot --path . --resolution 1600x1000 --script tools/coast_guard_shots.gd -- --out=DIR [--grid]
 
+const AT := Vector3(2520.0, 0.0, -680.0)
 var main: Node
 var frames := 0
 var out := "user://"
@@ -11,7 +12,6 @@ var views: Array = []
 var shots := 0
 var ready_at := -1
 var wait := -1
-const AT := Vector3(2520.0, 0.0, -680.0)
 
 
 func _initialize() -> void:

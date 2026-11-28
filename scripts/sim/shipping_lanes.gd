@@ -14,22 +14,25 @@ extends RefCounted
 ## channels.
 const MAIN_CHANNELS := {"red": -3700.0, "blue": 2300.0}
 
-const STEP := 120.0         # between centreline points along the passage
-const REACH := 3200.0       # how far past the map's edge the channels run
-const SCAN := 1600.0        # how far either side of the last point to look for the channel
+const STEP := 120.0  # between centreline points along the passage
+const REACH := 3200.0  # how far past the map's edge the channels run
+const SCAN := 1600.0  # how far either side of the last point to look for the channel
 const SCAN_STEP := 20.0
-const DEEP := -14.0         # water at least this deep counts as channel
+const DEEP := -14.0  # water at least this deep counts as channel
 const MIN_WIDTH := 220.0
-const MAX_SHIFT := 140.0    # the centreline swings at most this far per STEP
-const LANE_OFFSET := 85.0   # each lane's track, right of the centreline
+const MAX_SHIFT := 140.0  # the centreline swings at most this far per STEP
+const LANE_OFFSET := 85.0  # each lane's track, right of the centreline
 
-var centrelines: Array[PackedVector2Array] = []   # each running from the low end of the passage to the high
+# each running from the low end of the passage to the high
+var centrelines: Array[PackedVector2Array] = []
 var names: Array[String] = []
 
 
 ## Traces each of `guesses` (name -> cross-passage coordinate at the middle row).
 ## `axis` is the mainland's: 1 means the passage runs along z.
-static func trace(terrain: Terrain, half_size: float, axis: int, guesses: Dictionary) -> ShippingLanes:
+static func trace(
+	terrain: Terrain, half_size: float, axis: int, guesses: Dictionary
+) -> ShippingLanes:
 	var lanes := ShippingLanes.new()
 	for nm: String in guesses:
 		var line := _trace_one(terrain, half_size, axis, guesses[nm])
@@ -128,15 +131,32 @@ func save_debug(terrain: Terrain, half_size: float, path: String) -> void:
 		for x in px:
 			var w := Vector2(x, y) / px * 2.0 * ext - Vector2(ext, ext)
 			var h := terrain.height_at(w.x, w.y)
-			img.set_pixel(x, y, Color(0.15, 0.3, 0.55) if h < DEEP else (Color(0.4, 0.6, 0.8) if h < 0.0 else Color(0.3, 0.55, 0.25)))
+			img.set_pixel(
+				x,
+				y,
+				(
+					Color(0.15, 0.3, 0.55)
+					if h < DEEP
+					else (Color(0.4, 0.6, 0.8) if h < 0.0 else Color(0.3, 0.55, 0.25))
+				)
+			)
 	for k in 2 * px:
 		var t := float(k) / (2 * px) * 2.0 * half_size - half_size
-		for q: Vector2 in [Vector2(-half_size, t), Vector2(half_size, t), Vector2(t, -half_size), Vector2(t, half_size)]:
+		for q: Vector2 in [
+			Vector2(-half_size, t),
+			Vector2(half_size, t),
+			Vector2(t, -half_size),
+			Vector2(t, half_size)
+		]:
 			var c: Vector2i = to_px.call(q)
 			img.set_pixelv(c.clamp(Vector2i.ZERO, Vector2i(px - 1, px - 1)), Color.WHITE)
 	for i in centrelines.size():
 		for line: PackedVector2Array in [centrelines[i], track(i, true), track(i, false)]:
-			var col := Color.YELLOW if line == centrelines[i] else (Color.RED if names[i] == "red" else Color(0.3, 0.4, 1.0))
+			var col := (
+				Color.YELLOW
+				if line == centrelines[i]
+				else (Color.RED if names[i] == "red" else Color(0.3, 0.4, 1.0))
+			)
 			for p in line:
 				var c: Vector2i = to_px.call(p)
 				if c.x >= 0 and c.y >= 0 and c.x < px and c.y < px:

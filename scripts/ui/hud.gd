@@ -17,6 +17,8 @@ const WILD := Color(0.98, 0.78, 0.42)
 ## Emitted for the authored map to show the selected site or clear its pins.
 signal dock_site_selected(town: MapData.Town)
 
+const COST_TAG_SECONDS := 2.6
+var selected_plane: AirTraffic.Craft
 var _game_menu: PopupMenu
 var _menu_button: Button
 var _clash_cache := {}  # ferry -> [msec checked, text]
@@ -37,7 +39,6 @@ var selected_island: MapData.Island:
 	get: return map.island_of(selected_town) if selected_town else null
 var selected_ferry: Ferry
 var selected_vessel: Vessel   # anything afloat but a ferry
-var selected_plane: AirTraffic.Craft
 
 var root: Control
 var _label_layer: Control
@@ -68,7 +69,6 @@ var _tb := {}
 var _fleet_panel: FleetPanel
 var _finance_panel: FinancePanel
 var _cost_tags: Array = []      # [label, ferry, real seconds shown]
-const COST_TAG_SECONDS := 2.6
 var _wild_panel: PanelContainer
 var _wild_list: VBoxContainer
 var _wild_islands: Label
@@ -84,6 +84,9 @@ var _help: Label
 var _minimap_overlay: Control
 var _refresh := 0.0
 var _last_hour := -1.0
+
+var _select_ring: MeshInstance3D
+var _hover_ring: MeshInstance3D
 
 
 func setup(session: WorldSession, offers_dock_sites := false) -> void:
@@ -495,11 +498,11 @@ func _on_ground_clicked(screen_pos: Vector2) -> void:
 		if d < best_d:
 			best_d = d
 			best = v
-	if best is Ferry:
-		select_ferry(best)
-		return
 	if best:
-		select_vessel(best)
+		if best is Ferry:
+			select_ferry(best)
+		else:
+			select_vessel(best)
 		return
 	var hit: Variant = rig.pick_terrain(screen_pos)
 	if hit == null:
@@ -715,7 +718,9 @@ func _on_ground_right_clicked(screen_pos: Vector2) -> void:
 		return
 	var p := _water_point(screen_pos)
 	if p.is_finite() and f.order_sail_to(p):
-		show_toast(f.ferry_name.to_upper(), "Under way to that spot · Return to service to carry on.", 3.0)
+		show_toast(
+			f.ferry_name.to_upper(), "Under way to that spot · Return to service to carry on.", 3.0
+		)
 		_refresh_panels()
 
 
@@ -749,10 +754,6 @@ func _dock_under(screen_pos: Vector2) -> Array:
 					best_d = d
 					best = [term, i]
 	return best
-
-
-var _select_ring: MeshInstance3D
-var _hover_ring: MeshInstance3D
 
 
 func _ring(color: Color) -> MeshInstance3D:
@@ -801,7 +802,9 @@ func _update_order_rings() -> void:
 	var term: Terminal = pick[0]
 	var c: Vector3 = term.global_transform * Vector3(term.town.slip_offset(pick[1]), 0.0, 0.0)
 	var hr := 26.0
-	_hover_ring.global_transform = Transform3D(Basis().scaled(Vector3(hr, 2.0, hr)), Vector3(c.x, 1.0, c.z))
+	_hover_ring.global_transform = Transform3D(
+		Basis().scaled(Vector3(hr, 2.0, hr)), Vector3(c.x, 1.0, c.z)
+	)
 	_hover_ring.visible = true
 	Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND)
 
@@ -1002,7 +1005,9 @@ func _refresh_panels() -> void:
 	elif selected_plane:
 		var c := selected_plane
 		_info_title.text = c.tail
-		_info_sub.text = "DHC-2 Beaver · floatplane" if selected_plane.water else "Cessna 172 · light aircraft"
+		_info_sub.text = (
+			"DHC-2 Beaver · floatplane" if selected_plane.water else "Cessna 172 · light aircraft"
+		)
 		var rows := [["Status", c.status_text()], ["Speed", "%d kn" % roundi(Units.knots(c.speed))]]
 		if c.airborne:
 			rows.append(["Altitude", "%d ft" % roundi(maxf(c.node.global_position.y, 0.0) * 3.28)])

@@ -4,9 +4,9 @@ extends Node3D
 @export_range(0.0, 90.0, 1.0, "degrees") var vane_swing_degrees := 22.0
 @export_range(1.0, 120.0, 0.5, "suffix:s") var vane_period := 24.0
 
+var breeze_phase := 0.0
 @onready var vane: Node3D = find_child("VaneHead", true, false)
 @onready var wheel: Node3D = vane.get_node("WindWheel")
-var breeze_phase := 0.0
 
 
 func _process(delta: float) -> void:
