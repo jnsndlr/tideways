@@ -105,6 +105,7 @@ check lay-up-restore test --script tests/session/ferry_lay_up_snapshot_test.gd
 check working-slip-restore test --script tests/session/working_slip_history_test.gd
 check outbound-traffic-restore test --script tests/session/outbound_traffic_snapshot_test.gd
 check tiny-region test --fixed-fps 30 --script tests/world/tiny_region_test.gd
+check coast-guard-patrol test --script tests/traffic/coast_guard_patrol_test.gd
 check town-growth test --fixed-fps 30 --script tests/simulation/town_growth_test.gd
 check coastal-town test --script tests/world/coastal_town_test.gd
 check authored-tree-model test --script tests/world/tree_model_test.gd

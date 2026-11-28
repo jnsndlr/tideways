@@ -150,7 +150,8 @@ func _plan_patrol() -> bool:
 		return false
 	for i in range(1, home.size()):
 		pts.append(home[i])
-	var core := traffic.nav.finish(pts, 10.0, 30.0, 3, info[2] + 6.0, 0.0)
+	# Taper the keep-right offset to zero where the patrol meets each berth lane.
+	var core := traffic.nav.finish(pts, 10.0, 30.0, 3, info[2] + 6.0)
 	core.append(lane)
 	core.append(home_b[0])
 	path = NavPath.new(core)
