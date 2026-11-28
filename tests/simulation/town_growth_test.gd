@@ -7,7 +7,7 @@ extends SceneTree
 ## wildlife photos)
 ## - Organic (5/8/10/day), ferry-driven (up to 5x), and milestone growth
 ## - 1 house / 100 pop and 1 commercial / 333 pop construction triggers & TownConstruction lifecycle
-## - 4,000 pop Hangar + Windsock, unique first-rural-only Observatory, and Madrona + 6,000 island
+## - Day-one airport hangars, unique first-rural-only Observatory, and Madrona + 6,000 island
 ## Radio Tower
 ##
 ##   godot --headless --path . --fixed-fps 30 --script tests/simulation/town_growth_test.gd
@@ -268,7 +268,7 @@ func _process(_delta: float) -> bool:
 		)
 	)
 
-	# Verify 4,000 pop Hangar + unique first-rural-only Observatory!
+	# Crossing 4,000 can award the first rural observatory.
 	var milestones_hit: Array[String] = []
 	tg.milestone_unlocked.connect(
 		func(town: MapData.Town, mid: String, _title: String, _detail: String):
@@ -276,11 +276,9 @@ func _process(_delta: float) -> bool:
 	)
 	st_rur.population_exact = 4005.0
 	tg.step(1.0)
-	# (The hangar only comes once airfields are placed on the map: TownGrowth.AIRFIELDS_PLACED.)
-	var hangars := TownGrowth.AIRFIELDS_PLACED
 	_expect(
-		("%d:airfield_4000" % t_rur.id in milestones_hit) == hangars,
-		"Rural town at 4k unlocks airfield_4000 only once airfields are placed"
+		"%d:airfield_4000" % t_rur.id not in milestones_hit,
+		"Reaching 4,000 should not award a second hangar"
 	)
 	_expect(
 		"%d:observatory_4000" % t_rur.id in milestones_hit,
@@ -290,14 +288,13 @@ func _process(_delta: float) -> bool:
 		tg.observatory_claimed_town == t_rur.id, "Observatory must be claimed by first rural town"
 	)
 
-	# Make town 0 rural too and push it past 4k -> must get airfield_4000, MUST NOT get
-	# observatory_4000!
+	# A second rural town reaching 4,000 cannot claim the same observatory.
 	t_ind.community_type = "rural"
 	st_ind.population_exact = 4005.0
 	tg.step(1.0)
 	_expect(
-		("%d:airfield_4000" % t_ind.id in milestones_hit) == hangars,
-		"Second town at 4k unlocks airfield_4000 only once airfields are placed"
+		"%d:airfield_4000" % t_ind.id not in milestones_hit,
+		"The retired hangar reward should stay absent in other towns"
 	)
 	_expect(
 		not ("%d:observatory_4000" % t_ind.id in milestones_hit),
@@ -319,11 +316,14 @@ func _process(_delta: float) -> bool:
 		tg.step(30.0)
 	_expect(
 		(
-			("airplane_hangar_low" in completed_models) == hangars
+			"airplane_hangar_low" not in completed_models
 			and "observatory" in completed_models
 			and "radio_tower" in completed_models
 		),
-		"Hangar, Observatory, and Radio Tower builds must complete (got %s)" % [completed_models]
+		(
+			"Expected the observatory and radio tower to finish without another hangar (got %s)"
+			% [completed_models]
+		)
 	)
 
 	tc.free()

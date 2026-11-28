@@ -2035,7 +2035,7 @@ func _build_towns() -> void:
 		var used_idx := {}
 
 		# 1. Reserve up to 4 flat landmark pads (1 near downtown, 3 on the outer apron for
-		# Depot / Hangar+Windsock / Observatory) so milestones always have clean room.
+		# Depot / Observatory) so milestones always have clean room.
 		for idx in candidates.size():
 			if reserved_landmarks >= RESERVE_LANDMARKS:
 				break

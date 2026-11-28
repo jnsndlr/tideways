@@ -59,8 +59,6 @@ const PROFILES := {
 		"weights": Vector3(0.25, 0.60, 0.15),
 	},
 }
-## Off until airfields are placed on the map (docs/town-layout-plan.md, island beyond).
-const AIRFIELDS_PLACED := false
 ## Dev tuning (TownDevPanel): build-time multiplier and how many sites a town runs at once.
 var dev_build_speed := 1.0
 var dev_max_builds := MAX_CONCURRENT_BUILDS
@@ -220,7 +218,7 @@ func setup(simulation: Simulation) -> void:
 
 ## Establishes milestones already below a town's starting population (without triggering
 ## a flood of construction sites or toasts at frame 0). The unique rural observatory
-## and 4k airfield remain earnable through gameplay unless already far past 4,000.
+## remains earnable through gameplay unless already far past 4,000.
 func _seed_starting_milestones(town: MapData.Town, st: TownState) -> void:
 	for def in _town_milestone_defs(town.community_type):
 		var pop_req := int(def["pop"])
@@ -230,8 +228,6 @@ func _seed_starting_milestones(town: MapData.Town, st: TownState) -> void:
 		if town.population >= pop_req:
 			st.milestones.append(mid)
 			_apply_milestone_bonuses(st, def)
-
-
 
 
 func _town_milestone_defs(community_type: String) -> Array[Dictionary]:
@@ -342,25 +338,6 @@ func _town_milestone_defs(community_type: String) -> Array[Dictionary]:
 					}
 				)
 			)
-	# The hangar belongs on an island with an airfield; none are placed on the map yet.
-	if AIRFIELDS_PLACED:
-		(
-			defs
-			. append(
-				{
-					"id": "airfield_4000",
-					"pop": 4000,
-					"title": "Regional Airfield Hangar",
-					"model": "airplane_hangar_low",
-					"growth": 0.20,
-					"res": 8.0,
-					"ind": 10.0,
-					"tour": 10.0,
-					"econ": 12.0,
-					"rec": 6.0,
-				}
-			)
-		)
 	if community_type == "rural":
 		(
 			defs

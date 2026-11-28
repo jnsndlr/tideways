@@ -27,6 +27,17 @@ func _run() -> void:
 func _check(sim: Simulation, hud: Hud) -> String:
 	if sim.ledger.cash != 50000.0 or sim.terminals.size() != 3 or sim.ferries.size() != 1:
 		return "Play needs $50,000, three terminals and one ferry at startup"
+	var airports := 0
+	for island in sim.map.islands:
+		if island.airstrip:
+			airports += 1
+			var hangar := (
+				current_scene.find_child(island.name + " Hangar", true, false) as MeshInstance3D
+			)
+			if hangar == null or hangar.mesh == null:
+				return "%s should have a hangar when the company opens" % island.name
+	if airports != 2:
+		return "The authored opening should have two airports with hangars"
 	var ferry := sim.ferries[0]
 	# Routes between the other terminals are planned for the stop editor (stage 4)
 	# but only Hiyu's is in service.
