@@ -276,13 +276,14 @@ func _threats(p: Vector2) -> Array[Threat]:
 	for o in traffic.vessels:
 		if o == v or not is_instance_valid(o):
 			continue
+		var reach := SCAN + o.half_seg + o.hull_radius
+		var position := o.global_position
+		if absf(position.x - p.x) > reach or absf(position.z - p.y) > reach:
+			continue
 		# (Working alongside a ship, it is no threat to it, nor it to the ship.)
 		if Vessel.paired(v, o) and (v.road() == Vessel.Road.RESTRICTED or o.road() == Vessel.Road.RESTRICTED):
 			continue
-		var reach := SCAN + o.half_seg + o.hull_radius
-		var q := o.pos2()
-		if absf(q.x - p.x) > reach or absf(q.y - p.y) > reach:
-			continue
+		var q := Vector2(position.x, position.z)
 		var t := Threat.new()
 		t.what = o
 		t.why = v.helm_role(o)
