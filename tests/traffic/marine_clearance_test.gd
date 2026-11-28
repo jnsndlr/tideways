@@ -8,6 +8,7 @@ class Track:
 	extends Vessel
 	var origin := Vector2.ZERO
 	var direction := Vector2.RIGHT
+	var farthest_sample := 0.0
 
 	func pos2() -> Vector2:
 		return origin
@@ -16,6 +17,7 @@ class Track:
 		return direction
 
 	func ahead(distance: float) -> Vector2:
+		farthest_sample = maxf(farthest_sample, distance)
 		return origin + direction * distance
 
 	func path_left() -> float:
@@ -28,7 +30,7 @@ class Track:
 		return 50.0
 
 	func shown_look() -> float:
-		return 100.0
+		return minf(100.0, clear)
 
 
 func _initialize() -> void:
@@ -86,6 +88,19 @@ func _initialize() -> void:
 		is_equal_approx(follower.cpa_cap, 2.7) and is_inf(follower.clear),
 		"CPA beyond both immediate paths"
 	)
+	# Process the higher-ranked vessel first. Its old clearance bounds the path
+	# it advertises even though its own clearance is reset earlier in this tick.
+	boats.assign([crossing, follower])
+	follower.free_nav = true
+	crossing.farthest_sample = 0.0
+	crossing.clear = 78.0
+	clearance.update(boats, 1.0 / 30.0)
+	check(crossing.farthest_sample == 50.0, "no advertised samples without a path follower")
+	follower.free_nav = false
+	crossing.farthest_sample = 0.0
+	crossing.clear = 78.0
+	clearance.update(boats, 1.0 / 30.0)
+	check(crossing.farthest_sample == 78.0, "use the advertised distance from before the reset")
 	for boat in [follower, crossing, peer]:
 		boat.free()
 	finish()

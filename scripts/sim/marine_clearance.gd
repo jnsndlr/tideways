@@ -92,7 +92,8 @@ class Claim:
 func update(vessels: Array[Vessel], dt: float) -> void:
 	var hulls := {}
 	var own := {}
-	var shown := {}
+	var shown_lengths: Dictionary[Vessel, float] = {}
+	var shown: Dictionary[Vessel, Claim] = {}
 	for v in vessels:
 		if v.wants_to_move():
 			var left := v.path_left()
@@ -101,7 +102,8 @@ func update(vessels: Array[Vessel], dt: float) -> void:
 			hulls[v] = mine
 			var sl := minf(v.shown_look(), left)
 			if sl > 1.5:
-				shown[v] = Claim.new(v, sl)
+				# Clearance can change below, so freeze the distance before resolving conflicts.
+				shown_lengths[v] = sl
 		else:
 			hulls[v] = Claim.new(v, 0.0)
 	_bucket(vessels, hulls, own)
@@ -145,8 +147,11 @@ func update(vessels: Array[Vessel], dt: float) -> void:
 				continue
 			if o.rank > v.rank and not v.free_nav and o.wants_to_move() and not o.waits_for(v):
 				_cpa_give_way(v, o)
-			if o.rank > v.rank and not v.free_nav and shown.has(o) and not o.waits_for(v):
-				var theirs: Claim = shown[o]
+			if o.rank > v.rank and not v.free_nav and shown_lengths.has(o) and not o.waits_for(v):
+				var theirs: Claim = shown.get(o)
+				if theirs == null:
+					theirs = Claim.new(o, shown_lengths[o])
+					shown[o] = theirs
 				if (
 					not reach.grow(1.5).intersects(theirs.box)
 					or _touches(mine.a[0], mine.b[0], theirs, thr)
