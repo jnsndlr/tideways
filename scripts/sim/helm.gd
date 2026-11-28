@@ -173,7 +173,28 @@ func _decide() -> void:
 	var best_speed := 0.0
 	var best_threat: Threat = null
 	var base_yaw: float = courses[0][0]
-	blocked_land = _land_cost(p, base_yaw, v.helm_speed(base_yaw)) > 1.0
+	var base_speed := v.helm_speed(base_yaw)
+	var base_land := _land_cost(p, base_yaw, base_speed)
+	blocked_land = base_land > 1.0
+	var now_gap := traffic.hull_gap(v, p, v.heading2())
+	# For a single preferred course, every alternative adds at least the
+	# first offset's cost. A clear preferred course below that cost wins.
+	if (
+		v is MarinaBoat
+		and courses.size() == 1
+		and courses[0][1] == 0.0
+		and base_land == 0.0
+		and base_speed >= 1.2
+		and absf(angle_difference(base_yaw, _last)) * 0.5 < absf(OFFSETS[1]) * 1.2
+		and now_gap >= 6.0
+		and _clear_cruise(p, yaw, base_yaw, base_speed, my_r, threats)
+	):
+		want_yaw = base_yaw
+		want_speed = base_speed
+		_last = base_yaw
+		give_way_to = null
+		give_way_why = ""
+		return
 	# Headings to weigh up: either side of each course it could steer, and (at a
 	# price) every way round, so it can always turn away from trouble.
 	var cands: Array = []
@@ -197,7 +218,6 @@ func _decide() -> void:
 	# Hard up against another hull, it can only go where the hull check lets it
 	# (MarineTraffic: no nearer than it is); and if that one is waiting for it to
 	# get out of the way, sitting still settles nothing.
-	var now_gap := traffic.hull_gap(v, p, v.heading2())
 	var pinned := now_gap < 6.0
 	var deadlock := v.blocked_by_hull and is_instance_valid(v.blocker) and v.blocker.waits_for(v)
 	for round in 2:
@@ -268,6 +288,15 @@ func _decide() -> void:
 	elif best_threat != null and best_threat.why != "":
 		give_way_to = best_threat.what
 		give_way_why = best_threat.why
+
+
+func _clear_cruise(
+	p: Vector2, yaw: float, course: float, speed: float, radius: float, threats: Array[Threat]
+) -> bool:
+	for threat in threats:
+		if threat.what is Ferry or _pass_cost(p, yaw, course, speed, radius, threat) > 0.0:
+			return false
+	return true
 
 
 ## Everything near enough to matter, with where it will be at each sample time.

@@ -21,6 +21,7 @@ var s := 0.0
 var trips := 0
 ## Kept in a finger slip: goes out less often, and always comes home to it.
 var dwell_scale := 1.0
+var _berth_center := Vector2.ZERO
 var _leaving: MapData.Marina = null  # holds this marina's lock while getting out
 var _arriving := false  # holds the destination's lock
 var _out_leg := false  # motoring ahead out of a slip's fairway
@@ -73,8 +74,14 @@ func _berth_pos(m: MapData.Marina, b: int, u: float) -> Vector2:
 	return Vector2(p.x, p.z)
 
 
+func _departure_hours(hours: Vector2) -> bool:
+	var hour := traffic.sim.hour()
+	return hour >= hours.x and hour < hours.y
+
+
 ## Made fast in its berth, bow to the float.
 func _make_fast() -> void:
+	_berth_center = _berth_pos(marina, berth, Layout.MARINA_BERTH_U)
 	_let_go()
 	free_nav = false
 	speed = 0.0
@@ -87,8 +94,7 @@ func _make_fast() -> void:
 
 
 func _pose_moored() -> void:
-	var p := _berth_pos(marina, berth, Layout.MARINA_BERTH_U)
-	position = Vector3(p.x, sin(_bob * 1.4) * 0.12, p.y)
+	position = Vector3(_berth_center.x, sin(_bob * 1.4) * 0.12, _berth_center.y)
 	basis = Basis(Vector3.UP, _yaw + sin(_bob * 0.37) * 0.03) * Basis(Vector3.BACK, sin(_bob * 1.1) * 0.025)
 
 
