@@ -47,8 +47,8 @@ const SKIFF_FREEBOARD := 0.16             # how far she rides above her modelled
 const SWELL_HEIGHT := 0.2                 # water.gdshader's swell_height
 const UNIT := 3.0                         # water.gdshader's UNIT
 
-var _water_mat: ShaderMaterial
 var terminal: Terminal
+var _water_mat: ShaderMaterial
 var _tow := Node3D.new()
 var _scow := Node3D.new()
 var _slew := Node3D.new()

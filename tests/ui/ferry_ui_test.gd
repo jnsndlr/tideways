@@ -356,7 +356,10 @@ func check_motion_rates(session: WorldSession, wave_rate: float, road_rate: floa
 	var distance := -car.position.z
 	var expected := car.speed * 0.1 * road_rate
 	car.free()
-	return is_equal_approx(distance, expected) or fail("Wrong road speed at time scale %s" % Engine.time_scale)
+	return (
+		is_equal_approx(distance, expected)
+		or fail("Wrong road speed at time scale %s" % Engine.time_scale)
+	)
 
 
 func exercise_real_time(hud: Hud) -> bool:
