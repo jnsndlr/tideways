@@ -42,14 +42,14 @@ func _make_way(delta: float, want_yaw: float, target: float, turn: float) -> voi
 	# Never into another hull, even by swinging its stern round, nor aground.
 	var here := pos2()
 	var cur := Vector2(sin(_yaw), cos(_yaw))
-	var now_gap := traffic.hull_gap(self, here, cur)
-	if _safe(p, d, d, now_gap):
+	if _safe(p, d, d, NAN):
 		_yaw = yaw
 		position = Vector3(p.x, position.y, p.y)
 		_jammed = 0.0
 	else:
 		speed = 0.0
 		brake_time += delta
+		var now_gap := traffic.hull_gap(self, here, cur)
 		if _safe(here, d, d, now_gap):
 			_yaw = yaw
 			_jammed = 0.0
@@ -80,8 +80,13 @@ func _coast() -> float:
 ## end (swinging out as it turns) going any further over the shallows than it
 ## is: anywhere deep enough for it is fine, and backing off a shoal always is.
 func _safe(p: Vector2, d: Vector2, lead: Vector2, now_gap: float) -> bool:
-	if traffic.hull_gap(self, p, d) < minf(0.9, now_gap) - 0.003:
-		return false
+	var gap := traffic.hull_gap(self, p, d)
+	# Outside the margin the move passes for every possible current gap.
+	if gap < 0.9 - 0.003:
+		if is_nan(now_gap):
+			now_gap = traffic.hull_gap(self, pos2(), Vector2(sin(_yaw), cos(_yaw)))
+		if gap < minf(0.9, now_gap) - 0.003:
+			return false
 	var terrain := traffic.sim.terrain
 	var cur := Vector2(sin(_yaw), cos(_yaw))
 	var now_lead := cur * signf(cur.dot(lead) + 1e-3)
