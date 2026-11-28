@@ -50,6 +50,12 @@ func ahead(_d: float) -> Vector2:
 	return pos2()
 
 
+## World-space direction when ahead(d) follows a straight line from pos2().
+## Zero leaves predictions to the vessel's own path sampler.
+func straight_prediction_direction() -> Vector2:
+	return Vector2.ZERO
+
+
 ## Distance left along its current path.
 func path_left() -> float:
 	return 0.0

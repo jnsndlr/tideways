@@ -444,7 +444,7 @@ func ahead(d: float) -> Vector2:
 		return path.sample(s + d)
 	if not wants_to_move():
 		return pos2()
-	return pos2() + Vector2(sin(_yaw), cos(_yaw)) * d
+	return pos2() + _open_water_direction() * d
 
 
 func status_text() -> String:

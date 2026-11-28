@@ -313,14 +313,23 @@ func _threats(p: Vector2) -> Array[Threat]:
 			t.seal()
 			out.append(t)
 			continue
+		var heading := o.heading2()
+		var crabbing := o.crabbing()
+		var straight := o.straight_prediction_direction()
 		for k in range(0, int(HORIZON / STEP_T) + 1):
-			var d := osp * k * STEP_T if moving else 0.0
-			var c := o.ahead(d) if moving else q
-			var f := o.heading2()
-			if moving and not o.crabbing():
-				var g := o.ahead(d + 3.0) - o.ahead(maxf(d - 3.0, 0.0))
+			var d := osp * k * STEP_T
+			var c := q + straight * d if straight != Vector2.ZERO else o.ahead(d)
+			var f := heading
+			if not crabbing:
+				var before := maxf(d - 3.0, 0.0)
+				var g: Vector2
+				if straight != Vector2.ZERO:
+					g = (q + straight * (d + 3.0)) - (q + straight * before)
+				else:
+					g = o.ahead(d + 3.0) - o.ahead(before)
 				if g.length_squared() > 1e-6:
-					f = g.normalized() * signf(g.normalized().dot(f) + 1e-3)
+					var tangent := g.normalized()
+					f = tangent * signf(tangent.dot(heading) + 1e-3)
 			t.a.append(c - f * o.half_seg)
 			t.b.append(c + f * o.half_seg)
 			t.fwd.append(f)

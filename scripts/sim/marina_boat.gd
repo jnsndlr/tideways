@@ -215,12 +215,22 @@ func wants_to_move() -> bool:
 	return not _moored()
 
 
+func straight_prediction_direction() -> Vector2:
+	if path != null or not wants_to_move():
+		return Vector2.ZERO
+	return _open_water_direction()
+
+
+func _open_water_direction() -> Vector2:
+	return Vector2(sin(_yaw), cos(_yaw))
+
+
 func ahead(d: float) -> Vector2:
 	if path != null:
 		return path.sample(s + d)
 	if _moored():
 		return pos2()
-	return pos2() + Vector2(sin(_yaw), cos(_yaw)) * d
+	return pos2() + _open_water_direction() * d
 
 
 func path_left() -> float:
