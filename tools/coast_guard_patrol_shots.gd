@@ -1,7 +1,7 @@
 extends SceneTree
 ## Sends Port Rosario's coast guard boats out at once, runs fast, and shoots each
 ## boat under way plus a log of when each one sails and berths again.
-##   godot --path . --resolution 1600x1000 --script tools/coast_guard_patrol_test.gd -- --out=DIR
+##   godot --path . --resolution 1600x1000 --script tools/coast_guard_patrol_shots.gd -- --out=DIR
 
 var main: Node
 var frames := 0
