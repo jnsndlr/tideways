@@ -60,7 +60,8 @@ func _joining_road_keeps_downhill_street_clear() -> bool:
 func _watchtower_entry_is_level() -> bool:
 	var gen := MapGenerator.new()
 	gen.generate_from(
-		MapLayout.load_file(MapLayout.MAIN_STORY), Scenario.load_file(Scenario.OPENING).region_plan()
+		MapLayout.load_file(MapLayout.MAIN_STORY),
+		Scenario.load_file(Scenario.OPENING).region_plan()
 	)
 	var tower := CoastGuardLayout.WATCH_TOWER
 	var entry_y := gen.terrain.height_at(tower.x, tower.y + 2.05)
