@@ -1,7 +1,7 @@
 extends SceneTree
 ## Verifies exact building placement ratios: 1 house per 75 people and 1 commercial
 ## building per 250 people, plus one civic hall in qualifying cities and zero shops
-## in tiny hamlets under 333 people.
+## in tiny hamlets under 250 people.
 
 class TownBuilder extends WorldBuilder:
 	var placements := {}
@@ -26,6 +26,8 @@ func _initialize() -> void:
 		town.population = pops[i]
 		region.towns.append(town)
 	var builder := TownBuilder.new(region, terrain)
+	builder.root = Node3D.new()
+	root.add_child(builder.root)
 	await builder._build_towns()
 	var halls := [0, 0, 0]
 	var shops := [0, 0, 0]
